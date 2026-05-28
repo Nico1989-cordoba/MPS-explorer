@@ -33,6 +33,7 @@ import tools.utils as utils
 import tools.clustering as clustering
 from tools.clustering_strategies import create_clustering_strategy, AutoClusteringStrategy
 from tools.parallel_clustering import create_parallel_clustering_manager
+from tools.parameter_cache import create_parameter_cache
 import hdbscan
 
 # Import logging configuration
@@ -120,6 +121,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.logger.info("=" * 80)
         self.logger.info("MPS Explorer Application Started")
         self.logger.info("=" * 80)
+
+        # ===== PHASE 4: PARAMETER CACHING INITIALIZATION =====
+        # Initialize parameter cache for Phase 1 optimization
+        cache_dir = Path.cwd() / "cache"
+        self.param_cache = create_parameter_cache(
+            cache_dir=str(cache_dir),
+            max_entries=100,
+            similarity_threshold=0.95,
+            logger=self.logger
+        )
+        self.logger.debug("Parameter cache initialized (Phase 4)")
 
         self.ui = data_explorer.Ui_MainWindow()
         self.ui.setupUi(self)
@@ -1187,19 +1199,49 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.logger.debug(f"Clustering Ch{channel}: Processing {n_roi_points:,} ROI points")
 
         # Parameter handling: Support "auto" or numeric input
-        # "auto" triggers adaptive parameter estimation
+        # "auto" triggers adaptive parameter estimation (with Phase 4 caching)
         try:
             if eps_input.lower().strip() == "auto":
-                # Auto-estimate epsilon using KNN distance plot method
-                self.eps = clustering.estimate_optimal_eps(roi_points, k=5, percentile=90)
-                use_auto_eps = True
+                # Phase 4: Check cache first for similar dataset
+                cached_params = self.param_cache.get_cached_parameters(roi_points)
+
+                if cached_params:
+                    # Use cached parameters (scientific quality UNCHANGED)
+                    self.eps = cached_params.eps
+                    self.minsamples = cached_params.min_samples
+                    use_auto_eps = True
+                    use_auto_ms = True
+                    source = "cache"
+                else:
+                    # Estimate fresh parameters and cache them
+                    import time
+                    start_time = time.time()
+                    self.eps = clustering.estimate_optimal_eps(roi_points, k=5, percentile=90)
+                    estimation_time = (time.time() - start_time) * 1000  # Convert to ms
+
+                    # Also estimate min_samples in auto mode
+                    self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
+
+                    # Cache the estimated parameters
+                    self.param_cache.cache_parameters(
+                        roi_points,
+                        self.eps,
+                        int(self.minsamples),
+                        estimation_time_ms=estimation_time,
+                        source="estimated"
+                    )
+                    use_auto_eps = True
+                    use_auto_ms = True
+                    source = "estimated"
             else:
                 self.eps = float(eps_input)
                 use_auto_eps = False
+                source = "manual"
 
             if minsamples_input.lower().strip() == "auto":
-                # Auto-estimate min_samples based on dataset size
-                self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
+                # If eps was auto and came from cache, min_samples already set
+                if source != "cache":
+                    self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
                 use_auto_ms = True
             else:
                 self.minsamples = int(float(minsamples_input))
@@ -1207,9 +1249,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
             self.logger.info(
                 f"Clustering Ch{channel}: eps={self.eps:.3f} "
-                f"{'(auto-detected)' if use_auto_eps else '(manual)'}, "
+                f"({'cache' if source == 'cache' else 'auto-detected' if use_auto_eps else 'manual'}), "
                 f"min_samples={int(self.minsamples)} "
-                f"{'(auto-detected)' if use_auto_ms else '(manual)'}"
+                f"({'auto-detected' if use_auto_ms else 'manual'})"
             )
 
         except (ValueError, AttributeError) as e:
