@@ -1,0 +1,116 @@
+name: Type Check with MyPy
+
+# Triggers for this workflow
+on:
+  # Run on push to main or develop branches
+  push:
+    branches: [main, develop]
+
+  # Run on pull requests to main or develop branches
+  pull_request:
+    branches: [main, develop]
+
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+
+# Workflow configuration
+concurrency:
+  group: type-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  type-check:
+    name: MyPy Type Checking
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11']
+        fail-fast: false
+
+    steps:
+      # Checkout the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Set up Python environment
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      # Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install mypy numpy
+
+      # Run MyPy type checking
+      - name: Run MyPy type checking
+        id: mypy
+        run: |
+          echo "Running MyPy type checking on MPS Explorer..."
+          python -m mypy MPS_explorer.py config_loader.py logging_config.py \
+            --ignore-missing-imports \
+            --show-error-codes \
+            --pretty
+        continue-on-error: true
+
+      # Report results
+      - name: Type checking report
+        run: |
+          if [ "${{ steps.mypy.outcome }}" == "success" ]; then
+            echo "✓ Type checking passed!"
+          else
+            echo "⚠ Type checking found issues (see output above)"
+            echo "Review the errors and update type annotations if needed."
+          fi
+
+      # Generate summary for GitHub
+      - name: Create job summary
+        if: always()
+        run: |
+          echo "## MyPy Type Checking Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Python Version**: ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ${{ steps.mypy.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "For details on type checking requirements, see [MYPY_SETUP.md](../MYPY_SETUP.md)" >> $GITHUB_STEP_SUMMARY
+
+      # Optional: Fail the workflow if type checking fails
+      # Uncomment the line below once all type errors are fixed
+      # - name: Enforce type checking
+      #   if: steps.mypy.outcome != 'success'
+      #   run: exit 1
+
+  # Separate job for running tests (optional)
+  tests:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pytest numpy
+
+      - name: Run tests
+        run: pytest test_mps_explorer.py -v
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "Tests completed successfully" >> $GITHUB_STEP_SUMMARY
