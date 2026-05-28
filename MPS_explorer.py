@@ -31,6 +31,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.neighbors import KDTree
 import tools.utils as utils
 import tools.clustering as clustering
+from tools.clustering_strategies import create_clustering_strategy, AutoClusteringStrategy
 import hdbscan
 
 # Import logging configuration
@@ -1219,15 +1220,37 @@ class MPS_explorer(QtWidgets.QMainWindow):
             )
             return
 
-        # Perform DBSCAN clustering
+        # Perform clustering using strategy pattern (automatically selects DBSCAN or HDBSCAN)
         try:
-            dbscan_result = DBSCAN(eps=self.eps, min_samples=int(self.minsamples)).fit(roi_points)
-            cluster_assignments = dbscan_result.labels_  # Get cluster labels (-1 for noise)
-        except Exception as e:
-            self.logger.error(f"Clustering: DBSCAN failed: {e}", exc_info=True)
+            # Create clustering strategy: automatically selects based on dataset size
+            # DBSCAN for <100k points, HDBSCAN for >=100k points
+            strategy = create_clustering_strategy(
+                strategy_type="auto",
+                eps=self.eps,
+                min_samples=int(self.minsamples),
+                metric="euclidean",
+                logger=self.logger
+            )
+
+            # Perform clustering with selected strategy
+            cluster_assignments = strategy.fit(roi_points)  # Get cluster labels (-1 for noise)
+            strategy_name = strategy.get_strategy_name()
+
+            self.logger.info(f"Clustering Ch{channel}: Using {strategy_name}")
+
+        except ImportError as e:
+            self.logger.error(f"Clustering: Required library not available: {e}", exc_info=True)
             QtWidgets.QMessageBox.critical(
                 self, "Clustering Error",
-                f"DBSCAN clustering failed: {str(e)}"
+                f"Clustering library not available: {str(e)}\n"
+                f"Please install required dependencies with: pip install hdbscan"
+            )
+            return
+        except Exception as e:
+            self.logger.error(f"Clustering: Strategy-based clustering failed: {e}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Clustering Error",
+                f"Clustering failed: {str(e)}"
             )
             return
 
