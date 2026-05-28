@@ -30,6 +30,7 @@ from numpy.typing import NDArray
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import KDTree
 import tools.utils as utils
+import tools.clustering as clustering
 import hdbscan
 
 # Import logging configuration
@@ -1162,20 +1163,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             roi_brush = self.brush1  # Channel 1 color
             roi_pen = self.pen1      # Channel 1 border color
             scatter_layout_cluster = self.ui.scatterlayout_clusterch1  # Target UI layout
-
-            # Hallazgo: Input validation for DBSCAN parameters (Ch1)
-            try:
-                self.minsamples = float(self.ui.lineEdit_minsamples.text())
-                self.eps = float(self.ui.lineEdit_eps.text())
-                self.logger.debug(f"Clustering Ch1 parameters: eps={self.eps}, min_samples={self.minsamples}")
-            except ValueError as e:
-                self.logger.error(f"Clustering Ch1: Invalid DBSCAN parameters: {e}")
-                QtWidgets.QMessageBox.warning(
-                    self, "Invalid Input",
-                    "DBSCAN parameters must be numeric values.\n"
-                    "Min Samples and Epsilon must be valid numbers."
-                )
-                return
+            eps_input = self.ui.lineEdit_eps.text()
+            minsamples_input = self.ui.lineEdit_minsamples.text()
 
         elif channel == 2:
             # Channel 2 data and parameters
@@ -1185,24 +1174,50 @@ class MPS_explorer(QtWidgets.QMainWindow):
             roi_brush = self.brush2  # Channel 2 color
             roi_pen = self.pen2      # Channel 2 border color
             scatter_layout_cluster = self.ui.scatterlayout_clusterch2  # Target UI layout
-
-            # Hallazgo: Input validation for DBSCAN parameters (Ch2)
-            try:
-                self.minsamples = float(self.ui.lineEdit_minsamples_2.text())
-                self.eps = float(self.ui.lineEdit_eps_2.text())
-            except ValueError:
-                QtWidgets.QMessageBox.warning(
-                    self, "Invalid Input",
-                    "DBSCAN parameters must be numeric values.\n"
-                    "Min Samples and Epsilon must be valid numbers."
-                )
-                return
+            eps_input = self.ui.lineEdit_eps_2.text()
+            minsamples_input = self.ui.lineEdit_minsamples_2.text()
         else:
             return  # Invalid channel
-    
+
         # Prepare XY coordinate array
         roi_points = np.column_stack((x_roi, y_roi))
-        self.logger.debug(f"Clustering: Clustering {len(roi_points):,} points in ROI")
+        n_roi_points = len(roi_points)
+        self.logger.debug(f"Clustering Ch{channel}: Processing {n_roi_points:,} ROI points")
+
+        # Parameter handling: Support "auto" or numeric input
+        # "auto" triggers adaptive parameter estimation
+        try:
+            if eps_input.lower().strip() == "auto":
+                # Auto-estimate epsilon using KNN distance plot method
+                self.eps = clustering.estimate_optimal_eps(roi_points, k=5, percentile=90)
+                use_auto_eps = True
+            else:
+                self.eps = float(eps_input)
+                use_auto_eps = False
+
+            if minsamples_input.lower().strip() == "auto":
+                # Auto-estimate min_samples based on dataset size
+                self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
+                use_auto_ms = True
+            else:
+                self.minsamples = int(float(minsamples_input))
+                use_auto_ms = False
+
+            self.logger.info(
+                f"Clustering Ch{channel}: eps={self.eps:.3f} "
+                f"{'(auto-detected)' if use_auto_eps else '(manual)'}, "
+                f"min_samples={int(self.minsamples)} "
+                f"{'(auto-detected)' if use_auto_ms else '(manual)'}"
+            )
+
+        except (ValueError, AttributeError) as e:
+            self.logger.error(f"Clustering Ch{channel}: Invalid parameters: {e}")
+            QtWidgets.QMessageBox.warning(
+                self, "Invalid Input",
+                "DBSCAN parameters must be numeric or 'auto'.\n"
+                "Examples: 1.0, 10, auto"
+            )
+            return
 
         # Perform DBSCAN clustering
         try:
@@ -1237,7 +1252,38 @@ class MPS_explorer(QtWidgets.QMainWindow):
         n_clusters = len(self.cluster_centroids)
         n_noise = np.sum(cluster_assignments == -1)
         self.logger.info(f"Clustering Ch{channel}: Found {n_clusters} clusters, {n_noise:,} noise points")
-        
+
+        # Analyze clustering quality and suggest parameter adjustments if needed
+        quality_stats = clustering.analyze_clustering_quality(cluster_assignments, n_roi_points)
+        self.logger.info(
+            f"Clustering Quality Ch{channel}: {quality_stats['quality_assessment']} "
+            f"(noise: {quality_stats['noise_percentage']:.1f}%)"
+        )
+
+        # Suggest parameter adjustments if results are suboptimal
+        suggested_eps, _ = clustering.suggest_parameter_adjustment(
+            current_eps=self.eps,
+            current_min_samples=int(self.minsamples),
+            labels=cluster_assignments,
+            n_points=n_roi_points,
+            logger=self.logger
+        )
+
+        # If suggestions are available and clustering quality is poor, show user
+        if suggested_eps is not None and quality_stats["n_clusters"] == 0:
+            self.logger.warning(
+                f"Clustering Ch{channel}: No clusters found. Consider adjusting parameters. "
+                f"Current eps={self.eps:.2f}, suggested eps={suggested_eps:.2f}"
+            )
+            # Show suggestion as a message to the user
+            QtWidgets.QMessageBox.information(
+                self, "Parameter Adjustment Suggestion",
+                f"No clusters were found with current parameters.\n\n"
+                f"Current: eps={self.eps:.2f}, min_samples={int(self.minsamples)}\n"
+                f"Suggested: eps={suggested_eps:.2f}\n\n"
+                f"Try adjusting parameters or enter 'auto' for automatic detection."
+            )
+
         # Create cluster visualization
         scatterWidgetcluster = pg.GraphicsLayoutWidget()
         plotclusters = scatterWidgetcluster.addPlot(title="Clustered data")
