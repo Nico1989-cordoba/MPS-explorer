@@ -370,6 +370,7 @@ def create_clustering_strategy(
     strategy_type: str = "auto",
     eps: Optional[float] = None,
     min_samples: int = 5,
+    min_cluster_size: Optional[int] = None,
     metric: str = "euclidean",
     logger: Optional[logging.Logger] = None
 ) -> ClusteringStrategy:
@@ -384,6 +385,8 @@ def create_clustering_strategy(
         Epsilon for DBSCAN
     min_samples : int
         Minimum samples parameter
+    min_cluster_size : int, optional
+        Minimum cluster size for HDBSCAN (default: min_samples if not specified)
     metric : str
         Distance metric
     logger : logging.Logger, optional
@@ -422,9 +425,11 @@ def create_clustering_strategy(
             raise ImportError(
                 "HDBSCAN not installed. Install with: pip install hdbscan"
             )
+        # Use provided min_cluster_size or default to min_samples if not specified
+        mcs = min_cluster_size if min_cluster_size is not None else min_samples
         return HDBSCANStrategy(
             min_samples=min_samples,
-            min_cluster_size=min_samples,
+            min_cluster_size=mcs,
             metric=metric,
             logger=logger
         )

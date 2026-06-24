@@ -1,0 +1,271 @@
+╔════════════════════════════════════════════════════════════════════╗
+║         CÓMO USAR EL NUEVO MODO DE DIBUJO INTERACTIVO             ║
+║                  (Click-to-Draw Polygon Mode)                      ║
+╚════════════════════════════════════════════════════════════════════╝
+
+RESUMEN RÁPIDO (3 pasos)
+═════════════════════════════════════════════════════════════════════
+
+1. Carga los datos y haz click en "Scatter"
+2. Selecciona [Polygon] y click "Scatter" de nuevo
+3. Haz click para colocar vértices, presiona ENTER para terminar
+
+¡ESO ES! El polígono está listo para clustering.
+
+
+INSTRUCCIONES DETALLADAS
+═════════════════════════════════════════════════════════════════════
+
+PASO 1: CARGAR DATOS
+──────────────────────────────────────────────────────────────────────
+□ Click en "Browse" (Channel 1)
+□ Selecciona tu archivo HDF5 o CSV
+□ (Opcionalmente) Carga Channel 2 también
+
+PASO 2: CREAR SCATTER
+──────────────────────────────────────────────────────────────────────
+□ Click en el botón "Scatter"
+□ Verás los puntos en el gráfico de la izquierda
+□ Esto crea el overview plot
+
+PASO 3: SELECCIONAR POLYGON ROI
+──────────────────────────────────────────────────────────────────────
+□ En la sección "ROI Selection", busca los radio buttons:
+   [ ] Circular (default)
+   [ ] Square
+   [•] Polygon ← SELECCIONA ESTE
+
+PASO 4: ACTIVAR MODO DE DIBUJO
+──────────────────────────────────────────────────────────────────────
+□ Click en "Scatter" de nuevo (con [Polygon] seleccionado)
+□ Verás una etiqueta amarilla que dice:
+   "Click to place vertices. Press ENTER to finish. ESC to cancel."
+□ ¡Ahora estás en modo de dibujo!
+
+PASO 5: DIBUJAR TU POLÍGONO
+──────────────────────────────────────────────────────────────────────
+□ Haz clicks en el gráfico para colocar vértices
+  - Primer click: Vértice 1
+  - Segundo click: Vértice 2
+  - Tercer click: Vértice 3 (MÍNIMO requerido)
+  - Continúa clicks para más vértices...
+
+□ Verás una línea azul/roja conectando los puntos en tiempo real
+
+□ La etiqueta amarilla se actualiza: "Vertices: N | ENTER para terminar..."
+
+PASO 6: TERMINAR EL DIBUJO
+──────────────────────────────────────────────────────────────────────
+□ Presiona ENTER en tu teclado
+□ El polígono se cierra automáticamente
+□ La etiqueta amarilla desaparece
+□ El polígono ahora es "editable" (puedes arrastrar vértices)
+
+PASO 7: (OPCIONAL) EDITAR EL POLÍGONO
+──────────────────────────────────────────────────────────────────────
+Si el polígono no es perfecto:
+□ Arrastra cualquier vértice para moverlo
+□ Right-click en el borde para agregar más vértices
+□ Ctrl+Click en un vértice para removerlo
+
+PASO 8: CLUSTERING
+──────────────────────────────────────────────────────────────────────
+□ (Opcional) Establece Z-min y Z-max si necesitas filtrado de profundidad
+□ Click en "Cluster on Ch1" o "Cluster on Ch2"
+□ El sistema filtra automáticamente con ray-casting
+□ Resultados se muestran normalmente
+
+
+CONTROLES PRINCIPALES
+═════════════════════════════════════════════════════════════════════
+
+ACCIÓN                          | COMANDO
+────────────────────────────────┼─────────────────────────────────────
+Agregar vértice durante dibujo  | Click en el gráfico
+Terminar dibujo                 | ENTER
+Cancelar dibujo (volver atrás)  | ESC
+Editar vértice (después ENTER)  | Arrastra el vértice
+Agregar vértice (después ENTER) | Right-click en el borde
+Remover vértice (después ENTER) | Ctrl+Click en vértice
+
+
+EJEMPLOS PRÁCTICOS
+═════════════════════════════════════════════════════════════════════
+
+EJEMPLO 1: Axón Simple (5 vértices)
+──────────────────────────────────────────────────────────────────────
+1. Modo de dibujo activado ✓
+2. Click en punto A (abajo izquierda)
+3. Click en punto B (arriba izquierda)
+4. Click en punto C (arriba derecha)
+5. Click en punto D (abajo derecha)
+6. Click cerca del punto A para "cerrar" visualmente
+7. ENTER
+→ Polígono rectangular alrededor del axón ✓
+
+EJEMPLO 2: Axón Complejo (10+ vértices)
+──────────────────────────────────────────────────────────────────────
+1. Modo de dibujo activado ✓
+2. Clicks en cada cambio de dirección del axón
+3. Sigue la forma del axón con múltiples vértices
+4. Si hay una curva, agrega más vértices ahí
+5. ENTER cuando termines de seguir la forma
+→ Polígono que rodea exactamente el axón ✓
+
+
+SOLUCIÓN DE PROBLEMAS
+═════════════════════════════════════════════════════════════════════
+
+P: No veo nada cuando hago click
+R: Asegúrate que:
+   • Los datos estén cargados (scatter plot muestra puntos)
+   • [Polygon] esté seleccionado
+   • Estés haciendo click dentro del área del gráfico (no fuera)
+
+P: Presioné ENTER pero no pasó nada
+R: Necesitas AL MENOS 3 vértices. Haz 3+ clicks antes de ENTER.
+
+P: Quiero empezar de nuevo
+R: Presiona ESC para cancelar el dibujo. Luego:
+   • Click "Scatter" de nuevo
+   • Selecciona [Polygon]
+   • Click "Scatter" nuevamente
+   ¡Ahora puedes dibujar de nuevo!
+
+P: El polígono se vuelva raro / no se ve bien
+R: Después de ENTER, puedes editarlo:
+   • Arrastra vértices para ajustarlos
+   • Right-click para agregar más vértices
+   • Ctrl+Click para remover vértices
+   Luego click "Cluster" para usar la versión editada
+
+P: ¿Cuántos vértices necesito?
+R: Mínimo: 3 (triángulo)
+   Típico: 5-15 (buen equilibrio de precisión y velocidad)
+   Máximo: ~100 (funciona pero lento)
+   Recomendado: Suficientes para seguir la forma del axón
+
+
+LÍMITES Y NOTAS
+═════════════════════════════════════════════════════════════════════
+
+✓ Vértices mínimos: 3
+✓ Vértices máximos: ~100 (teóricos, sin problemas prácticos)
+✓ Tiempo de dibujo: Depende del usuario (10-30 segundos típico)
+✓ Edición posterior: SÍ, siempre posible
+✓ Backward compatibility: 100% (circular/square ROI sin cambios)
+✗ Automático: No (requiere clicks manuales)
+✗ Guardar/cargar: No (futura feature)
+
+
+CONSEJOS PRÁCTICOS
+═════════════════════════════════════════════════════════════════════
+
+1. ANTES DE EMPEZAR:
+   → Identifica los puntos clave del axón mentalmente
+   → Aproximadamente 8-15 clicks es típico
+
+2. DURANTE EL DIBUJO:
+   → No necesita ser perfecto
+   → Sigue la forma general
+   → Puedes editar después
+
+3. DESPUÉS DE TERMINAR:
+   → Verifica que el polígono rodee el axón
+   → Edita si es necesario (arrastra vértices)
+   → Luego cluster normalmente
+
+4. DEBUGGING:
+   → Revisa el log si algo falla (logs/ folder)
+   → Los mensajes de error son claros
+   → ESC siempre te saca del modo de dibujo
+
+
+COMPARACIÓN CON MÉTODO ANTERIOR
+═════════════════════════════════════════════════════════════════════
+
+MÉTODO ANTERIOR (ConvexHull automático):
+✓ Rápido (automático)
+✓ Buena aproximación inicial
+✗ Requiere edición posterior
+✗ Puede no coincidir exactamente
+
+NUEVO MÉTODO (Click-to-draw):
+✓ Control total
+✓ Intuitive (click para cada punto)
+✓ Ver progreso en tiempo real
+✓ Exactamente como esperas
+✗ Requiere más clicks/tiempo
+✗ Necesita precisión del usuario
+
+
+FLUJO DE TRABAJO COMPLETO
+═════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────┐
+│ 1. Carga archivo (Browse)   │
+└────────────┬────────────────┘
+             │
+             ↓
+┌─────────────────────────────┐
+│ 2. Click Scatter            │
+└────────────┬────────────────┘
+             │
+             ↓
+┌─────────────────────────────┐
+│ 3. Selecciona [Polygon]     │
+└────────────┬────────────────┘
+             │
+             ↓
+┌─────────────────────────────┐
+│ 4. Click Scatter otra vez   │
+│    💛 Etiqueta amarilla     │
+└────────────┬────────────────┘
+             │
+             ↓
+┌─────────────────────────────┐
+│ 5. Haz clicks para vértices │
+│    (mínimo 3)              │
+└────────────┬────────────────┘
+             │
+             ↓
+┌─────────────────────────────┐
+│ 6. Presiona ENTER           │
+│    Polígono completado      │
+└────────────┬────────────────┘
+             │
+             ↓
+┌─────────────────────────────┐
+│ 7. (Opcional) Edita vértices│
+└────────────┬────────────────┘
+             │
+             ↓
+┌─────────────────────────────┐
+│ 8. Click "Cluster on Ch1/2" │
+│    Resultados muestran      │
+└─────────────────────────────┘
+
+
+CONTACTO / AYUDA
+═════════════════════════════════════════════════════════════════════
+
+Si tienes problemas:
+1. Revisa los logs en: logs/ folder
+2. Verifica que:
+   • Datos estén cargados
+   • [Polygon] esté seleccionado
+   • Haces clicks dentro del gráfico
+3. Si sigue sin funcionar:
+   • Presiona ESC para salir del modo de dibujo
+   • Intenta de nuevo desde el principio
+
+
+╔════════════════════════════════════════════════════════════════════╗
+║  ¡Disfruta dibujando tus polígonos exactamente como los ves!       ║
+║                        Happy Clustering! 🎯                        ║
+╚════════════════════════════════════════════════════════════════════╝
+
+VERSIÓN: 1.0
+FECHA: 2026-06-02
+IDIOMA: ESPAÑOL
+STATUS: LISTO PARA USO

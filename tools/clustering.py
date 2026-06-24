@@ -268,7 +268,7 @@ def suggest_parameter_adjustment(
     if logger:
         logger.info(f"Parameter Assessment: {msg}")
         logger.info(
-            f"Clustering: {n_clusters} clusters, {n_noise} noise "
+            f"Clustering: {n_clusters} clusters, {stats['n_noise']} noise "
             f"({noise_pct:.1f}%), avg size: {stats['avg_cluster_size']:.1f}"
         )
 

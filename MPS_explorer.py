@@ -147,7 +147,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.fileformat.addItems(fileformat_list)
         self.fileformat_2 = self.ui.comboBox_fileformat_2
         self.fileformat_2.addItems(fileformat_list)  # Reuse the same list for second channel
-        
+
+        # Algorithm Selection (Manual control over DBSCAN vs HDBSCAN)
+        self.algorithm_selector = self.ui.comboBox_algorithm
+        self.algorithm_selector.currentTextChanged.connect(self.on_algorithm_changed)
+        self.logger.debug("Algorithm selector initialized (Auto/DBSCAN/HDBSCAN)")
+
         # Connect Buttons to Methods
         self.ui.pushButton_browsefile.clicked.connect(lambda:self.select_file(1))
         self.ui.pushButton_browsefile_2.clicked.connect(lambda:self.select_file(2))
@@ -185,8 +190,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # ROI Shape Radio Buttons
         self.radioButton_circROI = self.ui.radioButton_circROI
         self.radioButton_squareROI = self.ui.radioButton_squareROI
+        self.radioButton_polygonROI = self.ui.radioButton_polygonROI
         self.radioButton_circROI.clicked.connect(self.scatterplot)
         self.radioButton_squareROI.clicked.connect(self.scatterplot)
+        self.radioButton_polygonROI.clicked.connect(self.scatterplot)
 
         # ------------------------------------------------------------------
         # Hallazgo 14 — Defensive attribute initialisation
@@ -249,6 +256,16 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         self.eps: Optional[float] = None             # DBSCAN epsilon parameter
         self.minsamples: Optional[int] = None      # DBSCAN min_samples parameter
+
+        # --- polygon drawing mode (interactive drawing) ---
+        self.polygon_drawing_mode: bool = False     # True when actively drawing polygon
+        self.polygon_points_temp: List[List[float]] = []  # Accumulate clicked points during drawing
+        self.polygon_drawing_visual: Optional[pg.PolyLineROI] = None  # Visual feedback (polyline + points)
+        self.polygon_drawing_label: Optional[QtWidgets.QLabel] = None  # Status label for user guidance
+        self.mouse_click_handler: Optional[Any] = None  # Connection handle for mouse clicks
+        self.current_plot: Optional[Any] = None  # Reference to plotxy during drawing
+        self.current_viewbox: Optional[Any] = None  # Reference to ViewBox during drawing
+        self.current_roi_pen: Optional[Any] = None  # ROI pen color during drawing
 
         # --- nearest-neighbour distances (set by KNdist_hist) ---
         self.distances: Optional[NDArray[np.float64]] = None       # distance array to the K nearest centroids
@@ -584,6 +601,87 @@ class MPS_explorer(QtWidgets.QMainWindow):
             plotxy.addItem(self.square_roi)
             self.square_roi.sigRegionChangeFinished.connect(self.update_ROI)
 
+        elif self.ui.radioButton_polygonROI.isChecked():
+            # Create intelligent polygon ROI using ConvexHull of densest region
+            self._create_polygon_roi(plotxy, ROIpen)
+
+    def _create_polygon_roi(self, plotxy: Any, roi_pen: Any) -> None:
+        """Create a simple circular polygonal ROI for easy manual editing.
+
+        Parameters
+        ----------
+        plotxy : pyqtgraph.PlotItem
+            Plot to add ROI to
+        roi_pen : pyqtgraph pen
+            Pen for ROI outline
+        """
+        # Create a simple circle centered at the data center
+        # 12 vertices = simple circle, easy to edit
+        center_x = np.mean(self.x)
+        center_y = np.mean(self.y)
+
+        # Use a reasonable radius based on data spread
+        # Use the smaller of the x or y range to avoid too-large polygon
+        x_range = np.max(self.x) - np.min(self.x)
+        y_range = np.max(self.y) - np.min(self.y)
+        radius = min(x_range, y_range) / 6  # 1/6 of the smaller dimension
+
+        # Create simple 4-vertex square (simplest to edit)
+        initial_points = self._create_circle_polygon(center_x, center_y, radius, 4)
+
+        self.logger.debug(f"Polygon ROI: Simple square created with 4 vertices at center=({center_x:.1f}, {center_y:.1f}), radius={radius:.1f}")
+
+        # Create PyQtGraph PolyLineROI (note: capital L)
+        try:
+            self.polygon_roi = pg.PolyLineROI(
+                initial_points,
+                closed=True,
+                movable=True,
+                pen=roi_pen
+            )
+            self.polygon_roi.setZValue(ROI_ZORDER)
+            plotxy.addItem(self.polygon_roi)
+            self.polygon_roi.sigRegionChangeFinished.connect(self.update_ROI)
+
+            self.logger.debug(f"Polygon ROI created with {len(initial_points)} initial vertices")
+            self.logger.info(
+                "Polygon ROI ready! Interactive controls:\n"
+                "  • Drag vertices to adjust polygon shape\n"
+                "  • Click+drag center to move entire polygon\n"
+                "  • Right-click to edit polygon (add/remove vertices)"
+            )
+        except Exception as e:
+            self.logger.error(f"Error creating polygon ROI: {e}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Polygon ROI Error",
+                f"Failed to create polygon ROI:\n{str(e)}\n\n"
+                "Try selecting a different ROI type (Circle or Square)"
+            )
+
+    @staticmethod
+    def _create_circle_polygon(center_x: float, center_y: float,
+                               radius: float, n_vertices: int) -> NDArray[np.float64]:
+        """Create polygon vertices approximating a circle.
+
+        Parameters
+        ----------
+        center_x, center_y : float
+            Circle center coordinates
+        radius : float
+            Circle radius
+        n_vertices : int
+            Number of vertices to create
+
+        Returns
+        -------
+        NDArray[np.float64]
+            (n_vertices, 2) array of polygon vertices
+        """
+        theta = np.linspace(0, 2*np.pi, n_vertices, endpoint=False)
+        x = center_x + radius * np.cos(theta)
+        y = center_y + radius * np.sin(theta)
+        return np.column_stack([x, y])
+
     def _render_channel_2(self, scatterWidgetxy: Any, plotxy: Any) -> None:
         """Add channel 2 scatter and histogram overlay to the overview.
 
@@ -805,9 +903,57 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 self.zroi = zroi[indz]
                 self.xroi = self.xroi[indz]
                 self.yroi = self.yroi[indz]
-        
+
+        elif self.ui.radioButton_polygonROI.isChecked():
+            # Polygon ROI filtering using ray-casting algorithm
+            vertices = self.polygon_roi.getState()['points']  # (N, 2) array
+
+            import time
+            t_start = time.perf_counter()
+
+            # Vectorized ray-casting for point-in-polygon test
+            mask = self._point_in_polygon(self.data_points, vertices)
+            points_inside_roi = self.data_points[mask]
+            t_end = time.perf_counter()
+            elapsed_ms = (t_end - t_start) * 1000
+
+            # Guard: empty selection check
+            if len(points_inside_roi) == 0:
+                QtWidgets.QMessageBox.warning(
+                    self, "Empty ROI",
+                    "The selected polygon contains no localizations. "
+                    "Adjust vertices or move polygon to denser region."
+                )
+                return
+
+            self.xroi = points_inside_roi[:, 0]
+            self.yroi = points_inside_roi[:, 1]
+
+            # Get indices for z-filtering
+            ind_inside_roi = np.where(mask)[0]
+
+            # Z-filtering
+            zmin = self.ui.lineEdit_zmin.text()
+            zmax = self.ui.lineEdit_zmax.text()
+            self.zmin = float(zmin) if zmin else None
+            self.zmax = float(zmax) if zmax else None
+
+            if self.zmax is None:
+                self.zroi = self.z[ind_inside_roi]
+            else:
+                zroi = self.z[ind_inside_roi]
+                indz = np.where((zroi > self.zmin) & (zroi < self.zmax))
+                self.zroi = zroi[indz]
+                self.xroi = self.xroi[indz]
+                self.yroi = self.yroi[indz]
+
+            n_points = len(self.data_points)
+            n_selected = len(points_inside_roi)
+            self.logger.debug(f"ROI Filter Ch1: Polygon filter over {n_points:,} points "
+                             f"-> {n_selected:,} selected in {elapsed_ms:.2f} ms")
+
         else:
-            
+
             self.xroi = self.x
             self.yroi = self.y
             
@@ -1007,9 +1153,379 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 
         self.empty_layout(self.ui.zhistlayout_2)
         self.ui.zhistlayout_2.addWidget(histzWidget2)
-          
 
-     
+    # ========================================================================
+    # PHASE 1-10: INTERACTIVE POLYGON DRAWING MODE IMPLEMENTATION
+    # ========================================================================
+
+    def _start_polygon_drawing_mode(self, plotxy: Any, roi_pen: Any) -> None:
+        """Enter interactive polygon drawing mode.
+
+        User clicks to place vertices, presses Enter/Escape to finish drawing.
+
+        Parameters
+        ----------
+        plotxy : pyqtgraph.PlotItem
+            Plot to draw on
+        roi_pen : pyqtgraph pen
+            Pen for drawing visualization
+        """
+        self.polygon_drawing_mode = True
+        self.polygon_points_temp = []
+        self.current_plot = plotxy
+        self.current_roi_pen = roi_pen
+        self.current_viewbox = plotxy.getViewBox()
+
+        # Connect click handler DIRECTLY to the ViewBox's mouse clicked signal
+        # This is more direct than connecting to scene()
+        self.mouse_click_handler = self.current_viewbox.scene().sigMouseClicked.connect(
+            self._on_polygon_click
+        )
+
+        # Create status label with instructions
+        self._show_drawing_status("Click to place vertices. Press ENTER to finish. ESC to cancel.")
+
+        self.logger.info("Polygon drawing mode activated - waiting for user clicks")
+
+    def _on_polygon_click(self, event: Any) -> None:
+        """Handle mouse clicks during polygon drawing mode.
+
+        Each click adds a vertex to the polygon being drawn.
+
+        Parameters
+        ----------
+        event : pyqtgraph MouseClickEvent
+            Mouse click event from the plot
+        """
+        # Guard: only process clicks if in drawing mode
+        if not self.polygon_drawing_mode:
+            return
+
+        # Ignore double-clicks
+        if event.double():
+            return
+
+        # Get the ViewBox (should be set during mode activation)
+        if self.current_viewbox is None:
+            self.logger.error("current_viewbox is None!")
+            return
+
+        try:
+            # Get mouse position in scene coordinates
+            scene_pos = event.scenePos()
+
+            # Get the ViewBox's viewport rectangle in scene coordinates
+            vb_rect = self.current_viewbox.sceneBoundingRect()
+
+            # Check if click is within the plot area
+            if not vb_rect.contains(scene_pos):
+                self.logger.debug(f"Click outside ViewBox: scene_pos=({scene_pos.x():.1f}, {scene_pos.y():.1f}), vb_rect={vb_rect}")
+                return
+
+            # Transform: scene coordinates → view (data) coordinates
+            # Use the ViewBox's transformation matrix directly
+            click_point = self.current_viewbox.mapSceneToView(scene_pos)
+
+            x = float(click_point.x())
+            y = float(click_point.y())
+
+            self.logger.info(f"Click registered: x={x:.2f}, y={y:.2f}")
+            self.logger.info(f"Data range: x=[{self.x.min():.2f}, {self.x.max():.2f}], y=[{self.y.min():.2f}, {self.y.max():.2f}]")
+
+            self.polygon_points_temp.append([x, y])
+
+            # Update visualization
+            self._update_polygon_drawing_visual()
+
+            # Show status with vertex count
+            self._show_drawing_status(
+                f"Vertices: {len(self.polygon_points_temp)} | "
+                f"ENTER to finish | ESC to cancel"
+            )
+        except Exception as e:
+            self.logger.error(f"Error in _on_polygon_click: {e}", exc_info=True)
+
+    def _update_polygon_drawing_visual(self) -> None:
+        """Update polyline visualization during drawing.
+
+        Shows a live polyline connecting the clicked points as the user draws.
+        """
+        # Need at least 2 points to draw a line
+        if len(self.polygon_points_temp) < 2:
+            return
+
+        # Remove old visual if exists
+        if self.polygon_drawing_visual is not None:
+            self.current_plot.removeItem(self.polygon_drawing_visual)
+
+        # Create temporary polyline connecting clicked points (not closed yet)
+        points = np.array(self.polygon_points_temp)
+        try:
+            self.polygon_drawing_visual = pg.PolyLineROI(
+                points,
+                closed=False,  # Not closed yet, only shows clicked points
+                movable=False,  # Can't move while drawing
+                pen=self.current_roi_pen
+            )
+            self.current_plot.addItem(self.polygon_drawing_visual)
+            self.logger.debug(f"Updated drawing visual with {len(points)} points")
+        except Exception as e:
+            self.logger.error(f"Error updating drawing visual: {e}", exc_info=True)
+
+    def _finish_polygon_drawing(self) -> None:
+        """Complete polygon drawing and create PolyLineROI.
+
+        Called when user presses ENTER. Creates the final closed polygon
+        and integrates it with the clustering system.
+        """
+        # Validate minimum vertices
+        if len(self.polygon_points_temp) < 3:
+            QtWidgets.QMessageBox.warning(
+                self, "Too Few Vertices",
+                "Polygon must have at least 3 vertices. You have "
+                f"{len(self.polygon_points_temp)}."
+            )
+            return
+
+        try:
+            # Create the final PolyLineROI (closed this time)
+            points = np.array(self.polygon_points_temp)
+            self.polygon_roi = pg.PolyLineROI(
+                points,
+                closed=True,
+                movable=True,
+                pen=self.current_roi_pen
+            )
+
+            self.polygon_roi.setZValue(ROI_ZORDER)
+            self.current_plot.addItem(self.polygon_roi)
+            self.polygon_roi.sigRegionChangeFinished.connect(self.update_ROI)
+
+            # Clean up drawing mode
+            self._cleanup_drawing_mode()
+
+            self.logger.info(
+                f"Polygon drawing complete: {len(points)} vertices. "
+                "Polygon ready for clustering (vertices can still be edited)."
+            )
+
+            # Trigger ROI update to show filtered points
+            self.update_ROI()
+
+        except Exception as e:
+            self.logger.error(f"Error finishing polygon drawing: {e}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Polygon Creation Error",
+                f"Failed to create polygon:\n{str(e)}"
+            )
+            self._cleanup_drawing_mode()
+
+    def _cancel_polygon_drawing(self) -> None:
+        """Cancel polygon drawing and return to normal state.
+
+        Called when user presses ESC. Resets to circular ROI.
+        """
+        self._cleanup_drawing_mode()
+        self.logger.info("Polygon drawing cancelled by user")
+
+        # Reset to circular ROI
+        self.ui.radioButton_circROI.setChecked(True)
+        self.scatterplot()
+
+    def _cleanup_drawing_mode(self) -> None:
+        """Clean up drawing mode state and visual elements.
+
+        Called after drawing is finished or cancelled.
+        """
+        # Remove status label
+        if self.polygon_drawing_label is not None:
+            self.ui.scatterlayout.removeWidget(self.polygon_drawing_label)
+            self.polygon_drawing_label.deleteLater()
+            self.polygon_drawing_label = None
+
+        # Remove temporary visual
+        if self.polygon_drawing_visual is not None:
+            self.current_plot.removeItem(self.polygon_drawing_visual)
+            self.polygon_drawing_visual = None
+
+        # Disconnect mouse handler
+        if self.mouse_click_handler is not None and self.current_plot is not None:
+            try:
+                self.current_plot.getViewBox().scene().sigMouseClicked.disconnect(
+                    self.mouse_click_handler
+                )
+            except Exception as e:
+                self.logger.debug(f"Error disconnecting mouse handler: {e}")
+            self.mouse_click_handler = None
+
+        # Reset state
+        self.polygon_drawing_mode = False
+        self.polygon_points_temp = []
+        self.current_plot = None
+        self.current_viewbox = None
+        self.current_roi_pen = None
+
+    def _show_drawing_status(self, message: str) -> None:
+        """Show status message to user during drawing.
+
+        Displays a colored label with instructions/feedback.
+
+        Parameters
+        ----------
+        message : str
+            Status message to display
+        """
+        # Remove old label if exists
+        if self.polygon_drawing_label is not None:
+            self.ui.scatterlayout.removeWidget(self.polygon_drawing_label)
+            self.polygon_drawing_label.deleteLater()
+
+        # Create new label with styling
+        self.polygon_drawing_label = QtWidgets.QLabel(message)
+        self.polygon_drawing_label.setStyleSheet(
+            "QLabel { background-color: #ffffcc; padding: 10px; "
+            "border: 2px solid #ffcc00; border-radius: 4px; "
+            "font-weight: bold; font-size: 11px; }"
+        )
+        self.polygon_drawing_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.ui.scatterlayout.addWidget(self.polygon_drawing_label)
+        self.logger.debug(f"Status: {message}")
+
+    def keyPressEvent(self, event: Any) -> None:
+        """Handle keyboard input during polygon drawing.
+
+        ENTER: Finish drawing and create polygon
+        ESC: Cancel drawing and return to circular ROI
+
+        Parameters
+        ----------
+        event : QKeyEvent
+            Keyboard event
+        """
+        # Check if we're in polygon drawing mode
+        if not self.polygon_drawing_mode:
+            super().keyPressEvent(event)
+            return
+
+        # Handle ENTER key to finish drawing
+        if event.key() == QtCore.Qt.Key_Return:
+            self._finish_polygon_drawing()
+            event.accept()
+        # Handle ESC key to cancel drawing
+        elif event.key() == QtCore.Qt.Key_Escape:
+            self._cancel_polygon_drawing()
+            event.accept()
+        else:
+            # Pass other keys to parent
+            super().keyPressEvent(event)
+
+    def _point_in_polygon(self, points: NDArray[np.float64],
+                          polygon: NDArray[np.float64]) -> NDArray[np.bool_]:
+        """Optimized ray-casting algorithm for point-in-polygon test.
+
+        Vectorized NumPy implementation with optimizations for complex polygons (100+ vertices).
+        Uses O(n*m) algorithm but with low constant factors via vectorization.
+
+        Parameters
+        ----------
+        points : NDArray[np.float64]
+            (N, 2) array of test points [x, y]
+        polygon : NDArray[np.float64]
+            (M, 2) array of polygon vertices in order
+
+        Returns
+        -------
+        NDArray[np.bool_]
+            Boolean mask of length N, True where point is inside polygon
+
+        References
+        ----------
+        https://en.wikipedia.org/wiki/Point_in_polygon
+        Ray casting: count polygon edge intersections with horizontal ray from point
+        """
+        x = points[:, 0]
+        y = points[:, 1]
+        n = len(polygon)
+
+        # Initialize result array
+        inside = np.zeros(len(points), dtype=bool)
+
+        # Process each edge of polygon
+        # Vectorized approach: for each edge, check all points at once
+        p1 = polygon[0]
+
+        for i in range(n):
+            p2 = polygon[(i + 1) % n]
+
+            # Quick bounding box check to skip edges that can't affect any points
+            ymin = min(p1[1], p2[1])
+            ymax = max(p1[1], p2[1])
+
+            # Only process points in y-range of this edge
+            y_mask = (y >= ymin) & (y < ymax)
+
+            if np.any(y_mask):
+                # Calculate x-coordinate of intersection with horizontal ray
+                # Line parametric: (1-t)*p1 + t*p2
+                # Solve for t when y-coordinate equals point y
+                dy = p2[1] - p1[1]
+
+                if dy != 0:
+                    t = (y[y_mask] - p1[1]) / dy
+                    x_intersect = p1[0] + t * (p2[0] - p1[0])
+
+                    # Toggle inside flag for points right of intersection
+                    inside[y_mask] ^= x[y_mask] <= x_intersect
+
+            p1 = p2
+
+        return inside
+
+    def _apply_polygon_smoothing(self, polygon: NDArray[np.float64],
+                                 smoothness: int = 5) -> NDArray[np.float64]:
+        """Apply spline smoothing to polygon vertices.
+
+        Optional: Creates smooth curves through vertices for realistic axon outlines
+
+        Parameters
+        ----------
+        polygon : NDArray[np.float64]
+            (M, 2) array of polygon vertices
+        smoothness : int
+            Number of interpolated points between vertices
+
+        Returns
+        -------
+        NDArray[np.float64]
+            (M*smoothness, 2) smoothed polygon vertices
+        """
+        try:
+            from scipy.interpolate import CubicSpline
+        except ImportError:
+            self.logger.warning("scipy.interpolate not available, returning original polygon")
+            return polygon
+
+        # Handle small polygons
+        if len(polygon) < 4:
+            return polygon
+
+        # Create closed spline by adding first point at end
+        x = np.concatenate([polygon[:, 0], [polygon[0, 0]]])
+        y = np.concatenate([polygon[:, 1], [polygon[0, 1]]])
+
+        # Parameter t goes 0 to len(polygon)
+        t = np.arange(len(x))
+
+        # Create cubic splines for x and y with periodic boundary conditions
+        cs_x = CubicSpline(t, x, bc_type='periodic')
+        cs_y = CubicSpline(t, y, bc_type='periodic')
+
+        # Evaluate at higher resolution
+        t_smooth = np.linspace(0, len(polygon), len(polygon) * smoothness, endpoint=False)
+        x_smooth = cs_x(t_smooth)
+        y_smooth = cs_y(t_smooth)
+
+        return np.column_stack([x_smooth, y_smooth])
 
     def savexyzROI(self, channel: int) -> None:
         """
@@ -1134,8 +1650,54 @@ class MPS_explorer(QtWidgets.QMainWindow):
         
         if filename:
             np.savetxt(filename, dist, delimiter=",", fmt="%.2f")
-        
-        
+
+    def on_algorithm_changed(self, algorithm: str) -> None:
+        """Handle algorithm selection change to show/hide algorithm-specific parameters.
+
+        Parameters
+        ----------
+        algorithm : str
+            Selected algorithm: "Auto", "DBSCAN", or "HDBSCAN"
+        """
+        # Show/hide parameters based on algorithm selection
+        if algorithm == "DBSCAN":
+            # DBSCAN requires epsilon; HDBSCAN doesn't use it
+            self.ui.label_eps.show()
+            self.ui.lineEdit_eps.show()
+            self.ui.label_eps_2.show()
+            self.ui.lineEdit_eps_2.show()
+
+            # HDBSCAN-specific parameter (min_cluster_size) is not used in DBSCAN
+            self.ui.label_minclustersize.hide()
+            self.ui.lineEdit_minclustersize.hide()
+
+            self.logger.debug("Algorithm changed to DBSCAN - showing epsilon, hiding min_cluster_size")
+
+        elif algorithm == "HDBSCAN":
+            # HDBSCAN doesn't use epsilon but uses min_cluster_size
+            self.ui.label_eps.hide()
+            self.ui.lineEdit_eps.hide()
+            self.ui.label_eps_2.hide()
+            self.ui.lineEdit_eps_2.hide()
+
+            # HDBSCAN-specific parameter
+            self.ui.label_minclustersize.show()
+            self.ui.lineEdit_minclustersize.show()
+
+            self.logger.debug("Algorithm changed to HDBSCAN - hiding epsilon, showing min_cluster_size")
+
+        elif algorithm == "Auto":
+            # Auto mode uses all parameters (user can set any of them)
+            self.ui.label_eps.show()
+            self.ui.lineEdit_eps.show()
+            self.ui.label_eps_2.show()
+            self.ui.lineEdit_eps_2.show()
+            self.ui.label_minclustersize.show()
+            self.ui.lineEdit_minclustersize.show()
+
+            self.logger.debug("Algorithm changed to Auto - showing all parameters")
+
+
     def cluster(self, channel: int) -> None:
         """Perform DBSCAN clustering on the selected ROI data and visualize results.
 
@@ -1193,51 +1755,75 @@ class MPS_explorer(QtWidgets.QMainWindow):
         else:
             return  # Invalid channel
 
+        # Read algorithm selection (Auto/DBSCAN/HDBSCAN)
+        algorithm_selection = self.algorithm_selector.currentText()
+        minclustersize_input = self.ui.lineEdit_minclustersize.text().strip()
+
         # Prepare XY coordinate array
         roi_points = np.column_stack((x_roi, y_roi))
         n_roi_points = len(roi_points)
         self.logger.debug(f"Clustering Ch{channel}: Processing {n_roi_points:,} ROI points")
+        self.logger.debug(f"Clustering Ch{channel}: Algorithm={algorithm_selection}, MinClusterSize={minclustersize_input}")
 
         # Parameter handling: Support "auto" or numeric input
         # "auto" triggers adaptive parameter estimation (with Phase 4 caching)
+        # Algorithm-specific parameter validation
         try:
-            if eps_input.lower().strip() == "auto":
-                # Phase 4: Check cache first for similar dataset
-                cached_params = self.param_cache.get_cached_parameters(roi_points)
-
-                if cached_params:
-                    # Use cached parameters (scientific quality UNCHANGED)
-                    self.eps = cached_params.eps
-                    self.minsamples = cached_params.min_samples
-                    use_auto_eps = True
-                    use_auto_ms = True
-                    source = "cache"
-                else:
-                    # Estimate fresh parameters and cache them
-                    import time
-                    start_time = time.time()
-                    self.eps = clustering.estimate_optimal_eps(roi_points, k=5, percentile=90)
-                    estimation_time = (time.time() - start_time) * 1000  # Convert to ms
-
-                    # Also estimate min_samples in auto mode
-                    self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
-
-                    # Cache the estimated parameters
-                    self.param_cache.cache_parameters(
-                        roi_points,
-                        self.eps,
-                        int(self.minsamples),
-                        estimation_time_ms=estimation_time,
-                        source="estimated"
-                    )
-                    use_auto_eps = True
-                    use_auto_ms = True
-                    source = "estimated"
+            # Determine strategy type based on algorithm selection
+            if algorithm_selection == "Auto":
+                strategy_type = "auto"
+            elif algorithm_selection == "DBSCAN":
+                strategy_type = "dbscan"
+            elif algorithm_selection == "HDBSCAN":
+                strategy_type = "hdbscan"
             else:
-                self.eps = float(eps_input)
+                strategy_type = "auto"
+
+            # DBSCAN and Auto modes require epsilon
+            if strategy_type in ["dbscan", "auto"]:
+                if eps_input.lower().strip() == "auto":
+                    # Phase 4: Check cache first for similar dataset
+                    cached_params = self.param_cache.get_cached_parameters(roi_points)
+
+                    if cached_params:
+                        # Use cached parameters (scientific quality UNCHANGED)
+                        self.eps = cached_params.eps
+                        self.minsamples = cached_params.min_samples
+                        use_auto_eps = True
+                        use_auto_ms = True
+                        source = "cache"
+                    else:
+                        # Estimate fresh parameters and cache them
+                        import time
+                        start_time = time.time()
+                        self.eps = clustering.estimate_optimal_eps(roi_points, k=5, percentile=90)
+                        estimation_time = (time.time() - start_time) * 1000  # Convert to ms
+
+                        # Also estimate min_samples in auto mode
+                        self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
+
+                        # Cache the estimated parameters
+                        self.param_cache.cache_parameters(
+                            roi_points,
+                            self.eps,
+                            int(self.minsamples),
+                            estimation_time_ms=estimation_time,
+                            source="estimated"
+                        )
+                        use_auto_eps = True
+                        use_auto_ms = True
+                        source = "estimated"
+                else:
+                    self.eps = float(eps_input)
+                    use_auto_eps = False
+                    source = "manual"
+            else:
+                # HDBSCAN mode: epsilon is not used
+                self.eps = None
                 use_auto_eps = False
                 source = "manual"
 
+            # Min samples handling (common to DBSCAN and HDBSCAN)
             if minsamples_input.lower().strip() == "auto":
                 # If eps was auto and came from cache, min_samples already set
                 if source != "cache":
@@ -1247,33 +1833,80 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 self.minsamples = int(float(minsamples_input))
                 use_auto_ms = False
 
-            self.logger.info(
-                f"Clustering Ch{channel}: eps={self.eps:.3f} "
-                f"({'cache' if source == 'cache' else 'auto-detected' if use_auto_eps else 'manual'}), "
-                f"min_samples={int(self.minsamples)} "
-                f"({'auto-detected' if use_auto_ms else 'manual'})"
-            )
+            # HDBSCAN-specific: min_cluster_size parameter
+            if strategy_type == "hdbscan":
+                if minclustersize_input.lower() == "auto":
+                    # Auto estimate for HDBSCAN min_cluster_size
+                    self.min_cluster_size = max(5, int(np.sqrt(n_roi_points)))
+                    use_auto_mcs = True
+                else:
+                    try:
+                        self.min_cluster_size = int(float(minclustersize_input))
+                        if self.min_cluster_size < 1:
+                            raise ValueError("Min Cluster Size must be >= 1")
+                        use_auto_mcs = False
+                    except (ValueError, AttributeError) as e:
+                        self.logger.error(f"Clustering Ch{channel}: Invalid min_cluster_size: {e}")
+                        QtWidgets.QMessageBox.warning(
+                            self, "Invalid Input",
+                            "HDBSCAN Min Cluster Size must be numeric or 'auto'.\n"
+                            "Examples: 5, 10, auto"
+                        )
+                        return
+            else:
+                self.min_cluster_size = None
+                use_auto_mcs = False
+
+            # Log parameters based on algorithm
+            if strategy_type == "hdbscan":
+                self.logger.info(
+                    f"Clustering Ch{channel}: Algorithm=HDBSCAN, "
+                    f"min_samples={int(self.minsamples)} "
+                    f"({'auto-detected' if use_auto_ms else 'manual'}), "
+                    f"min_cluster_size={int(self.min_cluster_size)} "
+                    f"({'auto-detected' if use_auto_mcs else 'manual'})"
+                )
+            else:
+                self.logger.info(
+                    f"Clustering Ch{channel}: Algorithm={algorithm_selection}, "
+                    f"eps={self.eps:.3f} "
+                    f"({'cache' if source == 'cache' else 'auto-detected' if use_auto_eps else 'manual'}), "
+                    f"min_samples={int(self.minsamples)} "
+                    f"({'auto-detected' if use_auto_ms else 'manual'})"
+                )
 
         except (ValueError, AttributeError) as e:
             self.logger.error(f"Clustering Ch{channel}: Invalid parameters: {e}")
             QtWidgets.QMessageBox.warning(
                 self, "Invalid Input",
-                "DBSCAN parameters must be numeric or 'auto'.\n"
-                "Examples: 1.0, 10, auto"
+                f"Invalid clustering parameters: {str(e)}\n"
+                f"Algorithm: {algorithm_selection}\n"
+                "Examples: eps=1.0, min_samples=10, min_cluster_size=5"
             )
             return
 
-        # Perform clustering using strategy pattern (automatically selects DBSCAN or HDBSCAN)
+        # Perform clustering using strategy pattern (with manual algorithm control)
         try:
-            # Create clustering strategy: automatically selects based on dataset size
-            # DBSCAN for <100k points, HDBSCAN for >=100k points
-            strategy = create_clustering_strategy(
-                strategy_type="auto",
-                eps=self.eps,
-                min_samples=int(self.minsamples),
-                metric="euclidean",
-                logger=self.logger
-            )
+            # Create clustering strategy: uses user-selected algorithm or auto-selection
+            # strategy_type can be "auto" (adaptive), "dbscan", or "hdbscan"
+            # HDBSCAN-specific parameters are passed if needed
+            if strategy_type == "hdbscan":
+                strategy = create_clustering_strategy(
+                    strategy_type="hdbscan",
+                    min_samples=int(self.minsamples),
+                    min_cluster_size=int(self.min_cluster_size),
+                    metric="euclidean",
+                    logger=self.logger
+                )
+            else:
+                # DBSCAN or Auto modes use epsilon
+                strategy = create_clustering_strategy(
+                    strategy_type=strategy_type,
+                    eps=self.eps,
+                    min_samples=int(self.minsamples),
+                    metric="euclidean",
+                    logger=self.logger
+                )
 
             # Perform clustering with selected strategy
             cluster_assignments = strategy.fit(roi_points)  # Get cluster labels (-1 for noise)

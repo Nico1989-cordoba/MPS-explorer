@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+
+# Logs
+logs/
+*.log
+
+# Cache
+cache/
+test_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+config.yaml
+logging.json
+profiling_output.txt
+*.bak
+
+# Test files (optional - comment if you want to include them)
+test_*.py

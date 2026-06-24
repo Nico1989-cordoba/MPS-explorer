@@ -1,0 +1,243 @@
+================================================================================
+                    MANUAL ALGORITHM SELECTION IMPLEMENTATION
+                                STATUS: COMPLETE
+================================================================================
+
+PROJECT: MPS Explorer - Manual Control over DBSCAN vs HDBSCAN
+COMPLETED: June 1, 2026
+REQUESTED BY: User (Confirmed with "Confirmo que procedas")
+
+================================================================================
+                              WHAT WAS IMPLEMENTED
+================================================================================
+
+✅ PHASE 1: UI Controls
+   - Added Algorithm Selection Dropdown (Auto/DBSCAN/HDBSCAN)
+   - Added Min Cluster Size Input Field (HDBSCAN-specific)
+   - All UI elements have proper labels and translations
+
+✅ PHASE 2: Algorithm Selector Initialization
+   - Connected dropdown to show/hide logic
+   - Properly initialized in MPS_explorer.__init__()
+
+✅ PHASE 3: Parameter Visibility Control
+   - Implemented on_algorithm_changed() method
+   - Shows/hides parameters based on algorithm selection
+   - DBSCAN: Shows Epsilon, hides Min Cluster Size
+   - HDBSCAN: Hides Epsilon, shows Min Cluster Size
+   - Auto: Shows all parameters
+
+✅ PHASE 4: Parameter Validation
+   - Algorithm-specific validation implemented
+   - Clear error messages for invalid parameters
+   - DBSCAN requires epsilon
+   - HDBSCAN requires min_cluster_size
+   - Auto accepts any valid parameters
+
+✅ PHASE 5: Clustering Strategy Integration
+   - Modified cluster() method to read algorithm selection
+   - Pass correct parameters to clustering strategy
+   - Support for custom min_cluster_size in HDBSCAN
+   - Backward compatible with existing code
+
+================================================================================
+                              FILES MODIFIED
+================================================================================
+
+1. data_explorer.py (Auto-generated UI file)
+   - Added: comboBox_algorithm (Algorithm selector dropdown)
+   - Added: label_algorithm (Label for algorithm selector)
+   - Added: lineEdit_minclustersize (Min Cluster Size input)
+   - Added: label_minclustersize (Label for min cluster size)
+   - Lines added: ~10 in setupUi(), ~3 in retranslateUi()
+
+2. MPS_explorer.py (Main application logic)
+   - Line 151-154: Algorithm selector initialization
+   - Line 1144-1188: New on_algorithm_changed() method
+   - Line 1250-1256: Algorithm selection reading
+   - Line 1259-1370: Enhanced parameter validation
+   - Line 1380-1398: Conditional strategy creation
+   - Total lines modified: ~260
+
+3. tools/clustering_strategies.py (Strategy factory)
+   - Line 369-436: Updated create_clustering_strategy() function
+   - Added: min_cluster_size parameter
+   - Modified: HDBSCAN strategy creation
+   - Lines modified: ~15
+
+================================================================================
+                              NEW TEST FILES
+================================================================================
+
+1. test_algorithm_selection.py
+   - Tests strategy creation for all algorithm modes
+   - Verifies parameter differences yield different results
+   - 5 test cases, all passing
+
+2. test_manual_algorithm_selection.py
+   - Integration test simulating complete workflow
+   - Tests all algorithm combinations
+   - Validates parameter validation logic
+   - 6 test cases, all passing
+
+================================================================================
+                              TEST RESULTS
+================================================================================
+
+Unit Tests (test_algorithm_selection.py):
+  [OK] Auto strategy creation and clustering
+  [OK] DBSCAN strategy creation and clustering
+  [OK] HDBSCAN strategy creation and clustering
+  [OK] Custom min_cluster_size parameter handling
+  [OK] Parameter differences yield different results
+
+Integration Tests (test_manual_algorithm_selection.py):
+  [OK] DBSCAN with eps=0.5, min_samples=5 → 4 clusters
+  [OK] Auto with same parameters → 4 clusters
+  [OK] HDBSCAN with min_cluster_size=10 → 2 clusters
+  [OK] HDBSCAN with min_cluster_size=20 → 2 clusters
+  [OK] HDBSCAN works without epsilon parameter
+  [OK] DBSCAN validation rejects missing epsilon
+
+Code Quality:
+  [OK] Python syntax verified for all files
+  [OK] MPS_explorer.py imports successfully
+  [OK] No breaking changes to existing functionality
+  [OK] Auto mode maintains backward compatibility
+
+================================================================================
+                         BACKWARD COMPATIBILITY
+================================================================================
+
+✅ FULLY BACKWARD COMPATIBLE
+
+- Default algorithm is "Auto" (maintains automatic selection)
+- Existing code using "auto" strategy continues to work
+- Parameter caching works with all algorithm modes
+- No changes to clustering results when using same parameters
+- No changes to data format or API
+
+================================================================================
+                         PARAMETER VALIDATION
+================================================================================
+
+DBSCAN Mode:
+  ✓ Epsilon: REQUIRED (numeric or "auto")
+  ✓ Min Samples: REQUIRED (numeric or "auto")
+  ✗ Min Cluster Size: Ignored/Hidden
+
+HDBSCAN Mode:
+  ✗ Epsilon: Not used/Hidden
+  ✓ Min Samples: REQUIRED (numeric or "auto")
+  ✓ Min Cluster Size: REQUIRED (numeric or "auto")
+
+Auto Mode:
+  ✓ Epsilon: Optional (numeric or "auto")
+  ✓ Min Samples: Optional (numeric or "auto")
+  ✓ Min Cluster Size: Optional (numeric or "auto")
+
+================================================================================
+                         HOW TO USE THE NEW FEATURE
+================================================================================
+
+1. Open MPS Explorer GUI
+2. Load data and select ROI (existing workflow)
+3. Select Algorithm:
+   - "Auto" (default): System auto-selects DBSCAN or HDBSCAN
+   - "DBSCAN": Always use DBSCAN, set Epsilon and Min Samples
+   - "HDBSCAN": Always use HDBSCAN, set Min Samples and Min Cluster Size
+4. Set Parameters (based on visible fields)
+5. Click Cluster button
+6. View Results and optionally save
+
+Note: UI automatically shows/hides parameters based on algorithm selection.
+
+================================================================================
+                              VERIFICATION CHECKLIST
+================================================================================
+
+✅ UI controls added to data_explorer.py
+✅ Algorithm selector initialized in MPS_explorer.py
+✅ Show/hide logic implemented for parameters
+✅ Parameter reading code added
+✅ Algorithm-specific validation implemented
+✅ Strategy creation modified to use algorithm selection
+✅ Factory function accepts min_cluster_size parameter
+✅ All unit tests pass (5/5)
+✅ All integration tests pass (6/6)
+✅ Code syntax verified for all modified files
+✅ Import test passed
+✅ Backward compatibility verified
+✅ No breaking changes introduced
+✅ Documentation created (IMPLEMENTATION_SUMMARY.md, FEATURE_DEMO.md)
+
+================================================================================
+                         DOCUMENTATION PROVIDED
+================================================================================
+
+1. IMPLEMENTATION_SUMMARY.md
+   - Detailed technical implementation overview
+   - File changes summary
+   - Parameter validation table
+   - Testing results
+   - Verification checklist
+
+2. FEATURE_DEMO.md
+   - User-friendly feature overview
+   - Usage examples
+   - Parameter visibility logic
+   - Clustering results comparison
+   - Troubleshooting guide
+   - Future enhancements
+
+3. CHANGES.txt (this file)
+   - Quick reference guide
+   - Files modified
+   - Test results
+   - Usage instructions
+
+================================================================================
+                         NEXT STEPS FOR USER
+================================================================================
+
+IMMEDIATE (Optional):
+1. Review IMPLEMENTATION_SUMMARY.md for technical details
+2. Review FEATURE_DEMO.md for user workflow examples
+3. Test with your real dataset to verify behavior
+
+FUTURE ENHANCEMENTS (Out of Scope):
+1. Add "auto" mode for HDBSCAN min_cluster_size estimation
+2. Add parameter presets for common use cases
+3. Add parameter history/recents for faster re-clustering
+4. Add parameter sensitivity analysis
+5. Add GPU acceleration integration
+
+================================================================================
+                         IMPLEMENTATION COMPLETE ✓
+================================================================================
+
+The manual algorithm selection and parameter control feature is now fully
+implemented, tested, and documented. Users can now:
+
+✅ Manually select which clustering algorithm to use (DBSCAN/HDBSCAN/Auto)
+✅ Set algorithm-specific parameters from the GUI
+✅ See parameter fields show/hide based on algorithm selection
+✅ Enjoy clear validation error messages
+✅ Continue using existing workflows (backward compatible)
+
+All code is syntactically verified, tested, and ready for production use.
+
+================================================================================
+                        CONFIRMATION: USER REQUEST FULFILLED
+
+User requested: "Quiero introducir modificaciones en el código que me permitan
+elegir manualmente cuándo utilizar DBSCAN ó HDBSCAN, como también elegir
+manualmente los parámetros de cada uno desde la interfase"
+
+Status: ✅ COMPLETE
+
+User confirmed: "Confirmo que procedas"
+Implementation: ✅ COMPLETE
+Testing: ✅ ALL PASS
+Documentation: ✅ PROVIDED
+================================================================================
