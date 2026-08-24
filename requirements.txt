@@ -1,0 +1,9 @@
+numpy==2.5.2
+pandas==3.0.5
+scipy==1.18.1
+scikit-learn==1.9.0
+hdbscan==0.8.44
+h5py==3.16.0
+PyYAML==6.0.3
+pyqtgraph==0.14.0
+PyQt5==5.15.11
