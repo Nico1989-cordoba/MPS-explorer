@@ -145,6 +145,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui.setupUi(self)
         self.logger.debug("UI setup complete")
 
+        # Everything lives in one window, split across tabs. Built here in
+        # code rather than in the .ui file so the Qt Designer layout the
+        # user built stays untouched.
+        self._install_tabs()
+
         # Define initial directory
         self.initialDir = "Desktop"  # You can set the initial directory here
         self.logger.debug(f"Initial directory: {self.initialDir}")
@@ -501,6 +506,59 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return None
 
+    def _install_tabs(self) -> None:
+        """
+        Re-home the generated UI into a two-tab central widget.
+
+        The .ui file is left untouched: its three group boxes are simply
+        reparented into the first tab, keeping their absolute geometry, and
+        the MPS analysis panel gets the second tab instead of opening as a
+        separate window.
+
+        Reparenting happens BEFORE setCentralWidget, because that call
+        deletes the widget it replaces along with any children still
+        attached to it.
+        """
+        group_boxes = (self.ui.groupBox_files_3,   # Load SMLM data
+                       self.ui.groupBox_vis,       # Visualization / ROI
+                       self.ui.groupBox)           # Clustering
+
+        tab_main = QtWidgets.QWidget()
+        right = bottom = 0
+        for gb in group_boxes:
+            geom = gb.geometry()
+            gb.setParent(tab_main)
+            gb.setGeometry(geom)          # setParent resets geometry
+            gb.show()                     # ...and hides the widget
+            right = max(right, geom.x() + geom.width())
+            bottom = max(bottom, geom.y() + geom.height())
+        # The group boxes are absolutely positioned, so the tab page needs
+        # an explicit minimum or the tab widget would happily clip them.
+        tab_main.setMinimumSize(right + 10, bottom + 10)
+
+        # Second tab starts empty: there is nothing to show until an
+        # analysis has been run.
+        self.tab_analysis = QtWidgets.QWidget()
+        analysis_layout = QtWidgets.QVBoxLayout(self.tab_analysis)
+        self._analysis_placeholder = QtWidgets.QLabel(
+            "Run “cluster Ch1” to compute the per-axon MPS parameters.\n"
+            "Results appear here."
+        )
+        self._analysis_placeholder.setAlignment(QtCore.Qt.AlignCenter)
+        self._analysis_placeholder.setStyleSheet("color: #666666;")
+        analysis_layout.addWidget(self._analysis_placeholder)
+
+        self.tabs = QtWidgets.QTabWidget()
+        self.tabs.addTab(tab_main, "Carga y clustering")
+        self.tab_analysis_index = self.tabs.addTab(
+            self.tab_analysis, "MPS analysis")
+        self.setCentralWidget(self.tabs)
+
+        # Room for the tab bar on top of the tallest page.
+        self.resize(max(self.width(), right + 30), max(self.height(), bottom + 70))
+        self.logger.debug(
+            f"Tabs installed: main page min size {right + 10}x{bottom + 10}")
+
     def _render_good_clusters_panel(
         self, centroids: NDArray[np.float64]
     ) -> None:
@@ -633,12 +691,20 @@ class MPS_explorer(QtWidgets.QMainWindow):
         return analysis
 
     def _show_mps_window(self, analysis: Any) -> None:
-        """Open, or refresh in place, the MPS results window."""
+        """
+        Show the results in the "MPS analysis" tab, creating it on first use.
+
+        ``MPSResultsWindow`` is still built as a QMainWindow because it owns
+        all the panel's behaviour (the re-run callbacks, the plots, the
+        export). It is never shown as a window: its central widget is moved
+        into the tab and the object is kept alive purely as the controller
+        for those widgets.
+        """
         from tools.mps_results_window import MPSResultsWindow
 
         def rerun(**kw):
-            # show_window=False: the window refreshes itself with the
-            # returned analysis, so reopening it here would recurse.
+            # show_window=False: the panel refreshes itself with the
+            # returned analysis, so re-entering here would recurse.
             result = self.run_mps_analysis(show_window=False, **kw)
             if result is None:
                 raise RuntimeError(
@@ -648,12 +714,21 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if self.mps_window is None:
             self.mps_window = MPSResultsWindow(
                 analysis, rerun_callback=rerun, parent=self)
+
+            # takeCentralWidget releases ownership; a plain setParent would
+            # leave the QMainWindow still believing it owns the widget.
+            panel = self.mps_window.takeCentralWidget()
+            layout = self.tab_analysis.layout()
+            self._analysis_placeholder.hide()
+            layout.removeWidget(self._analysis_placeholder)
+            self._analysis_placeholder.deleteLater()
+            self._analysis_placeholder = None
+            layout.addWidget(panel)
         else:
             self.mps_window.analysis = analysis
             self.mps_window.refresh()
-        self.mps_window.show()
-        self.mps_window.raise_()
-        self.mps_window.activateWindow()
+
+        self.tabs.setCurrentIndex(self.tab_analysis_index)
 
     def select_file(self, channel: int) -> None:
         """
@@ -2988,8 +3063,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self._persist_mps_settings()
         except Exception as exc:                          # noqa: BLE001
             self.logger.warning(f"Could not persist MPS settings: {exc}")
-        if self.mps_window is not None:
-            self.mps_window.close()
+        # The results panel lives in a tab now, so its owning QMainWindow is
+        # never shown and closing it is a no-op; drop the reference so the
+        # controller and its widgets are collected with the main window.
+        self.mps_window = None
 
         self.logger.info("=" * 80)
         self.logger.info("MPS Explorer Application Closed")
