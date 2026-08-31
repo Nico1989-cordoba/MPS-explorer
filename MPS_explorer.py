@@ -36,6 +36,13 @@ from tools.parallel_clustering import create_parallel_clustering_manager
 from tools.parameter_cache import create_parameter_cache
 import hdbscan
 
+# --- Gazal et al. (2026) per-axon MPS analysis -------------------------------
+# Automatic replication of the paper's per-axon parameters. These modules are
+# Qt-free so the whole pipeline can be run and validated headlessly.
+from tools.cluster_quality import CircularROI, PolygonROI, SquareROI
+from tools.mps_analysis import analyze_axon
+from tools.mps_settings import load_settings, save_settings
+
 # Import logging configuration
 from logging_config import setup_logging, get_logger, get_log_filename
 
@@ -163,7 +170,19 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui.pushButton_savedistdata.clicked.connect(self.savedistdata)
         self.ui.pushButton_clusterch1.clicked.connect(lambda:self.cluster(1))
         self.ui.pushButton_clusterch2.clicked.connect(lambda:self.cluster(2))
-        self.ui.pushButton_remove_bad_cluster.clicked.connect(self.dist_cm_good_clus)
+        # Bad clusters are now removed automatically (edge-touching + DBCV,
+        # see tools.cluster_quality), so this button no longer performs a
+        # manual removal step. It is repurposed as the entry point to the
+        # per-axon MPS analysis panel; the .ui file is left untouched so the
+        # window layout the user built is preserved.
+        self.ui.pushButton_remove_bad_cluster.setText("MPS analysis")
+        self.ui.pushButton_remove_bad_cluster.setToolTip(
+            "Open the per-axon MPS parameters panel (Gazal et al. 2026).\n"
+            "Bad clusters are removed automatically; every parameter in the\n"
+            "panel stays editable."
+        )
+        self.ui.pushButton_remove_bad_cluster.clicked.connect(
+            lambda: self.run_mps_analysis(show_window=True))
         self.ui.pushButton_savecluscenters.clicked.connect(self.save_clus_CM)
         self.ui.pushButton_Distances.clicked.connect(self.KNdist_hist)
         self.ui.pushButton_saveAllClusterData.clicked.connect(lambda: self.save_all_clustered_data(1))
@@ -210,6 +229,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         # --- raw data loaded from file (set by select_file / import_file) ---
         self.pxsize: Optional[float] = None          # effective pixel size in nm (from YAML or user)
+        # Where pxsize came from: "yaml" | "manual" | "unknown". A pixel size
+        # that did not come from the Picasso YAML silently rescales every
+        # lateral distance (and, squared, every cluster area), so its
+        # provenance travels with the analysis and into the exported CSV.
+        self.pxsize_source: str = "unknown"
 
         # Channel 1 raw coordinates (pixel→nm converted)
         self.xdata: Optional[NDArray[np.float64]] = None
@@ -271,8 +295,187 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.distances: Optional[NDArray[np.float64]] = None       # distance array to the K nearest centroids
         self.Nneighbor: Optional[int] = None       # number of neighbours requested
 
+        # --- Gazal 2026 per-axon analysis (set by run_mps_analysis) ---
+        self.mps_analysis: Optional[Any] = None      # last AxonAnalysis
+        self.mps_window: Optional[Any] = None        # results window (kept alive)
+        self.mps_settings = load_settings()          # persisted across sessions
+        self._apply_mps_settings()
+
         # Connect the close event to your method
         self.closeEvent = self.onCloseEvent
+
+    # ========================================================================
+    # Gazal et al. (2026) per-axon MPS analysis
+    # ========================================================================
+
+    def _apply_mps_settings(self) -> None:
+        """
+        Restore the DBSCAN parameters persisted from the previous session.
+
+        The user loads axons in series from one acquisition, so retyping
+        these every launch is how a stale value slips into a batch. The
+        .ui ships eps = 10, which is not the paper's value (25 nm); the
+        stored settings -- seeded with the paper defaults on first run --
+        take precedence, and what was restored is logged.
+        """
+        s = self.mps_settings
+        for widget in (self.ui.lineEdit_eps, self.ui.lineEdit_eps_2):
+            widget.setText(f"{s.eps_nm:g}")
+        for widget in (self.ui.lineEdit_minsamples, self.ui.lineEdit_minsamples_2):
+            widget.setText(f"{int(s.min_samples)}")
+        self.logger.info(
+            f"MPS settings restored: eps={s.eps_nm:g} nm, "
+            f"min_samples={int(s.min_samples)}, "
+            f"slab half-width={s.slab_half_width_nm:g} nm"
+        )
+
+    def _persist_mps_settings(self) -> None:
+        """Store the parameters currently in the UI for the next session."""
+        try:
+            self.mps_settings.eps_nm = float(self.ui.lineEdit_eps.text())
+            self.mps_settings.min_samples = int(
+                float(self.ui.lineEdit_minsamples.text()))
+        except (ValueError, AttributeError):
+            # "auto" or a malformed entry: keep whatever was stored before
+            # rather than writing a value the analysis never actually used.
+            pass
+        self.mps_settings.validate()
+        save_settings(self.mps_settings)
+
+    def _current_roi_shape(self) -> Optional[Any]:
+        """
+        Describe the active ROI for the edge-touching bad-cluster criterion.
+
+        Returns None when no ROI widget is active, in which case the
+        analysis falls back to the convex hull of the localizations.
+        """
+        try:
+            if self.ui.radioButton_circROI.isChecked():
+                pos = self.circular_roi.pos()
+                size = self.circular_roi.size()
+                if hasattr(size, "x"):
+                    s = float(size.x())
+                elif hasattr(size, "width"):
+                    s = float(size.width())
+                else:
+                    s = float(size)
+                return CircularROI(
+                    center_x=float(pos.x()) + s / 2,
+                    center_y=float(pos.y()) + s / 2,
+                    radius=(ROI_DIAMETER_SCALE_FACTOR * s) / 2,
+                )
+            if self.ui.radioButton_squareROI.isChecked():
+                xmin, ymin = self.square_roi.pos()
+                xmax, ymax = self.square_roi.pos() + self.square_roi.size()
+                return SquareROI(xmin=float(xmin), ymin=float(ymin),
+                                 xmax=float(xmax), ymax=float(ymax))
+            if self.ui.radioButton_polygonROI.isChecked():
+                verts = np.asarray(self.polygon_roi.getState()["points"],
+                                   dtype=float)
+                return PolygonROI(vertices=verts)
+        except (AttributeError, KeyError, TypeError):
+            return None
+        return None
+
+    def run_mps_analysis(self, show_window: bool = True, **overrides) -> Optional[Any]:
+        """
+        Run the full Gazal-2026 per-axon pipeline on the current ROI.
+
+        Called automatically at the end of ``cluster(1)`` and re-callable
+        with overrides from the results window. betaII-spectrin is always
+        channel 1, so the analysis always uses the channel-1 ROI.
+
+        Parameters
+        ----------
+        show_window : open (or raise) the results window.
+        **overrides : forwarded to ``analyze_axon`` -- main_peak_override_nm,
+            slab_half_width_nm, eps_nm, min_samples, dbcv_threshold,
+            custom_contour_order.
+        """
+        if self.xroi is None or self.zroi is None or len(self.xroi) == 0:
+            QtWidgets.QMessageBox.warning(
+                self, "No ROI selected",
+                "Load a file, draw the scatter plot and select an ROI before "
+                "running the MPS analysis."
+            )
+            return None
+
+        s = self.mps_settings
+        params = dict(
+            source_name=self.ui.lineEdit_filename.text(),
+            pixel_size_nm=self.pxsize,
+            pixel_size_source=self.pxsize_source,
+            eps_nm=float(overrides.pop("eps_nm", s.eps_nm)),
+            min_samples=int(overrides.pop("min_samples", s.min_samples)),
+            slab_half_width_nm=float(
+                overrides.pop("slab_half_width_nm", s.slab_half_width_nm)),
+            dbcv_threshold=float(
+                overrides.pop("dbcv_threshold", s.dbcv_threshold)),
+            roi=self._current_roi_shape(),
+        )
+        params.update(overrides)
+
+        # The ROI arrays are already ROI- and (optionally) z-filtered by
+        # update_ROI. The analysis applies its own automatic 180 nm axial
+        # slab on top, which is the paper's segment selection.
+        self.logger.info(
+            f"MPS analysis: {len(self.xroi):,} ROI localizations, "
+            f"eps={params['eps_nm']:g}, min_samples={params['min_samples']}"
+        )
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            analysis = analyze_axon(
+                self.xroi, self.yroi, self.zroi, **params)
+        except Exception as exc:                          # noqa: BLE001
+            QtWidgets.QApplication.restoreOverrideCursor()
+            self.logger.error(f"MPS analysis failed: {exc}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "MPS analysis failed", f"{exc}")
+            return None
+        QtWidgets.QApplication.restoreOverrideCursor()
+
+        self.mps_analysis = analysis
+        self.logger.info(
+            f"MPS analysis: {analysis.n_clusters_kept}/{analysis.n_clusters_raw} "
+            f"clusters kept, perimeter="
+            f"{'n/a' if analysis.perimeter_um is None else f'{analysis.perimeter_um:.2f} um'}, "
+            f"1NN median="
+            f"{'n/a' if analysis.median_1nn_nm is None else f'{analysis.median_1nn_nm:.0f} nm'}"
+        )
+        for w in analysis.warnings:
+            self.logger.warning(f"MPS analysis: {w}")
+
+        # Keep the legacy attributes consistent so the existing centroid
+        # plots and exports reflect the same automatically curated set.
+        self.bad_cluster_indices = sorted(analysis.bad_report.bad_labels)
+        self.good_cluster_centroids = analysis.centroids
+
+        if show_window:
+            self._show_mps_window(analysis)
+        return analysis
+
+    def _show_mps_window(self, analysis: Any) -> None:
+        """Open, or refresh in place, the MPS results window."""
+        from tools.mps_results_window import MPSResultsWindow
+
+        def rerun(**kw):
+            # show_window=False: the window refreshes itself with the
+            # returned analysis, so reopening it here would recurse.
+            result = self.run_mps_analysis(show_window=False, **kw)
+            if result is None:
+                raise RuntimeError(
+                    "The analysis could not be re-run with those parameters.")
+            return result
+
+        if self.mps_window is None:
+            self.mps_window = MPSResultsWindow(
+                analysis, rerun_callback=rerun, parent=self)
+        else:
+            self.mps_window.analysis = analysis
+            self.mps_window.refresh()
+        self.mps_window.show()
+        self.mps_window.raise_()
+        self.mps_window.activateWindow()
 
     def select_file(self, channel: int) -> None:
         """
@@ -413,18 +616,37 @@ class MPS_explorer(QtWidgets.QMainWindow):
             # scaled by 133 nm regardless of the actual optical configuration.
             pxsize = self._get_pixel_size_from_yaml(filename)
             if pxsize is None:
+                # No YAML: whatever the user types (or the fallback) is a
+                # guess. Record that, because a wrong pixel size rescales
+                # every lateral distance and squares into the cluster areas
+                # without ever raising an error.
                 pxsize = self._ask_user_for_pixel_size()
+                self.pxsize_source = "manual"
+                self.logger.warning(
+                    f"No Picasso YAML sidecar for {os.path.basename(filename)}; "
+                    f"pixel size {pxsize} nm was supplied manually. All lateral "
+                    f"distances scale with it and cluster areas scale with its "
+                    f"square."
+                )
+            else:
+                self.pxsize_source = "yaml"
             self.pxsize = pxsize
-            self.logger.info(f"Using pixel size = {self.pxsize} nm for {os.path.basename(filename)}")
+            self.logger.info(
+                f"Using pixel size = {self.pxsize} nm "
+                f"(source: {self.pxsize_source}) for {os.path.basename(filename)}")
             xdata = xdata * self.pxsize
             ydata = ydata * self.pxsize
         elif fileformat == 1: # Importation procedure for ThunderSTORM csv files.
+            # Already in nanometres: no pixel-size conversion applies, and
+            # none must be invented downstream.
+            self.pxsize_source = "not_applicable"
             dataset = pd.read_csv(filename)
             headers = dataset.columns.values
             xdata = dataset[headers[np.where(headers=='x [nm]')]].values.flatten()
             ydata = dataset[headers[np.where(headers=='y [nm]')]].values.flatten()
             zdata = dataset[headers[np.where(headers=='z [nm]')]].values.flatten()
         else: # Importation procedure for custom csv files.
+            self.pxsize_source = "not_applicable"
             dataset = pd.read_csv(filename)
             data = pd.DataFrame(dataset)
             dataxyz = data.values
@@ -2012,13 +2234,23 @@ class MPS_explorer(QtWidgets.QMainWindow):
             size=CLUSTER_CENTROID_POINT_SIZE, pen=pg.mkPen('k'), brush=roi_brush  # Filled circles for centers
         )
         plotclusters.addItem(self.selectedcluscm)
-        
-        # Connect click event for center selection
-        self.selectedcluscm.sigClicked.connect(self.rx)  # rx handles center clicks
-        
+
+        # Bad clusters used to be marked by clicking each centroid (rx).
+        # They are now identified automatically and objectively -- clusters
+        # touching the ROI boundary, whose centroid and area are biased by
+        # the arbitrary cut, plus clusters failing the DBCV density-validity
+        # index. The click handler is therefore no longer connected.
+
         # Update UI with new plot
         self.empty_layout(scatter_layout_cluster)
         scatter_layout_cluster.addWidget(scatterWidgetcluster)
+
+        # Automatic curation + full per-axon analysis, on channel 1 only:
+        # betaII-spectrin is always loaded there.
+        if channel == 1:
+            self._persist_mps_settings()
+            self.run_mps_analysis(
+                show_window=self.mps_settings.auto_analyze_on_cluster)
 
     def cluster_both_channels(self) -> None:
         """
@@ -2135,6 +2367,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
     def rx(self, obj: Any, points: Any) -> None:
         """Handle clicking on cluster centers to mark them as bad.
 
+        SUPERSEDED -- no longer connected to any plot. Bad clusters are now
+        identified automatically and objectively by
+        ``tools.cluster_quality.identify_bad_clusters`` (edge-touching plus
+        DBCV validity), which runs as part of ``run_mps_analysis``. Kept so
+        the manual workflow can be restored by reconnecting
+        ``sigClicked`` if a dataset ever needs hand curation.
+
         Parameters
         ----------
         obj : Any
@@ -2210,6 +2449,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
     def dist_cm_good_clus(self) -> None:
         """
         Display the centroids of good clusters (after removing bad clusters).
+
+        SUPERSEDED -- the button that used to call this now opens the MPS
+        analysis panel, which draws the curated centroids together with the
+        reconstructed perimeter. Kept for the manual fallback described in
+        ``rx``.
 
         Renders a scatter plot of cluster centroid coordinates (X, Y) for all clusters
         that were not marked as bad by the user. If no clusters have been explicitly
@@ -2519,29 +2763,42 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 
         histzWidget3 = pg.GraphicsLayoutWidget()
         histabcm = histzWidget3.addPlot(title="distances Histogram")
-        
-        if self.lmin != None:
-            
-            self.distances = self.distances[(self.distances>self.lmin) & (self.distances<self.lmax)]
-            
-        else:
-            pass
-        
-        if self.lmax != None:
-            
-            self.distances = self.distances[(self.distances>self.lmin) & (self.distances<self.lmax)]
-            
-        else:
-            pass
-        
-        if self.bins != None:
-            
-            bins = self.bins
-        else:
-            bins = 20
-        
-        
-        histcmdist, bin_edgescmdist = np.histogram(self.distances, bins)
+
+        # The display range must not destroy data. The previous version
+        # reassigned self.distances to the filtered subset, so (a) the CSV
+        # written by savedistdata() silently lost every distance outside
+        # (lmin, lmax) -- with the default 0-800 nm window that quietly
+        # dropped real neighbours, e.g. an 836 nm 1NN in one test axon --
+        # and (b) calling this method twice filtered the already-filtered
+        # array, shrinking the data further on each redraw. Keep the full
+        # array and derive a separate view for plotting.
+        distances_full = self.distances
+        plot_distances = distances_full
+        if self.lmin is not None and self.lmax is not None:
+            in_range = ((distances_full > self.lmin)
+                        & (distances_full < self.lmax))
+            plot_distances = distances_full[in_range]
+            n_excluded = int(distances_full.size - plot_distances.size)
+            if n_excluded:
+                self.logger.info(
+                    f"KNdist_hist: {n_excluded} distance(s) outside "
+                    f"({self.lmin}, {self.lmax}) nm are hidden from the "
+                    f"histogram but kept in the exported data."
+                )
+
+        bins = self.bins if self.bins is not None else 20
+
+        if plot_distances.size == 0:
+            QtWidgets.QMessageBox.warning(
+                self, "No distances in range",
+                f"All {distances_full.size} neighbour distances fall outside "
+                f"the display range ({self.lmin}, {self.lmax}) nm.\n\n"
+                f"Widen the range to see the histogram. The underlying data "
+                f"is unchanged."
+            )
+            return
+
+        histcmdist, bin_edgescmdist = np.histogram(plot_distances, bins)
         widthcmdist = np.mean(np.diff(bin_edgescmdist))
         bincenterscmdist = np.mean(np.vstack([bin_edgescmdist[0:-1],bin_edgescmdist[1:]]), axis=0)
         bargraphcmdist = pg.BarGraphItem(x = bincenterscmdist, height = histcmdist, 
@@ -2620,6 +2877,15 @@ class MPS_explorer(QtWidgets.QMainWindow):
         event : PyQt5.QtGui.QCloseEvent
             The close event triggered by the window manager or user action.
         """
+        # Persist the analysis parameters so the next session starts where
+        # this one left off, rather than reverting to the .ui defaults.
+        try:
+            self._persist_mps_settings()
+        except Exception as exc:                          # noqa: BLE001
+            self.logger.warning(f"Could not persist MPS settings: {exc}")
+        if self.mps_window is not None:
+            self.mps_window.close()
+
         self.logger.info("=" * 80)
         self.logger.info("MPS Explorer Application Closed")
         self.logger.info("=" * 80)
