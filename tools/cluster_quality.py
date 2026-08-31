@@ -35,6 +35,8 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 
+from tools.mps_settings import DEFAULT_DBCV_THRESHOLD
+
 try:
     from hdbscan.validity import validity_index
     _HDBSCAN_AVAILABLE = True
@@ -269,7 +271,7 @@ def find_low_dbcv_clusters(
     x: NDArray[np.float64],
     y: NDArray[np.float64],
     labels: NDArray[np.int64],
-    dbcv_threshold: float = 0.0,
+    dbcv_threshold: float = DEFAULT_DBCV_THRESHOLD,
 ) -> Tuple[Set[int], Dict[int, float]]:
     """
     Identify cluster labels whose DBCV per-cluster validity score is below
@@ -277,13 +279,17 @@ def find_low_dbcv_clusters(
 
     Parameters
     ----------
-    dbcv_threshold : default 0.0. DBCV scores are roughly bounded in
-        [-1, 1]; a negative score conventionally indicates the cluster is
-        less internally coherent than it is separated from its
-        surroundings (i.e. it looks more like noise than a real cluster).
-        This default is a starting point — calibrate empirically against
-        real axon ROIs (see validate_cluster_quality.py) before relying on
-        it for published numbers.
+    dbcv_threshold : default -1.0, i.e. OFF. DBCV scores are roughly
+        bounded in [-1, 1], and were measured (on real axon ROIs, see
+        validate_cluster_quality.py) to correlate with log10(cluster area)
+        at -0.78 to -0.79: large clusters score low almost regardless of
+        shape, because DBCV measures density cohesion and a large cluster
+        is, by construction, less dense than a compact one with the same
+        point count. At the previous default of 0.0 this removed the
+        single largest cluster in every test axon checked -- exactly the
+        clusters Gazal et al. (2026) interpret as spectrin oligomers and
+        explicitly keep. Raise this only deliberately, aware it doubles as
+        a size filter.
 
     Returns
     -------
@@ -321,7 +327,7 @@ def identify_bad_clusters(
     labels: NDArray[np.int64],
     roi: Optional[ROIShape],
     edge_margin_nm: float = 25.0,
-    dbcv_threshold: float = 0.0,
+    dbcv_threshold: float = DEFAULT_DBCV_THRESHOLD,
     max_edge_removal_fraction: float = 0.5,
 ) -> BadClusterReport:
     """

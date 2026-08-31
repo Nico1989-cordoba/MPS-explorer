@@ -501,6 +501,43 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return None
 
+    def _render_good_clusters_panel(
+        self, centroids: NDArray[np.float64]
+    ) -> None:
+        """
+        Render curated cluster centroids into the main window's own "good
+        clusters" panel (blue, brush3).
+
+        This panel used to populate only after manual curation (clicking
+        each bad centroid via rx(), then dist_cm_good_clus()). Once bad-
+        cluster removal became automatic, nothing called it any more and
+        it went permanently blank -- not broken, just orphaned. Shared here
+        by run_mps_analysis (automatic path) and dist_cm_good_clus (manual
+        fallback, see its docstring) so both draw it the same way.
+
+        Safe to call with zero centroids (e.g. curation removed every
+        cluster): the panel is cleared rather than raising on an empty
+        scatter.
+        """
+        good_clusters_widget = pg.GraphicsLayoutWidget()
+        good_clusters_plot = good_clusters_widget.addPlot(
+            title="Clusters centers and distances")
+        good_clusters_plot.setAspectLocked(True)
+        good_clusters_plot.setLabels(bottom='x [nm]', left='y [nm]')
+
+        if len(centroids):
+            self.good_clusters_scatter_plot = pg.ScatterPlotItem(
+                centroids[:, 0], centroids[:, 1],
+                size=CLUSTER_CENTROID_POINT_SIZE, brush=self.brush3)
+            good_clusters_plot.addItem(self.good_clusters_scatter_plot)
+
+        if self.xroi is not None and len(self.xroi):
+            good_clusters_plot.setXRange(
+                np.min(self.xroi), np.max(self.xroi), padding=0)
+
+        self.empty_layout(self.ui.scatterlayout_goodclus)
+        self.ui.scatterlayout_goodclus.addWidget(good_clusters_widget)
+
     def run_mps_analysis(self, show_window: bool = True, **overrides) -> Optional[Any]:
         """
         Run the full Gazal-2026 per-axon pipeline on the current ROI.
@@ -589,6 +626,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # plots and exports reflect the same automatically curated set.
         self.bad_cluster_indices = sorted(analysis.bad_report.bad_labels)
         self.good_cluster_centroids = analysis.centroids
+        self._render_good_clusters_panel(analysis.centroids)
 
         if show_window:
             self._show_mps_window(analysis)
@@ -2552,27 +2590,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         - Cluster centers are displayed with size=10 pixels in blue color (brush3)
         - X/Y range is set to match the ROI boundaries
         """
-        good_clusters_widget = pg.GraphicsLayoutWidget()
-        good_clusters_plot = good_clusters_widget.addPlot(title="Clusters centers and distances")
-        good_clusters_plot.setAspectLocked(True)
-        
-        
         if len(self.good_cluster_centroids) == 0:
             self.good_cluster_centroids = self.cluster_centroids
-        else:
-            pass
+        self._render_good_clusters_panel(self.good_cluster_centroids)
 
-        self.good_clusters_scatter_plot = pg.ScatterPlotItem(self.good_cluster_centroids[:,0], self.good_cluster_centroids[:,1], size=CLUSTER_CENTROID_POINT_SIZE, brush = self.brush3)  
-        good_clusters_plot.setLabels(bottom=('x [nm]'), left=('y [nm]'))
-        good_clusters_plot.setXRange(np.min(self.xroi), np.max(self.xroi), padding=0)
-        
-        good_clusters_plot.addItem(self.good_clusters_scatter_plot)
-        
-        self.empty_layout(self.ui.scatterlayout_goodclus)
-        self.ui.scatterlayout_goodclus.addWidget(good_clusters_widget)
-        
 
-        
     def save_clus_CM(self) -> None:
         """
         Save good cluster centroids to a CSV file.
