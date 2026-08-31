@@ -20,7 +20,7 @@ import logging
 import logging.config
 import logging.handlers
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 import json
 from datetime import datetime
 
@@ -136,7 +136,7 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def load_logging_config(config_file: str) -> dict:
+def load_logging_config(config_file: str) -> Dict[str, Any]:
     """
     Load logging configuration from JSON file.
 
@@ -161,7 +161,10 @@ def load_logging_config(config_file: str) -> dict:
     """
     try:
         with open(config_file, "r", encoding="utf-8") as f:
-            return json.load(f)
+            # json.load returns Any; annotate explicitly so mypy accepts it
+            # against the declared Dict[str, Any] return type.
+            config: Dict[str, Any] = json.load(f)
+            return config
     except (FileNotFoundError, json.JSONDecodeError) as e:
         print(f"Warning: Could not load {config_file}: {e}")
         return {

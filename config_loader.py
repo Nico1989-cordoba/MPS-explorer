@@ -31,7 +31,7 @@ Usage:
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, List, Optional, Union
 import logging
 
 logger = logging.getLogger("MPS_explorer.config")
@@ -93,8 +93,8 @@ def parse_yaml_simple(yaml_str: str) -> Dict[str, Any]:
     - For complex configs, use PyYAML: pip install pyyaml
     """
     lines = yaml_str.strip().split('\n')
-    result = {}
-    stack = [result]  # Stack of dicts for nesting
+    result: Dict[str, Any] = {}
+    stack: List[Dict[str, Any]] = [result]  # Stack of dicts for nesting
     current_key = None
 
     for line in lines:
@@ -120,7 +120,7 @@ def parse_yaml_simple(yaml_str: str) -> Dict[str, Any]:
             # Parse value
             if not value_str:
                 # Nested dict
-                new_dict = {}
+                new_dict: Dict[str, Any] = {}
                 stack[-1][key] = new_dict
                 stack.append(new_dict)
             else:
@@ -245,7 +245,7 @@ def load_json_config(json_path: Path) -> Dict[str, Any]:
     """
     try:
         with open(json_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+            config: Dict[str, Any] = json.load(f)
             logger.info(f"Loaded config from {json_path}")
             return config
     except FileNotFoundError:
@@ -383,19 +383,22 @@ def _apply_env_overrides(config: Dict[str, Any]) -> None:
 def get_roi_config() -> Dict[str, Any]:
     """Get ROI configuration section."""
     config = load_config()
-    return config.get('roi', {})
+    section: Dict[str, Any] = config.get('roi', {})
+    return section
 
 
 def get_histogram_config() -> Dict[str, Any]:
     """Get histogram configuration section."""
     config = load_config()
-    return config.get('histogram', {})
+    section: Dict[str, Any] = config.get('histogram', {})
+    return section
 
 
 def get_visualization_config() -> Dict[str, Any]:
     """Get visualization configuration section."""
     config = load_config()
-    return config.get('visualization', {})
+    section: Dict[str, Any] = config.get('visualization', {})
+    return section
 
 
 def validate_config(config: Dict[str, Any]) -> bool:

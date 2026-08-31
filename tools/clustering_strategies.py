@@ -14,7 +14,7 @@ Strategy Pattern Benefits:
 
 from abc import ABC, abstractmethod
 import numpy as np
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from sklearn.cluster import DBSCAN
 import logging
 
@@ -91,7 +91,11 @@ class DBSCANStrategy(ClusteringStrategy):
         self.min_samples = min_samples
         self.metric = metric
         self.logger = logger
-        self.model = None
+        # sklearn is not stub-typed (installed without type hints, or absent
+        # entirely in the type-check CI job), so DBSCAN itself resolves to
+        # Any under --ignore-missing-imports; the explicit annotation still
+        # documents the intent and lets mypy narrow after assignment.
+        self.model: Optional[DBSCAN] = None
 
     def fit(self, data: np.ndarray) -> np.ndarray:
         """
@@ -112,7 +116,11 @@ class DBSCANStrategy(ClusteringStrategy):
             min_samples=self.min_samples,
             metric=self.metric
         )
-        labels = self.model.fit_predict(data)
+        # Explicit annotation: fit_predict's return type is Any under
+        # --ignore-missing-imports (no sklearn stubs available), so without
+        # it mypy flags "Returning Any from function declared to return
+        # ndarray" even though the runtime value genuinely is one.
+        labels: np.ndarray = self.model.fit_predict(data)
 
         if self.logger:
             n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
@@ -189,7 +197,10 @@ class HDBSCANStrategy(ClusteringStrategy):
         self.min_cluster_size = min_cluster_size
         self.metric = metric
         self.logger = logger
-        self.model = None
+        # hdbscan is imported conditionally (may be absent) and has no
+        # stubs, so Any is the honest declared type rather than a specific
+        # class reference that may not resolve consistently.
+        self.model: Optional[Any] = None
 
     def fit(self, data: np.ndarray) -> np.ndarray:
         """
@@ -211,7 +222,7 @@ class HDBSCANStrategy(ClusteringStrategy):
             metric=self.metric
         )
         self.model.fit(data)
-        labels = self.model.labels_
+        labels: np.ndarray = self.model.labels_
 
         if self.logger:
             n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
@@ -274,8 +285,8 @@ class AutoClusteringStrategy(ClusteringStrategy):
         self.min_samples = min_samples
         self.metric = metric
         self.logger = logger
-        self.strategy = None
-        self.selected_strategy_name = None
+        self.strategy: Optional[ClusteringStrategy] = None
+        self.selected_strategy_name: Optional[str] = None
 
     def fit(self, data: np.ndarray) -> np.ndarray:
         """
