@@ -143,8 +143,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.spin_dbcv.setSingleStep(0.05)
         self.spin_dbcv.setToolTip(
             "Clusters scoring below this density-validation index are removed\n"
-            "automatically. 0.0 removes clusters that look more like noise\n"
-            "than like a real cluster."
+            "automatically. OFF by default (-1.0): DBCV score correlates with\n"
+            "log(cluster area) at -0.78 to -0.79, so raising this threshold\n"
+            "also removes large clusters -- exactly the ones Gazal et al.\n"
+            "(2026) interpret as spectrin oligomers and keep. Raise only\n"
+            "deliberately."
         )
         lay.addWidget(self.spin_dbcv)
 
@@ -300,8 +303,14 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.spin_half.setValue(a.slab_half_width_nm)
         self.spin_eps.setValue(a.eps_nm)
         self.spin_min.setValue(int(a.min_samples))
-        # The DBCV threshold is an input, not an output of the analysis, so
-        # it is not read back from the result -- leave whatever the user set.
+        # Read back the threshold that actually produced this analysis,
+        # not Qt's own 0.0 spinbox default. DBCV is OFF by default (-1.0):
+        # if this were left at whatever the widget happens to show, editing
+        # ANY other control (eps, slab width, ...) would silently resend
+        # 0.0 as dbcv_threshold and re-enable a criterion measured to
+        # remove the largest, most biologically relevant clusters in an
+        # axon (log-area vs. DBCV score correlation -0.78 to -0.79).
+        self.spin_dbcv.setValue(a.dbcv_threshold)
         if a.occupancy is not None:
             self.spin_maha.setValue(a.occupancy.mahalanobis_threshold)
 

@@ -73,6 +73,7 @@ from tools.mps_spatial import (
     NNResult,
     compute_nn_distances,
 )
+from tools.mps_settings import DEFAULT_DBCV_THRESHOLD
 
 # Paper defaults (Gazal et al. 2026)
 DEFAULT_EPS_NM = 25.0
@@ -101,6 +102,7 @@ class AxonAnalysis:
     eps_nm: float
     min_samples: int
     slab_half_width_nm: float
+    dbcv_threshold: float
 
     # --- step 2: axial ---------------------------------------------------
     z_result: ZPeriodicityResult
@@ -240,6 +242,7 @@ class AxonAnalysis:
             "pixel_size_source": self.pixel_size_source,
             "eps_nm": self.eps_nm,
             "min_samples": self.min_samples,
+            "dbcv_threshold": self.dbcv_threshold,
             "slab_half_width_nm": self.slab_half_width_nm,
             "slab_zmin_nm": round(self.slab_zmin_nm, 2),
             "slab_zmax_nm": round(self.slab_zmax_nm, 2),
@@ -306,7 +309,7 @@ def analyze_axon(
     main_peak_override_nm: Optional[float] = None,
     slab_override: Optional[Tuple[float, float]] = None,
     custom_contour_order: Optional[NDArray[np.intp]] = None,
-    dbcv_threshold: float = 0.0,
+    dbcv_threshold: float = DEFAULT_DBCV_THRESHOLD,
     mahalanobis_threshold: float = 3.0,
     ellipse_mode: str = "clip",
     run_randomization: bool = True,
@@ -387,6 +390,7 @@ def analyze_axon(
         eps_nm=eps_nm,
         min_samples=min_samples,
         slab_half_width_nm=slab_half_width_nm,
+        dbcv_threshold=dbcv_threshold,
         z_result=z_result,
         slab_zmin_nm=zmin,
         slab_zmax_nm=zmax,

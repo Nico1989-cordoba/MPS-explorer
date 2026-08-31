@@ -38,7 +38,17 @@ SETTINGS_FILENAME = "mps_analysis_settings.json"
 DEFAULT_EPS_NM = 25.0
 DEFAULT_MIN_SAMPLES = 10
 DEFAULT_SLAB_HALF_WIDTH_NM = 90.0
-DEFAULT_DBCV_THRESHOLD = 0.0
+
+# DBCV is OFF by default (-1.0: no real score is ever below the metric's own
+# floor, so the criterion never fires). Measured on real axon data, log10(area)
+# vs. DBCV score correlates at -0.78 to -0.79: the score is not blind to
+# cluster size, it is dominated by it. At the previous default of 0.0 this
+# removed the largest cluster in an axon in every case checked -- exactly the
+# clusters Gazal et al. (2026) interpret as spectrin oligomers and keep. Edge-
+# touching remains the default automatic-curation criterion; DBCV is left
+# available for the user to enable deliberately, understanding that it will
+# also act as a de facto size filter.
+DEFAULT_DBCV_THRESHOLD = -1.0
 
 
 @dataclass
