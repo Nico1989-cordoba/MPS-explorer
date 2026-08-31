@@ -3,7 +3,7 @@
 **Advanced Microscopy Image Analysis Tool for Super-Resolution Data**
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Tests: 31+](https://img.shields.io/badge/Tests-31%2B%20passing-brightgreen)]()
 [![Type Hints: Complete](https://img.shields.io/badge/Type%20Hints-Complete-blue)]()
 [![Status: Production Ready](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)]()
@@ -543,7 +543,12 @@ We welcome contributions! To contribute:
 
 ## 📜 License
 
-MIT License - See [LICENSE](LICENSE) file for complete details.
+GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for the full text.
+
+MPS Explorer integrates [Gollum / ringfinder](https://github.com/cibion-conicet/Gollum)
+(Barabás, Masullo *et al.*, *Scientific Reports* **7**, 16029, 2017), which is
+GPL-3.0. GPL-3.0 is a copyleft licence, so a combined work has to be released
+under GPL-3.0 as well; this project is licensed accordingly.
 
 ---
 
@@ -587,7 +592,7 @@ MIT License - See [LICENSE](LICENSE) file for complete details.
 ✅ **Well Tested** - 31+ tests, 100% pass rate  
 ✅ **Well Documented** - 1,500+ lines of guides  
 ✅ **Extensible** - Clean code, comprehensive APIs  
-✅ **Open Source** - MIT licensed, community welcome  
+✅ **Open Source** - GPL-3.0 licensed, community welcome  
 
 ---
 
