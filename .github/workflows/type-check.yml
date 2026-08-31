@@ -26,7 +26,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install mypy numpy
+          # numpy>=2.5 ships a `type X = ...` (PEP 695) alias in its own
+          # __init__.pyi. mypy only accepts that syntax in stub files when
+          # --python-version (or, as here, .mypy.ini's python_version) is
+          # 3.12+; this project's .mypy.ini pins python_version = 3.10 to
+          # validate against its minimum supported interpreter, so newer
+          # numpy stubs abort mypy before it reaches any project file
+          # ("Type statement is only supported in Python 3.12 and greater"),
+          # regardless of which Python this job itself runs on. Pinning
+          # numpy's own version here (not the project's runtime numpy,
+          # which requirements.txt controls separately) keeps the stub
+          # syntax compatible with that check.
+          pip install mypy "numpy<2.5"
       
       - name: Run MyPy type checking
         run: |
