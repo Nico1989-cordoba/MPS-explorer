@@ -41,6 +41,7 @@ import hdbscan
 # Qt-free so the whole pipeline can be run and validated headlessly.
 from tools.cluster_quality import CircularROI, PolygonROI, SquareROI
 from tools.mps_analysis import analyze_axon
+from tools.mps_periodicity import fit_z_periodicity
 from tools.mps_settings import load_settings, save_settings
 
 # Import logging configuration
@@ -188,6 +189,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui.pushButton_saveAllClusterData.clicked.connect(lambda: self.save_all_clustered_data(1))
         self.ui.pushButton_saveAllClusterDataThunderStorm.clicked.connect(lambda: self.save_all_clustered_data_thunderstorm(1))
         
+        # Z range: remember when the user overrides the automatic value.
+        # textEdited (unlike textChanged) fires only on real keystrokes, so
+        # the pre-fill's own setText calls do not mark the field as edited.
+        self.ui.lineEdit_zmin.textEdited.connect(self._on_z_range_edited)
+        self.ui.lineEdit_zmax.textEdited.connect(self._on_z_range_edited)
+
         # Fine Tuning Parameters
         self.ui.lineEdit_latmin.textChanged.connect(self.latchange)
         self.ui.lineEdit_latmax.textChanged.connect(self.latchange)
@@ -265,6 +272,19 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.zmin: Optional[float] = None            # z slab lower bound (nm)
         self.zmax: Optional[float] = None            # z slab upper bound (nm)
 
+        # The same ROI selection BEFORE the axial range is applied. The MPS
+        # analysis fits its Gaussian mixture to the full axial distribution
+        # to obtain Delta-Z and locate the main peak; handing it the already
+        # sliced 180 nm slab would refit the mixture inside that slab and
+        # make the periodicity meaningless.
+        self.xroi_unfiltered: Optional[NDArray[np.float64]] = None
+        self.yroi_unfiltered: Optional[NDArray[np.float64]] = None
+        self.zroi_unfiltered: Optional[NDArray[np.float64]] = None
+
+        # True once the user types into Z min / Z max, after which the
+        # automatic pre-fill stops overwriting their choice.
+        self._z_range_user_edited: bool = False
+
         self.xroi2: Optional[NDArray[np.float64]] = None           # Ch2 localizations inside the ROI
         self.yroi2: Optional[NDArray[np.float64]] = None
         self.zroi2: Optional[NDArray[np.float64]] = None
@@ -307,6 +327,110 @@ class MPS_explorer(QtWidgets.QMainWindow):
     # ========================================================================
     # Gazal et al. (2026) per-axon MPS analysis
     # ========================================================================
+
+    def _on_z_range_edited(self, _text: str = "") -> None:
+        """Mark the Z range as user-controlled so the pre-fill stops touching it."""
+        if not self._z_range_user_edited:
+            self._z_range_user_edited = True
+            self.logger.debug(
+                "Z range edited manually; automatic pre-fill disabled for "
+                "this dataset."
+            )
+
+    def _compute_z_main_peak(self, z_values: NDArray[np.float64]) -> Optional[float]:
+        """
+        Locate the dominant peak of an axial distribution, in nm.
+
+        Uses the same Gaussian-mixture fit the MPS analysis uses
+        (tools.mps_periodicity), so the range shown in Z min / Z max is
+        exactly the slab the analysis will work on rather than a second,
+        slightly different estimate. Falls back to the tallest histogram
+        bin if the mixture cannot be fitted (too few localizations).
+        """
+        z = np.asarray(z_values, dtype=float).ravel()
+        z = z[np.isfinite(z)]
+        if z.size < 2:
+            return None
+        try:
+            return float(fit_z_periodicity(z).main_peak_nm)
+        except Exception as exc:                          # noqa: BLE001
+            self.logger.debug(
+                f"GMM peak estimation failed ({exc}); using histogram mode.")
+            counts, edges = np.histogram(z, bins="auto")
+            if counts.size == 0:
+                return None
+            i = int(np.argmax(counts))
+            return float((edges[i] + edges[i + 1]) / 2.0)
+
+    def _prefill_z_range(self, z_values: NDArray[np.float64]) -> None:
+        """
+        Pre-fill Z min / Z max with the +/-90 nm window around the axial peak.
+
+        This is the 180 nm slab that isolates a single MPS segment in Gazal
+        et al. (2026). Showing it in the fields means the user can see, and
+        change, the axial window the analysis will use instead of it being
+        applied invisibly. A range the user typed themselves is never
+        overwritten.
+        """
+        if self._z_range_user_edited:
+            return
+        peak = self._compute_z_main_peak(z_values)
+        if peak is None:
+            return
+        half = float(self.mps_settings.slab_half_width_nm)
+        self.ui.lineEdit_zmin.setText(f"{peak - half:.1f}")
+        self.ui.lineEdit_zmax.setText(f"{peak + half:.1f}")
+        self.logger.info(
+            f"Z range pre-filled from the axial peak at {peak:.1f} nm: "
+            f"{peak - half:.1f} .. {peak + half:.1f} nm (+/-{half:g} nm)"
+        )
+
+    def _apply_z_range(
+        self, ind_inside_roi: Optional[NDArray[np.intp]] = None
+    ) -> None:
+        """
+        Apply the Z range to the current channel-1 ROI selection.
+
+        Replaces the four copies of this logic that used to live inline in
+        each ROI-shape branch of update_ROI. Also stores the selection
+        BEFORE axial filtering, which the MPS analysis needs (see
+        self.zroi_unfiltered), and pre-fills the range on first use.
+
+        Parameters
+        ----------
+        ind_inside_roi : indices into self.z of the spatially selected
+            localizations, or None when the whole field of view is used.
+        """
+        z_all = self.z if ind_inside_roi is None else self.z[ind_inside_roi]
+
+        self.xroi_unfiltered = np.asarray(self.xroi).copy()
+        self.yroi_unfiltered = np.asarray(self.yroi).copy()
+        self.zroi_unfiltered = np.asarray(z_all).copy()
+
+        self._prefill_z_range(z_all)
+
+        zmin_text = self.ui.lineEdit_zmin.text().strip()
+        zmax_text = self.ui.lineEdit_zmax.text().strip()
+        try:
+            self.zmin = float(zmin_text) if zmin_text else None
+            self.zmax = float(zmax_text) if zmax_text else None
+        except ValueError:
+            QtWidgets.QMessageBox.warning(
+                self, "Invalid Z range",
+                "Z min and Z max must be numeric. Ignoring the axial filter "
+                "for this selection."
+            )
+            self.zmin = self.zmax = None
+
+        # Both bounds are required: filtering on one alone silently kept the
+        # other side unbounded, and comparing against None raised a TypeError.
+        if self.zmin is None or self.zmax is None:
+            self.zroi = z_all
+        else:
+            keep = (z_all > self.zmin) & (z_all < self.zmax)
+            self.zroi = z_all[keep]
+            self.xroi = self.xroi[keep]
+            self.yroi = self.yroi[keep]
 
     def _apply_mps_settings(self) -> None:
         """
@@ -415,17 +539,33 @@ class MPS_explorer(QtWidgets.QMainWindow):
         )
         params.update(overrides)
 
-        # The ROI arrays are already ROI- and (optionally) z-filtered by
-        # update_ROI. The analysis applies its own automatic 180 nm axial
-        # slab on top, which is the paper's segment selection.
+        # Feed the analysis the ROI selection BEFORE the axial range was
+        # applied. Its Gaussian mixture needs the full axial distribution to
+        # measure Delta-Z and locate the main peak; handing it the already
+        # sliced 180 nm slab would refit the mixture inside that slab and
+        # report a meaningless periodicity.
+        if self.zroi_unfiltered is not None and len(self.zroi_unfiltered):
+            x_in, y_in, z_in = (self.xroi_unfiltered,
+                                self.yroi_unfiltered,
+                                self.zroi_unfiltered)
+        else:
+            x_in, y_in, z_in = self.xroi, self.yroi, self.zroi
+
+        # When the user set the range by hand, that choice wins over the
+        # automatic slab. Left automatic, the analysis recomputes the same
+        # window the fields are showing, so no override is needed.
+        if (self._z_range_user_edited and self.zmin is not None
+                and self.zmax is not None):
+            params["slab_override"] = (self.zmin, self.zmax)
+
         self.logger.info(
-            f"MPS analysis: {len(self.xroi):,} ROI localizations, "
+            f"MPS analysis: {len(x_in):,} ROI localizations "
+            f"(axial range {'manual' if 'slab_override' in params else 'automatic'}), "
             f"eps={params['eps_nm']:g}, min_samples={params['min_samples']}"
         )
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
-            analysis = analyze_axon(
-                self.xroi, self.yroi, self.zroi, **params)
+            analysis = analyze_axon(x_in, y_in, z_in, **params)
         except Exception as exc:                          # noqa: BLE001
             QtWidgets.QApplication.restoreOverrideCursor()
             self.logger.error(f"MPS analysis failed: {exc}", exc_info=True)
@@ -496,6 +636,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
                                                                title='Select file')
                 if root.filenamedata != '':
                     self.logger.info(f"Channel 1 file selected: {root.filenamedata}")
+                    # New data means a new axial distribution, so the Z range
+                    # goes back to being derived automatically.
+                    self._z_range_user_edited = False
                     self.ui.lineEdit_filename.setText(root.filenamedata)
                     self.fileformat1 = int(self.fileformat.currentIndex())
                     self.logger.debug(f"File format: {['Picasso HDF5', 'ThunderStorm CSV', 'Custom CSV'][self.fileformat1]}")
@@ -1056,30 +1199,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
             
             self.xroi = points_inside_roi[:,0]
             self.yroi = points_inside_roi[:,1]
-                     
-            
-            # Define zmin and zmax
-            zmin = self.ui.lineEdit_zmin.text()
-            zmax = self.ui.lineEdit_zmax.text()
-            
-            # Hallazgo H04: Convert zmin and zmax to float (not int).
-            # Z-coordinates are stored as float (from dataxyz.astype(float)),
-            # so boundaries must also be float to preserve precision and avoid
-            # truncation errors when filtering z-slices.
-            self.zmin = float(zmin) if zmin else None
-            self.zmax = float(zmax) if zmax else None
-            
-            if self.zmax is None:
-                self.zroi = self.z[ind_inside_roi]
-            else:
-                zroi = self.z[ind_inside_roi]
-                indz = np.where((zroi > self.zmin) & (zroi < self.zmax))
-                self.zroi = zroi[indz]
-                self.xroi = self.xroi[indz]
-                self.yroi = self.yroi[indz]
-            
-            
-  
+
+            self._apply_z_range(ind_inside_roi)
+
         elif self.ui.radioButton_squareROI.isChecked():
             # Hallazgo 07 — Square ROI with proper guard for empty selection
             #
@@ -1111,20 +1233,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             # Get original indices of points inside ROI for z-filtering
             ind_inside_roi = np.where(mask)[0]
 
-            zmin = self.ui.lineEdit_zmin.text()
-            zmax = self.ui.lineEdit_zmax.text()
-
-            self.zmin = float(zmin) if zmin else None
-            self.zmax = float(zmax) if zmax else None
-
-            if self.zmax is None:
-                self.zroi = self.z[ind_inside_roi]
-            else:
-                zroi = self.z[ind_inside_roi]
-                indz = np.where((zroi > self.zmin) & (zroi < self.zmax))
-                self.zroi = zroi[indz]
-                self.xroi = self.xroi[indz]
-                self.yroi = self.yroi[indz]
+            self._apply_z_range(ind_inside_roi)
 
         elif self.ui.radioButton_polygonROI.isChecked():
             # Polygon ROI filtering using ray-casting algorithm
@@ -1154,20 +1263,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             # Get indices for z-filtering
             ind_inside_roi = np.where(mask)[0]
 
-            # Z-filtering
-            zmin = self.ui.lineEdit_zmin.text()
-            zmax = self.ui.lineEdit_zmax.text()
-            self.zmin = float(zmin) if zmin else None
-            self.zmax = float(zmax) if zmax else None
-
-            if self.zmax is None:
-                self.zroi = self.z[ind_inside_roi]
-            else:
-                zroi = self.z[ind_inside_roi]
-                indz = np.where((zroi > self.zmin) & (zroi < self.zmax))
-                self.zroi = zroi[indz]
-                self.xroi = self.xroi[indz]
-                self.yroi = self.yroi[indz]
+            self._apply_z_range(ind_inside_roi)
 
             n_points = len(self.data_points)
             n_selected = len(points_inside_roi)
@@ -1178,21 +1274,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
             self.xroi = self.x
             self.yroi = self.y
-            
-            zmin = self.ui.lineEdit_zmin.text()
-            zmax = self.ui.lineEdit_zmax.text()
-        
-            self.zmin = float(zmin) if zmin else None
-            self.zmax = float(zmax) if zmax else None
-        
-            if self.zmax is None:
-                self.zroi = self.z
-            else:
-                zroi = self.z
-                indz = np.where((zroi > self.zmin) & (zroi < self.zmax))
-                self.zroi = zroi[indz]
-                self.xroi = self.xroi[indz]
-                self.yroi = self.yroi[indz]
+
+            self._apply_z_range(None)
             
             
         # Final guard: after all ROI and z-filtering, check if anything remains.
