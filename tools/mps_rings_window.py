@@ -206,6 +206,13 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         table.setAlternatingRowColors(True)
 
     def _build_plots(self) -> QtWidgets.QWidget:
+        tabs = QtWidgets.QTabWidget()
+        tabs.addTab(self._build_axial_tab(), "Axial + correlation")
+        tabs.addTab(self._build_spatial_tab(), "Spatial (x,y)")
+        tabs.addTab(self._build_zhist_tab(), "Z histograms per ring")
+        return tabs
+
+    def _build_axial_tab(self) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()
         grid = QtWidgets.QGridLayout(w)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -237,6 +244,44 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         grid.setRowStretch(2, 2)
         return w
 
+    def _build_spatial_tab(self) -> QtWidgets.QWidget:
+        """Real (x, y) localizations of every segment: superimposed, to see
+        directly whether patches at the same angle really sit at the same
+        physical spot, and individually, on the SAME range so the
+        superimposed view and the small multiples are one consistent
+        picture rather than independently zoomed crops."""
+        w = QtWidgets.QWidget()
+        lay = QtWidgets.QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+        self.plot_overlay = pg.PlotWidget(
+            title="Every segment's localizations, superimposed")
+        self.plot_overlay.setAspectLocked(True)
+        self.plot_overlay.setLabels(bottom="x [nm]", left="y [nm]")
+        lay.addWidget(self.plot_overlay, stretch=3)
+
+        lay.addWidget(QtWidgets.QLabel(
+            "Each segment on its own, in nm, same x/y range as above "
+            "(linked pan/zoom)"))
+        self.spatial_grid = pg.GraphicsLayoutWidget()
+        lay.addWidget(self.spatial_grid, stretch=2)
+        return w
+
+    def _build_zhist_tab(self) -> QtWidgets.QWidget:
+        """One Z histogram per segment, on a shared axial axis so their
+        relative position along the axon is visible, unlike the pooled
+        histogram in the axial tab which cannot show one segment's own
+        internal shape separately from the others."""
+        w = QtWidgets.QWidget()
+        lay = QtWidgets.QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(QtWidgets.QLabel(
+            "Axial (z) distribution of each segment's own slab, dashed "
+            "lines mark its boundaries"))
+        self.zhist_grid = pg.GraphicsLayoutWidget()
+        lay.addWidget(self.zhist_grid)
+        return w
+
     # ------------------------------------------------------------------
     # refresh
     # ------------------------------------------------------------------
@@ -251,6 +296,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self._draw_z()
         self._draw_profiles()
         self._draw_correlation()
+        self._draw_spatial()
+        self._draw_zhist()
 
     def _sync_controls(self) -> None:
         for w in (self.combo_mode, self.spin_guard):
@@ -478,6 +525,112 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.plot_corr.setTitle(
             f"Segments {pair.index_a}-{pair.index_b}: cross-correlation over "
             f"all {c.n_rotations:,} rotations (dotted: null mean +/- 2 SD)")
+
+    def _segments_with_locs(self, field: str) -> List[Any]:
+        """(k, segment, analysis) for every segment whose ``field`` (a
+        localization array on AxonAnalysis, e.g. "x_slab") is non-empty."""
+        out = []
+        for k, (seg, an) in enumerate(zip(self.ms.segments, self.ms.analyses)):
+            if an is not None and getattr(an, field).size:
+                out.append((k, seg, an))
+        return out
+
+    def _draw_spatial(self) -> None:
+        self.plot_overlay.clear()
+        self.spatial_grid.clear()
+
+        rows = self._segments_with_locs("x_slab")
+        if not rows:
+            return
+
+        # One shared bounding box for the overlay AND every small multiple.
+        # Without it, each subplot auto-ranges to its own data and a patch
+        # that looks the same size in two segments could actually be at two
+        # different physical scales -- the plots would agree with each
+        # other by construction, which defeats the point of comparing them.
+        all_x = np.concatenate([an.x_slab for _, _, an in rows])
+        all_y = np.concatenate([an.y_slab for _, _, an in rows])
+        pad_x = 0.05 * max(float(all_x.max() - all_x.min()), 1.0)
+        pad_y = 0.05 * max(float(all_y.max() - all_y.min()), 1.0)
+        xr = (float(all_x.min() - pad_x), float(all_x.max() + pad_x))
+        yr = (float(all_y.min() - pad_y), float(all_y.max() + pad_y))
+
+        for k, seg, an in rows:
+            self.plot_overlay.addItem(pg.ScatterPlotItem(
+                an.x_slab, an.y_slab, pen=pg.mkPen(_seg_colour(k), width=1),
+                brush=None, size=4))
+        self.plot_overlay.setXRange(*xr, padding=0)
+        self.plot_overlay.setYRange(*yr, padding=0)
+
+        # setXLink/setYLink only sync FUTURE range changes (they fire off
+        # the linked view's sigRangeChanged), not the range already in
+        # place when the link is made -- verified directly: a subplot
+        # linked to one whose range never changes again afterward is left
+        # at pg's default [0,1], not the target's actual range. The range
+        # is therefore set explicitly on every subplot; the links stay so
+        # an interactive pan/zoom in one still moves the rest together.
+        #
+        # Aspect-locking then independently recomputes one axis from each
+        # widget's own pixel aspect ratio, so the displayed range can still
+        # differ slightly (a percent or so) between columns of different
+        # pixel width. No per-subplot y-axis label is set, since that title
+        # is what was making column 0 measurably narrower than the rest.
+        first: Optional[Any] = None
+        for i, (k, seg, an) in enumerate(rows):
+            p = self.spatial_grid.addPlot(
+                row=0, col=i, title=f"segment {seg.index}")
+            p.setAspectLocked(True)
+            p.addItem(pg.ScatterPlotItem(
+                an.x_slab, an.y_slab, pen=pg.mkPen(_seg_colour(k), width=1),
+                brush=None, size=3))
+            p.setLabels(bottom="x [nm]")
+            p.setXRange(*xr, padding=0)
+            p.setYRange(*yr, padding=0)
+            if first is None:
+                first = p
+            else:
+                p.setXLink(first)
+                p.setYLink(first)
+
+    def _draw_zhist(self) -> None:
+        self.zhist_grid.clear()
+
+        rows = self._segments_with_locs("z_slab")
+        if not rows:
+            return
+
+        # Shared range from the SLAB BOUNDS, not the data extent: locs
+        # thin out near the edges of a slab, so ranging on the data would
+        # crop each subplot to a different window and hide exactly the
+        # relative axial position the shared axis exists to show.
+        lo = min(seg.zmin_nm for _, seg, _ in rows)
+        hi = max(seg.zmax_nm for _, seg, _ in rows)
+        pad = 0.05 * max(hi - lo, 1.0)
+        zr = (lo - pad, hi + pad)
+
+        first: Optional[Any] = None
+        for i, (k, seg, an) in enumerate(rows):
+            colour = _seg_colour(k)
+            p = self.zhist_grid.addPlot(
+                row=0, col=i, title=f"segment {seg.index}")
+            counts, edges = np.histogram(an.z_slab, bins=40)
+            centres = (edges[:-1] + edges[1:]) / 2
+            width = float(np.mean(np.diff(edges))) if edges.size > 1 else 1.0
+            fill = QtGui.QColor(colour)
+            fill.setAlpha(170)
+            p.addItem(pg.BarGraphItem(
+                x=centres, height=counts, width=width,
+                brush=pg.mkBrush(fill), pen=None))
+            for bound in (seg.zmin_nm, seg.zmax_nm):
+                p.addItem(pg.InfiniteLine(
+                    pos=float(bound), angle=90,
+                    pen=pg.mkPen(colour, width=1, style=QtCore.Qt.DashLine)))
+            p.setLabels(bottom="z [nm]", left="count" if i == 0 else "")
+            p.setXRange(*zr, padding=0)
+            if first is None:
+                first = p
+            else:
+                p.setXLink(first)
 
     # ------------------------------------------------------------------
     # interaction
