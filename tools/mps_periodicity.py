@@ -70,6 +70,20 @@ class ZPeriodicityResult:
     converged: bool
     warnings: List[str] = field(default_factory=list)
 
+    # The complete fitted mixture, BEFORE the weight filter. Kept so the
+    # model's own account of the axial profile can be re-evaluated at any z
+    # without refitting -- which is what locating the valley between two
+    # segments needs. The discarded low-weight components are part of that
+    # density: where one of them sits between two rings, the boundary
+    # between them is genuinely less well defined, and dropping it would
+    # hide that.
+    all_means_nm: NDArray[np.float64] = field(
+        default_factory=lambda: np.array([], dtype=float))
+    all_weights: NDArray[np.float64] = field(
+        default_factory=lambda: np.array([], dtype=float))
+    all_sigmas_nm: NDArray[np.float64] = field(
+        default_factory=lambda: np.array([], dtype=float))
+
     @property
     def mean_delta_z_nm(self) -> Optional[float]:
         """Mean Delta-Z for this ROI, or None if fewer than 2 components
@@ -77,6 +91,27 @@ class ZPeriodicityResult:
         if self.delta_z_nm.size == 0:
             return None
         return float(np.mean(self.delta_z_nm))
+
+    def mixture_density(
+        self, z: NDArray[np.float64]
+    ) -> NDArray[np.float64]:
+        """
+        Probability density of the fitted mixture at ``z``, in nm^-1.
+
+        Uses every fitted component, dominant or not (see ``all_means_nm``).
+        Returns zeros when the mixture parameters are unavailable.
+        """
+        zz = np.asarray(z, dtype=float).ravel()
+        m = np.asarray(self.all_means_nm, dtype=float).ravel()
+        w = np.asarray(self.all_weights, dtype=float).ravel()
+        s = np.asarray(self.all_sigmas_nm, dtype=float).ravel()
+        if m.size == 0 or m.size != w.size or m.size != s.size:
+            return np.zeros_like(zz)
+        s = np.maximum(s, 1e-9)
+        u = (zz[:, None] - m[None, :]) / s[None, :]
+        density: NDArray[np.float64] = np.sum(
+            (w / (s * np.sqrt(2.0 * np.pi))) * np.exp(-0.5 * u ** 2), axis=1)
+        return density
 
 
 def fit_z_periodicity(
@@ -245,7 +280,160 @@ def fit_z_periodicity(
         n_discarded_components=n_discarded,
         converged=bool(best_gmm.converged_),
         warnings=warnings_,
+        all_means_nm=means_all,
+        all_weights=weights_all,
+        all_sigmas_nm=sigmas_all,
     )
+
+
+@dataclass
+class ValleyResult:
+    """Boundaries between consecutive MPS segments, and how well the axial
+    density actually separates them."""
+
+    positions_nm: NDArray[np.float64]   # one per consecutive pair of means
+    is_true_valley: NDArray[np.bool_]   # False where the midpoint was used
+    relative_depth: NDArray[np.float64]  # 0 = no dip at all, 1 = density -> 0
+    midpoints_nm: NDArray[np.float64]
+    warnings: List[str] = field(default_factory=list)
+
+    @property
+    def n_boundaries(self) -> int:
+        return int(self.positions_nm.size)
+
+    @property
+    def shift_from_midpoint_nm(self) -> NDArray[np.float64]:
+        return np.abs(self.positions_nm - self.midpoints_nm)
+
+
+def density_valleys(
+    result: ZPeriodicityResult,
+    grid_step_nm: float = 0.5,
+) -> ValleyResult:
+    """
+    Locate the axial density minimum between each pair of consecutive
+    dominant components -- the natural boundary between two MPS segments.
+
+    Splitting two overlapping slabs at the midpoint between their centres
+    assumes the density is symmetric between them. It usually is not: the
+    two rings differ in weight and width, so the lowest point of the axial
+    profile sits off-centre, and a midpoint cut assigns localizations of
+    the stronger ring to the weaker one. The minimum of the fitted mixture
+    density is where the two rings genuinely separate.
+
+    Whether they separate at all is the point of ``relative_depth``. Two
+    components broad enough relative to their spacing sum to a density with
+    no interior minimum between them: there is then no valley to cut at,
+    and no evidence in the axial profile that these are two resolved rings
+    rather than one broad distribution the mixture happened to split.
+    Measured on the 18-axon dataset, that is the case for more than half of
+    the boundaries (component sigmas of 75-90 nm against a ~190 nm
+    spacing), so this is the normal case, not a corner case. Read
+    ``relative_depth`` before treating two segments as distinct rings.
+
+    Parameters
+    ----------
+    result : a fit from ``fit_z_periodicity``.
+    grid_step_nm : sampling of the search. 0.5 nm is far below both the
+        localization precision (~20 nm) and the periodicity (~170 nm), so
+        it cannot limit the result.
+
+    Returns
+    -------
+    ValleyResult -- one entry per consecutive pair of dominant means, in
+    ascending axial order, so entry ``i`` separates component ``i`` from
+    component ``i + 1``. Empty arrays if fewer than two dominant
+    components.
+    """
+    means = np.asarray(result.means_nm, dtype=float).ravel()
+    if means.size < 2:
+        empty_f = np.array([], dtype=float)
+        return ValleyResult(
+            positions_nm=empty_f, is_true_valley=np.array([], dtype=bool),
+            relative_depth=empty_f, midpoints_nm=empty_f)
+
+    midpoints = (means[:-1] + means[1:]) / 2.0
+    if np.asarray(result.all_means_nm).size == 0:
+        return ValleyResult(
+            positions_nm=midpoints,
+            is_true_valley=np.zeros(midpoints.size, dtype=bool),
+            relative_depth=np.zeros(midpoints.size, dtype=float),
+            midpoints_nm=midpoints,
+            warnings=["Mixture parameters unavailable, so segment boundaries "
+                      "fell back to the midpoints between component means."])
+
+    at_means = result.mixture_density(means)
+
+    positions: List[float] = []
+    true_valley: List[bool] = []
+    depths: List[float] = []
+
+    for i, (lo, hi) in enumerate(zip(means[:-1], means[1:])):
+        span = hi - lo
+        if not np.isfinite(span) or span <= 0:
+            positions.append(float(midpoints[i]))
+            true_valley.append(False)
+            depths.append(0.0)
+            continue
+
+        n = int(np.clip(np.ceil(span / max(grid_step_nm, 1e-6)), 64, 20_000))
+        # Strictly between the two means: the means themselves are where the
+        # density peaks, never where it bottoms out.
+        grid = np.linspace(lo, hi, n + 2)[1:-1]
+        dens = result.mixture_density(grid)
+        k = int(np.argmin(dens))
+
+        # An interior minimum is what makes a valley a valley. When the
+        # density falls monotonically across the whole interval -- the
+        # components too broad to resolve, or one overwhelming the other --
+        # the minimum pins to an endpoint, i.e. on top of a component mean,
+        # which would leave that segment with no slab at all. The midpoint
+        # is the honest fallback, and the depth of 0 records that there was
+        # nothing to find.
+        interior = 0 < k < grid.size - 1
+        # Referenced to the shallower of the two peaks, so a weak component
+        # next to a strong one cannot inflate the apparent separation.
+        ref = float(np.min(at_means[i:i + 2]))
+        depth = (0.0 if ref <= 0
+                 else float(np.clip(1.0 - dens[k] / ref, 0.0, 1.0)))
+
+        positions.append(float(grid[k]) if interior else float(midpoints[i]))
+        true_valley.append(bool(interior))
+        depths.append(depth if interior else 0.0)
+
+    pos = np.asarray(positions, dtype=float)
+    tv = np.asarray(true_valley, dtype=bool)
+    dp = np.asarray(depths, dtype=float)
+    warnings_: List[str] = []
+
+    n_flat = int(np.count_nonzero(~tv))
+    if n_flat:
+        warnings_.append(
+            f"{n_flat} of {pos.size} segment boundary(ies) had no interior "
+            f"density minimum: those components are too broad relative to "
+            f"their spacing to be resolved as separate rings, so the boundary "
+            f"fell back to the midpoint between means. Segments either side of "
+            f"such a boundary are two halves of one unresolved axial "
+            f"distribution, not two rings."
+        )
+
+    shallow = int(np.count_nonzero(tv & (dp < 0.05)))
+    if shallow:
+        warnings_.append(
+            f"{shallow} boundary(ies) dip less than 5% below the shallower "
+            f"adjacent peak: the two segments are barely separated axially."
+        )
+
+    shift = np.abs(pos - midpoints)
+    if shift.size and np.max(shift) > 1.0:
+        warnings_.append(
+            f"Valley boundaries sit up to {np.max(shift):.0f} nm away from the "
+            f"midpoints between means (median {np.median(shift):.0f} nm)."
+        )
+
+    return ValleyResult(
+        positions_nm=pos, is_true_valley=tv, relative_depth=dp,
+        midpoints_nm=midpoints, warnings=warnings_)
 
 
 def select_mps_slab(

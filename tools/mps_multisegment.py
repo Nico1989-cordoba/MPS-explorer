@@ -52,6 +52,7 @@ from tools.mps_analysis import (
 from tools.mps_periodicity import (
     DEFAULT_SLAB_HALF_WIDTH_NM,
     ZPeriodicityResult,
+    density_valleys,
     fit_z_periodicity,
 )
 
@@ -106,14 +107,22 @@ def find_axial_segments(
           Consecutive slabs OVERLAP whenever Delta-Z < 2 * half_width_nm,
           so a localization can contribute to two segments. Measured on 18
           real axons, 13 of 33 consecutive pairs overlap at +/-90 nm.
-        - "partition": additionally clip each slab at the midpoint between
-          neighbouring component means, so every localization belongs to at
-          most one segment. Segments become narrower than 180 nm where the
-          periodicity is short, which makes them not strictly comparable to
-          the paper's.
-        Neither is "correct": overlapping slabs share data between the
-        segments being compared, while partitioned slabs are not the same
-        measurement the paper defines. The choice is the experimenter's.
+        - "valley": additionally clip each slab at the minimum of the
+          fitted axial density between neighbouring components, so every
+          localization belongs to at most one segment. Preferred over
+          "partition" for comparing consecutive segments: sharing
+          localizations between the two segments being compared inflates
+          any similarity measured between them, and the valley is where the
+          two rings actually separate.
+        - "partition": as "valley" but cutting at the midpoint between
+          neighbouring means. Kept for comparison; the midpoint assumes the
+          density between two rings is symmetric, which it is not when the
+          rings differ in weight or width.
+        None is "correct": overlapping slabs share data between the
+        segments being compared, while clipped slabs are not the same
+        measurement the paper defines (they are narrower than 180 nm
+        wherever the periodicity is short). The choice is the
+        experimenter's.
     min_locs : segments with fewer localizations than this are dropped.
     z_result : a previously computed fit, to avoid refitting.
 
@@ -136,16 +145,22 @@ def find_axial_segments(
     if means.size == 0:
         return [], z_result, warnings_ + ["No dominant axial component found."]
 
-    if mode not in ("paper", "partition"):
-        raise ValueError(f"mode must be 'paper' or 'partition', got {mode!r}")
+    if mode not in ("paper", "valley", "partition"):
+        raise ValueError(
+            f"mode must be 'paper', 'valley' or 'partition', got {mode!r}")
 
     lows = means - half_width_nm
     highs = means + half_width_nm
 
-    if mode == "partition" and means.size > 1:
-        mids = (means[:-1] + means[1:]) / 2.0
-        lows[1:] = np.maximum(lows[1:], mids)
-        highs[:-1] = np.minimum(highs[:-1], mids)
+    if mode != "paper" and means.size > 1:
+        if mode == "valley":
+            valleys = density_valleys(z_result)
+            bounds = valleys.positions_nm
+            warnings_.extend(valleys.warnings)
+        else:
+            bounds = (means[:-1] + means[1:]) / 2.0
+        lows[1:] = np.maximum(lows[1:], bounds)
+        highs[:-1] = np.minimum(highs[:-1], bounds)
 
     segments: List[AxialSegment] = []
     dropped = 0
@@ -178,7 +193,7 @@ def find_axial_segments(
             f"segment pair(s) overlap axially (up to {worst:.0f} nm), because "
             f"the periodicity is shorter than the {2 * half_width_nm:.0f} nm "
             f"slab. Those pairs share localizations, which inflates any "
-            f"similarity measured between them. Use mode='partition' for "
+            f"similarity measured between them. Use mode='valley' for "
             f"disjoint slabs."
         )
 
