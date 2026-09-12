@@ -48,7 +48,7 @@ same FFT that computes the cross-correlation, so it costs nothing.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -250,6 +250,7 @@ def coverage_profile(
     center: NDArray[np.float64],
     n_theta: int = DEFAULT_N_THETA,
     min_samples_per_bin: int = DEFAULT_MIN_SAMPLES_PER_BIN,
+    exclude_labels: Optional[Set[int]] = None,
 ) -> CoverageProfile:
     """
     Re-express one segment's perimeter occupancy as a function of angle
@@ -276,6 +277,11 @@ def coverage_profile(
         2.8 per bin, so ~6 % of bins would be empty by chance alone and the
         "gaps" they showed would be an artefact of the sampling rather than
         a property of the axon.
+    exclude_labels : cluster labels to leave out of the profile, on top of
+        the curation the occupancy already applied. Forces the mask to be
+        recomputed from the remaining ellipses. Used to ask what a
+        segment's pattern looks like once the clusters it shares with its
+        neighbour are removed.
 
     Returns
     -------
@@ -293,17 +299,30 @@ def coverage_profile(
     mask = np.asarray(occupancy.occupied_mask, dtype=bool)
     spacing = float(occupancy.point_spacing_nm)
 
+    ellipses = occupancy.ellipses
+    if exclude_labels:
+        ellipses = [e for e in ellipses if e.label not in exclude_labels]
+        if not ellipses:
+            raise ValueError(
+                "Every cluster was excluded; no coverage profile remains.")
+        warnings_.append(
+            f"{len(occupancy.ellipses) - len(ellipses)} of "
+            f"{len(occupancy.ellipses)} clusters excluded from the profile."
+        )
+
     # --- re-sample if the stored mask is too coarse for this grid --------
     n_needed = int(n_theta) * int(max(min_samples_per_bin, 1))
-    if points.shape[0] < n_needed:
-        points, total_len, spacing = discretize_perimeter(contour, n_needed)
+    if points.shape[0] < n_needed or exclude_labels:
+        n_resample = max(points.shape[0], n_needed)
+        points, total_len, spacing = discretize_perimeter(contour, n_resample)
         mask = _occupied_by_ellipses(
-            points, occupancy.ellipses, occupancy.mahalanobis_threshold)
-        warnings_.append(
-            f"Perimeter re-sampled from {occupancy.n_points:,} to "
-            f"{len(points):,} points so every one of the {n_theta:,} angular "
-            f"bins holds at least {min_samples_per_bin} samples."
-        )
+            points, ellipses, occupancy.mahalanobis_threshold)
+        if not exclude_labels:
+            warnings_.append(
+                f"Perimeter re-sampled from {occupancy.n_points:,} to "
+                f"{len(points):,} points so every one of the {n_theta:,} "
+                f"angular bins holds at least {min_samples_per_bin} samples."
+            )
     else:
         total_len = float(occupancy.perimeter_length_nm)
 

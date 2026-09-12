@@ -89,6 +89,7 @@ def find_axial_segments(
     mode: str = "paper",
     min_locs: int = DEFAULT_MIN_SAMPLES,
     z_result: Optional[ZPeriodicityResult] = None,
+    guard_nm: float = 0.0,
 ) -> Tuple[List[AxialSegment], ZPeriodicityResult, List[str]]:
     """
     Locate every MPS segment along the axon's axial coordinate.
@@ -125,6 +126,18 @@ def find_axial_segments(
         experimenter's.
     min_locs : segments with fewer localizations than this are dropped.
     z_result : a previously computed fit, to avoid refitting.
+    guard_nm : width of a dead zone centred on each boundary, excluded from
+        both neighbouring slabs. Ignored in "paper" mode, which has no
+        boundary. 0 (default) leaves the slabs touching.
+
+        This is a control, not a better segmentation. Axial localization
+        precision in 3D dSTORM (~50-80 nm) is comparable to the slab
+        thickness, so one physical ring deposits localizations on both
+        sides of a boundary: disjoint slabs share no localization yet still
+        share clusters, which alone produces similarity between
+        consecutive segments. Re-running with a guard band and watching
+        whether that similarity survives is what separates axial
+        bleed-through from a real relationship between rings.
 
     Returns
     -------
@@ -159,8 +172,10 @@ def find_axial_segments(
             warnings_.extend(valleys.warnings)
         else:
             bounds = (means[:-1] + means[1:]) / 2.0
-        lows[1:] = np.maximum(lows[1:], bounds)
-        highs[:-1] = np.minimum(highs[:-1], bounds)
+        half_guard = max(float(guard_nm), 0.0) / 2.0
+        lows[1:] = np.maximum(lows[1:], bounds + half_guard)
+        highs[:-1] = np.minimum(highs[:-1], bounds - half_guard)
+
 
     segments: List[AxialSegment] = []
     dropped = 0
@@ -180,9 +195,11 @@ def find_axial_segments(
         ))
 
     if dropped:
+        blame = (f" The {guard_nm:.0f} nm guard band may be what emptied them."
+                 if guard_nm > 0 and mode != "paper" else "")
         warnings_.append(
             f"{dropped} axial component(s) had fewer than {min_locs} "
-            f"localizations in their slab and were dropped."
+            f"localizations in their slab and were dropped.{blame}"
         )
 
     overlapping = [s for s in segments if s.overlap_with_previous_nm > 0]
@@ -523,6 +540,7 @@ def analyze_all_segments(
     source_name: str = "",
     half_width_nm: float = DEFAULT_SLAB_HALF_WIDTH_NM,
     mode: str = "paper",
+    guard_nm: float = 0.0,
     bandwidth_deg: Optional[float] = None,
     run_randomization: bool = False,
     **analyze_kwargs: Any,
@@ -535,7 +553,9 @@ def analyze_all_segments(
     ----------
     x_nm, y_nm, z_nm : the ROI's localizations, in nm, BEFORE any axial
         filtering (the mixture must see the full axial distribution).
-    mode : "paper" or "partition" (see ``find_axial_segments``).
+    mode : "paper", "valley" or "partition" (see ``find_axial_segments``).
+    guard_nm : dead zone at each boundary, as a bleed-through control (see
+        ``find_axial_segments``).
     bandwidth_deg : angular smoothing for the cross-correlation; None
         derives it from cluster density.
     run_randomization : off by default here. The randomization control is
@@ -553,7 +573,7 @@ def analyze_all_segments(
     z = np.asarray(z_nm, dtype=float).ravel()
 
     segments, z_result, warnings_ = find_axial_segments(
-        z, half_width_nm=half_width_nm, mode=mode,
+        z, half_width_nm=half_width_nm, mode=mode, guard_nm=guard_nm,
         min_locs=int(analyze_kwargs.get("min_samples", DEFAULT_MIN_SAMPLES)),
     )
 
