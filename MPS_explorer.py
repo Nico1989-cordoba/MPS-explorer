@@ -318,6 +318,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # --- Gazal 2026 per-axon analysis (set by run_mps_analysis) ---
         self.mps_analysis: Optional[Any] = None      # last AxonAnalysis
         self.mps_window: Optional[Any] = None        # results window (kept alive)
+        self.rings_window: Optional[Any] = None      # multi-segment panel
         self.mps_settings = load_settings()          # persisted across sessions
         self._apply_mps_settings()
 
@@ -647,13 +648,116 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         if self.mps_window is None:
             self.mps_window = MPSResultsWindow(
-                analysis, rerun_callback=rerun, parent=self)
+                analysis, rerun_callback=rerun, parent=self,
+                rings_callback=self.run_ring_analysis)
         else:
             self.mps_window.analysis = analysis
             self.mps_window.refresh()
         self.mps_window.show()
         self.mps_window.raise_()
         self.mps_window.activateWindow()
+
+    def run_ring_analysis(
+        self, show_window: bool = True, mode: str = "valley",
+        guard_nm: float = 0.0,
+    ) -> Optional[Any]:
+        """
+        Analyse every axial segment of the current ROI and compare
+        consecutive ones (thesis objective (e)).
+
+        Unlike ``run_mps_analysis``, which measures the single 180 nm slab
+        the paper defines, this runs that same per-segment pipeline on every
+        dominant axial component and correlates the gap/patch pattern of
+        neighbours.
+
+        Parameters
+        ----------
+        show_window : open (or refresh) the rings panel.
+        mode : slab boundaries -- "valley", "paper" or "partition".
+        guard_nm : dead zone at each boundary, as a bleed-through control.
+        """
+        from tools.mps_multisegment import analyze_all_segments
+
+        if self.xroi is None or self.zroi is None or len(self.xroi) == 0:
+            QtWidgets.QMessageBox.warning(
+                self, "No ROI selected",
+                "Load a file, draw the scatter plot and select an ROI before "
+                "running the ring analysis."
+            )
+            return None
+
+        # Same reason as in run_mps_analysis: the mixture must see the full
+        # axial distribution, not an already sliced slab.
+        if self.zroi_unfiltered is not None and len(self.zroi_unfiltered):
+            x_in, y_in, z_in = (self.xroi_unfiltered,
+                                self.yroi_unfiltered,
+                                self.zroi_unfiltered)
+        else:
+            x_in, y_in, z_in = self.xroi, self.yroi, self.zroi
+
+        s = self.mps_settings
+        self.logger.info(
+            f"Ring analysis: {len(x_in):,} ROI localizations, mode={mode}, "
+            f"guard={guard_nm:g} nm, eps={s.eps_nm:g}, "
+            f"min_samples={s.min_samples}"
+        )
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            ms = analyze_all_segments(
+                x_in, y_in, z_in,
+                source_name=self.ui.lineEdit_filename.text(),
+                mode=mode, guard_nm=guard_nm,
+                half_width_nm=s.slab_half_width_nm,
+                eps_nm=s.eps_nm, min_samples=s.min_samples,
+                dbcv_threshold=s.dbcv_threshold,
+                pixel_size_nm=self.pxsize,
+                pixel_size_source=self.pxsize_source,
+                roi=self._current_roi_shape(),
+            )
+        except Exception as exc:                          # noqa: BLE001
+            QtWidgets.QApplication.restoreOverrideCursor()
+            self.logger.error(f"Ring analysis failed: {exc}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Ring analysis failed", f"{exc}")
+            return None
+        QtWidgets.QApplication.restoreOverrideCursor()
+
+        self.logger.info(
+            f"Ring analysis: {ms.n_analyzed}/{ms.n_segments} segments "
+            f"analysed, {len(ms.pairs)} consecutive pair(s)"
+        )
+        for w in ms.warnings:
+            self.logger.warning(f"Ring analysis: {w}")
+
+        if show_window:
+            self._show_rings_window(ms, guard_nm)
+        return ms
+
+    def _show_rings_window(self, ms: Any, guard_nm: float = 0.0) -> None:
+        """Open, or refresh in place, the rings panel."""
+        from tools.mps_gaps import analyze_rings
+        from tools.mps_rings_window import MPSRingsWindow
+
+        def rerun(mode: str = "valley", guard_nm: float = 0.0):
+            result = self.run_ring_analysis(
+                show_window=False, mode=mode, guard_nm=guard_nm)
+            if result is None:
+                raise RuntimeError(
+                    "The ring analysis could not be re-run with those "
+                    "parameters.")
+            return result
+
+        if self.rings_window is None:
+            self.rings_window = MPSRingsWindow(
+                ms, rerun_callback=rerun, parent=self)
+        else:
+            self.rings_window.ms = ms
+            self.rings_window.rings = analyze_rings(ms)
+            self.rings_window.refresh()
+        self.rings_window._guard_nm = guard_nm
+        self.rings_window.show()
+        self.rings_window.raise_()
+        self.rings_window.activateWindow()
 
     def select_file(self, channel: int) -> None:
         """
@@ -2990,6 +3094,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.logger.warning(f"Could not persist MPS settings: {exc}")
         if self.mps_window is not None:
             self.mps_window.close()
+        if self.rings_window is not None:
+            self.rings_window.close()
 
         self.logger.info("=" * 80)
         self.logger.info("MPS Explorer Application Closed")

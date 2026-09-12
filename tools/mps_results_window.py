@@ -53,6 +53,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         analysis: AxonAnalysis,
         rerun_callback: Optional[Callable[..., AxonAnalysis]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
+        rings_callback: Optional[Callable[[], Any]] = None,
     ):
         """
         Parameters
@@ -63,10 +64,13 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             min_samples, dbcv_threshold) when the user edits a control;
             must return a fresh AxonAnalysis. If None, the controls are
             disabled and the window is read-only.
+        rings_callback : called when the user presses "Rings...", to open
+            the multi-segment panel. None hides that route.
         """
         super().__init__(parent)
         self.analysis = analysis
         self.rerun_callback = rerun_callback
+        self.rings_callback = rings_callback
 
         self.setWindowTitle("MPS analysis - per-axon parameters")
         self.resize(1250, 860)
@@ -175,6 +179,15 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         lay.addStretch(1)
 
+        self.btn_rings = QtWidgets.QPushButton("Rings...")
+        self.btn_rings.setToolTip(
+            "Analyse EVERY axial segment of this axon, not just this slab,\n"
+            "and compare the gap/patch pattern of consecutive segments."
+        )
+        self.btn_rings.clicked.connect(self._on_rings)
+        self.btn_rings.setEnabled(self.rings_callback is not None)
+        lay.addWidget(self.btn_rings)
+
         self.btn_reset = QtWidgets.QPushButton("Reset to paper defaults")
         self.btn_reset.clicked.connect(self._on_reset)
         lay.addWidget(self.btn_reset)
@@ -190,6 +203,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             w.setEnabled(enabled)
 
         return box
+
+    def _on_rings(self) -> None:
+        if self.rings_callback is not None:
+            self.rings_callback()
 
     def _build_left_column(self) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()

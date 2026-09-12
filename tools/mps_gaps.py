@@ -513,6 +513,133 @@ def profile_correlation(
     )
 
 
+@dataclass
+class RingPairResult:
+    """Relationship between the gap/patch patterns of two segments."""
+
+    index_a: int
+    index_b: int
+    delta_z_nm: float
+    boundary_relative_depth: Optional[float]
+    boundary_is_true_valley: Optional[bool]
+    correlation: ProfileCorrelation
+
+    def export_dict(self) -> Dict[str, Any]:
+        c = self.correlation
+        return {
+            "segment_a": self.index_a,
+            "segment_b": self.index_b,
+            "delta_z_nm": round(self.delta_z_nm, 2),
+            "boundary_relative_depth": self.boundary_relative_depth,
+            "boundary_is_true_valley": self.boundary_is_true_valley,
+            "coverage_r_at_zero": round(c.r_at_zero, 4),
+            "coverage_p_rotation": round(c.p_rotation, 6),
+            "coverage_z_vs_null": (None if c.z_vs_null is None
+                                   else round(c.z_vs_null, 3)),
+            "coverage_max_r": round(c.max_correlation, 4),
+            "coverage_best_offset_deg": round(c.best_offset_deg, 2),
+            "n_rotations": c.n_rotations,
+        }
+
+
+@dataclass
+class RingAnalysis:
+    """Gap/patch description of every segment of one axon, and the
+    correlation between consecutive ones."""
+
+    profiles: List[Optional[CoverageProfile]]
+    runs: List[Optional[GapPatchStats]]
+    pairs: List[RingPairResult]
+    warnings: List[str] = field(default_factory=list)
+
+    @property
+    def n_described(self) -> int:
+        return sum(1 for p in self.profiles if p is not None)
+
+
+def analyze_rings(
+    ms: Any,
+    n_theta: int = DEFAULT_N_THETA,
+    min_samples_per_bin: int = DEFAULT_MIN_SAMPLES_PER_BIN,
+) -> RingAnalysis:
+    """
+    Describe the gaps and patches of every segment of one axon and
+    correlate consecutive segments.
+
+    Parameters
+    ----------
+    ms : a ``tools.mps_multisegment.MultiSegmentAnalysis``. Typed loosely
+        to keep this module importable without it.
+    n_theta, min_samples_per_bin : passed to ``coverage_profile``.
+
+    Returns
+    -------
+    RingAnalysis, with one entry per segment in ``ms.segments`` order
+    (None where a segment has no perimeter occupancy to describe) and one
+    pair entry per consecutive pair that could be compared.
+    """
+    warnings_: List[str] = []
+    profiles: List[Optional[CoverageProfile]] = []
+    runs: List[Optional[GapPatchStats]] = []
+
+    if getattr(ms, "axon_center", None) is None:
+        return RingAnalysis(
+            [], [], [],
+            ["No segment yielded clusters, so there is no shared angular "
+             "origin and no gap/patch profile can be built."])
+
+    for seg, an in zip(ms.segments, ms.analyses):
+        if an is None or an.occupancy is None or an.perimeter is None:
+            profiles.append(None)
+            runs.append(None)
+            warnings_.append(
+                f"Segment {seg.index} (z = {seg.center_nm:.0f} nm) has no "
+                f"perimeter occupancy, so it has no gap/patch profile.")
+            continue
+        try:
+            prof = coverage_profile(
+                an.occupancy, an.perimeter.contour, ms.axon_center,
+                n_theta=n_theta, min_samples_per_bin=min_samples_per_bin)
+            run = gap_patch_runs(
+                an.occupancy.occupied_mask, an.occupancy.point_spacing_nm)
+        except ValueError as exc:
+            profiles.append(None)
+            runs.append(None)
+            warnings_.append(f"Segment {seg.index}: {exc}")
+            continue
+        profiles.append(prof)
+        runs.append(run)
+        warnings_.extend(
+            f"Segment {seg.index}: {w}" for w in prof.warnings
+            if "re-sampled" not in w)
+
+    pos_by_index = {s.index: k for k, s in enumerate(ms.segments)}
+    pairs: List[RingPairResult] = []
+    for p in ms.pairs:
+        ka, kb = pos_by_index.get(p.index_a), pos_by_index.get(p.index_b)
+        if ka is None or kb is None:
+            continue
+        pa, pb = profiles[ka], profiles[kb]
+        if pa is None or pb is None:
+            warnings_.append(
+                f"Segments {p.index_a}-{p.index_b} could not be compared: "
+                f"one of them has no gap/patch profile.")
+            continue
+        corr = profile_correlation(pa.coverage, pb.coverage)
+        warnings_.extend(
+            f"Segments {p.index_a}-{p.index_b}: {w}" for w in corr.warnings)
+        pairs.append(RingPairResult(
+            index_a=p.index_a, index_b=p.index_b,
+            delta_z_nm=p.delta_z_nm,
+            boundary_relative_depth=p.boundary_relative_depth,
+            boundary_is_true_valley=p.boundary_is_true_valley,
+            correlation=corr,
+        ))
+
+    return RingAnalysis(
+        profiles=profiles, runs=runs, pairs=pairs, warnings=warnings_)
+
+
 def compare_segment_coverage(
     occupancy_a: OccupancyResult,
     contour_a: NDArray[np.float64],
