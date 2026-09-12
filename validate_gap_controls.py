@@ -356,6 +356,69 @@ def main() -> int:
         print("  Reading: if the correlation collapses once shared clusters "
               "are removed, the two segments were detecting one ring twice.")
 
+    # ================================ control 5: resolved vs unresolved
+    #
+    # Most boundaries have no interior density minimum at all: the
+    # components are too broad relative to their spacing, so the two
+    # segments are two halves of one axial distribution rather than two
+    # rings. If the correlation lives only in those pairs, it is a
+    # restatement of that, not a relationship between rings.
+    print("\n" + "=" * 92)
+    print("CONTROL 5 -- RESOLVED vs UNRESOLVED BOUNDARIES: where does the "
+          "correlation live?")
+    print("=" * 92)
+    print(f"{'axon':<18} {'pair':>5} {'depth':>7} {'valley?':>8} "
+          f"{'sigma a':>8} {'sigma b':>8} {'dz':>6} {'r(0)':>7}")
+    print("-" * 92)
+
+    depth_l: List[float] = []
+    r_l: List[float] = []
+    resolved: List[bool] = []
+    for f in files:
+        x, y, z, px = data[f]
+        profs, ms = build_profiles(x, y, z, px, f, guard_nm=0.0)
+        by_index = {s.index: (s, p) for s, p in profs}
+        for pair in ms.pairs:
+            a, b = by_index.get(pair.index_a), by_index.get(pair.index_b)
+            if a is None or b is None or pair.boundary_relative_depth is None:
+                continue
+            c = profile_correlation(a[1].coverage, b[1].coverage)
+            if not np.isfinite(c.r_at_zero):
+                continue
+            depth_l.append(pair.boundary_relative_depth)
+            r_l.append(c.r_at_zero)
+            resolved.append(bool(pair.boundary_is_true_valley))
+            print(f"{label(f):<18} {f'{pair.index_a}-{pair.index_b}':>5} "
+                  f"{pair.boundary_relative_depth:>7.3f} "
+                  f"{str(bool(pair.boundary_is_true_valley)):>8} "
+                  f"{a[0].sigma_nm:>8.0f} {b[0].sigma_nm:>8.0f} "
+                  f"{pair.delta_z_nm:>6.0f} {c.r_at_zero:>+7.3f}")
+
+    dl = np.asarray(depth_l, float)
+    rl = np.asarray(r_l, float)
+    rs = np.asarray(resolved, bool)
+
+    if rl.size:
+        print()
+        summarize("real valley", rl[rs])
+        summarize("no valley (midpoint)", rl[~rs])
+        deep = dl > 0.10
+        summarize("depth > 0.10", rl[deep])
+        summarize("depth <= 0.10", rl[~deep])
+
+        if rs.any() and (~rs).any():
+            u = stats.mannwhitneyu(rl[rs], rl[~rs], alternative="two-sided")
+            print(f"\n  resolved vs unresolved : Mann-Whitney p = "
+                  f"{u.pvalue:.3f}")
+        if dl.size > 3:
+            rho, p_rho = stats.spearmanr(dl, rl)
+            print(f"  r(0) vs valley depth   : rho = {rho:+.3f}, "
+                  f"p = {p_rho:.3f}  (n = {dl.size})")
+        print("  Reading: if the correlation is confined to the unresolved "
+              "pairs, it restates that those two segments are one "
+              "distribution; if it is present in the resolved pairs too, it "
+              "is a relationship between rings.")
+
     return 0
 
 

@@ -51,6 +51,7 @@ from tools.mps_analysis import (
 )
 from tools.mps_periodicity import (
     DEFAULT_SLAB_HALF_WIDTH_NM,
+    ValleyResult,
     ZPeriodicityResult,
     density_valleys,
     fit_z_periodicity,
@@ -77,6 +78,12 @@ class AxialSegment:
     sigma_nm: float             # component standard deviation
     n_locs: int                 # localizations inside the slab
     overlap_with_previous_nm: float = 0.0
+    # Which dominant mixture component this segment came from. Not the same
+    # as ``index``, which counts only the segments that survived the
+    # min_locs filter: once a component is dropped, the two segments either
+    # side of it become "consecutive" without sharing a boundary, and only
+    # this field can tell them apart.
+    component_index: int = -1
 
     @property
     def width_nm(self) -> float:
@@ -90,7 +97,7 @@ def find_axial_segments(
     min_locs: int = DEFAULT_MIN_SAMPLES,
     z_result: Optional[ZPeriodicityResult] = None,
     guard_nm: float = 0.0,
-) -> Tuple[List[AxialSegment], ZPeriodicityResult, List[str]]:
+) -> Tuple[List[AxialSegment], ZPeriodicityResult, ValleyResult, List[str]]:
     """
     Locate every MPS segment along the axon's axial coordinate.
 
@@ -141,7 +148,10 @@ def find_axial_segments(
 
     Returns
     -------
-    (segments, z_result, warnings)
+    (segments, z_result, valleys, warnings) -- ``valleys`` describes every
+    boundary between consecutive dominant components, whether or not this
+    mode cuts there, so a caller can always ask how well two segments are
+    separated axially.
     """
     z = np.asarray(z_nm, dtype=float).ravel()
     z = z[np.isfinite(z)]
@@ -155,8 +165,11 @@ def find_axial_segments(
     weights = np.asarray(z_result.weights, dtype=float)
     sigmas = np.asarray(z_result.sigmas_nm, dtype=float)
 
+    valleys = density_valleys(z_result)
+
     if means.size == 0:
-        return [], z_result, warnings_ + ["No dominant axial component found."]
+        return ([], z_result, valleys,
+                warnings_ + ["No dominant axial component found."])
 
     if mode not in ("paper", "valley", "partition"):
         raise ValueError(
@@ -167,15 +180,13 @@ def find_axial_segments(
 
     if mode != "paper" and means.size > 1:
         if mode == "valley":
-            valleys = density_valleys(z_result)
             bounds = valleys.positions_nm
             warnings_.extend(valleys.warnings)
         else:
-            bounds = (means[:-1] + means[1:]) / 2.0
+            bounds = valleys.midpoints_nm
         half_guard = max(float(guard_nm), 0.0) / 2.0
         lows[1:] = np.maximum(lows[1:], bounds + half_guard)
         highs[:-1] = np.minimum(highs[:-1], bounds - half_guard)
-
 
     segments: List[AxialSegment] = []
     dropped = 0
@@ -192,6 +203,7 @@ def find_axial_segments(
             zmin_nm=float(lo), zmax_nm=float(hi),
             weight=float(w), sigma_nm=float(s), n_locs=n,
             overlap_with_previous_nm=overlap,
+            component_index=i,
         ))
 
     if dropped:
@@ -214,7 +226,7 @@ def find_axial_segments(
             f"disjoint slabs."
         )
 
-    return segments, z_result, warnings_
+    return segments, z_result, valleys, warnings_
 
 
 # ============================================================================
@@ -380,6 +392,14 @@ class SegmentPairComparison:
     delta_z_nm: float
     axial_overlap_nm: float
 
+    # How well the axial density separates these two segments. None when a
+    # dropped component sits between them, so they are consecutive segments
+    # without sharing a single boundary. A depth near 0 means the pair is
+    # two halves of one unresolved axial distribution rather than two
+    # rings -- read this before reading any similarity below.
+    boundary_relative_depth: Optional[float]
+    boundary_is_true_valley: Optional[bool]
+
     n_clusters_a: int
     n_clusters_b: int
     perimeter_um_a: Optional[float]
@@ -411,8 +431,23 @@ def _pair_comparison(
     an_a: Optional[AxonAnalysis], an_b: Optional[AxonAnalysis],
     center: Optional[NDArray[np.float64]],
     bandwidth_deg: Optional[float],
+    valleys: Optional[ValleyResult] = None,
 ) -> SegmentPairComparison:
     warnings_: List[str] = []
+
+    depth: Optional[float] = None
+    is_valley: Optional[bool] = None
+    if (valleys is not None
+            and seg_b.component_index == seg_a.component_index + 1
+            and 0 <= seg_a.component_index < valleys.n_boundaries):
+        depth = float(valleys.relative_depth[seg_a.component_index])
+        is_valley = bool(valleys.is_true_valley[seg_a.component_index])
+    elif seg_b.component_index != seg_a.component_index + 1:
+        warnings_.append(
+            f"Segments {seg_a.index} and {seg_b.index} are consecutive only "
+            f"because component(s) between them were dropped, so they share "
+            f"no single axial boundary."
+        )
 
     def g(an, attr):
         return None if an is None else getattr(an, attr)
@@ -454,6 +489,7 @@ def _pair_comparison(
         index_a=seg_a.index, index_b=seg_b.index,
         delta_z_nm=seg_b.center_nm - seg_a.center_nm,
         axial_overlap_nm=seg_b.overlap_with_previous_nm,
+        boundary_relative_depth=depth, boundary_is_true_valley=is_valley,
         n_clusters_a=n_a, n_clusters_b=n_b,
         perimeter_um_a=g(an_a, "perimeter_um"), perimeter_um_b=g(an_b, "perimeter_um"),
         occupancy_a=g(an_a, "occupancy_percent"), occupancy_b=g(an_b, "occupancy_percent"),
@@ -478,6 +514,7 @@ class MultiSegmentAnalysis:
     z_result: ZPeriodicityResult
     axon_center: Optional[NDArray[np.float64]]
     pairs: List[SegmentPairComparison]
+    valleys: Optional[ValleyResult] = None
     warnings: List[str] = field(default_factory=list)
 
     @property
@@ -516,6 +553,8 @@ class MultiSegmentAnalysis:
                 "segment_a": p.index_a, "segment_b": p.index_b,
                 "delta_z_nm": round(p.delta_z_nm, 2),
                 "axial_overlap_nm": round(p.axial_overlap_nm, 2),
+                "boundary_relative_depth": p.boundary_relative_depth,
+                "boundary_is_true_valley": p.boundary_is_true_valley,
                 "n_clusters_a": p.n_clusters_a, "n_clusters_b": p.n_clusters_b,
                 "perimeter_um_a": p.perimeter_um_a, "perimeter_um_b": p.perimeter_um_b,
                 "occupancy_a": p.occupancy_a, "occupancy_b": p.occupancy_b,
@@ -572,7 +611,7 @@ def analyze_all_segments(
     y = np.asarray(y_nm, dtype=float).ravel()
     z = np.asarray(z_nm, dtype=float).ravel()
 
-    segments, z_result, warnings_ = find_axial_segments(
+    segments, z_result, valleys, warnings_ = find_axial_segments(
         z, half_width_nm=half_width_nm, mode=mode, guard_nm=guard_nm,
         min_locs=int(analyze_kwargs.get("min_samples", DEFAULT_MIN_SAMPLES)),
     )
@@ -617,7 +656,7 @@ def analyze_all_segments(
         pairs.append(_pair_comparison(
             segments[i], segments[i + 1],
             analyses[i], analyses[i + 1],
-            center, bandwidth_deg,
+            center, bandwidth_deg, valleys,
         ))
 
     if len(segments) < 2:
@@ -629,5 +668,6 @@ def analyze_all_segments(
     return MultiSegmentAnalysis(
         source_name=source_name, mode=mode,
         segments=segments, analyses=analyses, z_result=z_result,
-        axon_center=center, pairs=pairs, warnings=warnings_,
+        axon_center=center, pairs=pairs, valleys=valleys,
+        warnings=warnings_,
     )
