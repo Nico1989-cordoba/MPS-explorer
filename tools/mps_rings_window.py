@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import csv
 import os
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
@@ -42,6 +42,38 @@ _C_GREEN = "#009e73"
 _C_BLUE = "#0072b2"
 _C_GREY = "#888888"
 _C_PURPLE = "#cc79a7"
+
+# MPS_explorer sets pyqtgraph's GLOBAL background to white and foreground to
+# black, so a plot built from inside the running app comes out light even
+# though the same code renders dark standalone. These plots are styled dark
+# per widget instead of changing that global: the global would flip every
+# plot in the application, and the other panels' colours were picked
+# against white. The consequence is that nothing here may rely on the
+# global foreground -- axis pens, tick text and titles all have to be set
+# explicitly, or they end up black on black.
+_PLOT_BG = "k"
+_AXIS_FG = "#b0b0b0"
+_TITLE_FG = "#e0e0e0"
+
+
+def _set_title(plot: Any, text: str) -> None:
+    """Set a plot title in the panel's title colour. Every title in this
+    module goes through here; one set without the colour renders in the
+    application's global black and disappears against the dark background."""
+    plot.setTitle(text, color=_TITLE_FG)
+
+
+def _style_dark(plot: Any) -> None:
+    """Dark background and legible axes for one PlotWidget or PlotItem."""
+    if hasattr(plot, "setBackground"):
+        plot.setBackground(_PLOT_BG)
+    item = plot.getPlotItem() if hasattr(plot, "getPlotItem") else plot
+    for side in ("left", "bottom", "right", "top"):
+        axis = item.getAxis(side)
+        if axis is None:
+            continue
+        axis.setPen(pg.mkPen(_AXIS_FG))
+        axis.setTextPen(pg.mkPen(_AXIS_FG))
 
 # One colour per segment, reused by the profile and correlation plots so a
 # segment is the same colour everywhere in the panel.
@@ -76,6 +108,11 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.ms = ms
         self.rings = rings if rings is not None else analyze_rings(ms)
         self.rerun_callback = rerun_callback
+        # Target (x, y) range shared by the overlay and the small multiples,
+        # re-applied whenever one of them is resized. See _build_spatial_tab.
+        self._spatial_range: Optional[Tuple[Tuple[float, float],
+                                            Tuple[float, float]]] = None
+        self._spatial_viewboxes: List[Any] = []
 
         self.setWindowTitle("MPS analysis - rings and gap/patch correlation")
         self.resize(1320, 880)
@@ -217,21 +254,27 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         grid = QtWidgets.QGridLayout(w)
         grid.setContentsMargins(0, 0, 0, 0)
 
-        self.plot_z = pg.PlotWidget(
-            title="Axial distribution: components, slabs and boundaries")
+        self.plot_z = pg.PlotWidget()
+        _style_dark(self.plot_z)
+        _set_title(self.plot_z,
+                   "Axial distribution: components, slabs and boundaries")
         self.plot_z.setLabels(bottom="z [nm]", left="density")
         grid.addWidget(self.plot_z, 0, 0)
 
-        self.plot_profiles = pg.PlotWidget(
-            title="Patches around the perimeter, one track per segment "
-                  "(filled = covered by spectrin)")
+        self.plot_profiles = pg.PlotWidget()
+        _style_dark(self.plot_profiles)
+        _set_title(self.plot_profiles,
+                   "Patches around the perimeter, one track per segment "
+                   "(filled = covered by spectrin)")
         self.plot_profiles.setLabels(
             bottom="angle about the axon centre [deg]", left="segment")
         self.plot_profiles.setXRange(0, 360)
         grid.addWidget(self.plot_profiles, 1, 0)
 
-        self.plot_corr = pg.PlotWidget(
-            title="Cross-correlation of the selected pair, over all rotations")
+        self.plot_corr = pg.PlotWidget()
+        _style_dark(self.plot_corr)
+        _set_title(self.plot_corr,
+                   "Cross-correlation of the selected pair, over all rotations")
         self.plot_corr.setLabels(bottom="rotation [deg]", left="r")
         # A correlation is already dimensionless and of order 0.1; the
         # automatic SI prefix relabels the axis "r (x0.001)" and prints
@@ -254,16 +297,29 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         lay = QtWidgets.QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
 
-        self.plot_overlay = pg.PlotWidget(
-            title="Every segment's localizations, superimposed")
+        self.plot_overlay = pg.PlotWidget()
+        _style_dark(self.plot_overlay)
+        _set_title(self.plot_overlay,
+                   "Every segment's localizations, superimposed")
         self.plot_overlay.setAspectLocked(True)
         self.plot_overlay.setLabels(bottom="x [nm]", left="y [nm]")
+        # An aspect-locked view keeps nm-per-pixel fixed across a resize,
+        # which means it EXPANDS the visible range as the widget grows. The
+        # range is set while these widgets are still at their pre-layout
+        # size, so by the time the window is shown every spatial plot is
+        # about twice as zoomed out as asked, with the axon adrift in empty
+        # space. Re-applying the target range on resize is what keeps the
+        # fit tight; panning and zooming do not emit this signal, so it
+        # does not fight the user.
+        self.plot_overlay.getViewBox().sigResized.connect(
+            self._reapply_spatial_range)
         lay.addWidget(self.plot_overlay, stretch=3)
 
         lay.addWidget(QtWidgets.QLabel(
             "Each segment on its own, in nm, same x/y range as above "
             "(linked pan/zoom)"))
         self.spatial_grid = pg.GraphicsLayoutWidget()
+        self.spatial_grid.setBackground(_PLOT_BG)
         lay.addWidget(self.spatial_grid, stretch=2)
         return w
 
@@ -279,6 +335,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "Axial (z) distribution of each segment's own slab, dashed "
             "lines mark its boundaries"))
         self.zhist_grid = pg.GraphicsLayoutWidget()
+        self.zhist_grid.setBackground(_PLOT_BG)
         lay.addWidget(self.zhist_grid)
         return w
 
@@ -522,7 +579,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             pen=pg.mkPen(_C_ORANGE, width=2),
             label=(f"r(0) = {c.r_at_zero:+.3f},  p = {c.p_rotation:.4f}"),
             labelOpts={"position": 0.92, "color": _C_ORANGE}))
-        self.plot_corr.setTitle(
+        _set_title(
+            self.plot_corr,
             f"Segments {pair.index_a}-{pair.index_b}: cross-correlation over "
             f"all {c.n_rotations:,} rotations (dotted: null mean +/- 2 SD)")
 
@@ -535,9 +593,20 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
                 out.append((k, seg, an))
         return out
 
+    def _reapply_spatial_range(self, *_args: Any) -> None:
+        """Put every spatial view back on the shared range. Called on each
+        resize because aspect-locking rescales the range with the widget."""
+        if self._spatial_range is None:
+            return
+        xr, yr = self._spatial_range
+        for vb in self._spatial_viewboxes:
+            vb.setRange(xRange=xr, yRange=yr, padding=0)
+
     def _draw_spatial(self) -> None:
         self.plot_overlay.clear()
         self.spatial_grid.clear()
+        self._spatial_range = None
+        self._spatial_viewboxes = []
 
         rows = self._segments_with_locs("x_slab")
         if not rows:
@@ -555,12 +624,13 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         xr = (float(all_x.min() - pad_x), float(all_x.max() + pad_x))
         yr = (float(all_y.min() - pad_y), float(all_y.max() + pad_y))
 
+        self._spatial_range = (xr, yr)
+        self._spatial_viewboxes = [self.plot_overlay.getViewBox()]
+
         for k, seg, an in rows:
             self.plot_overlay.addItem(pg.ScatterPlotItem(
                 an.x_slab, an.y_slab, pen=pg.mkPen(_seg_colour(k), width=1),
                 brush=None, size=4))
-        self.plot_overlay.setXRange(*xr, padding=0)
-        self.plot_overlay.setYRange(*yr, padding=0)
 
         # setXLink/setYLink only sync FUTURE range changes (they fire off
         # the linked view's sigRangeChanged), not the range already in
@@ -577,20 +647,25 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         # is what was making column 0 measurably narrower than the rest.
         first: Optional[Any] = None
         for i, (k, seg, an) in enumerate(rows):
-            p = self.spatial_grid.addPlot(
-                row=0, col=i, title=f"segment {seg.index}")
+            p = self.spatial_grid.addPlot(row=0, col=i)
+            _style_dark(p)
+            _set_title(p, f"segment {seg.index}")
             p.setAspectLocked(True)
             p.addItem(pg.ScatterPlotItem(
                 an.x_slab, an.y_slab, pen=pg.mkPen(_seg_colour(k), width=1),
                 brush=None, size=3))
             p.setLabels(bottom="x [nm]")
-            p.setXRange(*xr, padding=0)
-            p.setYRange(*yr, padding=0)
+            self._spatial_viewboxes.append(p.vb)
+            # These view boxes are rebuilt on every redraw, so connecting
+            # here cannot accumulate handlers the way the overlay's would.
+            p.vb.sigResized.connect(self._reapply_spatial_range)
             if first is None:
                 first = p
             else:
                 p.setXLink(first)
                 p.setYLink(first)
+
+        self._reapply_spatial_range()
 
     def _draw_zhist(self) -> None:
         self.zhist_grid.clear()
@@ -611,8 +686,9 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         first: Optional[Any] = None
         for i, (k, seg, an) in enumerate(rows):
             colour = _seg_colour(k)
-            p = self.zhist_grid.addPlot(
-                row=0, col=i, title=f"segment {seg.index}")
+            p = self.zhist_grid.addPlot(row=0, col=i)
+            _style_dark(p)
+            _set_title(p, f"segment {seg.index}")
             counts, edges = np.histogram(an.z_slab, bins=40)
             centres = (edges[:-1] + edges[1:]) / 2
             width = float(np.mean(np.diff(edges))) if edges.size > 1 else 1.0
