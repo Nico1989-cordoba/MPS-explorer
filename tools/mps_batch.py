@@ -251,7 +251,8 @@ def _icc_core(groups: Sequence[NDArray[np.float64]]) -> Optional[float]:
 
 
 def intraclass_correlation(
-    groups: Sequence[Sequence[float]], parameter: str = ""
+    groups: Sequence[Sequence[float]], parameter: str = "",
+    observation_label: str = "axon", group_label: str = "group",
 ) -> NestingDiagnostic:
     """
     One-way random-effects intraclass correlation: the share of total
@@ -268,6 +269,12 @@ def intraclass_correlation(
     Note that with very few groups the estimate is unstable -- with two
     groups it is really just restating that those two groups differ -- so
     a warning is attached below five.
+
+    Parameters
+    ----------
+    observation_label, group_label : nouns for the warning text. The same
+        arithmetic describes axons nested in animals and segments nested in
+        axons, but a message naming the wrong level is worse than none.
     """
     clean = [np.asarray([v for v in g if v is not None and np.isfinite(v)],
                         dtype=float) for g in groups]
@@ -277,15 +284,25 @@ def intraclass_correlation(
     n_obs = int(sum(g.size for g in clean))
     k = len(clean)
     if k < 2 or n_obs <= k:
-        return NestingDiagnostic(parameter, None, None, None, n_obs, k, 0.0,
-                                 ["Not enough groups or observations for an ICC."])
+        # Keyword arguments on purpose: passed positionally, the warning
+        # list lands in null_p95 (the 8th field) and the warning itself is
+        # lost, so the caller is told nothing about why there is no ICC.
+        return NestingDiagnostic(
+            parameter=parameter, icc=None, design_effect=None,
+            effective_n=None, n_observations=n_obs, n_groups=k,
+            mean_group_size=0.0,
+            warnings=[f"Not enough {group_label}s or observations for an "
+                      f"ICC."])
 
     sizes = np.array([g.size for g in clean], dtype=float)
     m = float(sizes.mean())
     icc_val = _icc_core(clean)
     if icc_val is None:
-        return NestingDiagnostic(parameter, None, None, None, n_obs, k, m,
-                                 None, ["Degenerate variance; ICC undefined."])
+        return NestingDiagnostic(
+            parameter=parameter, icc=None, design_effect=None,
+            effective_n=None, n_observations=n_obs, n_groups=k,
+            mean_group_size=m, null_p95=None,
+            warnings=["Degenerate variance; ICC undefined."])
 
     icc = float(icc_val)
     deff = 1.0 + (m - 1.0) * icc
@@ -294,21 +311,23 @@ def intraclass_correlation(
 
     if k < 5:
         warnings_.append(
-            f"Only {k} groups: this ICC is unstable and, with two groups, "
-            f"amounts to saying the groups differ. Treat it as indicative."
+            f"Only {k} {group_label}s: this ICC is unstable and, with two, "
+            f"amounts to saying the {group_label}s differ. Treat it as "
+            f"indicative."
         )
     if null_p95 is not None and icc <= null_p95:
         warnings_.append(
             f"ICC = {icc:.2f} is within what this design "
-            f"({k} groups of about {m:.0f}) reaches by chance "
+            f"({k} {group_label}s of about {m:.0f}) reaches by chance "
             f"(null 95th percentile {null_p95:.2f}). It is not evidence "
             f"of nesting."
         )
     elif icc > 0.5:
         warnings_.append(
-            f"ICC = {icc:.2f}: axons within a group behave close to "
-            f"replicates. Treating the {n_obs} axons as independent claims "
-            f"about {deff:.1f}x more evidence than the data holds."
+            f"ICC = {icc:.2f}: {observation_label}s of the same "
+            f"{group_label} behave close to replicates. Treating the {n_obs} "
+            f"{observation_label}s as independent claims about {deff:.1f}x "
+            f"more evidence than the data holds."
         )
 
     return NestingDiagnostic(
@@ -486,6 +505,197 @@ def export_batch_csv(records: Sequence[AxonRecord], path: str) -> int:
         for row in rows:
             w.writerow({k: row.get(k, "") for k in fields})
     return len(rows)
+
+
+# ============================================================================
+# Multi-segment (ring) batches
+# ============================================================================
+
+@dataclass
+class RingRecord:
+    """One axon's every-segment analysis plus where it came from.
+
+    Kept separate from ``AxonRecord`` because the observations have
+    different shapes: an axon contributes one row there, and here it
+    contributes one row per segment plus one per segment pair. Writing
+    both into one table is what makes a CSV unloadable later.
+    """
+
+    metadata: AxonMetadata
+    ms: Optional[Any] = None            # MultiSegmentAnalysis
+    rings: Optional[Any] = None         # RingAnalysis
+    error: Optional[str] = None
+
+    def _meta_row(self) -> Dict[str, Any]:
+        return {
+            "source_path": self.metadata.source_path,
+            "animal_id": self.metadata.animal_id,
+            "genotype": self.metadata.genotype,
+            "roi": self.metadata.roi,
+            "axon_id": self.metadata.axon_id,
+        }
+
+    def segment_rows(self) -> List[Dict[str, Any]]:
+        """One row per analysed segment: metadata, the per-segment
+        parameters, and that segment's gaps and patches."""
+        if self.ms is None:
+            row = self._meta_row()
+            row["error"] = self.error or "not analysed"
+            return [row]
+
+        rows = self.ms.export_rows()
+        runs = [] if self.rings is None else self.rings.runs
+        # export_rows() skips segments whose analysis failed, so it cannot
+        # be indexed against runs (which keeps a None per segment). Pair
+        # them through segment_index instead.
+        run_by_index = {
+            seg.index: run
+            for seg, run in zip(self.ms.segments, runs) if run is not None
+        }
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            merged = self._meta_row()
+            merged.update(row)
+            run = run_by_index.get(row.get("segment_index"))
+            if run is not None:
+                merged.update(run.export_dict())
+            merged["error"] = ""
+            out.append(merged)
+        return out
+
+    def pair_rows(self) -> List[Dict[str, Any]]:
+        """One row per consecutive segment pair: metadata, the axial
+        boundary between them, and their gap/patch correlation."""
+        if self.rings is None:
+            return []
+        out: List[Dict[str, Any]] = []
+        for pair in self.rings.pairs:
+            row = self._meta_row()
+            row.update(pair.export_dict())
+            out.append(row)
+        return out
+
+
+def _write_rows(rows: Sequence[Dict[str, Any]], path: str) -> int:
+    if not rows:
+        return 0
+    fields: List[str] = []
+    for row in rows:
+        for k in row:
+            if k not in fields:
+                fields.append(k)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        for row in rows:
+            w.writerow({k: row.get(k, "") for k in fields})
+    return len(rows)
+
+
+def export_ring_csvs(
+    records: Sequence[RingRecord], segment_path: str, pair_path: str
+) -> Tuple[int, int]:
+    """
+    Write the per-segment and per-pair tables.
+
+    Returns (segment rows, pair rows). Axons that failed appear in the
+    segment table with their error, so a batch never silently loses a file.
+    """
+    seg_rows: List[Dict[str, Any]] = []
+    pair_rows: List[Dict[str, Any]] = []
+    for r in records:
+        seg_rows.extend(r.segment_rows())
+        pair_rows.extend(r.pair_rows())
+    return (_write_rows(seg_rows, segment_path),
+            _write_rows(pair_rows, pair_path))
+
+
+def segment_nesting(
+    records: Sequence[RingRecord], parameter: str = "occupancy_percent"
+) -> NestingDiagnostic:
+    """
+    How much the segments of one axon resemble each other, for one
+    per-segment parameter.
+
+    A level of nesting the per-axon path never had to consider: several
+    segments now come from the SAME axon, imaged in the same acquisition,
+    and they are the observations. If they behave like replicates, a
+    comparison over segments claims more evidence than the data holds --
+    the same trap ``compare_groups`` guards against for axons within an
+    animal, one level down. Groups here are axons.
+
+    Parameters
+    ----------
+    parameter : a column of the per-segment export (for example
+        "occupancy_percent", "median_gap_nm", "n_patches").
+    """
+    groups: List[List[float]] = []
+    for r in records:
+        values: List[float] = []
+        for row in r.segment_rows():
+            v = row.get(parameter)
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(fv):
+                values.append(fv)
+        if len(values) >= 2:
+            groups.append(values)
+
+    diag = intraclass_correlation(
+        groups, parameter=parameter,
+        observation_label="segment", group_label="axon")
+    if not groups:
+        diag.warnings.append(
+            "No axon contributed two or more segments, so there is nothing "
+            "to nest: every segment is its own axon here.")
+    return diag
+
+
+def ring_batch_summary(records: Sequence[RingRecord]) -> str:
+    """Short account of what a ring batch produced."""
+    total = len(records)
+    ok = [r for r in records if r.ms is not None]
+    n_seg = sum(len(r.segment_rows()) for r in ok)
+    n_pair = sum(len(r.pair_rows()) for r in ok)
+
+    resolved = unresolved = 0
+    for r in ok:
+        for row in r.pair_rows():
+            if row.get("boundary_is_true_valley") is True:
+                resolved += 1
+            elif row.get("boundary_is_true_valley") is False:
+                unresolved += 1
+
+    # Provenance lives on each segment's AxonAnalysis, not on the
+    # multi-segment wrapper.
+    guessed = [
+        r.metadata.source_path for r in ok
+        if any(a is not None and a.pixel_size_source == "override"
+               for a in r.ms.analyses)
+    ]
+
+    lines = [
+        f"axons analysed    : {len(ok)}/{total}"
+        + (f"  ({total - len(ok)} failed)" if total - len(ok) else ""),
+        f"segments          : {n_seg}",
+        f"consecutive pairs : {n_pair}",
+        f"axially resolved  : {resolved} of {resolved + unresolved} pair(s) "
+        f"have a real density valley between them",
+    ]
+    if unresolved:
+        lines.append(
+            f"  ! {unresolved} pair(s) sit either side of a boundary with no "
+            f"density minimum: those two segments are two halves of one axial "
+            f"distribution, not two rings. Read their correlation with that "
+            f"in mind.")
+    if guessed:
+        lines.append(
+            f"  ! {len(guessed)} file(s) used a pixel size supplied by hand "
+            f"rather than from a Picasso YAML sidecar; every lateral distance "
+            f"scales with it.")
+    return "\n".join(lines)
 
 
 def batch_summary(records: Sequence[AxonRecord]) -> str:

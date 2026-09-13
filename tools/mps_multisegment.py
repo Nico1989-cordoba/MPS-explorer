@@ -51,7 +51,9 @@ from tools.mps_analysis import (
 )
 from tools.mps_periodicity import (
     DEFAULT_SLAB_HALF_WIDTH_NM,
+    ValleyResult,
     ZPeriodicityResult,
+    density_valleys,
     fit_z_periodicity,
 )
 
@@ -76,6 +78,12 @@ class AxialSegment:
     sigma_nm: float             # component standard deviation
     n_locs: int                 # localizations inside the slab
     overlap_with_previous_nm: float = 0.0
+    # Which dominant mixture component this segment came from. Not the same
+    # as ``index``, which counts only the segments that survived the
+    # min_locs filter: once a component is dropped, the two segments either
+    # side of it become "consecutive" without sharing a boundary, and only
+    # this field can tell them apart.
+    component_index: int = -1
 
     @property
     def width_nm(self) -> float:
@@ -88,7 +96,8 @@ def find_axial_segments(
     mode: str = "paper",
     min_locs: int = DEFAULT_MIN_SAMPLES,
     z_result: Optional[ZPeriodicityResult] = None,
-) -> Tuple[List[AxialSegment], ZPeriodicityResult, List[str]]:
+    guard_nm: float = 0.0,
+) -> Tuple[List[AxialSegment], ZPeriodicityResult, ValleyResult, List[str]]:
     """
     Locate every MPS segment along the axon's axial coordinate.
 
@@ -106,20 +115,43 @@ def find_axial_segments(
           Consecutive slabs OVERLAP whenever Delta-Z < 2 * half_width_nm,
           so a localization can contribute to two segments. Measured on 18
           real axons, 13 of 33 consecutive pairs overlap at +/-90 nm.
-        - "partition": additionally clip each slab at the midpoint between
-          neighbouring component means, so every localization belongs to at
-          most one segment. Segments become narrower than 180 nm where the
-          periodicity is short, which makes them not strictly comparable to
-          the paper's.
-        Neither is "correct": overlapping slabs share data between the
-        segments being compared, while partitioned slabs are not the same
-        measurement the paper defines. The choice is the experimenter's.
+        - "valley": additionally clip each slab at the minimum of the
+          fitted axial density between neighbouring components, so every
+          localization belongs to at most one segment. Preferred over
+          "partition" for comparing consecutive segments: sharing
+          localizations between the two segments being compared inflates
+          any similarity measured between them, and the valley is where the
+          two rings actually separate.
+        - "partition": as "valley" but cutting at the midpoint between
+          neighbouring means. Kept for comparison; the midpoint assumes the
+          density between two rings is symmetric, which it is not when the
+          rings differ in weight or width.
+        None is "correct": overlapping slabs share data between the
+        segments being compared, while clipped slabs are not the same
+        measurement the paper defines (they are narrower than 180 nm
+        wherever the periodicity is short). The choice is the
+        experimenter's.
     min_locs : segments with fewer localizations than this are dropped.
     z_result : a previously computed fit, to avoid refitting.
+    guard_nm : width of a dead zone centred on each boundary, excluded from
+        both neighbouring slabs. Ignored in "paper" mode, which has no
+        boundary. 0 (default) leaves the slabs touching.
+
+        This is a control, not a better segmentation. Axial localization
+        precision in 3D dSTORM (~50-80 nm) is comparable to the slab
+        thickness, so one physical ring deposits localizations on both
+        sides of a boundary: disjoint slabs share no localization yet still
+        share clusters, which alone produces similarity between
+        consecutive segments. Re-running with a guard band and watching
+        whether that similarity survives is what separates axial
+        bleed-through from a real relationship between rings.
 
     Returns
     -------
-    (segments, z_result, warnings)
+    (segments, z_result, valleys, warnings) -- ``valleys`` describes every
+    boundary between consecutive dominant components, whether or not this
+    mode cuts there, so a caller can always ask how well two segments are
+    separated axially.
     """
     z = np.asarray(z_nm, dtype=float).ravel()
     z = z[np.isfinite(z)]
@@ -133,19 +165,28 @@ def find_axial_segments(
     weights = np.asarray(z_result.weights, dtype=float)
     sigmas = np.asarray(z_result.sigmas_nm, dtype=float)
 
-    if means.size == 0:
-        return [], z_result, warnings_ + ["No dominant axial component found."]
+    valleys = density_valleys(z_result)
 
-    if mode not in ("paper", "partition"):
-        raise ValueError(f"mode must be 'paper' or 'partition', got {mode!r}")
+    if means.size == 0:
+        return ([], z_result, valleys,
+                warnings_ + ["No dominant axial component found."])
+
+    if mode not in ("paper", "valley", "partition"):
+        raise ValueError(
+            f"mode must be 'paper', 'valley' or 'partition', got {mode!r}")
 
     lows = means - half_width_nm
     highs = means + half_width_nm
 
-    if mode == "partition" and means.size > 1:
-        mids = (means[:-1] + means[1:]) / 2.0
-        lows[1:] = np.maximum(lows[1:], mids)
-        highs[:-1] = np.minimum(highs[:-1], mids)
+    if mode != "paper" and means.size > 1:
+        if mode == "valley":
+            bounds = valleys.positions_nm
+            warnings_.extend(valleys.warnings)
+        else:
+            bounds = valleys.midpoints_nm
+        half_guard = max(float(guard_nm), 0.0) / 2.0
+        lows[1:] = np.maximum(lows[1:], bounds + half_guard)
+        highs[:-1] = np.minimum(highs[:-1], bounds - half_guard)
 
     segments: List[AxialSegment] = []
     dropped = 0
@@ -162,12 +203,15 @@ def find_axial_segments(
             zmin_nm=float(lo), zmax_nm=float(hi),
             weight=float(w), sigma_nm=float(s), n_locs=n,
             overlap_with_previous_nm=overlap,
+            component_index=i,
         ))
 
     if dropped:
+        blame = (f" The {guard_nm:.0f} nm guard band may be what emptied them."
+                 if guard_nm > 0 and mode != "paper" else "")
         warnings_.append(
             f"{dropped} axial component(s) had fewer than {min_locs} "
-            f"localizations in their slab and were dropped."
+            f"localizations in their slab and were dropped.{blame}"
         )
 
     overlapping = [s for s in segments if s.overlap_with_previous_nm > 0]
@@ -178,11 +222,11 @@ def find_axial_segments(
             f"segment pair(s) overlap axially (up to {worst:.0f} nm), because "
             f"the periodicity is shorter than the {2 * half_width_nm:.0f} nm "
             f"slab. Those pairs share localizations, which inflates any "
-            f"similarity measured between them. Use mode='partition' for "
+            f"similarity measured between them. Use mode='valley' for "
             f"disjoint slabs."
         )
 
-    return segments, z_result, warnings_
+    return segments, z_result, valleys, warnings_
 
 
 # ============================================================================
@@ -348,6 +392,14 @@ class SegmentPairComparison:
     delta_z_nm: float
     axial_overlap_nm: float
 
+    # How well the axial density separates these two segments. None when a
+    # dropped component sits between them, so they are consecutive segments
+    # without sharing a single boundary. A depth near 0 means the pair is
+    # two halves of one unresolved axial distribution rather than two
+    # rings -- read this before reading any similarity below.
+    boundary_relative_depth: Optional[float]
+    boundary_is_true_valley: Optional[bool]
+
     n_clusters_a: int
     n_clusters_b: int
     perimeter_um_a: Optional[float]
@@ -379,8 +431,23 @@ def _pair_comparison(
     an_a: Optional[AxonAnalysis], an_b: Optional[AxonAnalysis],
     center: Optional[NDArray[np.float64]],
     bandwidth_deg: Optional[float],
+    valleys: Optional[ValleyResult] = None,
 ) -> SegmentPairComparison:
     warnings_: List[str] = []
+
+    depth: Optional[float] = None
+    is_valley: Optional[bool] = None
+    if (valleys is not None
+            and seg_b.component_index == seg_a.component_index + 1
+            and 0 <= seg_a.component_index < valleys.n_boundaries):
+        depth = float(valleys.relative_depth[seg_a.component_index])
+        is_valley = bool(valleys.is_true_valley[seg_a.component_index])
+    elif seg_b.component_index != seg_a.component_index + 1:
+        warnings_.append(
+            f"Segments {seg_a.index} and {seg_b.index} are consecutive only "
+            f"because component(s) between them were dropped, so they share "
+            f"no single axial boundary."
+        )
 
     def g(an, attr):
         return None if an is None else getattr(an, attr)
@@ -422,6 +489,7 @@ def _pair_comparison(
         index_a=seg_a.index, index_b=seg_b.index,
         delta_z_nm=seg_b.center_nm - seg_a.center_nm,
         axial_overlap_nm=seg_b.overlap_with_previous_nm,
+        boundary_relative_depth=depth, boundary_is_true_valley=is_valley,
         n_clusters_a=n_a, n_clusters_b=n_b,
         perimeter_um_a=g(an_a, "perimeter_um"), perimeter_um_b=g(an_b, "perimeter_um"),
         occupancy_a=g(an_a, "occupancy_percent"), occupancy_b=g(an_b, "occupancy_percent"),
@@ -446,6 +514,7 @@ class MultiSegmentAnalysis:
     z_result: ZPeriodicityResult
     axon_center: Optional[NDArray[np.float64]]
     pairs: List[SegmentPairComparison]
+    valleys: Optional[ValleyResult] = None
     warnings: List[str] = field(default_factory=list)
 
     @property
@@ -484,6 +553,8 @@ class MultiSegmentAnalysis:
                 "segment_a": p.index_a, "segment_b": p.index_b,
                 "delta_z_nm": round(p.delta_z_nm, 2),
                 "axial_overlap_nm": round(p.axial_overlap_nm, 2),
+                "boundary_relative_depth": p.boundary_relative_depth,
+                "boundary_is_true_valley": p.boundary_is_true_valley,
                 "n_clusters_a": p.n_clusters_a, "n_clusters_b": p.n_clusters_b,
                 "perimeter_um_a": p.perimeter_um_a, "perimeter_um_b": p.perimeter_um_b,
                 "occupancy_a": p.occupancy_a, "occupancy_b": p.occupancy_b,
@@ -508,6 +579,7 @@ def analyze_all_segments(
     source_name: str = "",
     half_width_nm: float = DEFAULT_SLAB_HALF_WIDTH_NM,
     mode: str = "paper",
+    guard_nm: float = 0.0,
     bandwidth_deg: Optional[float] = None,
     run_randomization: bool = False,
     **analyze_kwargs: Any,
@@ -520,7 +592,9 @@ def analyze_all_segments(
     ----------
     x_nm, y_nm, z_nm : the ROI's localizations, in nm, BEFORE any axial
         filtering (the mixture must see the full axial distribution).
-    mode : "paper" or "partition" (see ``find_axial_segments``).
+    mode : "paper", "valley" or "partition" (see ``find_axial_segments``).
+    guard_nm : dead zone at each boundary, as a bleed-through control (see
+        ``find_axial_segments``).
     bandwidth_deg : angular smoothing for the cross-correlation; None
         derives it from cluster density.
     run_randomization : off by default here. The randomization control is
@@ -537,8 +611,8 @@ def analyze_all_segments(
     y = np.asarray(y_nm, dtype=float).ravel()
     z = np.asarray(z_nm, dtype=float).ravel()
 
-    segments, z_result, warnings_ = find_axial_segments(
-        z, half_width_nm=half_width_nm, mode=mode,
+    segments, z_result, valleys, warnings_ = find_axial_segments(
+        z, half_width_nm=half_width_nm, mode=mode, guard_nm=guard_nm,
         min_locs=int(analyze_kwargs.get("min_samples", DEFAULT_MIN_SAMPLES)),
     )
 
@@ -582,7 +656,7 @@ def analyze_all_segments(
         pairs.append(_pair_comparison(
             segments[i], segments[i + 1],
             analyses[i], analyses[i + 1],
-            center, bandwidth_deg,
+            center, bandwidth_deg, valleys,
         ))
 
     if len(segments) < 2:
@@ -594,5 +668,6 @@ def analyze_all_segments(
     return MultiSegmentAnalysis(
         source_name=source_name, mode=mode,
         segments=segments, analyses=analyses, z_result=z_result,
-        axon_center=center, pairs=pairs, warnings=warnings_,
+        axon_center=center, pairs=pairs, valleys=valleys,
+        warnings=warnings_,
     )
