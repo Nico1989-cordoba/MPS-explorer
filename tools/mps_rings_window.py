@@ -36,6 +36,7 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools.mps_gaps import RingAnalysis, analyze_rings
+from tools.mps_plot_style import PLOT_BG, set_title, style_dark
 
 _C_ORANGE = "#d55e00"
 _C_GREEN = "#009e73"
@@ -43,40 +44,9 @@ _C_BLUE = "#0072b2"
 _C_GREY = "#888888"
 _C_PURPLE = "#cc79a7"
 
-# MPS_explorer sets pyqtgraph's GLOBAL background to white and foreground to
-# black, so a plot built from inside the running app comes out light even
-# though the same code renders dark standalone. These plots are styled dark
-# per widget instead of changing that global: the global would flip every
-# plot in the application, and the other panels' colours were picked
-# against white. The consequence is that nothing here may rely on the
-# global foreground -- axis pens, tick text and titles all have to be set
-# explicitly, or they end up black on black.
-_PLOT_BG = "k"
-_AXIS_FG = "#b0b0b0"
-_TITLE_FG = "#e0e0e0"
-
-
-def _set_title(plot: Any, text: str) -> None:
-    """Set a plot title in the panel's title colour. Every title in this
-    module goes through here; one set without the colour renders in the
-    application's global black and disappears against the dark background."""
-    plot.setTitle(text, color=_TITLE_FG)
-
-
-def _style_dark(plot: Any) -> None:
-    """Dark background and legible axes for one PlotWidget or PlotItem."""
-    if hasattr(plot, "setBackground"):
-        plot.setBackground(_PLOT_BG)
-    item = plot.getPlotItem() if hasattr(plot, "getPlotItem") else plot
-    for side in ("left", "bottom", "right", "top"):
-        axis = item.getAxis(side)
-        if axis is None:
-            continue
-        axis.setPen(pg.mkPen(_AXIS_FG))
-        axis.setTextPen(pg.mkPen(_AXIS_FG))
-
-# One colour per segment, reused by the profile and correlation plots so a
-# segment is the same colour everywhere in the panel.
+# One colour per segment, reused by every plot in the panel so a segment
+# is the same colour in the table, the tracks, the scatter and the
+# histograms.
 _SEGMENT_COLOURS = (_C_BLUE, _C_ORANGE, _C_GREEN, _C_PURPLE, "#56b4e9")
 
 
@@ -255,15 +225,15 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         grid.setContentsMargins(0, 0, 0, 0)
 
         self.plot_z = pg.PlotWidget()
-        _style_dark(self.plot_z)
-        _set_title(self.plot_z,
+        style_dark(self.plot_z)
+        set_title(self.plot_z,
                    "Axial distribution: components, slabs and boundaries")
         self.plot_z.setLabels(bottom="z [nm]", left="density")
         grid.addWidget(self.plot_z, 0, 0)
 
         self.plot_profiles = pg.PlotWidget()
-        _style_dark(self.plot_profiles)
-        _set_title(self.plot_profiles,
+        style_dark(self.plot_profiles)
+        set_title(self.plot_profiles,
                    "Patches around the perimeter, one track per segment "
                    "(filled = covered by spectrin)")
         self.plot_profiles.setLabels(
@@ -272,8 +242,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         grid.addWidget(self.plot_profiles, 1, 0)
 
         self.plot_corr = pg.PlotWidget()
-        _style_dark(self.plot_corr)
-        _set_title(self.plot_corr,
+        style_dark(self.plot_corr)
+        set_title(self.plot_corr,
                    "Cross-correlation of the selected pair, over all rotations")
         self.plot_corr.setLabels(bottom="rotation [deg]", left="r")
         # A correlation is already dimensionless and of order 0.1; the
@@ -298,8 +268,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
 
         self.plot_overlay = pg.PlotWidget()
-        _style_dark(self.plot_overlay)
-        _set_title(self.plot_overlay,
+        style_dark(self.plot_overlay)
+        set_title(self.plot_overlay,
                    "Every segment's localizations, superimposed")
         self.plot_overlay.setAspectLocked(True)
         self.plot_overlay.setLabels(bottom="x [nm]", left="y [nm]")
@@ -319,7 +289,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "Each segment on its own, in nm, same x/y range as above "
             "(linked pan/zoom)"))
         self.spatial_grid = pg.GraphicsLayoutWidget()
-        self.spatial_grid.setBackground(_PLOT_BG)
+        self.spatial_grid.setBackground(PLOT_BG)
         lay.addWidget(self.spatial_grid, stretch=2)
         return w
 
@@ -335,7 +305,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "Axial (z) distribution of each segment's own slab, dashed "
             "lines mark its boundaries"))
         self.zhist_grid = pg.GraphicsLayoutWidget()
-        self.zhist_grid.setBackground(_PLOT_BG)
+        self.zhist_grid.setBackground(PLOT_BG)
         lay.addWidget(self.zhist_grid)
         return w
 
@@ -579,7 +549,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             pen=pg.mkPen(_C_ORANGE, width=2),
             label=(f"r(0) = {c.r_at_zero:+.3f},  p = {c.p_rotation:.4f}"),
             labelOpts={"position": 0.92, "color": _C_ORANGE}))
-        _set_title(
+        set_title(
             self.plot_corr,
             f"Segments {pair.index_a}-{pair.index_b}: cross-correlation over "
             f"all {c.n_rotations:,} rotations (dotted: null mean +/- 2 SD)")
@@ -648,8 +618,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         first: Optional[Any] = None
         for i, (k, seg, an) in enumerate(rows):
             p = self.spatial_grid.addPlot(row=0, col=i)
-            _style_dark(p)
-            _set_title(p, f"segment {seg.index}")
+            style_dark(p)
+            set_title(p, f"segment {seg.index}")
             p.setAspectLocked(True)
             p.addItem(pg.ScatterPlotItem(
                 an.x_slab, an.y_slab, pen=pg.mkPen(_seg_colour(k), width=1),
@@ -687,8 +657,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         for i, (k, seg, an) in enumerate(rows):
             colour = _seg_colour(k)
             p = self.zhist_grid.addPlot(row=0, col=i)
-            _style_dark(p)
-            _set_title(p, f"segment {seg.index}")
+            style_dark(p)
+            set_title(p, f"segment {seg.index}")
             counts, edges = np.histogram(an.z_slab, bins=40)
             centres = (edges[:-1] + edges[1:]) / 2
             width = float(np.mean(np.diff(edges))) if edges.size > 1 else 1.0

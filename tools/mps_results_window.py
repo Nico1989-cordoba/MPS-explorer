@@ -36,6 +36,7 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools.mps_analysis import AxonAnalysis
+from tools.mps_plot_style import AXIS_FG, set_title, style_dark
 
 
 # Colour-blind-safe palette, matching the one already used in MPS_explorer.
@@ -43,6 +44,9 @@ _C_ORANGE = "#d55e00"
 _C_GREEN = "#009e73"
 _C_BLUE = "#0072b2"
 _C_GREY = "#888888"
+# Outline for filled markers. Was black, to make them crisp against the
+# white background these plots used to have.
+_C_DARK_OUTLINE = "#e0e0e0"
 
 
 class MPSResultsWindow(QtWidgets.QMainWindow):
@@ -244,27 +248,39 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         grid = QtWidgets.QGridLayout(w)
         grid.setContentsMargins(0, 0, 0, 0)
 
-        self.plot_contour = pg.PlotWidget(title="Clusters and reconstructed perimeter")
+        self.plot_contour = pg.PlotWidget()
+        style_dark(self.plot_contour)
+        set_title(self.plot_contour, "Clusters and reconstructed perimeter")
         self.plot_contour.setAspectLocked(True)
         self.plot_contour.setLabels(bottom="x [nm]", left="y [nm]")
         grid.addWidget(self.plot_contour, 0, 0, 2, 1)
 
-        self.plot_z = pg.PlotWidget(title="Axial (z) distribution, GMM fit and slab")
+        self.plot_z = pg.PlotWidget()
+        style_dark(self.plot_z)
+        set_title(self.plot_z, "Axial (z) distribution, GMM fit and slab")
         self.plot_z.setLabels(bottom="z [nm]", left="density")
         grid.addWidget(self.plot_z, 0, 1)
 
-        self.plot_area = pg.PlotWidget(title="Cluster area")
+        self.plot_area = pg.PlotWidget()
+        style_dark(self.plot_area)
+        set_title(self.plot_area, "Cluster area")
         self.plot_area.setLabels(bottom="area [nm^2]", left="count")
         grid.addWidget(self.plot_area, 1, 1)
 
-        self.plot_nn = pg.PlotWidget(title="1NN distance between cluster centres")
+        self.plot_nn = pg.PlotWidget()
+        style_dark(self.plot_nn)
+        set_title(self.plot_nn, "1NN distance between cluster centres")
         self.plot_nn.setLabels(bottom="distance [nm]", left="count")
         grid.addWidget(self.plot_nn, 2, 0)
 
-        self.plot_cdf = pg.PlotWidget(
-            title="1NN CDF: observed vs randomized")
+        self.plot_cdf = pg.PlotWidget()
+        style_dark(self.plot_cdf)
+        set_title(self.plot_cdf, "1NN CDF: observed vs randomized")
         self.plot_cdf.setLabels(bottom="distance [nm]", left="cumulative")
-        self.plot_cdf.addLegend(offset=(-10, 10))
+        # The legend takes its text colour from the application's global
+        # foreground, which is black: on the dark background it would be an
+        # empty box.
+        self.plot_cdf.addLegend(offset=(-10, 10), labelTextColor=AXIS_FG)
         grid.addWidget(self.plot_cdf, 2, 1)
 
         grid.setColumnStretch(0, 1)
@@ -462,7 +478,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if a.centroids.size:
             self.plot_contour.addItem(pg.ScatterPlotItem(
                 a.centroids[:, 0], a.centroids[:, 1], size=7,
-                pen=pg.mkPen("k"), brush=pg.mkBrush(_C_GREEN)))
+                pen=pg.mkPen(_C_DARK_OUTLINE), brush=pg.mkBrush(_C_GREEN)))
 
     def _draw_z(self) -> None:
         a = self.analysis
