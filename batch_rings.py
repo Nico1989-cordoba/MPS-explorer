@@ -40,6 +40,7 @@ from tools.mps_batch import (  # noqa: E402
 )
 from tools.mps_gaps import analyze_rings  # noqa: E402
 from tools.mps_io import (  # noqa: E402
+    duplicate_sources,
     find_localization_files,
     load_localizations,
 )
@@ -107,8 +108,24 @@ def main(argv: List[str]) -> int:
     print(f"{len(files)} file(s) under {args.data_root}")
     if skipped:
         print(f"{len(skipped)} skipped as MPS Explorer's own derived output "
-              f"(cluster centres, neighbour distances, filtered clusters); "
-              f"--include-derived to analyse them anyway")
+              f"(cluster centres, ROI exports, neighbour distances, filtered "
+              f"clusters); --include-derived to analyse them anyway")
+
+    # A derived suffix nobody has added to DERIVED_SUFFIXES yet shows up
+    # here as two files claiming the same acquisition. Analysing both
+    # counts one axon twice, which inflates every n and makes the nesting
+    # statistics below describe the duplication rather than the biology.
+    collisions = duplicate_sources(files)
+    if collisions:
+        print(f"\n! {len(collisions)} acquisition(s) appear more than once "
+              f"among the files to analyse. Each will be counted as a "
+              f"separate axon, so every n below is inflated:")
+        for stem, paths in sorted(collisions.items()):
+            print(f"    {stem}")
+            for path in paths:
+                print(f"      {os.path.basename(path)}")
+        print("  Use --pattern to narrow the selection, or move the extra "
+              "copies out of the folder.\n")
     print(f"mode={args.mode} guard={args.guard:g} nm eps={args.eps:g} "
           f"min_samples={args.min_samples} half_width={args.half_width:g}\n")
 

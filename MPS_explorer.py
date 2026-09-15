@@ -42,6 +42,7 @@ import hdbscan
 from tools.cluster_quality import CircularROI, PolygonROI, SquareROI
 from tools.mps_analysis import analyze_axon
 from tools.mps_periodicity import fit_z_periodicity
+from tools import mps_io
 from tools.mps_settings import load_settings, save_settings
 
 # Import logging configuration
@@ -236,11 +237,22 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         # --- raw data loaded from file (set by select_file / import_file) ---
         self.pxsize: Optional[float] = None          # effective pixel size in nm (from YAML or user)
-        # Where pxsize came from: "yaml" | "manual" | "unknown". A pixel size
-        # that did not come from the Picasso YAML silently rescales every
-        # lateral distance (and, squared, every cluster area), so its
-        # provenance travels with the analysis and into the exported CSV.
+        # Where pxsize came from: "yaml" | "hdf5" | "yaml_scan" | "manual" |
+        # "not_applicable" | "unknown". A pixel size that did not come from
+        # the Picasso metadata silently rescales every lateral distance
+        # (and, squared, every cluster area), so its provenance travels with
+        # the analysis and into the exported CSV.
         self.pxsize_source: str = "unknown"
+
+        # The complete loaded file per channel: every column of the source
+        # table plus Picasso's processing chain. xdata/ydata/zdata below are
+        # the three coordinate arrays taken out of these, kept as separate
+        # attributes because the whole application already reads them that
+        # way. Anything that needs `frame` (binding events, dark times,
+        # sticking rejection) or `lpx/lpy/lpz` (is this structure wide, or
+        # is this measurement imprecise?) reads it from here instead.
+        self.locs1: Optional[mps_io.Localizations] = None
+        self.locs2: Optional[mps_io.Localizations] = None
 
         # Channel 1 raw coordinates (pixel→nm converted)
         self.xdata: Optional[NDArray[np.float64]] = None
@@ -784,7 +796,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     self.ui.lineEdit_filename.setText(root.filenamedata)
                     self.fileformat1 = int(self.fileformat.currentIndex())
                     self.logger.debug(f"File format: {['Picasso HDF5', 'ThunderStorm CSV', 'Custom CSV'][self.fileformat1]}")
-                    self.xdata, self.ydata, self.zdata = self.import_file(root.filenamedata, self.fileformat1)
+                    self.xdata, self.ydata, self.zdata = self.import_file(root.filenamedata, self.fileformat1, channel=1)
                     self.logger.info(f"Channel 1 loaded: {len(self.xdata):,} localizations")
                 else:
                     self.logger.debug("File dialog cancelled for channel 1")
@@ -797,7 +809,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     self.ui.lineEdit_filename_2.setText(root.filenamedata2)
                     self.fileformat2 = int(self.fileformat_2.currentIndex())
                     self.logger.debug(f"File format: {['Picasso HDF5', 'ThunderStorm CSV', 'Custom CSV'][self.fileformat2]}")
-                    self.xdata2, self.ydata2, self.zdata2 = self.import_file(root.filenamedata2, self.fileformat2)
+                    self.xdata2, self.ydata2, self.zdata2 = self.import_file(root.filenamedata2, self.fileformat2, channel=2)
                     self.logger.info(f"Channel 2 loaded: {len(self.xdata2):,} localizations")
                 else:
                     self.logger.debug("File dialog cancelled for channel 2")
@@ -810,9 +822,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
     
     def _get_pixel_size_from_yaml(self, hdf5_filename: str) -> Optional[float]:
         """
-        Reads the pixel size from the YAML file paired with a Picasso HDF5.
-        Picasso always writes a .yaml file alongside the .hdf5 file containing
-        acquisition metadata, including the line 'Pixelsize: <value_in_nm>'.
+        Reads the pixel size recorded for a Picasso HDF5 file.
+
+        Kept under its original name because callers use it, but it no
+        longer looks only at the YAML sidecar: since Picasso v0.11 the
+        metadata is also embedded in the HDF5 itself (dataset
+        '/metadata') and writing the sidecar can be switched off, so a
+        perfectly valid current file may have no .yaml at all.
 
         Parameters
         ----------
@@ -825,22 +841,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             Pixel size in nm if found, otherwise None. The caller is
             responsible for handling the None case (e.g., by asking the user).
         """
-        yaml_filename = os.path.splitext(hdf5_filename)[0] + ".yaml"
-        if not os.path.exists(yaml_filename):
-            return None
-        try:
-            with open(yaml_filename, "r", encoding="utf-8") as f:
-                # The YAML file may contain multiple documents separated by '---'.
-                # We do a simple line-based parse to avoid adding a pyyaml dependency.
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("Pixelsize:"):
-                        # Format example: "Pixelsize: 113"
-                        value_str = line.split(":", 1)[1].strip()
-                        return float(value_str)
-        except (OSError, ValueError):
-            return None
-        return None
+        return mps_io.read_pixel_size(hdf5_filename)
 
     def _ask_user_for_pixel_size(self) -> float:
         """
@@ -874,9 +875,25 @@ class MPS_explorer(QtWidgets.QMainWindow):
             )
             return 133.0
 
-    def import_file(self, filename: str, fileformat: int) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    def import_file(
+        self,
+        filename: str,
+        fileformat: int,
+        channel: int = 1,
+    ) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
         """
         Import localization data from HDF5 or CSV files.
+
+        Reads the WHOLE table, not just the coordinates. The extra columns
+        are kept on ``self.locs1`` / ``self.locs2``; this method still
+        returns only (x, y, z) because that is what the rest of the
+        application consumes.
+
+        The loading itself lives in ``tools.mps_io`` so that the GUI and
+        the batch runner cannot drift apart on the one decision that
+        silently corrupts results -- the pixel size. They differ in
+        exactly one place, deliberately: a batch run refuses a file whose
+        pixel size is unknown, while here there is a user to ask.
 
         Parameters
         ----------
@@ -884,62 +901,56 @@ class MPS_explorer(QtWidgets.QMainWindow):
             Path to the data file.
         fileformat : int
             File format code: 0=Picasso HDF5, 1=ThunderSTORM CSV, 2=Custom CSV.
+        channel : int
+            Which channel this file belongs to (1 or 2); decides where the
+            full ``Localizations`` is stored.
 
         Returns
         -------
         Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
             Tuple of (x, y, z) coordinate arrays in nanometers.
         """
-        if fileformat == 0: # Importation procedure for Picasso hdf5 files.
-            f = h5.File(filename, "r")
-            dataset = f['locs']
-            xdata = dataset['x']
-            ydata = dataset['y']
-            zdata = dataset['z']
-            # Read pixel size from the YAML companion file instead of hardcoding.
-            # This fixes the original behavior where coordinates were always
-            # scaled by 133 nm regardless of the actual optical configuration.
-            pxsize = self._get_pixel_size_from_yaml(filename)
-            if pxsize is None:
-                # No YAML: whatever the user types (or the fallback) is a
-                # guess. Record that, because a wrong pixel size rescales
-                # every lateral distance and squares into the cluster areas
-                # without ever raising an error.
-                pxsize = self._ask_user_for_pixel_size()
-                self.pxsize_source = "manual"
-                self.logger.warning(
-                    f"No Picasso YAML sidecar for {os.path.basename(filename)}; "
-                    f"pixel size {pxsize} nm was supplied manually. All lateral "
-                    f"distances scale with it and cluster areas scale with its "
-                    f"square."
-                )
-            else:
-                self.pxsize_source = "yaml"
-            self.pxsize = pxsize
+        try:
+            loc = mps_io.load_localizations(filename, fileformat)
+        except ValueError as error:
+            if "pixel size" not in str(error).lower():
+                raise
+            # Neither a YAML sidecar nor an embedded '/metadata'. Whatever
+            # the user types (or the fallback) is a guess. Record that,
+            # because a wrong pixel size rescales every lateral distance
+            # and squares into the cluster areas without ever raising.
+            guessed = self._ask_user_for_pixel_size()
+            loc = mps_io.load_localizations(
+                filename, fileformat, pixel_size_nm=guessed
+            )
+            loc.pixel_size_source = "manual"
+            self.logger.warning(
+                f"No Picasso metadata for {os.path.basename(filename)} "
+                f"(no YAML sidecar and no embedded '/metadata'); pixel size "
+                f"{guessed} nm was supplied manually. All lateral distances "
+                f"scale with it and cluster areas scale with its square."
+            )
+
+        self.pxsize = loc.pixel_size_nm
+        self.pxsize_source = loc.pixel_size_source
+        if channel == 2:
+            self.locs2 = loc
+        else:
+            self.locs1 = loc
+
+        if loc.pixel_size_nm is not None:
             self.logger.info(
-                f"Using pixel size = {self.pxsize} nm "
-                f"(source: {self.pxsize_source}) for {os.path.basename(filename)}")
-            xdata = xdata * self.pxsize
-            ydata = ydata * self.pxsize
-        elif fileformat == 1: # Importation procedure for ThunderSTORM csv files.
-            # Already in nanometres: no pixel-size conversion applies, and
-            # none must be invented downstream.
-            self.pxsize_source = "not_applicable"
-            dataset = pd.read_csv(filename)
-            headers = dataset.columns.values
-            xdata = dataset[headers[np.where(headers=='x [nm]')]].values.flatten()
-            ydata = dataset[headers[np.where(headers=='y [nm]')]].values.flatten()
-            zdata = dataset[headers[np.where(headers=='z [nm]')]].values.flatten()
-        else: # Importation procedure for custom csv files.
-            self.pxsize_source = "not_applicable"
-            dataset = pd.read_csv(filename)
-            data = pd.DataFrame(dataset)
-            dataxyz = data.values
-            dataxyz = dataxyz.astype(float)
-            xdata = dataxyz[:,0]
-            ydata = dataxyz[:,1]
-            zdata = dataxyz[:,2]
-        return xdata, ydata, zdata
+                f"Using pixel size = {loc.pixel_size_nm} nm "
+                f"(source: {loc.pixel_size_source}) for "
+                f"{os.path.basename(filename)}")
+        self.logger.info(
+            f"Read {loc.n:,} localizations, {len(loc.columns)} columns "
+            f"({', '.join(sorted(loc.columns))}); metadata from "
+            f"{loc.metadata_source}"
+            + (f"; steps: {' -> '.join(loc.processing_steps)}"
+               if loc.processing_steps else "")
+        )
+        return loc.x_nm, loc.y_nm, loc.z_nm
 
 
     def get_root_filename(self) -> str:
