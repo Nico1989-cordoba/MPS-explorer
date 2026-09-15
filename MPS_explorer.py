@@ -145,6 +145,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui = data_explorer.Ui_MainWindow()
         self.ui.setupUi(self)
         self.logger.debug("UI setup complete")
+        self._build_analysis_menu()
 
         # Define initial directory
         self.initialDir = "Desktop"  # You can set the initial directory here
@@ -253,6 +254,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # is this measurement imprecise?) reads it from here instead.
         self.locs1: Optional[mps_io.Localizations] = None
         self.locs2: Optional[mps_io.Localizations] = None
+        # Indices into the full table of the localizations that survived the
+        # ROI and the axial cut; set by _apply_z_range. The cluster labels
+        # index the same subset.
+        self.roi_indices: Optional[NDArray[np.int64]] = None
+        self.quality_window: Optional[Any] = None
+        self.paint_window: Optional[Any] = None
 
         # Channel 1 raw coordinates (pixel→nm converted)
         self.xdata: Optional[NDArray[np.float64]] = None
@@ -435,15 +442,153 @@ class MPS_explorer(QtWidgets.QMainWindow):
             )
             self.zmin = self.zmax = None
 
+        # Indices into the FULL localization table of whatever survives the
+        # ROI and the axial cut, in the same order as xroi/yroi/zroi. The
+        # cluster labels index into that subset, so without this there is
+        # no way to line a label up with the frame, photon count or
+        # precision of the localization it belongs to -- which is
+        # everything the DNA-PAINT and quality panels need.
+        base = (
+            np.arange(np.asarray(self.z).size)
+            if ind_inside_roi is None
+            else np.asarray(ind_inside_roi)
+        )
+
         # Both bounds are required: filtering on one alone silently kept the
         # other side unbounded, and comparing against None raised a TypeError.
         if self.zmin is None or self.zmax is None:
             self.zroi = z_all
+            self.roi_indices = base
         else:
             keep = (z_all > self.zmin) & (z_all < self.zmax)
             self.zroi = z_all[keep]
             self.xroi = self.xroi[keep]
             self.yroi = self.yroi[keep]
+            self.roi_indices = base[keep]
+
+    # ------------------------------------------------------------------
+    #  Acquisition-level panels: data quality and DNA-PAINT
+    # ------------------------------------------------------------------
+    def _build_analysis_menu(self) -> None:
+        """
+        Add the two panels that are about the ACQUISITION rather than the
+        axon, in their own menu.
+
+        Kept out of the results window because neither changes when the
+        clustering parameters are edited, and putting them there would
+        invite reading them as results. DNA-PAINT is separate from data
+        quality in turn because it does not merely describe the data, it
+        changes what the software's other numbers mean.
+        """
+        menu = self.menuBar().addMenu("&Analysis")
+
+        self.action_quality = menu.addAction("Data quality...")
+        self.action_quality.setToolTip(
+            "NeNA precision, fitting-box check, axial resolvedness and "
+            "residual drift for the loaded file."
+        )
+        self.action_quality.triggered.connect(self.show_quality_panel)
+
+        menu.addSeparator()
+
+        self.action_paint = menu.addAction("DNA-PAINT...")
+        self.action_paint.setToolTip(
+            "Link localizations into binding events, reject non-specific "
+            "sticking, and measure binding kinetics. qPAINT counting is a "
+            "tab inside it."
+        )
+        self.action_paint.triggered.connect(self.show_paint_panel)
+
+    def _roi_localizations(self) -> Optional[Any]:
+        """
+        The loaded file restricted to the current ROI and axial slab, or
+        the whole file when nothing has been selected yet.
+
+        Returns None when no file is loaded.
+        """
+        if self.locs1 is None:
+            QtWidgets.QMessageBox.information(
+                self, "No file loaded",
+                "Load a localization file first (channel 1)."
+            )
+            return None
+        if self.roi_indices is None:
+            return self.locs1
+        return self.locs1.subset(self.roi_indices)
+
+    def show_quality_panel(self) -> None:
+        """Open the data-quality panel for the loaded file."""
+        loc = self._roi_localizations()
+        if loc is None:
+            return
+        try:
+            from tools.mps_quality_window import show_quality_window
+
+            means = sigmas = weights = None
+            period = None
+            if loc.is_3d:
+                try:
+                    fit = fit_z_periodicity(loc.z_nm)
+                    means, sigmas = fit.means_nm, fit.sigmas_nm
+                    weights = getattr(fit, "weights", None)
+                    period = getattr(fit, "delta_z_nm", None)
+                    if period is not None and np.ndim(period) > 0:
+                        period = float(np.median(np.asarray(period)))
+                except Exception:      # noqa: BLE001 - the panel still runs
+                    self.logger.debug(
+                        "Z periodicity fit failed; the axial tab will say so",
+                        exc_info=True)
+            self.quality_window = show_quality_window(
+                loc, means_nm=means, sigmas_nm=sigmas, weights=weights,
+                period_nm=period, parent=self,
+            )
+            self.logger.info(
+                f"Quality panel opened for {os.path.basename(loc.path)} "
+                f"({loc.n:,} localizations)")
+        except Exception as error:     # noqa: BLE001 - surfaced to the user
+            self.logger.error(f"Quality panel failed: {error}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Data quality", f"Could not build the panel:\n{error}")
+
+    def show_paint_panel(self) -> None:
+        """Open the DNA-PAINT panel for the loaded file."""
+        loc = self._roi_localizations()
+        if loc is None:
+            return
+        if not loc.has("frame"):
+            QtWidgets.QMessageBox.warning(
+                self, "DNA-PAINT",
+                "This file has no 'frame' column. Binding events, dark "
+                "times and qPAINT counting are all functions of the frame "
+                "number, so none of them can be computed. A ThunderSTORM "
+                "CSV export usually carries one; a three-column CSV does "
+                "not."
+            )
+            return
+
+        labels = self.cluster_labels
+        if labels is not None and self.roi_indices is not None and \
+                len(labels) != loc.n:
+            self.logger.warning(
+                f"Cluster labels ({len(labels)}) do not match the ROI "
+                f"selection ({loc.n}); the sticking filter and qPAINT will "
+                f"be offered without them. Re-cluster to re-enable them.")
+            labels = None
+
+        try:
+            from tools.mps_paint_window import show_paint_window
+
+            self.paint_window = show_paint_window(
+                loc, site_labels=labels, parent=self)
+            self.logger.info(
+                f"DNA-PAINT panel opened for {os.path.basename(loc.path)} "
+                f"({loc.n:,} localizations, "
+                f"{'with' if labels is not None else 'without'} cluster "
+                f"labels)")
+        except Exception as error:     # noqa: BLE001 - surfaced to the user
+            self.logger.error(f"DNA-PAINT panel failed: {error}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "DNA-PAINT", f"Could not build the panel:\n{error}")
 
     def _apply_mps_settings(self) -> None:
         """
@@ -3107,6 +3252,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.mps_window.close()
         if self.rings_window is not None:
             self.rings_window.close()
+        if self.quality_window is not None:
+            self.quality_window.close()
+        if self.paint_window is not None:
+            self.paint_window.close()
 
         self.logger.info("=" * 80)
         self.logger.info("MPS Explorer Application Closed")
