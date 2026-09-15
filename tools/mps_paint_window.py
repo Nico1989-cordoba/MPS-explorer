@@ -426,13 +426,26 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
                 "units" if result.is_calibrated else "relative units",
                 color=AXIS_FG)
             plot.setLabel("left", "clusters", color=AXIS_FG)
-            counts, edges = np.histogram(units, bins=40)
-            plot.plot(0.5 * (edges[:-1] + edges[1:]), counts,
-                      pen=pg.mkPen("#6fa8ff", width=2))
+            # Log-spaced bins on a log axis. n_units goes as 1/tau_dark, and
+            # tau_dark spans orders of magnitude between a densely sampled
+            # cluster and one with three events -- on a linear axis the whole
+            # distribution collapses into the first bin and a single outlier
+            # sets the range.
+            positive = units[units > 0]
+            if positive.size:
+                edges = np.logspace(
+                    np.log10(positive.min()), np.log10(positive.max()), 41
+                )
+                counts, edges = np.histogram(positive, bins=edges)
+                plot.plot(0.5 * (edges[:-1] + edges[1:]), counts,
+                          pen=pg.mkPen("#6fa8ff", width=2))
+                plot.setLogMode(x=True, y=False)
             if result.is_calibrated:
-                for integer in range(1, min(int(np.ceil(units.max())) + 1, 13)):
+                for integer in (1, 2, 3, 4, 6, 8, 12):
+                    if integer > units.max():
+                        break
                     plot.addItem(pg.InfiniteLine(
-                        pos=integer, angle=90,
+                        pos=np.log10(integer), angle=90,
                         pen=pg.mkPen(_DIM, width=1,
                                      style=QtCore.Qt.DotLine)))
             self.qpaint_holder.addWidget(plot, stretch=1)

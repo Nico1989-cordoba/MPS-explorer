@@ -288,7 +288,9 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
                     item.setForeground(pg.mkColor(colour))
                 table.setItem(row, column, item)
         table.resizeColumnsToContents()
-        table.setMaximumHeight(60 + 28 * len(check.components))
+        table.horizontalHeader().setStretchLastSection(True)
+        table.verticalHeader().setVisible(False)
+        table.setMaximumHeight(46 + 28 * len(check.components))
         lay.addWidget(table)
 
         plot = pg.PlotWidget()
