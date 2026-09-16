@@ -9,13 +9,40 @@ CAMERA PIXELS and z in nanometres, so a wrong pixel size rescales every
 lateral distance and squares into every cluster area without ever raising
 an error.
 
+Read the whole file, not three columns
+--------------------------------------
+Until now this loader returned x, y and z and discarded everything else.
+A Picasso file from this project also carries ``frame, photons, sx, sy,
+bg, lpx, lpy, lpz, ellipticity, net_gradient, d_zcalib`` and sometimes
+``group``. Those are not decoration:
+
+  * ``frame`` is the whole of DNA-PAINT. Binding events, dark times,
+    qPAINT counting and the sticking filter are all functions of it, and
+    none of them can be reconstructed afterwards.
+  * ``lpx``/``lpy``/``lpz`` are what separate "this structure is wide"
+    from "this measurement is imprecise". Without them a fitted spread
+    cannot be compared against the spread the data could possibly
+    resolve.
+
+So ``columns`` now holds every column of the file in its NATIVE units,
+and the named accessors convert the ones whose unit is known.
+
+The second unit trap
+--------------------
+x and y in pixels against z in nm is the trap everyone knows about. The
+precision columns repeat it exactly: ``lpx`` and ``lpy`` are in CAMERA
+PIXELS while ``lpz`` is already in NANOMETRES (Picasso's file-format
+table, "Localization HDF5 Files"). Multiplying lpz by the pixel size
+would inflate it by ~113x and silently make every ring look perfectly
+resolved. Use ``lpx_nm`` / ``lpy_nm`` / ``lpz_nm``, which handle it.
+
 Policy difference from the GUI, on purpose
 ------------------------------------------
-When the Picasso YAML sidecar is missing, the GUI asks the user. A batch
-run has nobody to ask, so this module REFUSES to load rather than falling
-back to a default. The original software hardcoded 133 nm; silently
-applying that to data acquired at 113 nm would rescale every distance by
-18 % and every area by 39 %, and nothing downstream could detect it. Pass
+When the metadata is missing, the GUI asks the user. A batch run has
+nobody to ask, so this module REFUSES to load rather than falling back to
+a default. The original software hardcoded 133 nm; silently applying that
+to data acquired at 113 nm would rescale every distance by 18 % and every
+area by 39 %, and nothing downstream could detect it. Pass
 ``pixel_size_nm`` explicitly to override, and the provenance travels with
 the data so the export can record which files were guessed.
 
@@ -25,21 +52,65 @@ the data so the export can record which files were guessed.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from typing import Optional, Tuple
+import re
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
+
+from tools import mps_metadata
 
 # Format codes match MPS_explorer's fileformat combo box.
 FORMAT_PICASSO_HDF5 = 0
 FORMAT_THUNDERSTORM_CSV = 1
 FORMAT_CUSTOM_CSV = 2
 
+# Columns Picasso stores in CAMERA PIXELS. Everything else is either
+# already in nanometres (z, lpz), in photons, or dimensionless. Keeping
+# this list explicit is the only defence against the lpz trap described
+# in the module docstring.
+PIXEL_COLUMNS: Tuple[str, ...] = (
+    "x",
+    "y",
+    "lpx",
+    "lpy",
+    "sx",
+    "sy",
+    "sx_unc",
+    "sy_unc",
+    "x_pick_rot",
+    "y_pick_rot",
+)
+
+# ThunderSTORM spells the same quantities differently, and in nm. Mapping
+# them to the Picasso names lets everything downstream speak one
+# vocabulary instead of branching on the file format.
+_THUNDERSTORM_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "x": ("x [nm]",),
+    "y": ("y [nm]",),
+    "z": ("z [nm]",),
+    "frame": ("frame", "frame number"),
+    "photons": ("intensity [photon]", "intensity[photon]"),
+    "bg": ("offset [photon]", "background [photon]"),
+    "lpx": ("uncertainty_xy [nm]", "uncertainty [nm]", "uncertainty_x [nm]"),
+    "lpy": ("uncertainty_xy [nm]", "uncertainty [nm]", "uncertainty_y [nm]"),
+    "lpz": ("uncertainty_z [nm]",),
+    "sx": ("sigma1 [nm]", "sigma [nm]"),
+    "sy": ("sigma2 [nm]", "sigma [nm]"),
+}
+
 
 @dataclass
 class Localizations:
-    """One file's localizations, in nanometres on every axis."""
+    """
+    One file's localizations.
+
+    ``x_nm``/``y_nm``/``z_nm`` are always nanometres -- that contract has
+    not changed. ``columns`` holds every column of the source file under
+    its own name and in its own units; use the ``*_nm`` accessors rather
+    than reading ``columns["lpz"]`` and guessing.
+    """
 
     x_nm: NDArray[np.float64]
     y_nm: NDArray[np.float64]
@@ -47,33 +118,190 @@ class Localizations:
     path: str
     fileformat: int
     pixel_size_nm: Optional[float]
-    # "yaml" | "override" | "not_applicable" -- never a guess, see above.
+    # "yaml" | "hdf5" | "yaml_scan" | "override" | "not_applicable"
+    # -- never a guess, see the module docstring.
     pixel_size_source: str
+    # Every column of the source file, native units, native dtype.
+    columns: Dict[str, NDArray[Any]] = field(default_factory=dict)
+    # Picasso's processing chain, oldest step first.
+    info: List[Dict[str, Any]] = field(default_factory=list)
+    # "yaml" | "hdf5" | "yaml_scan" | "none"
+    metadata_source: str = "none"
 
+    # ---------------------------------------------------------- basics
     @property
     def n(self) -> int:
         return int(self.x_nm.size)
 
+    def has(self, name: str) -> bool:
+        """True when ``name`` is available, under its own or an alias."""
+        return self._resolve(name) is not None
+
+    def column(self, name: str) -> Optional[NDArray[Any]]:
+        """
+        A column in its NATIVE units, or None when the file lacks it.
+
+        Accepts Picasso names; for a ThunderSTORM CSV the equivalent
+        column is found through ``_THUNDERSTORM_ALIASES``.
+        """
+        key = self._resolve(name)
+        return None if key is None else self.columns[key]
+
+    def _resolve(self, name: str) -> Optional[str]:
+        if name in self.columns:
+            return name
+        lowered = {str(k).strip().lower(): k for k in self.columns}
+        if name.lower() in lowered:
+            return lowered[name.lower()]
+        for alias in _THUNDERSTORM_ALIASES.get(name, ()):
+            if alias.lower() in lowered:
+                return lowered[alias.lower()]
+        return None
+
+    def column_nm(self, name: str) -> Optional[NDArray[np.float64]]:
+        """
+        A column converted to nanometres, or None when it is absent.
+
+        Only meaningful for spatial columns. A column in PIXEL_COLUMNS is
+        multiplied by the pixel size -- but only when the value really is
+        in pixels: a ThunderSTORM CSV stores the same quantities in nm
+        already, and ``pixel_size_nm`` is None there, so no conversion is
+        applied and none is invented.
+        """
+        values = self.column(name)
+        if values is None:
+            return None
+        out = np.asarray(values, dtype=float)
+        if name in PIXEL_COLUMNS and self.pixel_size_nm is not None:
+            if self.fileformat == FORMAT_PICASSO_HDF5:
+                return out * float(self.pixel_size_nm)
+        return out
+
+    # ------------------------------------------------- named accessors
+    @property
+    def frame(self) -> Optional[NDArray[np.int64]]:
+        """Frame index of each localization, or None for a file without one."""
+        values = self.column("frame")
+        return None if values is None else np.asarray(values, dtype=np.int64)
+
+    @property
+    def photons(self) -> Optional[NDArray[np.float64]]:
+        values = self.column("photons")
+        return None if values is None else np.asarray(values, dtype=float)
+
+    @property
+    def lpx_nm(self) -> Optional[NDArray[np.float64]]:
+        """Lateral precision in x, nanometres (source is camera pixels)."""
+        return self.column_nm("lpx")
+
+    @property
+    def lpy_nm(self) -> Optional[NDArray[np.float64]]:
+        """Lateral precision in y, nanometres (source is camera pixels)."""
+        return self.column_nm("lpy")
+
+    @property
+    def lpz_nm(self) -> Optional[NDArray[np.float64]]:
+        """
+        Axial precision, nanometres.
+
+        Picasso already stores lpz in nm, so this is deliberately NOT
+        scaled by the pixel size -- see the module docstring.
+        """
+        values = self.column("lpz")
+        return None if values is None else np.asarray(values, dtype=float)
+
+    @property
+    def lp_lateral_nm(self) -> Optional[NDArray[np.float64]]:
+        """
+        Per-localization lateral precision, the mean of lpx and lpy.
+
+        The single number Picasso's own guidance is phrased in ("2*NeNA",
+        "3*LP"), so it is worth having one definition of it.
+        """
+        lpx, lpy = self.lpx_nm, self.lpy_nm
+        if lpx is None or lpy is None:
+            return lpx if lpy is None else lpy
+        return 0.5 * (lpx + lpy)
+
+    # -------------------------------------------------- from metadata
+    @property
+    def n_frames(self) -> Optional[int]:
+        """Length of the acquisition in frames, from the metadata."""
+        value = mps_metadata.get_value(self.info, mps_metadata.KEY_FRAMES)
+        try:
+            return None if value is None else int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def box_size_px(self) -> Optional[int]:
+        """The fitting box Picasso: Localize used, in camera pixels."""
+        value = mps_metadata.get_value(self.info, mps_metadata.KEY_BOX_SIZE)
+        try:
+            return None if value is None else int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def fit_method(self) -> Optional[str]:
+        value = mps_metadata.get_value(self.info, mps_metadata.KEY_FIT_METHOD)
+        return None if value is None else str(value)
+
+    @property
+    def z_calibration(self) -> Optional[Dict[str, Any]]:
+        """The astigmatism calibration, when the file was fitted in 3D."""
+        value = mps_metadata.get_value(
+            self.info, mps_metadata.KEY_Z_CALIBRATION
+        )
+        return value if isinstance(value, dict) else None
+
+    @property
+    def is_3d(self) -> bool:
+        """True when the file carries a z coordinate that is not all zero."""
+        return bool(self.z_nm.size) and bool(np.any(self.z_nm != 0.0))
+
+    @property
+    def processing_steps(self) -> List[str]:
+        """Picasso's ``Generated by`` chain, oldest step first."""
+        return mps_metadata.steps(self.info)
+
+    def subset(self, indices: NDArray[Any]) -> "Localizations":
+        """
+        The same file restricted to ``indices``, columns and all.
+
+        Needed because the analysis works on a ROI and an axial slab while
+        the file holds the whole field of view: a cluster label indexes the
+        SUBSET, so lining a label up with the frame or precision of its
+        localization means carrying the same selection through every
+        column. Metadata and pixel size are properties of the acquisition
+        and travel unchanged.
+        """
+        index = np.asarray(indices)
+        return Localizations(
+            x_nm=self.x_nm[index],
+            y_nm=self.y_nm[index],
+            z_nm=self.z_nm[index],
+            path=self.path,
+            fileformat=self.fileformat,
+            pixel_size_nm=self.pixel_size_nm,
+            pixel_size_source=self.pixel_size_source,
+            columns={name: values[index]
+                     for name, values in self.columns.items()},
+            info=self.info,
+            metadata_source=self.metadata_source,
+        )
+
 
 def read_pixel_size(hdf5_path: str) -> Optional[float]:
     """
-    Pixel size in nm from the Picasso YAML sidecar, or None when there is
-    no sidecar or no ``Pixelsize:`` line in it.
+    Pixel size in nm for a Picasso file, or None when it is unknown.
 
-    Parsed line by line rather than with a YAML library so a sidecar whose
-    other keys are malformed still yields the one value that matters.
+    Reads the full metadata chain (YAML sidecar, then the ``/metadata``
+    dataset embedded since Picasso v0.11), so it no longer fails on a
+    current Picasso file written without a sidecar.
     """
-    yaml_path = os.path.splitext(hdf5_path)[0] + ".yaml"
-    if not os.path.exists(yaml_path):
-        return None
-    try:
-        with open(yaml_path, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                if line.strip().startswith("Pixelsize:"):
-                    return float(line.split(":", 1)[1].strip())
-    except (OSError, ValueError):
-        return None
-    return None
+    info, _source = mps_metadata.load_metadata(hdf5_path)
+    return mps_metadata.pixel_size_nm(info)
 
 
 def detect_format(path: str) -> int:
@@ -86,6 +314,117 @@ def detect_format(path: str) -> int:
     raise ValueError(
         f"Unsupported extension {ext!r} for {os.path.basename(path)}; "
         f"expected .hdf5, .h5 or .csv."
+    )
+
+
+def _load_picasso_hdf5(
+    path: str, pixel_size_nm: Optional[float]
+) -> Localizations:
+    import h5py as h5
+
+    with h5.File(path, "r") as handle:
+        if "locs" not in handle:
+            raise ValueError(
+                f"{os.path.basename(path)} has no '/locs' dataset, so it is "
+                f"not a Picasso localization file. Files of pick properties "
+                f"store their table under '/groups' instead."
+            )
+        table = handle["locs"][:]
+
+    names = list(table.dtype.names or ())
+    for required in ("x", "y"):
+        if required not in names:
+            raise ValueError(
+                f"{os.path.basename(path)} has no {required!r} column; its "
+                f"columns are {names}."
+            )
+    # A copy per column rather than a strided view into the compound
+    # buffer: views keep the whole record array alive and are
+    # non-contiguous, which surprises anything that later hands one to a
+    # C extension.
+    columns: Dict[str, NDArray[Any]] = {
+        name: np.array(table[name]) for name in names
+    }
+
+    info, metadata_source = mps_metadata.load_metadata(path)
+
+    if pixel_size_nm is not None:
+        pixel, source = float(pixel_size_nm), "override"
+    else:
+        from_metadata = mps_metadata.pixel_size_nm(info)
+        if from_metadata is None:
+            raise ValueError(
+                f"{os.path.basename(path)} has no pixel size: no Picasso "
+                f"YAML sidecar and no embedded '/metadata'. Picasso stores "
+                f"x and y in camera pixels, so loading it without one would "
+                f"rescale every lateral distance and square the error into "
+                f"every cluster area. Pass pixel_size_nm explicitly if you "
+                f"know the value for this acquisition."
+            )
+        pixel, source = float(from_metadata), metadata_source
+
+    x = np.asarray(columns["x"], dtype=float) * pixel
+    y = np.asarray(columns["y"], dtype=float) * pixel
+    if "z" in columns:
+        z = np.asarray(columns["z"], dtype=float)
+    else:
+        # A 2D acquisition. Zeros keep every downstream array shape valid;
+        # `is_3d` is how a caller tells this apart from a real flat slab.
+        z = np.zeros_like(x)
+
+    return Localizations(
+        x_nm=x,
+        y_nm=y,
+        z_nm=z,
+        path=path,
+        fileformat=FORMAT_PICASSO_HDF5,
+        pixel_size_nm=pixel,
+        pixel_size_source=source,
+        columns=columns,
+        info=info,
+        metadata_source=metadata_source,
+    )
+
+
+def _load_csv(path: str, fmt: int) -> Localizations:
+    import pandas as pd
+
+    frame = pd.read_csv(path)
+    columns: Dict[str, NDArray[Any]] = {
+        str(c): np.asarray(frame[c].to_numpy()) for c in frame.columns
+    }
+    lookup = {str(c).strip().lower(): c for c in frame.columns}
+    named = [lookup.get(f"{a} [nm]") for a in ("x", "y", "z")]
+
+    if all(c is not None for c in named):
+        x, y, z = (
+            np.asarray(frame[c], dtype=float).ravel() for c in named
+        )
+    elif fmt == FORMAT_CUSTOM_CSV and frame.shape[1] >= 3:
+        # Only when the caller asked for this format by name. Auto-detection
+        # must not take the first three numeric columns of any CSV it finds:
+        # plenty of files in a working folder have three numeric columns and
+        # are not localizations at all.
+        values = frame.iloc[:, :3].to_numpy(dtype=float)
+        x, y, z = values[:, 0], values[:, 1], values[:, 2]
+    else:
+        raise ValueError(
+            f"{os.path.basename(path)} has no 'x [nm]'/'y [nm]'/'z [nm]' "
+            f"columns. If its first three columns are x, y and z in "
+            f"nanometres, load it with fileformat=FORMAT_CUSTOM_CSV."
+        )
+
+    return Localizations(
+        x_nm=x,
+        y_nm=y,
+        z_nm=z,
+        path=path,
+        fileformat=fmt,
+        pixel_size_nm=None,
+        pixel_size_source="not_applicable",
+        columns=columns,
+        info=[],
+        metadata_source="none",
     )
 
 
@@ -103,69 +442,25 @@ def load_localizations(
     fileformat : one of the FORMAT_* codes; inferred from the extension
         when None. A .csv is tried as ThunderSTORM first and falls back to
         three bare columns.
-    pixel_size_nm : overrides the YAML sidecar. Required for a Picasso
-        HDF5 that has no sidecar, since there is nothing to ask here.
+    pixel_size_nm : overrides the metadata. Required for a Picasso HDF5
+        that carries no metadata at all, since there is nothing to ask
+        here.
+
+    Returns
+    -------
+    Localizations, with ``columns`` holding every column of the source
+    file and ``info`` holding Picasso's processing chain.
 
     Raises
     ------
-    ValueError when a Picasso HDF5 has neither a sidecar nor an override,
-    or when a CSV lacks usable coordinate columns.
+    ValueError when a Picasso HDF5 has no pixel size from any source and
+    no override, when it has no '/locs' dataset, or when a CSV lacks
+    usable coordinate columns.
     """
     fmt = detect_format(path) if fileformat is None else int(fileformat)
-
     if fmt == FORMAT_PICASSO_HDF5:
-        import h5py as h5
-
-        with h5.File(path, "r") as f:
-            ds = f["locs"]
-            x = np.asarray(ds["x"], dtype=float)
-            y = np.asarray(ds["y"], dtype=float)
-            z = np.asarray(ds["z"], dtype=float)
-
-        if pixel_size_nm is not None:
-            px, source = float(pixel_size_nm), "override"
-        else:
-            from_yaml = read_pixel_size(path)
-            if from_yaml is None:
-                raise ValueError(
-                    f"{os.path.basename(path)} has no Picasso YAML sidecar, so "
-                    f"its pixel size is unknown. Picasso stores x and y in "
-                    f"camera pixels, so loading it without one would rescale "
-                    f"every lateral distance and square the error into every "
-                    f"cluster area. Pass pixel_size_nm explicitly if you know "
-                    f"the value for this acquisition."
-                )
-            px, source = float(from_yaml), "yaml"
-
-        return Localizations(
-            x_nm=x * px, y_nm=y * px, z_nm=z, path=path, fileformat=fmt,
-            pixel_size_nm=px, pixel_size_source=source)
-
-    # --- CSV: already in nanometres, so no pixel size applies -----------
-    import pandas as pd
-
-    frame = pd.read_csv(path)
-    cols = {str(c).strip().lower(): c for c in frame.columns}
-    named = [cols.get(f"{a} [nm]") for a in ("x", "y", "z")]
-    if all(c is not None for c in named):
-        x, y, z = (np.asarray(frame[c], dtype=float).ravel() for c in named)
-    elif fmt == FORMAT_CUSTOM_CSV and frame.shape[1] >= 3:
-        # Only when the caller asked for this format by name. Auto-detection
-        # must not take the first three numeric columns of any CSV it finds:
-        # plenty of files in a working folder have three numeric columns and
-        # are not localizations at all.
-        values = frame.iloc[:, :3].to_numpy(dtype=float)
-        x, y, z = values[:, 0], values[:, 1], values[:, 2]
-    else:
-        raise ValueError(
-            f"{os.path.basename(path)} has no 'x [nm]'/'y [nm]'/'z [nm]' "
-            f"columns. If its first three columns are x, y and z in "
-            f"nanometres, load it with fileformat=FORMAT_CUSTOM_CSV."
-        )
-
-    return Localizations(
-        x_nm=x, y_nm=y, z_nm=z, path=path, fileformat=fmt,
-        pixel_size_nm=None, pixel_size_source="not_applicable")
+        return _load_picasso_hdf5(path, pixel_size_nm)
+    return _load_csv(path, fmt)
 
 
 # Suffixes of the files MPS Explorer itself writes next to the data. They
@@ -182,11 +477,65 @@ DERIVED_SUFFIXES: Tuple[str, ...] = (
     "_filtered_clusters_thunderstorm",
 )
 
+# The channel-numbered ROI export written by ``MPS_explorer.save_roi``
+# ("{stem}_ch{channel}_roi.csv"). It needs a pattern rather than a fixed
+# suffix because of the channel number, and it cannot be shortened to
+# "_roi": real files in this dataset are named "..._axon2_roi2.hdf5".
+# Missing it meant a batch analysed every axon TWICE -- once as the
+# Picasso HDF5 and once as its own ROI export -- and then reported the
+# nesting statistics as if those were independent observations.
+#
+# Deliberately NOT anchored to a word boundary: these files get renamed
+# by hand afterwards ("..._ch1_roi_filterby-123to57.csv" is in the real
+# dataset), and "_" is a word character, so a \b here would let exactly
+# those through. The marker identifies the file whatever follows it.
+_DERIVED_PATTERNS: Tuple[Any, ...] = (re.compile(r"_ch\d+_roi"),)
+
 
 def is_derived_output(name: str) -> bool:
     """True for a file MPS Explorer wrote itself (see DERIVED_SUFFIXES)."""
     stem = os.path.splitext(os.path.basename(name))[0].lower()
-    return any(s in stem for s in DERIVED_SUFFIXES)
+    if any(s in stem for s in DERIVED_SUFFIXES):
+        return True
+    return any(pattern.search(stem) for pattern in _DERIVED_PATTERNS)
+
+
+def source_stem(name: str) -> str:
+    """
+    The part of a filename that identifies WHICH acquisition it came from.
+
+    Two files that reduce to the same stem are the same axon under two
+    names -- typically the Picasso HDF5 and an export made from it. Used
+    to catch a derived suffix nobody has thought of yet, so that the next
+    one shows up as a reported collision instead of as a silently doubled
+    sample size.
+    """
+    stem = os.path.splitext(os.path.basename(name))[0].lower()
+    for suffix in DERIVED_SUFFIXES:
+        stem = stem.replace(suffix, "")
+    for pattern in _DERIVED_PATTERNS:
+        stem = pattern.sub("", stem)
+    return stem.strip("_")
+
+
+def duplicate_sources(paths: List[str]) -> Dict[str, List[str]]:
+    """
+    Files among ``paths`` that appear to be the same acquisition twice.
+
+    Returns {stem: [paths]} for every stem claimed by more than one file.
+    Empty when every file is a distinct acquisition. A caller should
+    report these rather than analyse them: counting one axon twice
+    inflates every n, and makes a nesting or replication statistic
+    describe the duplication instead of the biology.
+    """
+    groups: Dict[str, List[str]] = {}
+    for path in paths:
+        groups.setdefault(source_stem(path), []).append(path)
+    return {
+        stem: sorted(found)
+        for stem, found in groups.items()
+        if len(found) > 1
+    }
 
 
 def find_localization_files(
