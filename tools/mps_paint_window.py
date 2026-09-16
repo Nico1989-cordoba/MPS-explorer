@@ -287,6 +287,21 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
             f"        tau_dark = {as_time(result.tau_dark_frames, result.tau_dark_s)}"
             f"        {result.n_events:,} events over {result.n_sites} site(s)",
             TITLE_FG, bold=True))
+        if np.isfinite(result.tau_dark_excluding_short_frames):
+            agree = (
+                result.tau_dark_excluding_short_frames
+                < 1.5 * result.tau_dark_frames
+            )
+            lay.addWidget(_label(
+                f"tau_dark without the short gaps = "
+                f"{result.tau_dark_excluding_short_frames:.1f} frames "
+                f"({100 * result.short_gap_fraction:.0f} % of the dark "
+                f"periods are that short)."
+                + ("  The two agree, so the events are not being split."
+                   if agree else
+                   "  The two disagree: read the warning above before using"
+                   " any count."),
+                _OK if agree else _BAD))
         lay.addWidget(_label(
             "Both are fitted to the cumulative distribution rather than "
             "averaged. Dark periods longer than the remaining acquisition "
