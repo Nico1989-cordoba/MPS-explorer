@@ -482,6 +482,24 @@ def estimate_kinetic_rate(
     return float(popt[1])
 
 
+# A dark period this many frames beyond max_dark_time is almost certainly
+# the same binding event flickering rather than a genuine unbinding and
+# rebinding: at a site whose real dark time is hundreds of frames, an
+# imager leaving and returning within three frames is vanishingly rare.
+FRAGMENTATION_MARGIN = 2
+
+# How many times more short gaps than a single exponential predicts before
+# the distribution is called fragmented. Self-calibrating: the prediction
+# comes from the fit to the long gaps themselves, so no absolute dark time
+# has to be assumed. An excess of 3x is already far outside what sampling
+# noise produces on a real exponential.
+FRAGMENTATION_EXCESS = 3.0
+
+# ...but only when the short gaps are numerous enough to matter. A handful
+# of them can exceed the prediction by a large factor and change nothing.
+FRAGMENTATION_MIN_FRACTION = 0.10
+
+
 @dataclass
 class Kinetics:
     tau_bright_frames: float
@@ -491,6 +509,12 @@ class Kinetics:
     n_events: int
     n_dark: int
     n_sites: int
+    # The same fit with the very short gaps left out. When it disagrees
+    # with tau_dark_frames, the events are being fragmented and the
+    # headline number is measuring the fragmentation -- see
+    # ``short_gap_fraction`` and the warning that goes with it.
+    tau_dark_excluding_short_frames: float = float("nan")
+    short_gap_fraction: float = float("nan")
     warnings: List[str] = field(default_factory=list)
 
 
@@ -511,8 +535,21 @@ def kinetics(
     """
     warnings: List[str] = []
     if events.n == 0:
-        return Kinetics(float("nan"), float("nan"), None, None,
-                        0, 0, 0, ["no binding events"])
+        # Keyword arguments, not positional: two fields were inserted
+        # before `warnings` when the fragmentation check was added, and a
+        # positional call silently put the warning list into a float field
+        # instead. The same mistake already cost this project once, in
+        # intraclass_correlation.
+        return Kinetics(
+            tau_bright_frames=float("nan"),
+            tau_dark_frames=float("nan"),
+            tau_bright_s=None,
+            tau_dark_s=None,
+            n_events=0,
+            n_dark=0,
+            n_sites=0,
+            warnings=["no binding events"],
+        )
 
     labels = (
         events.group if site_labels is None else
@@ -537,8 +574,16 @@ def kinetics(
             "to measure dark times within."
         )
         return Kinetics(
-            estimate_kinetic_rate(events.length.astype(float)),
-            float("nan"), None, None, events.n, 0, 0, warnings,
+            tau_bright_frames=estimate_kinetic_rate(
+                events.length.astype(float)
+            ),
+            tau_dark_frames=float("nan"),
+            tau_bright_s=None,
+            tau_dark_s=None,
+            n_events=events.n,
+            n_dark=0,
+            n_sites=0,
+            warnings=warnings,
         )
 
     dark = np.full(events.n, -1, dtype=np.int64)
@@ -553,6 +598,73 @@ def kinetics(
         estimate_kinetic_rate(observed.astype(float))
         if observed.size else float("nan")
     )
+
+    # Is tau_dark describing the binding chemistry, or the linking?
+    #
+    # A binding event whose imager is missed for more than max_dark_time
+    # frames is split into two events, and the gap between the halves
+    # enters the dark-time distribution as a very short period. Those
+    # pile up near zero and, being far more numerous than the real dark
+    # periods, they drag the cumulative fit down onto themselves. Since
+    # tau_dark IS the qPAINT measurement, the resulting count is wrong by
+    # whatever factor the fit moved -- on this project's own DNA-PAINT
+    # data, 8 frames against a real 429.
+    cutoff = events.max_dark_time + FRAGMENTATION_MARGIN
+    short_fraction = (
+        float(np.mean(observed <= cutoff)) if observed.size else float("nan")
+    )
+    long_gaps = observed[observed > cutoff]
+    tau_dark_long = (
+        estimate_kinetic_rate(long_gaps.astype(float))
+        if long_gaps.size > 2 else float("nan")
+    )
+    # The test is whether the short gaps are more numerous than a single
+    # exponential predicts -- but it has to be asked ONE CLUSTER AT A
+    # TIME. A cluster of N docking sites has dark times that are
+    # exponential with rate N times the single-site rate, so pooling
+    # clusters of different N gives a MIXTURE of exponentials, which
+    # always shows an excess of short gaps whether or not anything is
+    # wrong. Asked of the pooled distribution this check fires on every
+    # real dataset; asked per cluster it fires only when that cluster's
+    # own dark times are not exponential, which is what fragmentation
+    # looks like.
+    fragmented, examined = 0, 0
+    for label in np.unique(np.asarray(labels)[real_site]):
+        per_site = dark[(np.asarray(labels) == label) & (dark > 0)]
+        if per_site.size < 20:
+            continue
+        tail = per_site[per_site > cutoff]
+        if tail.size < 10:
+            continue
+        tau_site = estimate_kinetic_rate(tail.astype(float))
+        if not np.isfinite(tau_site) or tau_site <= 0:
+            continue
+        examined += 1
+        observed_short = float(np.mean(per_site <= cutoff))
+        predicted = 1.0 - float(np.exp(-cutoff / tau_site))
+        if (
+            observed_short > FRAGMENTATION_MIN_FRACTION
+            and predicted > 0
+            and observed_short / predicted > FRAGMENTATION_EXCESS
+        ):
+            fragmented += 1
+
+    if examined and fragmented / examined > 0.5:
+        warnings.append(
+            f"{fragmented} of {examined} clusters have far more very short "
+            f"dark periods ({cutoff} frames or fewer) than their OWN binding "
+            f"rate predicts, so their dark times are not a single "
+            f"exponential and tau_dark does not summarise them. Pooled, the "
+            f"short gaps give {tau_dark:.0f} frames against "
+            f"{tau_dark_long:.0f} without them, and every qPAINT count "
+            f"scales with that. Three things produce it: one binding event "
+            f"split in two by the linking (raise 'Max dark frames', or the "
+            f"link radius if events break up in space rather than in time); "
+            f"a fluorophore blinking while still bound; or clusters that are "
+            f"arbitrary chunks of a continuous structure rather than "
+            f"discrete docking sites, in which case qPAINT does not apply to "
+            f"them at all."
+        )
 
     if n_frames and np.isfinite(tau_dark) and tau_dark > 0.2 * n_frames:
         warnings.append(
@@ -575,6 +687,8 @@ def kinetics(
         n_events=events.n,
         n_dark=int(observed.size),
         n_sites=int(np.unique(np.asarray(labels)[real_site]).size),
+        tau_dark_excluding_short_frames=tau_dark_long,
+        short_gap_fraction=short_fraction,
         warnings=warnings,
     )
 
@@ -630,6 +744,7 @@ def qpaint(
     influx_rate: Optional[float] = None,
     tau_dark_reference_frames: Optional[float] = None,
     min_events: int = 3,
+    min_dark_frames: int = 0,
 ) -> QPaintResult:
     """
     Count docking sites per cluster from their binding frequency.
@@ -643,6 +758,13 @@ def qpaint(
     median cluster comes out at one unit -- which makes the output a
     relative ranking and nothing more. ``is_calibrated`` is False in that
     case and every caller must say so.
+
+    ``min_dark_frames`` leaves dark periods at or below that many frames
+    out of each fit. Use it when ``kinetics`` reports event
+    fragmentation: those short gaps are one binding event split in two by
+    the linking, and counting them as real unbindings drags tau_dark down
+    and every count up by the same factor. 0 (the default) keeps
+    everything.
     """
     warnings: List[str] = []
     labels = np.asarray(site_labels, dtype=np.int64)
@@ -654,7 +776,7 @@ def qpaint(
     for i, label in enumerate(unique):
         inside = labels == label
         counts[i] = int(np.sum(inside))
-        observed = dark[inside & (dark > 0)]
+        observed = dark[inside & (dark > min_dark_frames)]
         if observed.size >= max(min_events - 1, 1):
             tau[i] = estimate_kinetic_rate(observed.astype(float))
 

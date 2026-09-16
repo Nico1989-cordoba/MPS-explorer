@@ -31,6 +31,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from tools.mps_paint import (  # noqa: E402
+    FRAGMENTATION_EXCESS,
     build_events,
     dark_times,
     estimate_kinetic_rate,
@@ -471,6 +472,75 @@ def test_qpaint() -> None:
                 f"(simulated 4), {result.n_sites} sites")
 
     check("kinetics summary", kinetics_summary)
+
+    def fragmentation_is_caught():
+        # Simulate the failure the project's own DNA-PAINT data showed:
+        # binding events long enough that max_dark_time splits them, so
+        # the dark-time distribution gains a spike of 1-2 frame gaps that
+        # are not unbindings at all.
+        rng2 = np.random.default_rng(11)
+        f_list, x_list, l_list = [], [], []
+        for site in range(30):
+            t = 0.0
+            while t < 20000:
+                # A long event that flickers: on, 3 dark, on again.
+                start = int(t)
+                for offset in (0, 1, 2, 5, 6, 7):
+                    f_list.append(start + offset)
+                    l_list.append(site)
+                t += 6 + rng2.exponential(600.0)
+        frame_f = np.array(f_list, dtype=np.int64)
+        lab_f = np.array(l_list, dtype=np.int64)
+        xx = np.zeros(frame_f.size) + lab_f * 1000.0
+        ev = build_events(frame_f, xx, np.zeros_like(xx), group=lab_f,
+                          radius_nm=30.0, max_dark_time=1)
+        res = kinetics(ev, site_labels=ev.group, n_frames=20000)
+        assert any("split in two" in w for w in res.warnings), res.warnings
+        assert res.tau_dark_excluding_short_frames > res.tau_dark_frames
+        return (f"tau_dark {res.tau_dark_frames:.0f} vs "
+                f"{res.tau_dark_excluding_short_frames:.0f} without the "
+                f"{100*res.short_gap_fraction:.0f} % short gaps -- flagged")
+
+    def clean_kinetics_not_flagged():
+        # The well-behaved simulation from above must NOT trip the check.
+        res = kinetics(events, site_labels=events.group, n_frames=n_frames)
+        assert not any("split in two" in w for w in res.warnings), res.warnings
+        return "no false alarm on clean data"
+
+    def qpaint_can_exclude_short_gaps():
+        a = qpaint(events, events.group, influx_rate=influx)
+        b = qpaint(events, events.group, influx_rate=influx, min_dark_frames=2)
+        assert np.allclose(a.n_units, b.n_units, rtol=0.35, equal_nan=True)
+        return "excluding short gaps leaves clean data alone"
+
+    check("event fragmentation is caught", fragmentation_is_caught)
+    check("clean data is not flagged", clean_kinetics_not_flagged)
+    check("qpaint min_dark_frames", qpaint_can_exclude_short_gaps)
+
+    def degenerate_kinetics_fields_land_correctly():
+        # The early returns build Kinetics by keyword, not position: two
+        # float fields sit before `warnings`, and a positional call put
+        # the warning list into one of them. mypy caught it; this keeps it
+        # caught.
+        from tools.mps_paint import BindingEvents
+        empty_i = np.empty(0, dtype=np.int64)
+        empty_f = np.empty(0, dtype=float)
+        nothing = BindingEvents(empty_f, empty_f, None, empty_i, empty_i,
+                                empty_i, empty_i, None, None, None,
+                                empty_i, 25.0, 1)
+        res = kinetics(nothing)
+        assert isinstance(res.tau_dark_excluding_short_frames, float)
+        assert isinstance(res.warnings, list) and res.warnings
+        # And the all-noise path.
+        ev2 = build_events(np.array([10, 11], dtype=np.int64), np.zeros(2),
+                           np.zeros(2), group=np.array([-1, -1], dtype=np.int64),
+                           radius_nm=30.0, max_dark_time=1)
+        res2 = kinetics(ev2, site_labels=ev2.group)
+        assert isinstance(res2.tau_dark_excluding_short_frames, float)
+        assert res2.n_sites == 0
+        return "no events, and all-noise, both keep their field types"
+
+    check("degenerate Kinetics fields", degenerate_kinetics_fields_land_correctly)
 
 
 # ================================================================== NeNA
