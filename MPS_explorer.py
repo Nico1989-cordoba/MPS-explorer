@@ -361,6 +361,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         # --- Gazal 2026 per-axon analysis (set by run_mps_analysis) ---
         self.mps_analysis: Optional[Any] = None      # last AxonAnalysis
+        # The selection array the last analysis was run on. A new selection
+        # is a new array, and the analysis no longer describes it.
+        self._analysed_x: Optional[NDArray[np.float64]] = None
         self.mps_window: Optional[Any] = None        # results window (kept alive)
         self.rings_window: Optional[Any] = None      # multi-segment panel
         self.mps_settings = load_settings()          # persisted across sessions
@@ -497,6 +500,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
             (float(self.zmin), float(self.zmax))
             if (self._z_range_user_edited and self.zmin is not None
                 and self.zmax is not None) else None)
+        # The centroids and the distances between them belong to the
+        # previous selection's analysis: saving them now would write
+        # another selection's results. Clustering again recomputes them.
+        self.good_cluster_centroids = None
+        self.distances = None
+        self.Nneighbor = None
         if self.two_channel_window is not None and \
                 self.two_channel_window.isVisible():
             self.two_channel_window.update_selection(
@@ -1003,6 +1012,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         QtWidgets.QApplication.restoreOverrideCursor()
 
         self.mps_analysis = analysis
+        self._analysed_x = x_in
         self.logger.info(
             f"MPS analysis: {analysis.n_clusters_kept}/{analysis.n_clusters_raw} "
             f"clusters kept, perimeter="
@@ -1228,6 +1238,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.distances = None
         self.Nneighbor = None
         self.mps_analysis = None
+        self._analysed_x = None
         # Channel 2's selection was cut with channel 1's ROI, which is gone.
         self.xroi2 = self.yroi2 = self.zroi2 = None
         self.cluster_labels2 = self.cluster_centroids2 = None
@@ -3151,13 +3162,65 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return x, y, z, labels
 
+    def _clusters_to_export(
+        self, channel: int
+    ) -> Optional[Tuple[NDArray[np.float64], NDArray[np.float64],
+                        NDArray[np.float64], NDArray[np.int64], List[int],
+                        str]]:
+        """
+        What a clustered-data export writes: the localizations, their
+        cluster labels, the labels to leave out, and a line saying where
+        the clusters come from. None, after telling the user why, when
+        nothing current can be written.
+
+        Channel 1's rejected clusters come from the MPS analysis, which
+        clusters its own axial slab with its own parameters. They are
+        labels of that clustering. In the window's clustering -- made with
+        "auto" eps, another algorithm, or before the analysis was re-run
+        with other parameters -- the same numbers name other clusters. So
+        while the analysis describes the current selection, channel 1
+        exports the analysis's localizations and labels. Otherwise, and on
+        channel 2, the window's clustering is written whole.
+        """
+        analysis = self.mps_analysis
+        current = self._analysed_x is not None and (
+            self._analysed_x is self.xroi_unfiltered
+            or self._analysed_x is self.xroi)
+        if channel == 1 and analysis is not None and current:
+            labels = np.asarray(analysis.labels)
+            if labels.size == 0:
+                QtWidgets.QMessageBox.warning(
+                    self, "Error",
+                    "The MPS analysis found too few localizations in its "
+                    "axial slab to cluster them: there is nothing to save.")
+                return None
+            rejected = sorted(int(label)
+                              for label in analysis.bad_report.bad_labels)
+            source = (
+                f"Clusters of the MPS analysis: DBSCAN eps "
+                f"{analysis.eps_nm:g} nm, min samples "
+                f"{analysis.min_samples}, on its axial slab "
+                f"{analysis.slab_zmin_nm:.1f} .. {analysis.slab_zmax_nm:.1f} "
+                f"nm. {len(rejected)} rejected cluster(s) left out.")
+            return (np.asarray(analysis.x_slab), np.asarray(analysis.y_slab),
+                    np.asarray(analysis.z_slab), labels, rejected, source)
+        selection = self._clustered_selection(channel)
+        if selection is None:
+            return None
+        x, y, z, labels = selection
+        source = ("Clusters of the window's clustering"
+                  + ("; there is no MPS analysis of this selection, so no "
+                     "cluster was left out." if channel == 1 else "."))
+        return x, y, z, labels, [], source
+
     def save_all_clustered_data(self, channel: int) -> None:
         """
         Save all ROI localizations with cluster assignments to CSV (default format).
 
         Exports the complete set of localizations within the selected ROI along with
-        their DBSCAN cluster assignments. Bad clusters (marked by the user) are excluded
-        from the output. Noise points (cluster = -1) are preserved.
+        their DBSCAN cluster assignments. On channel 1 these are the MPS
+        analysis's clusters, without the ones it rejected (see
+        _clusters_to_export). Noise points (cluster = -1) are preserved.
 
         Output columns: x [nm], y [nm], z [nm], cluster_id
 
@@ -3182,22 +3245,20 @@ class MPS_explorer(QtWidgets.QMainWindow):
         Format: Standard CSV with headers
         """
         try:
-            selection = self._clustered_selection(channel)
-            if selection is None:
+            exported = self._clusters_to_export(channel)
+            if exported is None:
                 return
-            x_data, y_data, z_data, labels = selection
+            x_data, y_data, z_data, labels, rejected, source = exported
 
             # Get root filename
             root_name = self.get_root_filename()
 
-            # Exclude bad clusters (but keep noise points). Only channel 1
-            # is curated: run_mps_analysis fills bad_cluster_indices from it.
-            if channel == 1:
-                mask = ~np.isin(labels, self.bad_cluster_indices)
-                x_data = x_data[mask]
-                y_data = y_data[mask]
-                z_data = z_data[mask]
-                labels = labels[mask]
+            # Exclude the rejected clusters (but keep noise points)
+            mask = ~np.isin(labels, rejected)
+            x_data = x_data[mask]
+            y_data = y_data[mask]
+            z_data = z_data[mask]
+            labels = labels[mask]
 
             # Prepare data for saving
             data = {
@@ -3220,9 +3281,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if filename:
                 pd.DataFrame(data).to_csv(filename, index=False, float_format='%.2f')
                 QtWidgets.QMessageBox.information(
-                    self, 
-                    "Success", 
-                    f"All clustered data (including noise) saved to {filename}"
+                    self,
+                    "Success",
+                    f"All clustered data (including noise) saved to "
+                    f"{filename}\n\n{source}"
                 )
     
         except Exception as e:
@@ -3241,20 +3303,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
             Channel to save (1 or 2).
         """
         try:
-            selection = self._clustered_selection(channel)
-            if selection is None:
+            exported = self._clusters_to_export(channel)
+            if exported is None:
                 return
-            x_data, y_data, z_data, labels = selection
+            x_data, y_data, z_data, labels, rejected, source = exported
 
             # Get root filename
             root_name = self.get_root_filename()
             suffix = f"_ch{channel}_filtered_clusters_thunderstorm"
 
-            # Exclude noise (-1) and, on channel 1 -- the only one curated --
-            # bad clusters
-            mask = labels != -1
-            if channel == 1:
-                mask &= ~np.isin(labels, self.bad_cluster_indices)
+            # Exclude noise (-1) and the rejected clusters
+            mask = (labels != -1) & ~np.isin(labels, rejected)
 
             # Prepare ThunderSTORM compatible data (without cluster IDs)
             data = {
@@ -3277,9 +3336,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if filename:
                 pd.DataFrame(data).to_csv(filename, index=False, float_format='%.2f')
                 QtWidgets.QMessageBox.information(
-                    self, 
-                    "Success", 
-                    f"Filtered clustered data saved in ThunderSTORM format to {filename}"
+                    self,
+                    "Success",
+                    f"Filtered clustered data saved in ThunderSTORM format "
+                    f"to {filename}\n\n{source}"
                 )
     
         except Exception as e:
