@@ -40,9 +40,12 @@ from tools.mps_registration import (  # noqa: E402
     export_registration,
     find_fiducials,
     match_fiducials,
+    pixel_size_disagreement,
     read_calibration,
+    reach_nm,
     register_from_fiducials,
     register_localizations,
+    same_pixel_size,
 )
 
 PASSED = 0
@@ -511,6 +514,30 @@ def test_measuring() -> None:
         assert (x[0], y[0], z[0]) == (1.0, 1.0, 1.0)
         return None
 
+    def pixel_sizes_that_cannot_both_be_right():
+        # The 2023 sciatic-nerve data: one channel localized with 133 nm
+        # and the other with 135 nm, on the same camera.
+        assert pixel_size_disagreement("a", 135.0, "b", 135.0) is None
+        assert pixel_size_disagreement("a", None, "b", 135.0) is None
+        assert pixel_size_disagreement("a", 0.0, "b", 135.0) is None
+        text = pixel_size_disagreement("a", 135.0, "b", 133.0)
+        assert text is not None and "different pixel sizes" in text
+        assert "far corner" not in text
+        # Scaled about the camera origin: the error grows with the
+        # distance from it, and 31.7 um away it is far past the rings.
+        reach = 31725.0
+        text = pixel_size_disagreement("a", 135.0, "b", 133.0, reach)
+        want = round(reach * 2.0 / 133.0)
+        assert f"{want} nm at the far corner" in text, text
+        assert same_pixel_size(135.0, 135.0)
+        assert not same_pixel_size(135.0, 133.0)
+        # The reach comes from the data, not from the camera's size.
+        la = as_localizations(exchange_pair(71)[0], "A.hdf5")
+        assert abs(reach_nm(la) - float(np.hypot(np.abs(la.x_nm).max(),
+                                                 np.abs(la.y_nm).max()))) < 1e-6
+        assert reach_nm(None) is None
+        return f"{want} nm off at {reach / 1000:g} um from the origin"
+
     def from_two_files():
         a, b, _, shift = exchange_pair(70)
         la = as_localizations(a, "A.hdf5")
@@ -523,6 +550,8 @@ def test_measuring() -> None:
         assert any("different pixel sizes" in w for w in reg.warnings)
         return reg.description
 
+    check("pixel sizes that cannot both be right",
+          pixel_sizes_that_cannot_both_be_right)
     check("a known shift and error are recovered",
           shift_and_error_recovered)
     check("leave-one-out, not the fit residual",
