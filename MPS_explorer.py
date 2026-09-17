@@ -922,6 +922,35 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return self.locs1.pixel_size_nm, self.locs1.pixel_size_source
         return self.pxsize, self.pxsize_source
 
+    def _check_channel_pixel_sizes(self) -> None:
+        """
+        Warn when the two loaded channels disagree on the pixel size.
+
+        Both channels go through the same optics, so one of the two files
+        is wrong. The error scales one channel about the camera origin
+        rather than shifting it, which no registration can undo, and it is
+        easy to miss: each panel simply uses its own file's value. The 2023
+        sciatic-nerve data has it -- in one acquisition, adducin was
+        localized with 133 nm and spectrin with 135 nm.
+        """
+        if self.locs1 is None or self.locs2 is None:
+            return
+        from tools.mps_registration import pixel_size_disagreement, reach_nm
+
+        note = pixel_size_disagreement(
+            f"Channel 1 ({os.path.basename(str(self.locs1.path))})",
+            self.locs1.pixel_size_nm,
+            f"channel 2 ({os.path.basename(str(self.locs2.path))})",
+            self.locs2.pixel_size_nm,
+            reach_nm(self.locs1, self.locs2))
+        if note is None:
+            return
+        self.logger.warning(note)
+        QtWidgets.QMessageBox.warning(
+            self, "The channels disagree on the pixel size",
+            note + "\n\nLocalize both channels with the same pixel size, or "
+                   "correct the metadata of the one that is wrong.")
+
     def _polygon_vertices(self) -> NDArray[np.float64]:
         """The polygon ROI's vertices in data coordinates.
 
@@ -1350,6 +1379,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         ):
             self.empty_layout(layout)
         self.logger.info(f"Channel 1 loaded: {len(x):,} localizations")
+        self._check_channel_pixel_sizes()
         return True
 
     def load_channel2(self, path: str, fileformat: int = 0) -> bool:
@@ -1391,6 +1421,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if self.xroi is not None and len(self.xroi):
             self._select_channel2()
             self._draw_roi_panels()
+        self._check_channel_pixel_sizes()
         return True
 
     def _get_pixel_size_from_yaml(self, hdf5_filename: str) -> Optional[float]:

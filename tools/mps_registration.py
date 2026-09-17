@@ -71,6 +71,60 @@ MIN_PAIRS_FOR_ERROR = 3
 RMS_PER_MEDIAN_2D = math.sqrt(1.0 / math.log(2.0))
 
 
+def same_pixel_size(a: Optional[float], b: Optional[float]) -> bool:
+    """Whether two files agree on the pixel size; unknown counts as agreeing."""
+    return not (a and b) or abs(float(a) - float(b)) < 1e-6
+
+
+def reach_nm(*locs: Any) -> Optional[float]:
+    """How far the given files' localizations reach from the camera origin."""
+    best = 0.0
+    for loc in locs:
+        if loc is None or not getattr(loc, "n", 0):
+            continue
+        best = max(best, float(np.hypot(np.abs(loc.x_nm).max(),
+                                        np.abs(loc.y_nm).max())))
+    return best or None
+
+
+def pixel_size_disagreement(
+    name_a: str, pixel_a: Optional[float],
+    name_b: str, pixel_b: Optional[float],
+    reach_nm: Optional[float] = None,
+) -> Optional[str]:
+    """
+    What to tell the user when two channels disagree on the pixel size, or
+    None when they agree (or one of them is unknown).
+
+    Two colours split onto one camera and the rounds of an Exchange-PAINT
+    acquisition all go through the same optics, so the two files must give
+    the same pixel size; when they do not, one of them is wrong. The error
+    scales the positions about the camera origin, so it grows with the
+    distance from it and no shift can correct it: ``reach_nm`` is how far
+    the data reaches from that origin, and the message then says how far
+    off its far corner lands.
+
+    The 2023 sciatic-nerve data has exactly this: in staining 6, adducin
+    was localized with 133 nm and spectrin with 135 nm.
+    """
+    if same_pixel_size(pixel_a, pixel_b):
+        return None
+    assert pixel_a is not None and pixel_b is not None
+    text = (f"{name_a} and {name_b} give different pixel sizes "
+            f"({pixel_a:g} and {pixel_b:g} nm). Both channels are recorded "
+            f"through the same optics -- two colours on one camera, or "
+            f"rounds of one acquisition -- so one of the two is wrong.")
+    if reach_nm:
+        off = float(reach_nm) * abs(pixel_a - pixel_b) / min(pixel_a, pixel_b)
+        text += (f" The error scales the positions about the camera origin: "
+                 f"{off:.0f} nm at the far corner of the field, which no "
+                 f"shift can correct.")
+    else:
+        text += (" The error scales the positions about the camera origin, "
+                 "which no shift can correct.")
+    return text
+
+
 @dataclass
 class Fiducial:
     """One marker found in one channel."""
@@ -431,13 +485,12 @@ def register_localizations(loc_a: Any, loc_b: Any,
                                   fiducials_in(loc_b, **find_kwargs),
                                   **kwargs)
     reg.paths = [str(loc_a.path), str(loc_b.path)]
-    pa, pb = loc_a.pixel_size_nm, loc_b.pixel_size_nm
-    if pa and pb and abs(pa - pb) > 1e-6:
-        reg.warnings.append(
-            f"The two files give different pixel sizes ({pa:g} and "
-            f"{pb:g} nm). Exchange-PAINT rounds share the camera, so one "
-            f"of them is wrong, and a pixel-size error scales positions "
-            f"about the camera origin -- a translation cannot fix that.")
+    note = pixel_size_disagreement(
+        os.path.basename(str(loc_a.path)), loc_a.pixel_size_nm,
+        os.path.basename(str(loc_b.path)), loc_b.pixel_size_nm,
+        reach_nm(loc_a, loc_b))
+    if note:
+        reg.warnings.append(note)
     return reg
 
 

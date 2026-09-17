@@ -53,8 +53,11 @@ from tools.mps_registration import (
     NO_REGISTRATION,
     Registration,
     combine,
+    pixel_size_disagreement,
     read_calibration,
+    reach_nm,
     register_localizations,
+    same_pixel_size,
 )
 from tools.results_table import append_rows
 
@@ -115,10 +118,6 @@ def describe_parameters(inputs: "TwoChannelInputs") -> str:
         for n, p in (("1", a), ("2", b)))
 
 
-def _same_pixel(a: Optional[float], b: Optional[float]) -> bool:
-    return not (a and b) or abs(float(a) - float(b)) < 1e-6
-
-
 def _marker_file(path: str, channel: Any, round_name: str
                  ) -> Tuple[Any, Optional[str]]:
     """
@@ -141,7 +140,7 @@ def _marker_file(path: str, channel: Any, round_name: str
             path, pixel_size_nm=channel.pixel_size_nm)
         note = (f"{name} records no pixel size; the {round_name} file's "
                 f"({channel.pixel_size_nm:g} nm) was used.")
-    if not _same_pixel(loc.pixel_size_nm, channel.pixel_size_nm):
+    if not same_pixel_size(loc.pixel_size_nm, channel.pixel_size_nm):
         raise ValueError(
             f"The marker file {name} gives a pixel size of "
             f"{loc.pixel_size_nm:g} nm and the {round_name} file "
@@ -220,13 +219,12 @@ def run_two_channels(
     a, b = inputs.loc_a, inputs.loc_b
     xa, ya, za = a.x_nm, a.y_nm, a.z_nm
     xb, yb, zb = registration.apply(b.x_nm, b.y_nm, b.z_nm)
-    pixels_differ = not _same_pixel(a.pixel_size_nm, b.pixel_size_nm)
-    if pixels_differ:
-        out.notes.append(
-            f"The two files give different pixel sizes ({a.pixel_size_nm:g} "
-            f"and {b.pixel_size_nm:g} nm). Exchange-PAINT rounds share the "
-            f"camera, so one is wrong, and it scales channel 2 about the "
-            f"camera origin: no shift can correct that.")
+    pixel_note = pixel_size_disagreement(
+        os.path.basename(str(a.path)), a.pixel_size_nm,
+        os.path.basename(str(b.path)), b.pixel_size_nm, reach_nm(a, b))
+    pixels_differ = pixel_note is not None
+    if pixel_note:
+        out.notes.append(pixel_note)
     if inputs.roi is None:
         out.notes.append(
             "No ROI is selected on channel 1: only the registration was "
