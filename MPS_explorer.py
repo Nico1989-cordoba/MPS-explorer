@@ -147,7 +147,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui.setupUi(self)
         self.logger.debug("UI setup complete")
         self._make_content_scrollable()
-        self._build_analysis_menu()
+        self._build_analysis_toolbar()
 
         # Define initial directory
         self.initialDir = "Desktop"  # You can set the initial directory here
@@ -491,33 +491,31 @@ class MPS_explorer(QtWidgets.QMainWindow):
         scroll.setWidget(content)
         self.setCentralWidget(scroll)
 
-    def _build_analysis_menu(self) -> None:
+    def _build_analysis_toolbar(self) -> None:
         """
-        Add the two panels that are about the ACQUISITION rather than the
-        axon, in their own menu.
+        Add a toolbar for the tools that are about the ACQUISITION rather
+        than the axon: data quality, DNA-PAINT, and the Picasso tools.
 
-        Kept out of the results window because neither changes when the
-        clustering parameters are edited, and putting them there would
+        Kept out of the results window because none of them changes when
+        the clustering parameters are edited, and putting them there would
         invite reading them as results. DNA-PAINT is separate from data
         quality in turn because it does not merely describe the data, it
         changes what the software's other numbers mean.
 
-        The same actions also sit on a toolbar: a menu bar holding a single
-        "Analysis" entry reads as part of the title bar, and users did not
-        find it.
+        A toolbar rather than a menu: a menu bar holding a single entry
+        reads as part of the title bar, and users did not find it. The
+        .ui's menu bar is hidden, since nothing else lives there.
         """
-        menu = self.menuBar().addMenu("&Analysis")
+        self.menuBar().setVisible(False)
 
-        self.action_quality = menu.addAction("Data quality...")
+        self.action_quality = QtWidgets.QAction("Data quality", self)
         self.action_quality.setToolTip(
             "NeNA precision, fitting-box check, axial resolvedness and "
             "residual drift for the loaded file."
         )
         self.action_quality.triggered.connect(self.show_quality_panel)
 
-        menu.addSeparator()
-
-        self.action_paint = menu.addAction("DNA-PAINT...")
+        self.action_paint = QtWidgets.QAction("DNA-PAINT", self)
         self.action_paint.setToolTip(
             "Link localizations into binding events, reject non-specific "
             "sticking, and measure binding kinetics. qPAINT counting is a "
@@ -527,8 +525,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         # Tools that call the Picasso program. They are wired lazily through
         # self.picasso_tools, which is created later in __init__.
-        menu.addSeparator()
-        picasso_menu = menu.addMenu("Picasso tools")
+        picasso_menu = QtWidgets.QMenu("Picasso tools", self)
         picasso_menu.setToolTipsVisible(True)
         actions = (
             ("Undrift with AIM...", "undrift",
@@ -555,6 +552,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         toolbar = self.addToolBar("Analysis")
         toolbar.setObjectName("analysisToolBar")
         toolbar.setMovable(False)
+        # With no menu bar left, a toolbar hidden from the window's
+        # right-click menu could not be brought back.
+        toolbar.toggleViewAction().setVisible(False)
         toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
         # The native toolbar draws buttons flat, as plain text until hovered;
         # framed like the window's own push buttons, they read as buttons.

@@ -305,7 +305,7 @@ class PicassoJob:
 # ===================================================================
 class PicassoTools:
     """
-    The Analysis > Picasso tools menu.
+    The actions behind the Picasso tools button.
 
     ``window`` is the main MPS Explorer window. It is expected to provide
     ``locs1`` (the loaded ``Localizations`` or None), ``mps_settings``,
@@ -328,8 +328,8 @@ class PicassoTools:
         else:
             head = ("No Picasso executable was found on the PATH or in the "
                     "usual install folders.")
-        return (f"{head}\n\nPoint at picasso.exe with Analysis > Picasso "
-                f"tools > Picasso location..., or install Picasso from "
+        return (f"{head}\n\nPoint at picasso.exe with Picasso tools > "
+                f"Picasso location..., or install Picasso from "
                 f"{PICASSO_RELEASES}. Everything else in MPS Explorer works "
                 f"without it.")
 
