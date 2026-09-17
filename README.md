@@ -56,7 +56,7 @@ python MPS_explorer.py
 
 ### Your First Analysis (5 minutes)
 
-1. **Load Your Data** - Open a microscopy image file (supports .h5, .csv, .txt, .tif)
+1. **Load Your Data** - Open a localization file: Picasso `.hdf5`, ThunderSTORM `.csv`, or a custom `.csv` (images are not supported)
 2. **Draw ROI** - Use the polygon drawing tool to select your region of interest
 3. **Configure Parameters** - Adjust settings in `config.yaml` if needed
 4. **Run Clustering** - Execute analysis with optimal parameters
@@ -179,9 +179,10 @@ System automatically detects and uses GPU if available. 🚀
 - **Display**: 1920x1080+ for comfortable visualization
 
 ### Supported File Formats
-- **Point Cloud**: `.h5`, `.hdf5` (HDF5 files - recommended)
-- **Images**: `.tif`, `.tiff`, `.png`, `.jpg`, `.jpeg`
-- **Data**: `.csv`, `.txt` (point cloud format)
+- **Picasso localizations**: `.hdf5`, `.h5`. The pixel size comes from the `.yaml` sidecar, or from the metadata Picasso 0.11+ embeds in the file.
+- **ThunderSTORM localizations**: `.csv` with `x [nm]`, `y [nm]`, `z [nm]` columns
+- **Custom localizations**: `.csv` whose first three columns are x, y and z in nm
+- **Images**: not supported
 - **Export**: CSV, JSON, HDF5, custom formats
 
 ---
@@ -445,7 +446,7 @@ for roi_name, roi_data in roi_datasets.items():
 | **Can I use it on macOS/Linux?** | Yes, fully cross-platform |
 | **How do I debug issues?** | Check `logs/` directory for detailed logs |
 | **Can I batch process multiple files?** | Yes, see batch processing guide |
-| **What image formats are supported?** | .h5, .csv, .txt, .tif, .png, .jpg |
+| **What file formats are supported?** | Localization tables only: Picasso .hdf5/.h5, ThunderSTORM .csv, custom .csv. Images are not supported. |
 | **How do I export results?** | Use Export button → Choose CSV/JSON/HDF5 |
 | **Is there a GUI?** | Yes, PyQt5-based interactive interface |
 
@@ -461,7 +462,7 @@ More FAQs in [CONFIG.md](CONFIG.md) and [LOGGING.md](LOGGING.md)
 |---------|-------|----------|
 | App won't start | Missing dependencies | `pip install -r requirements.txt` |
 | Import error | Wrong Python version | Use Python 3.9+ |
-| File won't load | Wrong format | Use .h5, .csv, .txt, .tif |
+| File won't load | Wrong format | Use Picasso .hdf5/.h5, ThunderSTORM .csv or a custom .csv, and pick the matching format |
 | No clusters found | Bad ROI or parameters | Adjust ROI, check logs |
 | Too many clusters | Epsilon too small | Increase `histogram.bins_2d` |
 | Application slow | Large dataset, no GPU | Enable GPU or reduce ROI |
@@ -544,11 +545,6 @@ We welcome contributions! To contribute:
 ## 📜 License
 
 GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for the full text.
-
-MPS Explorer integrates [Gollum / ringfinder](https://github.com/cibion-conicet/Gollum)
-(Barabás, Masullo *et al.*, *Scientific Reports* **7**, 16029, 2017), which is
-GPL-3.0. GPL-3.0 is a copyleft licence, so a combined work has to be released
-under GPL-3.0 as well; this project is licensed accordingly.
 
 ---
 
