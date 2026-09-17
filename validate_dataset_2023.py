@@ -171,7 +171,41 @@ def section_reading() -> None:
         assert note and "different pixel sizes" in note
         return f"spectrin {spectrin:g} nm, adducin {adducin:g} nm; reported"
 
+    def the_images_and_the_acquisition_record_133():
+        from tools import mps_axoplasm as ax
+        from tools import mps_pixel_size as px
+
+        day = os.path.join(DATA, "230911 - MPS")
+        crop = os.path.join(
+            day, "MPS_ROI1_50ms_calib3_wf29x31_corrected_crop_ch1.tif")
+        image = ax.load_widefield(crop)
+        assert abs(image.pixel_size_nm - CAMERA_PIXEL_NM) < 0.01, \
+            image.pixel_size_nm
+        assert "ImageJ" in image.pixel_size_source
+        # Placing it on localizations analysed with 135 nm is reported.
+        loc = axon(1, 4)
+        offset, notes = ax.camera_offset(image, loc.info, loc.pixel_size_nm)
+        assert offset == (0.0, 0.0), offset
+        assert any("1.5%" in note for note in notes), notes
+        # The split movies carry 0.133 with the unit "cm": refused.
+        recorded, movie_notes = px.from_tiff(
+            os.path.join(day, "ROI1_spectrin.tif"))
+        assert recorded is None and movie_notes, (recorded, movie_notes)
+        # The acquisition metadata beside a raw movie, and beside the
+        # corrected one under its own name.
+        for movie in ("MPS_t2_ROI1_50ms_calib3.tiff",
+                      "MPS_t2_ROI1_50ms_calib3_corrected.tiff"):
+            beside = px.from_sidecar(
+                os.path.join(DATA, "230912  - MPS", movie))
+            assert beside is not None, movie
+            assert abs(beside.nm - CAMERA_PIXEL_NM) < 1e-9, (movie, beside)
+        return (f"the widefield images and the acquisition record "
+                f"{CAMERA_PIXEL_NM:g} nm; the analysis uses "
+                f"{OLD_PIXEL_NM:g}")
+
     check("a picked axon, as its metadata describes it", one_axon)
+    check("what the images and the acquisition record",
+          the_images_and_the_acquisition_record_133)
     check("the two channels of one axon cover the same area",
           both_channels_of_one_axon)
     check("staining 6: the channels give different pixel sizes",

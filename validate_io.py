@@ -769,6 +769,147 @@ def test_results_tables() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ============================= 10. the pixel size the acquisition recorded
+def test_recorded_pixel_size() -> None:
+    print("\n10. THE PIXEL SIZE THE ACQUISITION RECORDED")
+    import tifffile
+
+    from tools import mps_pixel_size as px
+
+    tmp = tempfile.mkdtemp(prefix="recorded_px_")
+
+    def micromanager_metadata():
+        info = [{"Micro-Manager Metadata": {"PixelSizeUm": 0.108}}]
+        recorded = px.from_micromanager(info, "movie.ome.tif")
+        assert recorded is not None and abs(recorded.nm - 108) < 1e-9
+        assert "movie.ome.tif" in recorded.source
+        # Zero is what Micro-Manager writes when nobody calibrated it.
+        assert px.from_micromanager(
+            [{"Micro-Manager Metadata": {"PixelSizeUm": 0.0}}]) is None
+        assert px.from_micromanager([{"Pixelsize": 113}]) is None
+        return "0.108 um read; a zero is not a pixel size"
+
+    def a_text_sidecar():
+        movie = os.path.join(tmp, "MPS_ROI1_50ms.tif")
+        with open(os.path.splitext(movie)[0] + ".txt", "w",
+                  encoding="utf-8") as handle:
+            handle.write("Camera= Andor DU897_BV\nPixel size= 0.133\n"
+                         "EM gain= 30\nNA= 1.42\n")
+        recorded = px.from_sidecar(movie)
+        assert recorded is not None and abs(recorded.nm - 133) < 1e-9
+        assert recorded.source == "MPS_ROI1_50ms.txt"
+        return "Pixel size= 0.133 in the acquisition's text file"
+
+    def a_metadata_file():
+        import h5py as h5
+
+        for name, key, value in (
+            ("plain", "Pixel size", 0.133),
+            ("element", "element_size_um", [1.0, 0.133, 0.133]),
+        ):
+            movie = os.path.join(tmp, f"{name}_movie.tiff")
+            with h5.File(os.path.splitext(movie)[0] + "_metadata.hdf5",
+                         "w") as handle:
+                handle.create_dataset(key, data=value)
+            recorded = px.from_sidecar(movie)
+            assert recorded is not None and abs(recorded.nm - 133) < 1e-9, name
+        # A processed movie keeps its suffix; its metadata keeps it after
+        # "_metadata", as the 2023 corrected movies do.
+        movie = os.path.join(tmp, "t2_ROI1_corrected.tiff")
+        with h5.File(os.path.join(tmp, "t2_ROI1_metadata_corrected.hdf5"),
+                     "w") as handle:
+            handle.create_dataset("Pixel size", data=0.133)
+        recorded = px.from_sidecar(movie)
+        assert recorded is not None and abs(recorded.nm - 133) < 1e-9
+        assert px.from_sidecar(os.path.join(tmp, "nothing.tif")) is None
+        return "Pixel size, element_size_um, and the _corrected naming"
+
+    def tiffs_that_record_it():
+        image = np.zeros((8, 8), dtype=np.uint16)
+        imagej = os.path.join(tmp, "imagej.tif")
+        tifffile.imwrite(imagej, image, imagej=True,
+                         resolution=(1 / 0.133, 1 / 0.133),
+                         metadata={"unit": "um"})
+        recorded, notes = px.from_tiff(imagej)
+        assert recorded is not None and abs(recorded.nm - 133) < 0.01, recorded
+        assert "ImageJ" in recorded.source and not notes
+        plain = os.path.join(tmp, "plain.tif")
+        tifffile.imwrite(plain, image, resolution=(1e7 / 133, 1e7 / 133),
+                         resolutionunit="CENTIMETER")
+        recorded, notes = px.from_tiff(plain)
+        assert recorded is not None and abs(recorded.nm - 133) < 0.01, recorded
+        assert not notes
+        return "the ImageJ unit and the plain resolution tags"
+
+    def a_unit_written_wrong():
+        # The 2023 split movies: ImageJ wrote 0.133 with the unit "cm".
+        image = np.zeros((8, 8), dtype=np.uint16)
+        path = os.path.join(tmp, "wrong_unit.tif")
+        tifffile.imwrite(path, image, imagej=True,
+                         resolution=(1 / 0.133, 1 / 0.133),
+                         metadata={"unit": "cm"})
+        recorded, notes = px.from_tiff(path)
+        assert recorded is None
+        assert notes and "not a pixel size" in notes[0] and "cm" in notes[0]
+        # An unset resolution is a placeholder, not something to report.
+        unset = os.path.join(tmp, "unset.tif")
+        tifffile.imwrite(unset, image, imagej=True,
+                         resolution=(2 ** 32 - 1, 2 ** 32 - 1),
+                         metadata={"unit": "um"})
+        recorded, notes = px.from_tiff(unset)
+        assert recorded is None and not notes, notes
+        return "1.33 mm per pixel is reported; a placeholder is not"
+
+    def the_message():
+        assert px.disagreement("f", 135.0, None) is None
+        assert px.disagreement("f", None,
+                               px.RecordedPixel(133.0, "s")) is None
+        assert px.disagreement("f", 133.0,
+                               px.RecordedPixel(133.0, "s")) is None
+        text = px.disagreement("f.hdf5", 135.0,
+                               px.RecordedPixel(133.0, "its metadata"))
+        assert text is not None and "135" in text and "133" in text
+        assert "1.5%" in text and "3.0%" in text, text
+        return text.split("scales with it")[-1].strip()[:60]
+
+    def from_a_localization_file():
+        movie = os.path.join(tmp, "whole_movie.tif")
+        with open(os.path.splitext(movie)[0] + ".txt", "w",
+                  encoding="utf-8") as handle:
+            handle.write("Pixel size= 0.133\n")
+        path = os.path.join(tmp, "locs.hdf5")
+        write_hdf5(path, sidecar_pixel_size=135)
+        with open(os.path.splitext(path)[0] + ".yaml", "w",
+                  encoding="utf-8") as handle:
+            handle.write(f"Frames: 1000\nWidth: 256\nHeight: 256\n"
+                         f"File: {movie}\n---\n"
+                         f"Generated by: Picasso Localize\nPixelsize: 135\n")
+        loc = load_localizations(path)
+        recorded, notes = px.for_localizations(loc)
+        assert not notes and recorded is not None
+        assert abs(recorded.nm - 133) < 1e-9, recorded
+        text = px.disagreement("this file", loc.pixel_size_nm, recorded)
+        assert text is not None and "133" in text
+        # The same sidecar beside the localizations, for data copied away
+        # from the acquisition folder.
+        alone = os.path.join(tmp, "alone.hdf5")
+        write_hdf5(alone, sidecar_pixel_size=135)
+        with open(os.path.splitext(alone)[0] + ".txt", "w",
+                  encoding="utf-8") as handle:
+            handle.write("Pixel size= 0.133\n")
+        recorded, _ = px.for_localizations(load_localizations(alone))
+        assert recorded is not None and abs(recorded.nm - 133) < 1e-9
+        return "the movie named in the metadata, or the file's own folder"
+
+    check("Micro-Manager's own field", micromanager_metadata)
+    check("a text sidecar beside the movie", a_text_sidecar)
+    check("an acquisition metadata file", a_metadata_file)
+    check("TIFFs that record the pixel size", tiffs_that_record_it)
+    check("a unit written wrong is refused, not used", a_unit_written_wrong)
+    check("what the disagreement costs", the_message)
+    check("a localization file's recorded value", from_a_localization_file)
+
+
 def main() -> int:
     print("=" * 72)
     print("LOADER AND METADATA CHECKS")
@@ -782,6 +923,7 @@ def main() -> int:
     test_backwards_compatibility()
     test_derived_outputs()
     test_results_tables()
+    test_recorded_pixel_size()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")
     print("=" * 72)

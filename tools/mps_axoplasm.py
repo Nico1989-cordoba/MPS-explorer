@@ -50,7 +50,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy import ndimage
 
-from tools import mps_metadata
+from tools import mps_metadata, mps_pixel_size
 
 # (x, y, width, height) of the camera region, as Micro-Manager writes it.
 CameraRegion = Tuple[int, int, int, int]
@@ -83,6 +83,13 @@ REGION_MIN_MARGIN_PX = 5.0
 # Warn when the mask's area is outside this range of the area the spectrin
 # ring encloses. Only a prompt to look at the overlay, not a criterion.
 AREA_RATIO_WARN = (0.5, 2.0)
+# An image whose recorded pixel size differs from the localizations' by
+# this much or more is refused: that is another scale altogether (another
+# binning, camera, or a unit written wrong), and placing it would be
+# meaningless. A few percent is reported instead and the image is placed,
+# because which of the two values is right is often unsettled -- the 2023
+# data records 133 nm in its widefield images and is analysed with 135.
+PIXEL_SIZE_REFUSE = 0.10
 
 LABEL_INTERIOR = "interior"
 LABEL_MEMBRANE = "membrane"
@@ -103,6 +110,8 @@ class WidefieldImage:
     binning: Optional[int]
     pixel_size_nm: Optional[float]        # None when the file records none
     acquired: Optional[str]
+    # Where the pixel size was read from, for the messages.
+    pixel_size_source: str = ""
     notes: List[str] = field(default_factory=list)
 
     @property
@@ -182,13 +191,10 @@ def load_widefield(path: str) -> WidefieldImage:
                                                data.shape[axes.index("X")])
     image = planes.astype(np.float64).mean(axis=0)
 
-    notes: List[str] = []
-    pixel = None
-    try:
-        um = float(meta.get("PixelSizeUm", 0) or 0)
-        pixel = um * 1000.0 if um > 0 else None
-    except (TypeError, ValueError):
-        pixel = None
+    # Micro-Manager's own field, ImageJ's unit and resolution, or the
+    # plain TIFF tags -- whichever the file carries.
+    recorded, notes = mps_pixel_size.from_tiff(path)
+    pixel = recorded.nm if recorded is not None else None
     region = _parse_region(meta.get("ROI"))
     if not meta:
         notes.append(
@@ -199,6 +205,7 @@ def load_widefield(path: str) -> WidefieldImage:
         path=path, image=image, n_planes=int(planes.shape[0]),
         camera_region=region, binning=_parse_int(meta.get("Binning")),
         pixel_size_nm=pixel, acquired=meta.get("ReceivedTime"),
+        pixel_size_source="" if recorded is None else recorded.source,
         notes=notes,
     )
 
@@ -239,10 +246,23 @@ def camera_offset(
     name = os.path.basename(image.path)
     if (image.pixel_size_nm is not None and pixel_size_nm
             and abs(image.pixel_size_nm - pixel_size_nm) > 1e-6):
-        raise ValueError(
-            f"{name} gives a pixel size of {image.pixel_size_nm:g} nm and "
-            f"the localizations {pixel_size_nm:g} nm. The image cannot be "
-            f"placed on them.")
+        ratio = abs(image.pixel_size_nm - pixel_size_nm) / pixel_size_nm
+        where = image.pixel_size_source or f"{name}"
+        if ratio >= PIXEL_SIZE_REFUSE:
+            raise ValueError(
+                f"{name} gives a pixel size of {image.pixel_size_nm:g} nm "
+                f"and the localizations {pixel_size_nm:g} nm, "
+                f"{ratio:.0%} apart. That is another scale -- a different "
+                f"binning, camera or unit -- and the image cannot be placed "
+                f"on them.")
+        # A few percent still places the image, stretched: the 2023 data
+        # records 133 nm in its widefield images and is analysed with 135.
+        notes.append(
+            f"{where} records {image.pixel_size_nm:g} nm per pixel and the "
+            f"localizations are analysed with {pixel_size_nm:g} nm "
+            f"({ratio:.1%} apart). The image is placed anyway, stretched by "
+            f"that much against the localizations: check the overlay, and "
+            f"correct whichever value is wrong.")
     region, binning, _time, _movie = movie_geometry(info)
     if (image.binning is not None and binning is not None
             and image.binning != binning):
