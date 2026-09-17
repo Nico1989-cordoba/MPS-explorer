@@ -658,6 +658,117 @@ def test_derived_outputs() -> None:
     check("real ROI 2 folder", real_folder_is_clean_now)
 
 
+def test_results_tables() -> None:
+    print("\n9. RESULTS TABLES  (exports that accumulate one axon at a time)")
+    import csv as csv_module
+    import shutil
+
+    from tools.results_table import TableMismatch, append_rows, read_header
+
+    tmp = tempfile.mkdtemp(prefix="tables_")
+    rows = [{"axon": "a1", "value": 1.5}, {"axon": "a2", "value": 2.5}]
+
+    def content(path: str) -> bytes:
+        with open(path, "rb") as handle:
+            return handle.read()
+
+    def table(path: str, encoding: str = "utf-8-sig") -> list:
+        with open(path, encoding=encoding, newline="") as handle:
+            return list(csv_module.reader(handle))
+
+    def refused(path: str, new_rows) -> str:
+        before = content(path)
+        try:
+            append_rows(path, new_rows)
+        except TableMismatch as error:
+            assert content(path) == before, "the file was changed"
+            return str(error)
+        raise AssertionError("the rows were written")
+
+    def new_then_append():
+        path = os.path.join(tmp, "grow.csv")
+        assert append_rows(path, rows[:1]) is False
+        assert append_rows(path, rows[1:]) is True
+        assert table(path) == [["axon", "value"], ["a1", "1.5"],
+                               ["a2", "2.5"]]
+        assert read_header(path) == ["axon", "value"]
+        return None
+
+    def other_columns_are_refused():
+        path = os.path.join(tmp, "other.csv")
+        append_rows(path, rows)
+        message = refused(path, [{"axon": "a3", "area": 7}])
+        assert "area" in message and "value" in message, message
+        message = refused(path, [{"value": 3, "axon": "a3"}])
+        assert "order" in message, message
+        return None
+
+    def excel_utf8_is_appended():
+        # Excel's 'CSV UTF-8' starts the file with a byte-order mark.
+        path = os.path.join(tmp, "bom.csv")
+        with open(path, "w", encoding="utf-8-sig", newline="") as handle:
+            handle.write("axon,value\r\na1,1.5\r\n")
+        assert append_rows(path, rows[1:]) is True
+        assert table(path)[-1] == ["a2", "2.5"] and len(table(path)) == 3
+        return None
+
+    def semicolons_are_refused():
+        # Excel with a comma decimal separator saves with ';'.
+        path = os.path.join(tmp, "semicolon.csv")
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            handle.write("axon;value\r\na1;1,5\r\n")
+        message = refused(path, rows[1:])
+        assert "';'" in message, message
+        return None
+
+    def other_encodings_are_refused():
+        # Excel's plain 'CSV' saves in the Windows code page.
+        path = os.path.join(tmp, "cp1252.csv")
+        with open(path, "w", encoding="cp1252", newline="") as handle:
+            handle.write("axon,value\r\naño,1.5\r\n")
+        message = refused(path, rows[1:])
+        assert "UTF-8" in message, message
+        return None
+
+    def empty_file_is_written():
+        path = os.path.join(tmp, "empty.csv")
+        open(path, "w").close()
+        assert append_rows(path, rows) is False
+        assert table(path)[0] == ["axon", "value"]
+        return None
+
+    def unterminated_last_line():
+        path = os.path.join(tmp, "unterminated.csv")
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            handle.write("axon,value\r\na1,1.5")
+        append_rows(path, rows[1:])
+        assert table(path) == [["axon", "value"], ["a1", "1.5"],
+                               ["a2", "2.5"]], table(path)
+        return None
+
+    def ragged_rows_keep_every_column():
+        path = os.path.join(tmp, "ragged.csv")
+        append_rows(path, [{"segment": 0}, {"segment": 1, "n_gaps": 3}])
+        assert table(path) == [["segment", "n_gaps"], ["0", ""], ["1", "3"]]
+        return None
+
+    try:
+        check("a new table, then appended", new_then_append)
+        check("other columns: refused, file untouched",
+              other_columns_are_refused)
+        check("a table re-saved as Excel 'CSV UTF-8' is appended",
+              excel_utf8_is_appended)
+        check("a table re-saved with ';' is refused", semicolons_are_refused)
+        check("a table in another encoding is refused",
+              other_encodings_are_refused)
+        check("an empty file is written", empty_file_is_written)
+        check("a last line without its newline", unterminated_last_line)
+        check("rows with different keys keep every column",
+              ragged_rows_keep_every_column)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> int:
     print("=" * 72)
     print("LOADER AND METADATA CHECKS")
@@ -670,6 +781,7 @@ def main() -> int:
     test_real_data()
     test_backwards_compatibility()
     test_derived_outputs()
+    test_results_tables()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")
     print("=" * 72)

@@ -98,7 +98,7 @@ class AxonAnalysis:
     # --- provenance -----------------------------------------------------
     source_name: str
     pixel_size_nm: Optional[float]
-    pixel_size_source: str          # "yaml" | "manual" | "unknown"
+    pixel_size_source: str          # see PIXEL_SIZE_SOURCES
     eps_nm: float
     min_samples: int
     slab_half_width_nm: float
@@ -294,6 +294,16 @@ class AxonAnalysis:
         }
 
 
+# Where a pixel size came from, as tools.mps_io records it: the Picasso
+# sidecar ("yaml"), the metadata embedded in the HDF5 since Picasso 0.11
+# ("hdf5"), a line scan of a sidecar that would not parse ("yaml_scan"), a
+# value given in code ("override") or typed by the user ("manual"), nothing
+# ("unknown"), or a file already in nanometres ("not_applicable").
+PIXEL_SIZE_SOURCES = ("yaml", "hdf5", "yaml_scan", "override", "manual",
+                      "unknown", "not_applicable")
+GUESSED_PIXEL_SIZE_SOURCES = ("override", "manual", "unknown")
+
+
 def analyze_axon(
     x_nm: NDArray[np.float64],
     y_nm: NDArray[np.float64],
@@ -344,14 +354,14 @@ def analyze_axon(
     z_nm = np.asarray(z_nm, dtype=float).ravel()
 
     warnings_: List[str] = []
-    if pixel_size_source not in ("yaml", "manual", "unknown", "not_applicable"):
+    if pixel_size_source not in PIXEL_SIZE_SOURCES:
         raise ValueError(f"bad pixel_size_source: {pixel_size_source!r}")
-    if pixel_size_source in ("manual", "unknown"):
+    if pixel_size_source in GUESSED_PIXEL_SIZE_SOURCES:
         # "not_applicable" means the file was already in nanometres
         # (ThunderSTORM / custom CSV), so there is nothing to warn about.
         warnings_.append(
             f"Pixel size ({pixel_size_nm} nm) did not come from the Picasso "
-            f"YAML sidecar (source: {pixel_size_source}). Every lateral "
+            f"metadata (source: {pixel_size_source}). Every lateral "
             f"distance and, squared, every cluster area scales with it -- "
             f"verify it before using these numbers."
         )

@@ -562,6 +562,7 @@ DERIVED_SUFFIXES: Tuple[str, ...] = (
     "_all_clusters",
     "neighbor_distances",
     "_filtered_clusters_thunderstorm",
+    "_two_channels",
 )
 
 # Also written by the Picasso tools menu, but a drift-corrected copy IS a

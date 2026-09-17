@@ -37,6 +37,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools.mps_gaps import RingAnalysis, analyze_rings
 from tools.mps_plot_style import PLOT_BG, set_title, style_dark
+from tools.results_table import append_rows
 
 _C_ORANGE = "#d55e00"
 _C_GREEN = "#009e73"
@@ -729,7 +730,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             written = [self._write_csv(path, seg_rows)]
             if pair_rows:
                 written.append(self._write_csv(pair_path, pair_rows))
-        except OSError as exc:
+        except (OSError, ValueError, csv.Error) as exc:
             QtWidgets.QMessageBox.critical(
                 self, "Export failed", f"Could not write:\n\n{exc}")
             return
@@ -741,18 +742,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
     def _write_csv(path: str, rows: List[Dict[str, Any]]) -> str:
         if not rows:
             return ""
-        fields = list(rows[0].keys())
-        existing: Optional[List[str]] = None
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8", newline="") as f:
-                existing = next(csv.reader(f), None)
-        append = existing == fields
-        with open(path, "a" if append else "w",
-                  encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fields,
-                                    extrasaction="ignore")
-            if not append:
-                writer.writeheader()
-            writer.writerows(rows)
+        # Every column any row has: a segment without a gap/patch analysis
+        # used to set the header and drop those columns for all rows.
+        append = append_rows(path, rows)
         return (f"{'Appended' if append else 'Wrote'} {len(rows)} row(s) to "
                 f"{path}")
