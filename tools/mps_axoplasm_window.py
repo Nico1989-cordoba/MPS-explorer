@@ -30,6 +30,7 @@ from PyQt5 import QtCore, QtWidgets
 from scipy import ndimage
 
 from tools import mps_axoplasm as ax
+from tools import mps_file_drop
 from tools.mps_io import load_localizations
 from tools.mps_plot_style import AXIS_FG, TITLE_FG, set_title, style_dark
 from tools.mps_twochannel_window import describe_roi
@@ -209,18 +210,20 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.edit_tubulin = QtWidgets.QLineEdit()
         self.edit_reference = QtWidgets.QLineEdit()
         self.edit_movie = QtWidgets.QLineEdit(str(self.inputs.movie.path))
+        images = mps_file_drop.IMAGE_SUFFIXES
         rows = (
             ("betaIII-tubulin, widefield:", self.edit_tubulin,
              "Widefield betaIII-tubulin", "TIFF (*.tif *.tiff)",
-             self._load_tubulin),
+             self._load_tubulin, images),
             ("betaII-spectrin, widefield (to align):", self.edit_reference,
              "Widefield betaII-spectrin", "TIFF (*.tif *.tiff)",
-             self._load_reference),
+             self._load_reference, images),
             ("Localizations of the whole movie (to align):", self.edit_movie,
              "Localizations of the whole movie",
-             "Localizations (*.hdf5 *.h5 *.csv)", None),
+             "Localizations (*.hdf5 *.h5 *.csv)", None,
+             mps_file_drop.LOCALIZATION_SUFFIXES),
         )
-        for i, (text, edit, title, pattern, loader) in enumerate(rows):
+        for i, (text, edit, title, pattern, loader, suffixes) in enumerate(rows):
             lay.addWidget(_label(text, _DIM), 2 * i, 0, 1, 2)
             button = QtWidgets.QPushButton("Browse...")
             button.clicked.connect(
@@ -228,6 +231,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                 self._browse(e, t, p, f))
             if loader is not None:
                 edit.editingFinished.connect(loader)
+            mps_file_drop.accept_files(
+                edit, suffixes, self._dropped(edit, loader),
+                hint="Drop the file here, or press Browse")
             lay.addWidget(edit, 2 * i + 1, 0)
             lay.addWidget(button, 2 * i + 1, 1)
         self.edit_movie.setToolTip(
@@ -349,6 +355,16 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             self._progress.hide()
             self._progress.deleteLater()
             self._progress = None
+
+    def _dropped(self, edit: QtWidgets.QLineEdit,
+                 loader: Optional[Callable[[], None]]
+                 ) -> Callable[[List[str]], None]:
+        """Take the first file of a drag into one of the fields."""
+        def handler(paths: List[str]) -> None:
+            edit.setText(paths[0])
+            if loader is not None:
+                loader()
+        return handler
 
     def _browse(self, edit: QtWidgets.QLineEdit, title: str, pattern: str,
                 loader: Optional[Callable[[], None]]) -> None:

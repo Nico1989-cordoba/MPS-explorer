@@ -33,7 +33,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtWidgets
 
-from tools import mps_io
+from tools import mps_file_drop, mps_io
 from tools.cluster_quality import (
     CircularROI,
     PolygonROI,
@@ -466,6 +466,16 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         grid.addWidget(self.edit_calibration, 4, 1)
         grid.addWidget(self.btn_calibration, 4, 2)
 
+        # Each field also takes the file dragged onto it.
+        for edit, suffixes in (
+            (self.edit_marker_a, mps_file_drop.LOCALIZATION_SUFFIXES),
+            (self.edit_marker_b, mps_file_drop.LOCALIZATION_SUFFIXES),
+            (self.edit_calibration, (".json", ".yaml", ".yml")),
+        ):
+            mps_file_drop.accept_files(
+                edit, suffixes, self._dropped(edit),
+                hint="Drop the file here, or press Browse")
+
         self.btn_run = QtWidgets.QPushButton("Run")
         self.btn_run.setToolTip(
             "Measure the registration, move channel 2 by it, select both "
@@ -488,6 +498,13 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         calibrated = self.check_calibration.isChecked()
         self.edit_calibration.setEnabled(calibrated)
         self.btn_calibration.setEnabled(calibrated)
+
+    def _dropped(self, edit: QtWidgets.QLineEdit
+                 ) -> Callable[[List[str]], None]:
+        """Take the first file of a drag into one of the fields."""
+        def handler(paths: List[str]) -> None:
+            edit.setText(paths[0])
+        return handler
 
     def _browse(self, edit: QtWidgets.QLineEdit, title: str,
                 pattern: str) -> None:
