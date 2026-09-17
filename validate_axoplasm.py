@@ -163,6 +163,27 @@ def test_loading() -> None:
         assert abs(ax.load_widefield(path).pixel_size_nm - 65.0) < 1e-9
         return None
 
+    def imagej_pixel_size():
+        # The 2023 widefield images: ImageJ states the unit and the
+        # resolution, and says 133 nm while the localizations use 135.
+        path = os.path.join(tmp, "crop_ch1.tif")
+        tifffile.imwrite(path, np.zeros((4, 4), np.uint16), imagej=True,
+                         resolution=(1 / 0.133, 1 / 0.133),
+                         metadata={"unit": "um"})
+        image = ax.load_widefield(path)
+        assert abs(image.pixel_size_nm - 133.0) < 0.01, image.pixel_size_nm
+        assert "ImageJ" in image.pixel_size_source
+        # The same data's split movies carry 0.133 with the unit "cm".
+        wrong = os.path.join(tmp, "as_cm.tif")
+        tifffile.imwrite(wrong, np.zeros((4, 4), np.uint16), imagej=True,
+                         resolution=(1 / 0.133, 1 / 0.133),
+                         metadata={"unit": "cm"})
+        spoiled = ax.load_widefield(wrong)
+        assert spoiled.pixel_size_nm is None
+        assert any("not a pixel size" in n for n in spoiled.notes), \
+            spoiled.notes
+        return "133 nm from the ImageJ tags; 1.33 mm refused"
+
     def plain_tiff():
         path = os.path.join(tmp, "plain.tif")
         tifffile.imwrite(path, np.ones((4, 4), np.uint16))
@@ -181,6 +202,7 @@ def test_loading() -> None:
     try:
         check("a Micro-Manager stack", mm_stack)
         check("a recorded pixel size", pixel_size_recorded)
+        check("the pixel size in a TIFF's own tags", imagej_pixel_size)
         check("a TIFF without metadata", plain_tiff)
         check("several channels are refused", channels_refused)
     finally:
@@ -212,6 +234,30 @@ def test_placing() -> None:
             "65", "113")
         return "another binning or pixel size"
 
+    def a_small_disagreement_is_placed_and_said():
+        # The 2023 case: the image records 133 nm and the localizations
+        # are analysed with 135. Too close to be another scale, too far to
+        # ignore, so the image is placed and the note says what it costs.
+        image = ax.WidefieldImage(
+            path="tub.tif", image=np.zeros((10, 10)), n_planes=1,
+            camera_region=(224, 222, 10, 10), binning=2,
+            pixel_size_nm=133.0, acquired=None,
+            pixel_size_source="the ImageJ tags of tub.tif")
+        (dx, dy), notes = ax.camera_offset(image, movie_info(), 135.0)
+        assert (dx, dy) == (0.0, 0.0), (dx, dy)
+        assert len(notes) == 1 and "1.5%" in notes[0], notes
+        assert "the ImageJ tags of tub.tif" in notes[0]
+        # Just under the refusal, still placed; at it, refused.
+        edge = 135.0 * (1 - ax.PIXEL_SIZE_REFUSE) + 0.01
+        image.pixel_size_nm = edge
+        _offset, notes = ax.camera_offset(image, movie_info(), 135.0)
+        assert notes and "apart" in notes[0]
+        image.pixel_size_nm = 135.0 * (1 - ax.PIXEL_SIZE_REFUSE)
+        expect_error(lambda: ax.camera_offset(image, movie_info(), 135.0),
+                     "another scale")
+        return (f"133 against 135 nm is noted; "
+                f"{ax.PIXEL_SIZE_REFUSE:.0%} apart is refused")
+
     def unknown_region():
         (dx, dy), notes = ax.camera_offset(image_with(None), movie_info(),
                                            PIXEL_NM)
@@ -240,6 +286,8 @@ def test_placing() -> None:
 
     check("camera regions give the offset", offsets)
     check("another binning or pixel size is refused", refusals)
+    check("a pixel size a few percent off is placed, with a note",
+          a_small_disagreement_is_placed_and_said)
     check("an unknown region is assumed, and said", unknown_region)
     check("the movie's geometry from Picasso's metadata", geometry)
     check("pixel centres", pixel_centres)

@@ -951,6 +951,38 @@ class MPS_explorer(QtWidgets.QMainWindow):
             note + "\n\nLocalize both channels with the same pixel size, or "
                    "correct the metadata of the one that is wrong.")
 
+    def _check_recorded_pixel_size(self, loc: Any, channel: int) -> None:
+        """
+        Warn when a file is analysed with a pixel size its acquisition
+        does not record.
+
+        The value in the Picasso metadata was typed at localization time,
+        and every distance downstream scales with it. Micro-Manager keeps
+        its own in the movie's metadata, and Tormenta writes one in a
+        sidecar beside the movie; when one of those is there and says
+        something else, only one of the two can be right. Nothing is
+        changed here: the analysis keeps using the file's own value, which
+        is what the earlier analyses of that data used.
+        """
+        if loc is None:
+            return
+        from tools import mps_pixel_size
+
+        recorded, notes = mps_pixel_size.for_localizations(loc)
+        for note in notes:
+            self.logger.warning(note)
+        text = mps_pixel_size.disagreement(
+            f"Channel {channel} ({os.path.basename(str(loc.path))})",
+            loc.pixel_size_nm, recorded)
+        if text is None:
+            return
+        self.logger.warning(text)
+        QtWidgets.QMessageBox.warning(
+            self, "The pixel size is not the recorded one",
+            text + "\n\nThe analysis keeps using the file's own value. "
+                   "Correct the metadata that is wrong, or localize again "
+                   "with the recorded pixel size.")
+
     def _polygon_vertices(self) -> NDArray[np.float64]:
         """The polygon ROI's vertices in data coordinates.
 
@@ -1379,6 +1411,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         ):
             self.empty_layout(layout)
         self.logger.info(f"Channel 1 loaded: {len(x):,} localizations")
+        self._check_recorded_pixel_size(self.locs1, 1)
         self._check_channel_pixel_sizes()
         return True
 
@@ -1421,6 +1454,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if self.xroi is not None and len(self.xroi):
             self._select_channel2()
             self._draw_roi_panels()
+        self._check_recorded_pixel_size(self.locs2, 2)
         self._check_channel_pixel_sizes()
         return True
 
