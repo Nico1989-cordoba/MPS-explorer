@@ -182,7 +182,7 @@ System automatically detects and uses GPU if available. 🚀
 - **Picasso localizations**: `.hdf5`, `.h5`. The pixel size comes from the `.yaml` sidecar, or from the metadata Picasso 0.11+ embeds in the file.
 - **ThunderSTORM localizations**: `.csv` with `x [nm]`, `y [nm]`, `z [nm]` columns
 - **Custom localizations**: `.csv` whose first three columns are x, y and z in nm
-- **Images**: not supported
+- **Widefield images**: TIFF or Micro-Manager OME-TIFF, only in the Axoplasm panel (a βIII-tubulin image for the axoplasm mask, and a βII-spectrin one to align it). The camera region and binning come from the Micro-Manager metadata; without it, the image is assumed to cover the same pixels as the localization movie.
 - **Export**: CSV, JSON, HDF5, custom formats
 
 ---

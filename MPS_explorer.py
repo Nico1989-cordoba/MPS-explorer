@@ -269,6 +269,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.quality_window: Optional[Any] = None
         self.paint_window: Optional[Any] = None
         self.two_channel_window: Optional[Any] = None
+        self.axoplasm_window: Optional[Any] = None
         # The ROI shape and axial range the current channel-1 selection was
         # made with. The ROI widget can move without being applied (a
         # redraw puts a default one up), so this, not the widget, describes
@@ -510,6 +511,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 self.two_channel_window.isVisible():
             self.two_channel_window.update_selection(
                 self._applied_roi_shape, self._applied_slab)
+        if self.axoplasm_window is not None and \
+                self.axoplasm_window.isVisible():
+            inputs = self._axoplasm_inputs()
+            if inputs is not None:
+                self.axoplasm_window.update_selection(inputs)
 
     # ------------------------------------------------------------------
     #  Acquisition-level panels: data quality and DNA-PAINT
@@ -573,6 +579,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.action_two_channels.triggered.connect(
             self.show_two_channel_panel)
 
+        self.action_axoplasm = QtWidgets.QAction("Axoplasm", self)
+        self.action_axoplasm.setToolTip(
+            "Classify the selected betaII-spectrin localizations as membrane "
+            "or interior with a widefield betaIII-tubulin image."
+        )
+        self.action_axoplasm.triggered.connect(self.show_axoplasm_panel)
+
         # Tools that call the Picasso program. They are wired lazily through
         # self.picasso_tools, which is created later in __init__.
         picasso_menu = QtWidgets.QMenu("Picasso tools", self)
@@ -619,6 +632,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         toolbar.addAction(self.action_quality)
         toolbar.addAction(self.action_paint)
         toolbar.addAction(self.action_two_channels)
+        toolbar.addAction(self.action_axoplasm)
         picasso_button = QtWidgets.QToolButton(toolbar)
         picasso_button.setText("Picasso tools")
         picasso_button.setToolTip(
@@ -794,6 +808,74 @@ class MPS_explorer(QtWidgets.QMainWindow):
                               exc_info=True)
             QtWidgets.QMessageBox.critical(
                 self, "Two channels", f"Could not build the panel:\n{error}")
+
+    def _current_cluster_centroids(self) -> Optional[NDArray[np.float64]]:
+        """
+        Centroids (nm) of the clusters the MPS analysis kept, when the
+        analysis describes the current channel-1 selection.
+        """
+        analysis = self.mps_analysis
+        current = self._analysed_x is not None and (
+            self._analysed_x is self.xroi_unfiltered
+            or self._analysed_x is self.xroi)
+        if analysis is None or not current:
+            return None
+        return np.asarray(analysis.centroids, dtype=float)
+
+    def _axoplasm_inputs(self) -> Optional[Any]:
+        """The axoplasm panel's inputs, or None without an ROI selection."""
+        if (self.locs1 is None or self.roi_indices is None
+                or self._applied_roi_shape is None):
+            return None
+        from tools.mps_axoplasm_window import AxoplasmInputs
+
+        return AxoplasmInputs(
+            loc=self.locs1.subset(self.roi_indices), movie=self.locs1,
+            roi=self._applied_roi_shape,
+            clusters=self._current_cluster_centroids,
+            selection_key=self.roi_indices)
+
+    def show_axoplasm_panel(self) -> None:
+        """Open the axoplasm panel on the channel-1 selection."""
+        if self.locs1 is None:
+            QtWidgets.QMessageBox.information(
+                self, "Axoplasm", "Load a file in channel 1 first.")
+            return
+        inputs = self._axoplasm_inputs()
+        if inputs is None:
+            QtWidgets.QMessageBox.information(
+                self, "Axoplasm",
+                "Draw the scatter plot and select one axon with an ROI "
+                "first: the mask is built around the selected axon.")
+            return
+        try:
+            from tools.mps_axoplasm_window import show_axoplasm_window
+
+            window = self.axoplasm_window
+            if window is not None and window.inputs.movie is self.locs1:
+                # Reopened on the same file: the images, the alignment and
+                # the settings are kept.
+                if window.inputs.selection_key is not self.roi_indices:
+                    window.update_selection(inputs)
+                window.show()
+                window.raise_()
+                window.activateWindow()
+            else:
+                if window is not None:
+                    window.close()
+                    window.deleteLater()
+                self.axoplasm_window = None
+                self.axoplasm_window = show_axoplasm_window(inputs,
+                                                            parent=self)
+            self.logger.info(
+                f"Axoplasm panel opened for "
+                f"{os.path.basename(self.locs1.path)} "
+                f"({inputs.loc.n:,} localizations selected)")
+        except Exception as error:     # noqa: BLE001 - surfaced to the user
+            self.logger.error(f"Axoplasm panel failed: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Axoplasm", f"Could not build the panel:\n{error}")
 
     def _apply_mps_settings(self) -> None:
         """
@@ -1028,6 +1110,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.bad_cluster_indices = sorted(analysis.bad_report.bad_labels)
         self.good_cluster_centroids = analysis.centroids
         self._render_good_clusters_panel(analysis.centroids)
+        if self.axoplasm_window is not None and \
+                self.axoplasm_window.isVisible():
+            self.axoplasm_window.refresh_clusters()
 
         if show_window:
             self._show_mps_window(analysis)
@@ -1245,9 +1330,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self._clustered_x[2] = None
         self._overview_plot = self._ch2_overlay = None
         for window in (self.mps_window, self.rings_window,
-                       self.two_channel_window):
+                       self.two_channel_window, self.axoplasm_window):
             if window is not None:
                 window.close()
+        if self.axoplasm_window is not None:
+            # It is reopened only on the file it was built for, and its
+            # widefield images are large: free it.
+            self.axoplasm_window.deleteLater()
+            self.axoplasm_window = None
         # The plots still show the previous file until they are redrawn;
         # channel 2's histogram of its whole file is left alone.
         if self.polygon_drawing_mode:
@@ -3503,6 +3593,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.paint_window.close()
         if self.two_channel_window is not None:
             self.two_channel_window.close()
+        if self.axoplasm_window is not None:
+            self.axoplasm_window.close()
         self.picasso_tools.shutdown()
 
         self.logger.info("=" * 80)
