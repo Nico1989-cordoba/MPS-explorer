@@ -44,6 +44,7 @@ from tools.cluster_quality import (
     PolygonROI,
     SquareROI,
     points_in_polygon,
+    points_in_roi,
 )
 from tools.mps_analysis import analyze_axon
 from tools.mps_periodicity import fit_z_periodicity
@@ -298,6 +299,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.y2: Optional[NDArray[np.float64]] = None
         self.z2: Optional[NDArray[np.float64]] = None
         self.data_points2: Optional[NDArray[np.float64]] = None
+        # The overview plot and channel 2's layer on it, so a newly loaded
+        # channel-2 file can replace that layer without a redraw.
+        self._overview_plot: Optional[Any] = None
+        self._ch2_overlay: Optional[Any] = None
 
         # --- ROI selection (set by update_ROI) ---
         self.xroi: Optional[NDArray[np.float64]] = None            # Ch1 localizations inside the ROI
@@ -331,6 +336,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.cluster_centroids: Optional[NDArray[np.float64]] = None             # (K, 2) cluster centroids
         self.good_cluster_centroids: Optional[NDArray[np.float64]] = None            # (M, 2) centroids after removing bad clusters
         self.bad_cluster_indices: List[int] = []  # indices into cluster_centroids marked as bad by the user
+        self.cluster_centroids2: Optional[NDArray[np.float64]] = None  # (K, 2) Ch2 cluster centroids
+        # The ROI selection each channel's labels were computed on. A new
+        # selection is a new array, and the labels no longer line up with it.
+        self._clustered_x: Dict[int, Optional[NDArray[np.float64]]] = {
+            1: None, 2: None}
 
         self.eps: Optional[float] = None             # DBSCAN epsilon parameter
         self.minsamples: Optional[int] = None      # DBSCAN min_samples parameter
@@ -1168,13 +1178,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                                                                 title='Select file')
                 if root.filenamedata2 != '':
                     self.logger.info(f"Channel 2 file selected: {root.filenamedata2}")
-                    self.ui.lineEdit_filename_2.setText(root.filenamedata2)
-                    self.fileformat2 = int(self.fileformat_2.currentIndex())
-                    self.logger.debug(f"File format: {['Picasso HDF5', 'ThunderStorm CSV', 'Custom CSV'][self.fileformat2]}")
-                    self.xdata2, self.ydata2, self.zdata2 = self.import_file(root.filenamedata2, self.fileformat2, channel=2)
-                    if self.two_channel_window is not None:
-                        self.two_channel_window.close()
-                    self.logger.info(f"Channel 2 loaded: {len(self.xdata2):,} localizations")
+                    self.load_channel2(root.filenamedata2,
+                                       int(self.fileformat_2.currentIndex()))
                 else:
                     self.logger.debug("File dialog cancelled for channel 2")
                     return
@@ -1219,25 +1224,72 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.original_points = self.original_z = None
         self.cluster_centroids = self.good_cluster_centroids = None
         self.bad_cluster_indices = []
+        self._clustered_x[1] = None
         self.distances = None
         self.Nneighbor = None
         self.mps_analysis = None
+        # Channel 2's selection was cut with channel 1's ROI, which is gone.
+        self.xroi2 = self.yroi2 = self.zroi2 = None
+        self.cluster_labels2 = self.cluster_centroids2 = None
+        self._clustered_x[2] = None
+        self._overview_plot = self._ch2_overlay = None
         for window in (self.mps_window, self.rings_window,
                        self.two_channel_window):
             if window is not None:
                 window.close()
         # The plots still show the previous file until they are redrawn;
-        # channel 2's own panels are left alone.
+        # channel 2's histogram of its whole file is left alone.
         if self.polygon_drawing_mode:
             self._cleanup_drawing_mode()
         for layout in (
             self.ui.scatterlayout, self.ui.zhistlayoutch1,
             self.ui.scatterlayout_3, self.ui.zhistlayout_2,
             self.ui.scatterlayout_clusterch1, self.ui.scatterlayout_goodclus,
-            self.ui.zhistlayout_cmdist,
+            self.ui.zhistlayout_cmdist, self.ui.scatterlayout_clusterch2,
         ):
             self.empty_layout(layout)
         self.logger.info(f"Channel 1 loaded: {len(x):,} localizations")
+        return True
+
+    def load_channel2(self, path: str, fileformat: int = 0) -> bool:
+        """Load a file into channel 2 without the file dialog."""
+        try:
+            x, y, z = self.import_file(path, fileformat, channel=2)
+        except ValueError as error:
+            # Nothing has changed yet: the previous file stays loaded.
+            self.logger.error(f"Could not load {path}: {error}")
+            QtWidgets.QMessageBox.warning(
+                self, "Could not load the file",
+                f"{os.path.basename(path)} was not loaded:\n{error}")
+            return False
+        self.xdata2, self.ydata2, self.zdata2 = x, y, z
+        self.ui.lineEdit_filename_2.setText(path)
+        self.fileformat_2.setCurrentIndex(fileformat)
+        self.fileformat2 = fileformat
+        self.logger.debug(f"File format: {['Picasso HDF5', 'ThunderStorm CSV', 'Custom CSV'][self.fileformat2]}")
+        # Everything derived from the previous channel-2 file refers to its
+        # rows: the selection, the clustering and what was drawn from them.
+        self.x2 = self.y2 = self.z2 = self.data_points2 = None
+        self.xroi2 = self.yroi2 = self.zroi2 = None
+        self.cluster_labels2 = self.cluster_centroids2 = None
+        self._clustered_x[2] = None
+        if self.two_channel_window is not None:
+            self.two_channel_window.close()
+        for layout in (self.ui.zhistlayoutch2,
+                       self.ui.scatterlayout_clusterch2):
+            self.empty_layout(layout)
+        if self._ch2_overlay is not None:
+            plot, item = self._ch2_overlay
+            plot.removeItem(item)
+            self._ch2_overlay = None
+        self.logger.info(f"Channel 2 loaded: {len(x):,} localizations")
+        # Channel 1's overview and selection still stand. Show the new file
+        # on them: a redraw would also put the ROI back at its default.
+        if self.x is not None and self._overview_plot is not None:
+            self._render_channel_2(self._overview_plot)
+        if self.xroi is not None and len(self.xroi):
+            self._select_channel2()
+            self._draw_roi_panels()
         return True
 
     def _get_pixel_size_from_yaml(self, hdf5_filename: str) -> Optional[float]:
@@ -1620,20 +1672,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
         y = center_y + radius * np.sin(theta)
         return np.column_stack([x, y])
 
-    def _render_channel_2(self, scatterWidgetxy: Any, plotxy: Any) -> None:
-        """Add channel 2 scatter and histogram overlay to the overview.
+    def _render_channel_2(self, plotxy: Any) -> None:
+        """Overlay channel 2 on the overview and draw its z histogram.
 
         If no channel 2 file is loaded, this method does nothing.
 
         Parameters
         ----------
-        scatterWidgetxy : pyqtgraph.GraphicsLayoutWidget
-            GraphicsLayoutWidget with the scatter plot
         plotxy : pyqtgraph.PlotItem
-            PlotItem to add channel 2 scatter to
+            The overview plot, already placed in its layout.
         """
-        filename2 = self.ui.lineEdit_filename_2.text()
-        if filename2 == '':
+        if self.xdata2 is None:
             return
 
         # Use already-loaded channel 2 data
@@ -1646,8 +1695,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         xy2 = pg.ScatterPlotItem(self.x2, self.y2, pen=None,
                                  brush=self.brush2, size=1)
         plotxy.addItem(xy2)
-        self.empty_layout(self.ui.scatterlayout)
-        self.ui.scatterlayout.addWidget(scatterWidgetxy)
+        self._ch2_overlay = (plotxy, xy2)
 
         # Render z-histogram for channel 2
         self._render_z_histogram(self.z2, 2, self.brush2, self.pen2,
@@ -1695,7 +1743,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self._setup_roi_widget(scatterWidgetxy, plotxy)
 
         # Overlay channel 2 if present
-        self._render_channel_2(scatterWidgetxy, plotxy)
+        self._overview_plot = plotxy
+        self._ch2_overlay = None
+        self._render_channel_2(plotxy)
      
               
     
@@ -1710,10 +1760,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
             )
             return
 
-        scatterWidgetROI = pg.GraphicsLayoutWidget()
-        plotROI = scatterWidgetROI.addPlot(title="Scatter plot ROI selected")
-        plotROI.setAspectLocked(True)
-        
         if self.ui.radioButton_circROI.isChecked():
 
             # Get circular ROI position and size
@@ -1861,6 +1907,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # This is a belt-and-suspenders check; the earlier guards should prevent
         # this, but aggressive z-filtering can theoretically remove all points.
         if len(self.xroi) == 0:
+            # Channel 2's previous selection does not match this one either.
+            self.xroi2 = self.yroi2 = self.zroi2 = None
             QtWidgets.QMessageBox.warning(
                 self, "No data in ROI after filtering",
                 "All localizations were filtered out by the z-range. "
@@ -1868,178 +1916,94 @@ class MPS_explorer(QtWidgets.QMainWindow):
             )
             return
 
-        self.selected = pg.ScatterPlotItem(self.xroi, self.yroi, pen = self.pen1,
-                                           brush = None, size = GOOD_CLUSTER_POINT_SIZE)
-        plotROI.setLabels(bottom=('x [nm]'), left=('y [nm]'))
-        plotROI.setXRange(np.min(self.xroi), np.max(self.xroi), padding=0)
-        plotROI.addItem(self.selected)
-        
-        
-        self.empty_layout(self.ui.scatterlayout_3)
-        self.ui.scatterlayout_3.addWidget(scatterWidgetROI)    
-        
-        
-        histzWidget2 = pg.GraphicsLayoutWidget()
-        histabsz2 = histzWidget2.addPlot(title="z ROI Histogram")
-        
-        histz2, bin_edgesz2 = np.histogram(self.zroi, bins='auto')
+        self._select_channel2()
+        self._draw_roi_panels()
+
+    def _select_channel2(self) -> None:
+        """
+        Select channel 2 with the ROI and axial range applied to channel 1.
+
+        The shape is the one ``_apply_z_range`` recorded, tested by the
+        same rules as channel 1's, and the range is the one it read and
+        checked: a range it ignored for channel 1 is ignored here too.
+
+        The range is channel 1's z, so it applies only when both channels
+        have one. Channel 2 may be another dye imaged in 2D: its z is all
+        zeros, and a slab away from z = 0 would remove all of it.
+        """
+        self.xroi2 = self.yroi2 = self.zroi2 = None
+        if self.xdata2 is None:
+            return
+        x2 = np.asarray(self.xdata2, dtype=float)
+        y2 = np.asarray(self.ydata2, dtype=float)
+        z2 = np.asarray(self.zdata2, dtype=float)
+        shape = self._applied_roi_shape
+        # No shape means channel 1 was taken whole.
+        keep = (np.ones(x2.size, dtype=bool) if shape is None
+                else points_in_roi(x2, y2, shape))
+        z_range = ((self.zmin, self.zmax)
+                   if self.zmin is not None and self.zmax is not None
+                   else None)
+        if z_range is not None and not all(
+                loc is None or loc.is_3d for loc in (self.locs1, self.locs2)):
+            z_range = None
+            self.logger.info(
+                "Channel 1 or channel 2 has no z: the axial range is not "
+                "applied to channel 2.")
+        if z_range is not None:
+            keep &= (z2 > z_range[0]) & (z2 < z_range[1])
+        self.logger.debug(
+            f"ROI Filter Ch2: {int(keep.sum()):,} of {x2.size:,} "
+            f"localizations selected")
+        if not np.any(keep):
+            in_range = " inside the Z range" if z_range is not None else ""
+            QtWidgets.QMessageBox.warning(
+                self, "Empty ROI in channel 2",
+                f"The selected ROI contains no localizations in channel 2"
+                f"{in_range}."
+            )
+            return
+        self.xroi2, self.yroi2, self.zroi2 = x2[keep], y2[keep], z2[keep]
+
+    def _add_roi_histogram(self, plot: Any, z: NDArray[np.float64],
+                           brush: Any, pen: Any) -> None:
+        """Add one channel's axial histogram to the ROI histogram plot."""
+        histz2, bin_edgesz2 = np.histogram(z, bins='auto')
         widthzabs2 = np.mean(np.diff(bin_edgesz2))
         bincentersz2 = np.mean(np.vstack([bin_edgesz2[0:-1],bin_edgesz2[1:]]), axis=0)
-        bargraphz2 = pg.BarGraphItem(x = bincentersz2, height = histz2, 
-                                    width = widthzabs2, brush = self.brush1, pen = self.pen1)
-        bargraphz2.setOpacity(0.5) 
-        histabsz2.addItem(bargraphz2)
-        
-        filename2 = self.ui.lineEdit_filename_2.text()
-        
-        if filename2 == '':
-            
-            
-            pass
-        
-        else:
-            
-            if self.ui.radioButton_circROI.isChecked():
+        bargraphz2 = pg.BarGraphItem(x = bincentersz2, height = histz2,
+                                    width = widthzabs2, brush = brush, pen = pen)
+        bargraphz2.setOpacity(0.5)
+        plot.addItem(bargraphz2)
 
-                # Get circular ROI position and size
-                pos = self.circular_roi.pos()
-                size = self.circular_roi.size()
+    def _draw_roi_panels(self) -> None:
+        """Draw both channels' selections in the ROI scatter and histogram."""
+        scatterWidgetROI = pg.GraphicsLayoutWidget()
+        plotROI = scatterWidgetROI.addPlot(title="Scatter plot ROI selected")
+        plotROI.setAspectLocked(True)
+        plotROI.setLabels(bottom=('x [nm]'), left=('y [nm]'))
 
-                # Extract scalar from size (PyQtGraph returns Point or QSizeF)
-                if hasattr(size, 'x'):
-                    size_scalar = float(size.x())  # Point object
-                elif hasattr(size, 'width'):
-                    size_scalar = float(size.width())  # QSizeF-like
-                else:
-                    size_scalar = float(size)  # Fallback
+        histzWidget2 = pg.GraphicsLayoutWidget()
+        histabsz2 = histzWidget2.addPlot(title="z ROI Histogram")
 
-                diameter = ROI_DIAMETER_SCALE_FACTOR * size_scalar
-                radius = diameter / 2
+        shown = [self.xroi]
+        self.selected = pg.ScatterPlotItem(self.xroi, self.yroi, pen = self.pen1,
+                                           brush = None, size = GOOD_CLUSTER_POINT_SIZE)
+        plotROI.addItem(self.selected)
+        self._add_roi_histogram(histabsz2, self.zroi, self.brush1, self.pen1)
 
-                # Calculate the center coordinates
-                center_x = float(pos.x()) + size_scalar / 2
-                center_y = float(pos.y()) + size_scalar / 2
-                
-                # Vectorized point-in-circle test for channel 2 (same logic
-                # as channel 1, see comments above). Replaces the original
-                # Python loop that did not scale with dataset size.
-                import time
-                t_start = time.perf_counter()
-                center_flat = np.array([center_x, center_y]).flatten()
-                distances2 = np.linalg.norm(self.data_points2 - center_flat, axis=1)
-                mask2 = distances2 <= float(radius)
-                ind_inside_roi2 = np.where(mask2)[0]
-                points_inside_roi2 = self.data_points2[mask2]
-                t_end = time.perf_counter()
-                elapsed_ms = (t_end - t_start) * 1000
-                n_points = len(self.data_points2)
-                n_selected = len(points_inside_roi2)
-                self.logger.debug(f"ROI Filter Ch2: Vectorized filter over {n_points:,} points "
-                                 f"-> {n_selected:,} selected in {elapsed_ms:.2f} ms")
-                
-                if len(points_inside_roi2) == 0:
-                    QtWidgets.QMessageBox.warning(
-                        self, "Empty ROI in channel 2",
-                        "The selected ROI contains no localizations in channel 2."
-                    )
-                    return
-                
-                self.xroi2 = points_inside_roi2[:,0]
-                self.yroi2 = points_inside_roi2[:,1]
-                         
-                
-                # Define zmin and zmax
-                zmin = self.ui.lineEdit_zmin.text()
-                zmax = self.ui.lineEdit_zmax.text()
-
-                # Hallazgo H04: Convert zmin and zmax to float (not int).
-                # Z-coordinates are stored as float, so boundaries must also be float
-                # to preserve precision and avoid truncation errors when filtering z-slices.
-                self.zmin = float(zmin) if zmin else None
-                self.zmax = float(zmax) if zmax else None
-                
-                if self.zmax is None:
-                    self.zroi2 = self.z2[ind_inside_roi2]
-                else:
-                    zroi = self.z2[ind_inside_roi2]
-                    indz = np.where((zroi > self.zmin) & (zroi < self.zmax))
-                    self.zroi2 = zroi[indz]
-                    self.xroi2 = self.xroi2[indz]
-                    self.yroi2 = self.yroi2[indz]
-                
-                
-      
-            elif self.ui.radioButton_squareROI.isChecked():
-                # Hallazgo 07 (ch2 square ROI — fixed)
-                # Get square ROI position and size
-                xmin, ymin = self.square_roi.pos()
-                xmax, ymax = self.square_roi.pos() + self.square_roi.size()
-
-                # Vectorized boolean mask for channel 2
-                corners2 = self._rotated_square_corners()
-                if corners2 is not None:
-                    mask2 = points_in_polygon(self.data_points2, corners2)
-                else:
-                    mask2 = ((self.x2 > xmin) & (self.x2 < xmax)
-                             & (self.y2 > ymin) & (self.y2 < ymax))
-                points_inside_roi2 = self.data_points2[mask2]
-
-                # Guard: bail out if ROI contains no localizations in ch2
-                if len(points_inside_roi2) == 0:
-                    QtWidgets.QMessageBox.warning(
-                        self, "Empty ROI in channel 2",
-                        "The selected ROI contains no localizations in channel 2."
-                    )
-                    return
-
-                self.xroi2 = points_inside_roi2[:, 0]
-                self.yroi2 = points_inside_roi2[:, 1]
-
-                # Get original indices of points inside ROI for z-filtering
-                ind_inside_roi2 = np.where(mask2)[0]
-
-                zmin = self.ui.lineEdit_zmin.text()
-                zmax = self.ui.lineEdit_zmax.text()
-
-                # Hallazgo H04: Convert zmin and zmax to float (not int) for Ch2 square ROI.
-                # Z-coordinates are stored as float, so boundaries must also be float.
-                self.zmin = float(zmin) if zmin else None
-                self.zmax = float(zmax) if zmax else None
-
-                if self.zmax is None:
-                    self.zroi2 = self.z2[ind_inside_roi2]
-                else:
-                    # Use self.z2, not self.z (bug fix)
-                    zroi = self.z2[ind_inside_roi2]
-                    indz = np.where((zroi > self.zmin) & (zroi < self.zmax))
-                    self.zroi2 = zroi[indz]
-                    self.xroi2 = self.xroi2[indz]
-                    self.yroi2 = self.yroi2[indz]
-              
-                    
+        if self.xroi2 is not None:
             self.selected2 = pg.ScatterPlotItem(self.xroi2, self.yroi2, pen = self.pen2,
-                                               brush = None, size = GOOD_CLUSTER_POINT_SIZE)
-            # NOTE: Original code had size=3 here (smaller than Ch1's size=5).
-            # Changed to GOOD_CLUSTER_POINT_SIZE for consistency. If Ch2 should
-            # be visually smaller, this is a design choice that should be documented.  
-            plotROI.setLabels(bottom=('x [nm]'), left=('y [nm]'))
-            plotROI.setXRange(np.min(self.xroi2), np.max(self.xroi2), padding=0)
+                                                brush = None, size = GOOD_CLUSTER_POINT_SIZE)
             plotROI.addItem(self.selected2)
-            
-            
-            self.empty_layout(self.ui.scatterlayout_3)
-            self.ui.scatterlayout_3.addWidget(scatterWidgetROI)    
+            shown.append(self.xroi2)
+            self._add_roi_histogram(histabsz2, self.zroi2, self.brush2, self.pen2)
 
-            
-            histz2, bin_edgesz2 = np.histogram(self.zroi2, bins='auto')
-            widthzabs2 = np.mean(np.diff(bin_edgesz2))
-            bincentersz2 = np.mean(np.vstack([bin_edgesz2[0:-1],bin_edgesz2[1:]]), axis=0)
-            bargraphz22 = pg.BarGraphItem(x = bincentersz2, height = histz2, 
-                                        width = widthzabs2, brush = self.brush2, pen = self.pen2)
-            bargraphz22.setOpacity(0.5) 
-            histabsz2.addItem(bargraphz22)
-        
-                
+        x_shown = np.concatenate(shown)
+        plotROI.setXRange(np.min(x_shown), np.max(x_shown), padding=0)
+
+        self.empty_layout(self.ui.scatterlayout_3)
+        self.ui.scatterlayout_3.addWidget(scatterWidgetROI)
         self.empty_layout(self.ui.zhistlayout_2)
         self.ui.zhistlayout_2.addWidget(histzWidget2)
 
@@ -2403,6 +2367,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
             z_roi = self.zroi2
             labels = self.dblabels2 if hasattr(self, 'dblabels2') else None
             suffix = f"_ch{channel}_roi"
+            if x_roi is None:
+                QtWidgets.QMessageBox.warning(
+                    self, "No ROI",
+                    "Load a file in channel 2 and select a ROI that holds "
+                    "channel-2 localizations first.")
+                return
         else:
             raise ValueError("Invalid channel number")
     
@@ -2556,15 +2526,19 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.logger.warning("Clustering Ch2: No ROI selected")
             QtWidgets.QMessageBox.warning(
                 self, "No ROI selected",
-                "Please select an ROI before clustering channel 2."
+                "Please load a channel-2 file and select an ROI that holds "
+                "channel-2 localizations before clustering channel 2."
             )
             return
 
         # Reset bad-cluster list for each new clustering run so stale
-        # selections from a previous run don't carry over.
-        self.bad_cluster_indices = []
-        # (Legacy attribute kept for any code that may still reference it)
-        self.indbc = []
+        # selections from a previous run don't carry over. The list holds
+        # channel 1's clusters (run_mps_analysis fills it), so clustering
+        # channel 2 leaves it alone.
+        if channel == 1:
+            self.bad_cluster_indices = []
+            # (Legacy attribute kept for any code that may still reference it)
+            self.indbc = []
 
         # Channel-specific data setup
         if channel == 1:
@@ -2766,11 +2740,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
             )
             return
 
-        # Store clustering results
-        self.cluster_labels = cluster_assignments  # Array assigning each point to a cluster (or -1 for noise)
-        self.original_points = roi_points          # Store original coordinates for reference
-        self.original_z = z_roi                    # Store original z-values
-
         # Calculate cluster centers (centroids)
         unique_labels = np.unique(cluster_assignments)
         centroids_list = []
@@ -2780,11 +2749,23 @@ class MPS_explorer(QtWidgets.QMainWindow):
             cluster_points = roi_points[cluster_assignments == label]
             centroids_list.append(np.mean(cluster_points, axis=0))  # Calculate centroid
 
-        # Store rounded cluster centers
-        self.cluster_centroids = np.around(np.array(centroids_list), decimals=2)
+        # Rounded cluster centers; (0, 2) when nothing clustered, so the
+        # plot below still gets two columns
+        centroids = np.around(np.array(centroids_list), decimals=2).reshape(-1, 2)
+
+        # Store clustering results, each channel in its own attributes
+        if channel == 1:
+            self.cluster_labels = cluster_assignments  # Array assigning each point to a cluster (or -1 for noise)
+            self.original_points = roi_points          # Store original coordinates for reference
+            self.original_z = z_roi                    # Store original z-values
+            self.cluster_centroids = centroids
+        else:
+            self.cluster_labels2 = cluster_assignments
+            self.cluster_centroids2 = centroids
+        self._clustered_x[channel] = x_roi
 
         # Log clustering statistics
-        n_clusters = len(self.cluster_centroids)
+        n_clusters = len(centroids)
         n_noise = np.sum(cluster_assignments == -1)
         self.logger.info(f"Clustering Ch{channel}: Found {n_clusters} clusters, {n_noise:,} noise points")
 
@@ -2844,7 +2825,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         
         # Plot cluster centers
         self.selectedcluscm = pg.ScatterPlotItem(
-            self.cluster_centroids[:, 0], self.cluster_centroids[:, 1], 
+            centroids[:, 0], centroids[:, 1],
             size=CLUSTER_CENTROID_POINT_SIZE, pen=pg.mkPen('k'), brush=roi_brush  # Filled circles for centers
         )
         plotclusters.addItem(self.selectedcluscm)
@@ -3136,6 +3117,40 @@ class MPS_explorer(QtWidgets.QMainWindow):
     
     
         
+    def _clustered_selection(
+        self, channel: int
+    ) -> Optional[Tuple[NDArray[np.float64], NDArray[np.float64],
+                        NDArray[np.float64], NDArray[np.int64]]]:
+        """
+        A channel's ROI selection with its cluster labels.
+
+        None, after telling the user why, when the channel has not been
+        clustered or its selection changed since: the labels index the
+        selection they were computed on, row by row.
+        """
+        if channel == 1:
+            x, y, z = self.xroi, self.yroi, self.zroi
+            labels = self.cluster_labels
+        elif channel == 2:
+            x, y, z = self.xroi2, self.yroi2, self.zroi2
+            labels = self.cluster_labels2
+        else:
+            QtWidgets.QMessageBox.warning(self, "Error", "Invalid channel selected")
+            return None
+        if x is None or y is None or z is None or labels is None:
+            QtWidgets.QMessageBox.warning(
+                self, "Error",
+                f"No clustering data available for channel {channel}")
+            return None
+        if self._clustered_x[channel] is not x:
+            QtWidgets.QMessageBox.warning(
+                self, "Selection changed",
+                f"The ROI selection of channel {channel} changed after it "
+                f"was clustered. Cluster channel {channel} again before "
+                f"saving.")
+            return None
+        return x, y, z, labels
+
     def save_all_clustered_data(self, channel: int) -> None:
         """
         Save all ROI localizations with cluster assignments to CSV (default format).
@@ -3167,36 +3182,23 @@ class MPS_explorer(QtWidgets.QMainWindow):
         Format: Standard CSV with headers
         """
         try:
-            if self.cluster_labels is None or self.xroi is None:
-                QtWidgets.QMessageBox.warning(self, "Error", "No clustering data available")
+            selection = self._clustered_selection(channel)
+            if selection is None:
                 return
-    
+            x_data, y_data, z_data, labels = selection
+
             # Get root filename
             root_name = self.get_root_filename()
-            
-            # Get data for specified channel
+
+            # Exclude bad clusters (but keep noise points). Only channel 1
+            # is curated: run_mps_analysis fills bad_cluster_indices from it.
             if channel == 1:
-                x_data = self.xroi
-                y_data = self.yroi
-                z_data = self.zroi
-                labels = self.cluster_labels
-            elif channel == 2:
-                x_data = self.xroi2
-                y_data = self.yroi2
-                z_data = self.zroi2
-                labels = self.cluster_labels2
-            else:
-                QtWidgets.QMessageBox.warning(self, "Error", "Invalid channel selected")
-                return
-    
-            # Create mask to exclude bad clusters (but keep noise points)
-            if hasattr(self, 'bad_cluster_indices'):
                 mask = ~np.isin(labels, self.bad_cluster_indices)
                 x_data = x_data[mask]
                 y_data = y_data[mask]
                 z_data = z_data[mask]
                 labels = labels[mask]
-    
+
             # Prepare data for saving
             data = {
                 'x [nm]': x_data,
@@ -3239,38 +3241,21 @@ class MPS_explorer(QtWidgets.QMainWindow):
             Channel to save (1 or 2).
         """
         try:
-            if self.cluster_labels is None or self.xroi is None:
-                QtWidgets.QMessageBox.warning(self, "Error", "No clustering data available")
+            selection = self._clustered_selection(channel)
+            if selection is None:
                 return
-    
+            x_data, y_data, z_data, labels = selection
+
             # Get root filename
             root_name = self.get_root_filename()
-            
-            # Get data for specified channel
+            suffix = f"_ch{channel}_filtered_clusters_thunderstorm"
+
+            # Exclude noise (-1) and, on channel 1 -- the only one curated --
+            # bad clusters
+            mask = labels != -1
             if channel == 1:
-                x_data = self.xroi
-                y_data = self.yroi
-                z_data = self.zroi
-                labels = self.cluster_labels
-                suffix = f"_ch{channel}_filtered_clusters_thunderstorm"
-            elif channel == 2:
-                x_data = self.xroi2
-                y_data = self.yroi2
-                z_data = self.zroi2
-                labels = self.cluster_labels2
-                suffix = f"_ch{channel}_filtered_clusters_thunderstorm"
-            else:
-                QtWidgets.QMessageBox.warning(self, "Error", "Invalid channel selected")
-                return
-    
-            # Create mask to exclude noise (-1) and bad clusters
-            noise_mask = (labels != -1)  # Exclude noise points
-            if hasattr(self, 'bad_cluster_indices'):
-                bad_cluster_mask = ~np.isin(labels, self.bad_cluster_indices)
-                mask = noise_mask & bad_cluster_mask
-            else:
-                mask = noise_mask
-    
+                mask &= ~np.isin(labels, self.bad_cluster_indices)
+
             # Prepare ThunderSTORM compatible data (without cluster IDs)
             data = {
                 'x [nm]': x_data[mask],
