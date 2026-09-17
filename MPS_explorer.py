@@ -1027,6 +1027,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
         for window in (self.mps_window, self.rings_window):
             if window is not None:
                 window.close()
+        # The plots still show the previous file until they are redrawn;
+        # channel 2's own panels are left alone.
+        if self.polygon_drawing_mode:
+            self._cleanup_drawing_mode()
+        for layout in (
+            self.ui.scatterlayout, self.ui.zhistlayoutch1,
+            self.ui.scatterlayout_3, self.ui.zhistlayout_2,
+            self.ui.scatterlayout_clusterch1, self.ui.scatterlayout_goodclus,
+            self.ui.zhistlayout_cmdist,
+        ):
+            self.empty_layout(layout)
         self.logger.info(f"Channel 1 loaded: {len(x):,} localizations")
         return True
 
