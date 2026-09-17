@@ -146,6 +146,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui = data_explorer.Ui_MainWindow()
         self.ui.setupUi(self)
         self.logger.debug("UI setup complete")
+        self._make_content_scrollable()
         self._build_analysis_menu()
 
         # Define initial directory
@@ -471,6 +472,25 @@ class MPS_explorer(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
     #  Acquisition-level panels: data quality and DNA-PAINT
     # ------------------------------------------------------------------
+    def _make_content_scrollable(self) -> None:
+        """
+        Put the window's content in a scroll area.
+
+        The .ui places every widget at a fixed position, down to y = 701, so
+        on a short screen (1280x800, 1366x768) the bottom row of buttons --
+        Distances and the exports -- used to be cut off with no way to reach
+        it.
+        """
+        # takeCentralWidget, not a plain setCentralWidget: the latter
+        # deletes the widget it replaces.
+        content = self.takeCentralWidget()
+        content.setMinimumSize(1381, 701)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        self.setCentralWidget(scroll)
+
     def _build_analysis_menu(self) -> None:
         """
         Add the two panels that are about the ACQUISITION rather than the
@@ -481,6 +501,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         invite reading them as results. DNA-PAINT is separate from data
         quality in turn because it does not merely describe the data, it
         changes what the software's other numbers mean.
+
+        The same actions also sit on a toolbar: a menu bar holding a single
+        "Analysis" entry reads as part of the title bar, and users did not
+        find it.
         """
         menu = self.menuBar().addMenu("&Analysis")
 
@@ -527,6 +551,32 @@ class MPS_explorer(QtWidgets.QMainWindow):
         where.setToolTip("Choose the Picasso executable, or check which one "
                          "is used.")
         where.triggered.connect(lambda: self.picasso_tools.locate())
+
+        toolbar = self.addToolBar("Analysis")
+        toolbar.setObjectName("analysisToolBar")
+        toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
+        # The native toolbar draws buttons flat, as plain text until hovered;
+        # framed like the window's own push buttons, they read as buttons.
+        toolbar.setStyleSheet(
+            "QToolBar { spacing: 6px; padding: 2px 4px; }"
+            "QToolButton { border: 1px solid #adadad; border-radius: 3px;"
+            " background: #fdfdfd; color: #000000; padding: 2px 10px; }"
+            "QToolButton:hover { border-color: #0078d7; background: #e5f1fb; }"
+            "QToolButton:pressed { background: #cce4f7; }"
+            "QToolButton[popupMode=\"2\"] { padding-right: 18px; }"
+        )
+        toolbar.addAction(self.action_quality)
+        toolbar.addAction(self.action_paint)
+        picasso_button = QtWidgets.QToolButton(toolbar)
+        picasso_button.setText("Picasso tools")
+        picasso_button.setToolTip(
+            "AIM drift correction, SMLM clustering and G5M molecular "
+            "mapping, run by the Picasso program.")
+        picasso_button.setMenu(picasso_menu)
+        picasso_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        toolbar.addWidget(picasso_button)
+        self.analysis_toolbar = toolbar
 
     def _roi_localizations(self) -> Optional[Any]:
         """
@@ -3256,39 +3306,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
     
         
         
-    def dist_cmDBSCAN(self) -> None:
-        """
-        Display all DBSCAN cluster centroids with interactive removal capability.
-
-        Renders an interactive scatter plot of all cluster centroid coordinates (X, Y)
-        obtained from DBSCAN clustering. Users can click on any cluster center to mark it
-        as "bad" (artifact, false positive, etc.) via the rx() callback handler.
-
-        This visualization helps users visually inspect clustering results and manually
-        remove spurious or unwanted clusters before downstream analysis.
-
-        Notes
-        -----
-        - Click on any cluster center to mark it as bad
-        - The rx() method handles cluster removal
-        - All clusters (good and bad) are shown; use dist_cm_good_clus() to view filtered results
-        - Cluster centers are displayed with size=10 pixels in blue color (brush3)
-        """
-        scatterWidgetDBSCAN_cmdist = pg.GraphicsLayoutWidget()
-        plotdistcmd = scatterWidgetDBSCAN_cmdist.addPlot(title="Clusters centers and distances")
-        plotdistcmd.setAspectLocked(True)
-
-        self.selectedcluscmd = pg.ScatterPlotItem(self.cluster_centroids[:,0], self.cluster_centroids[:,1], size=CLUSTER_CENTROID_POINT_SIZE, brush = self.brush3)  
-        plotdistcmd.setLabels(bottom=('x [nm]'), left=('y [nm]'))
-        plotdistcmd.setXRange(np.min(self.xroi), np.max(self.xroi), padding=0)
-        self.selectedcluscmd.sigClicked.connect(self.rx)
-        
-        plotdistcmd.addItem(self.selectedcluscmd)
-        
-        self.empty_layout(self.ui.scatterlayout_histcmdist)
-        self.ui.scatterlayout_histcmdist.addWidget(scatterWidgetDBSCAN_cmdist) 
-        
-                
     def empty_layout(self, layout: Any) -> None:
         """
         Remove all widgets from a PyQt5 layout.

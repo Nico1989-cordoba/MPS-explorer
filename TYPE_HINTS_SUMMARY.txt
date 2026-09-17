@@ -54,10 +54,9 @@ WHAT WAS ADDED
    - save_all_clustered_data(channel: int) -> None
    - save_all_clustered_data_thunderstorm(channel: int) -> None
    
-   ANALYSIS (5 methods):
+   ANALYSIS (4 methods):
    - cluster(channel: int) -> None
    - dist_cm_good_clus() -> None
-   - dist_cmDBSCAN() -> None
    - latchange() -> None
    - KNdist_hist() -> None
    

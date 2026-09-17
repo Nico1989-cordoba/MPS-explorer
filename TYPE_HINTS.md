@@ -142,9 +142,6 @@ def cluster(self, channel: int) -> None:
 def dist_cm_good_clus(self) -> None:
     """Display centroids of good clusters."""
 
-def dist_cmDBSCAN(self) -> None:
-    """Display all cluster centroids interactively."""
-
 def latchange(self) -> None:
     """Update histogram parameters from UI."""
 
