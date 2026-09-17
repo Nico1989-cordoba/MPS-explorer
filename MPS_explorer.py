@@ -13,7 +13,7 @@ pyuic5 -x data_explorer.ui -o data_explorer.py
 
 import os
 import sys
-from typing import Optional, Tuple, List, Dict, Union, Any
+from typing import Callable, Optional, Tuple, List, Dict, Union, Any
 from pathlib import Path
 import logging
 import traceback
@@ -48,7 +48,7 @@ from tools.cluster_quality import (
 )
 from tools.mps_analysis import analyze_axon
 from tools.mps_periodicity import fit_z_periodicity
-from tools import mps_io
+from tools import mps_file_drop, mps_io
 from tools.mps_picasso_tools import PicassoTools
 from tools.mps_settings import load_settings, save_settings
 
@@ -154,9 +154,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.logger.debug("UI setup complete")
         self._make_content_scrollable()
         self._build_analysis_toolbar()
+        self._wire_file_drops()
 
-        # Define initial directory
-        self.initialDir = "Desktop"  # You can set the initial directory here
+        # Where the open dialogs start. "Desktop" used to stand here as a
+        # literal, which is not a path: the dialog then opened wherever it
+        # had been left, which on this machine is a second copy of the
+        # repository. The folder of the last file opened is remembered
+        # across sessions and takes over (see _open_dir).
+        self.initialDir = os.path.expanduser("~")
         self.logger.debug(f"Initial directory: {self.initialDir}")
         
         # File Formats
@@ -1273,6 +1278,79 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.rings_window.raise_()
         self.rings_window.activateWindow()
 
+    # ------------------------------------------------------------------
+    #  Getting a file in: the dialog, and dragging one onto the window
+    # ------------------------------------------------------------------
+    def _open_dir(self) -> str:
+        """Where an open dialog should start: where the last one ended."""
+        return mps_file_drop.first_existing_dir(
+            getattr(self.mps_settings, "last_open_dir", ""), self.initialDir)
+
+    def _remember_open_dir(self, path: str) -> None:
+        """Keep the folder a file came from, for the next dialog."""
+        folder = os.path.dirname(os.path.abspath(path))
+        if not folder or folder == self.mps_settings.last_open_dir:
+            return
+        self.mps_settings.last_open_dir = folder
+        save_settings(self.mps_settings)
+
+    def _wire_file_drops(self) -> None:
+        """
+        Let a localization file dragged onto the window load itself.
+
+        The file name fields are the targets that say which channel; a
+        drop anywhere else on the window goes to channel 1, which is the
+        first step of every analysis.
+        """
+        hint = "Drop a localization file here, or press Browse"
+        for edit, channel in ((self.ui.lineEdit_filename, 1),
+                              (self.ui.lineEdit_filename_2, 2)):
+            mps_file_drop.accept_files(
+                edit, mps_file_drop.LOCALIZATION_SUFFIXES,
+                self._drop_into_channel(channel), hint=hint)
+        mps_file_drop.accept_files(
+            self, mps_file_drop.LOCALIZATION_SUFFIXES,
+            self._drop_into_channel(1))
+
+    def _drop_into_channel(self, channel: int) -> Callable[[List[str]], None]:
+        """A handler that loads whatever is dropped into ``channel``."""
+        def handler(paths: List[str]) -> None:
+            self.load_dropped(paths, channel)
+        return handler
+
+    def _format_for(self, path: str, channel: int) -> int:
+        """
+        The format a dropped file is read with, and shown in the combo.
+
+        The extension settles it, except that the two CSV flavours are
+        indistinguishable by name: a deliberate choice of "custom csv"
+        stands, anything else is read as a ThunderSTORM export, which
+        falls back to three bare columns anyway.
+        """
+        combo = self.fileformat if channel == 1 else self.fileformat_2
+        fileformat = mps_io.detect_format(path)
+        if (fileformat == mps_io.FORMAT_THUNDERSTORM_CSV
+                and int(combo.currentIndex()) == mps_io.FORMAT_CUSTOM_CSV):
+            fileformat = mps_io.FORMAT_CUSTOM_CSV
+        combo.setCurrentIndex(fileformat)
+        return fileformat
+
+    def load_dropped(self, paths: List[str], channel: int) -> bool:
+        """Load the first file of a drag into ``channel``."""
+        path = paths[0]
+        self.logger.info(f"Channel {channel} file dropped: {path}")
+        try:
+            fileformat = self._format_for(path, channel)
+        except ValueError as error:
+            QtWidgets.QMessageBox.warning(
+                self, "Could not load the file", str(error))
+            return False
+        loaded = (self.load_channel2(path, fileformat) if channel == 2
+                  else self.load_channel1(path, fileformat))
+        if loaded:
+            self._remember_open_dir(path)
+        return loaded
+
     def select_file(self, channel: int) -> None:
         """
         Open file dialog to select an HDF5 or CSV file for channel 1 or 2.
@@ -1287,23 +1365,31 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.logger.debug(f"File dialog opened for channel {channel}")
             root = Tk()
             root.withdraw()
+            # The localizations first, so the dialog does not open on a
+            # folder of TIFFs and CSV exports with nothing to pick.
+            kinds = [("Localizations", "*.hdf5 *.h5 *.csv"),
+                     ("All files", "*.*")]
             if channel == 1:
-                root.filenamedata = filedialog.askopenfilename(initialdir=self.initialDir,
-                                                               title='Select file')
+                root.filenamedata = filedialog.askopenfilename(
+                    initialdir=self._open_dir(), filetypes=kinds,
+                    title='Select the channel-1 file')
                 if root.filenamedata != '':
                     self.logger.info(f"Channel 1 file selected: {root.filenamedata}")
-                    self.load_channel1(root.filenamedata,
-                                       int(self.fileformat.currentIndex()))
+                    if self.load_channel1(root.filenamedata,
+                                          int(self.fileformat.currentIndex())):
+                        self._remember_open_dir(root.filenamedata)
                 else:
                     self.logger.debug("File dialog cancelled for channel 1")
                     return
             elif channel == 2:
-                root.filenamedata2 = filedialog.askopenfilename(initialdir=self.initialDir,
-                                                                title='Select file')
+                root.filenamedata2 = filedialog.askopenfilename(
+                    initialdir=self._open_dir(), filetypes=kinds,
+                    title='Select the channel-2 file')
                 if root.filenamedata2 != '':
                     self.logger.info(f"Channel 2 file selected: {root.filenamedata2}")
-                    self.load_channel2(root.filenamedata2,
-                                       int(self.fileformat_2.currentIndex()))
+                    if self.load_channel2(root.filenamedata2,
+                                          int(self.fileformat_2.currentIndex())):
+                        self._remember_open_dir(root.filenamedata2)
                 else:
                     self.logger.debug("File dialog cancelled for channel 2")
                     return

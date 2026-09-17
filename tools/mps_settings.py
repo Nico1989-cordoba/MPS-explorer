@@ -61,6 +61,8 @@ class MPSSettings:
     dbcv_threshold: float = DEFAULT_DBCV_THRESHOLD
     auto_analyze_on_cluster: bool = True
     last_export_dir: str = ""
+    # Where the open dialogs start: the folder of the last file opened.
+    last_open_dir: str = ""
     # Empty means "search the PATH and the usual install folders".
     picasso_path: str = ""
 
@@ -91,6 +93,9 @@ class MPSSettings:
             self.dbcv_threshold = DEFAULT_DBCV_THRESHOLD
         if not isinstance(self.picasso_path, str):
             self.picasso_path = ""
+        for name in ("last_open_dir", "last_export_dir"):
+            if not isinstance(getattr(self, name), str):
+                setattr(self, name, "")
         return self
 
 
