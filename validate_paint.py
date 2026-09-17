@@ -26,6 +26,8 @@ import sys
 import traceback
 from typing import List, Optional, Tuple
 
+import warnings
+
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +48,7 @@ from tools.mps_quality import (  # noqa: E402
     box_size_check,
     drift_check,
     nena,
+    repeat_neighbour_fraction,
 )
 
 PASSED = 0
@@ -188,6 +191,57 @@ def test_linking() -> None:
         assert np.isclose(ev.x_nm[0], 100.0 / 101.0), ev.x_nm[0]
         return "inverse-variance weighted position"
 
+    def failed_fit_keeps_its_event():
+        # Frames 10-14, the middle one a failed fit (precision 0 -> NaN).
+        frame = np.arange(10, 15, dtype=np.int64)
+        x = np.array([0.0, 2.0, 500.0, 4.0, 6.0])     # garbage position
+        y = np.zeros(5)
+        lp = np.array([5.0, 5.0, np.nan, 5.0, 5.0])
+        for dark in (0, 1):
+            ev = build_events(frame, x, y, lp_nm=lp, radius_nm=1000.0,
+                              max_dark_time=dark, n_frames=100)
+            assert ev.n == 1, (dark, ev.n)
+            assert ev.n_locs[0] == 5 and ev.length[0] == 5
+            assert np.isclose(ev.x_nm[0], 3.0), ev.x_nm[0]
+            assert ev.n_discarded == 1
+        return "one event of 5 frames, position from the 4 good fits"
+
+    def event_of_failed_fits_is_dropped():
+        frame = np.array([10, 11, 40, 41], dtype=np.int64)
+        x = y = np.zeros(4)
+        lp = np.array([np.nan, 0.0, 5.0, 5.0])
+        ev = build_events(frame, x, y, lp_nm=lp, radius_nm=30.0,
+                          max_dark_time=1, n_frames=100)
+        assert ev.n == 1 and ev.first_frame[0] == 40, ev.first_frame
+        assert ev.n_discarded == 2 and ev.n_censored == 0
+        assert ev.n_no_position == 1 and ev.n_unplaced == 0
+        # A localization without coordinates is counted apart.
+        x2 = np.array([0.0, np.nan, 0.0, 0.0])
+        ev = build_events(frame, x2, y, lp_nm=np.full(4, 5.0),
+                          radius_nm=30.0, max_dark_time=1, n_frames=100)
+        assert ev.n_unplaced == 1 and ev.n_discarded == 0
+        assert ev.link_group[1] == -1 and ev.n == 2
+        return "no position, no event; each drop counted once"
+
+    def both_ends_are_censored():
+        # A 100-frame movie: events at 0-2, 50-52 and 97-99.
+        frame = np.array([0, 1, 2, 50, 51, 52, 97, 98, 99], dtype=np.int64)
+        x = y = np.zeros(9)
+        ev = build_events(frame, x, y, radius_nm=30.0, max_dark_time=1,
+                          n_frames=100)
+        assert ev.first_frame.tolist() == [50], ev.first_frame
+        assert ev.n_censored == 2, ev.n_censored
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            unknown = build_events(frame, x, y, radius_nm=30.0,
+                                   max_dark_time=1)
+        assert unknown.first_frame.tolist() == [50, 97], unknown.first_frame
+        assert any("last" in str(w.message) for w in caught), caught
+        kept = build_events(frame, x, y, radius_nm=30.0, max_dark_time=1,
+                            n_frames=100, remove_ambiguous_lengths=False)
+        assert kept.n == 3 and kept.n_censored == 0
+        return "first and last frame trimmed; without n_frames only the first, with a warning"
+
     check("consecutive frames link", consecutive_frames_link)
     check("max_dark_time", max_dark_time_respected)
     check("linking radius", radius_respected)
@@ -196,6 +250,10 @@ def test_linking() -> None:
     check("labels returned in input order", input_order_preserved)
     check("event aggregation", event_aggregation)
     check("inverse-variance weighting", precision_weighting)
+    check("a failed fit does not split its event", failed_fit_keeps_its_event)
+    check("an event made only of failed fits is dropped",
+          event_of_failed_fits_is_dropped)
+    check("censored events at both ends", both_ends_are_censored)
 
 
 # ============================================================= dark times
@@ -652,8 +710,147 @@ def test_quality_checks() -> None:
     check("a missing Box Size is reported", missing_box_size_is_reported)
     check("resolvedness arithmetic", resolvedness_arithmetic)
     check("a component narrower than lpz is flagged", impossible_component_flagged)
+    def repeat_neighbours_track_drift():
+        # Its own generator: the outcome of a random-walk "correction"
+        # depends on the walk drawn, and must not shift when other checks
+        # in this section change.
+        local = np.random.default_rng(11)
+        # Sparse revisits, as in the 15.07.26 data: 3,000 sites, three
+        # visits each at random times over 20,000 frames. With many visits
+        # per site every point has a coincident revisit and nothing moves
+        # the fraction.
+        n_sites, per_site, frames = 3000, 3, 20000
+        sites = local.uniform(0, 20000, size=(n_sites, 2))
+        frame = local.integers(0, frames, n_sites * per_site)
+        centre = np.repeat(sites, per_site, axis=0)
+        x = centre[:, 0] + local.normal(0, 8, frame.size)
+        y = centre[:, 1] + local.normal(0, 8, frame.size)
+        r = 16.0
+        still = repeat_neighbour_fraction(frame, x, y, r)
+        drift = 60.0 * frame / frames              # 60 nm over the movie
+        drifted = repeat_neighbour_fraction(frame, x + drift, y, r)
+        corrected = repeat_neighbour_fraction(
+            frame, x + drift - 60.0 * frame / frames, y, r)
+        # A "correction" that random-walks in x and y from one 200-frame
+        # segment to the next, as the undersampled AIM run did.
+        segment = np.minimum(frame * 100 // frames, 99)
+        walk_x = np.cumsum(local.normal(0, 40, 100))[segment]
+        walk_y = np.cumsum(local.normal(0, 40, 100))[segment]
+        scrambled = repeat_neighbour_fraction(frame, x + walk_x,
+                                              y + walk_y, r)
+        # With sparse revisits, even a slow drift separates most of them.
+        assert drifted < 0.8 * still, (still, drifted)
+        assert abs(corrected - still) < 1e-12, (still, corrected)
+        assert scrambled < 0.5 * still, (still, scrambled)
+        subset = repeat_neighbour_fraction(frame, x, y, r, max_points=5000)
+        # The subset only thins the query points, so it estimates the same
+        # number rather than a smaller one.
+        assert abs(subset - still) < 0.03, (still, subset)
+        return (f"still {still:.2f}, drifted {drifted:.2f}, scrambled "
+                f"{scrambled:.2f}; subset of 5,000 {subset:.2f}")
+
+    def repeat_neighbours_exact_and_3d():
+        from scipy.spatial import cKDTree
+
+        local = np.random.default_rng(21)
+        n = 3000
+        frame = local.integers(0, 5000, n)
+        x = local.uniform(0, 3000, n)
+        y = local.uniform(0, 3000, n)
+        z = local.uniform(0, 600, n)
+        # Long binding events: 150 localizations each within a few nm,
+        # more than the 16 nearest neighbours the fast path looks at.
+        for i, start in enumerate((100, 2000)):
+            sl = slice(i * 150, i * 150 + 150)
+            frame[sl] = np.arange(start, start + 150)
+            x[sl] = 1000 + i * 500 + local.normal(0, 2, 150)
+            y[sl] = 1000 + local.normal(0, 2, 150)
+        r = 40.0
+
+        def brute(points):
+            tree = cKDTree(points)
+            hits = 0
+            for i, near in enumerate(tree.query_ball_point(points, r)):
+                near = np.asarray(near)
+                hits += bool(np.any(np.abs(frame[near] - frame[i]) >= 200))
+            return hits / n
+
+        flat = repeat_neighbour_fraction(frame, x, y, r)
+        assert abs(flat - brute(np.column_stack([x, y]))) < 1e-12
+        # 3D: z scaled so that one sphere of r covers 3r axially.
+        deep = repeat_neighbour_fraction(frame, x, y, r, z_scaled=z / 3.0)
+        assert abs(deep - brute(np.column_stack([x, y, z / 3.0]))) < 1e-12
+        scrambled_z = z + local.normal(0, 600, 50)[frame * 50 // 5000]
+        worse = repeat_neighbour_fraction(frame, x, y, r,
+                                          z_scaled=scrambled_z / 3.0)
+        flat_same = repeat_neighbour_fraction(frame, x, y, r)
+        assert worse < 0.8 * deep and flat_same == flat, (deep, worse)
+        return (f"matches brute force in 2D ({flat:.3f}) and 3D "
+                f"({deep:.3f}); scrambled z {worse:.3f}")
+
+    def repeat_neighbours_sample_survives_lost_rows():
+        local = np.random.default_rng(8)
+        n_sites, frames = 60_000, 40_000
+        sites = local.uniform(0, 200_000, size=(n_sites, 2))
+        frame = local.integers(0, frames, 3 * n_sites)
+        centre = np.repeat(sites, 3, axis=0)
+        x = centre[:, 0] + local.normal(0, 8, frame.size)
+        y = centre[:, 1] + local.normal(0, 8, frame.size)
+        base = repeat_neighbour_fraction(frame, x, y, 16.0, max_points=20_000)
+        worst = 0.0
+        for seed in range(5):
+            keep = np.ones(frame.size, dtype=bool)
+            keep[np.random.default_rng(seed).choice(frame.size, 10,
+                                                    replace=False)] = False
+            again = repeat_neighbour_fraction(frame[keep], x[keep], y[keep],
+                                              16.0, max_points=20_000)
+            worst = max(worst, abs(again / base - 1))
+        assert worst < 0.005, worst
+        return f"10 rows dropped: at most {worst:.2%} change (base {base:.3f})"
+
+    def repeat_neighbours_bead_is_fast():
+        import time
+
+        local = np.random.default_rng(4)
+        n_other, n_bead = 100_000, 20_000
+        frame = np.r_[local.integers(0, n_bead, n_other), np.arange(n_bead)]
+        x = np.r_[local.uniform(0, 60_000, n_other),
+                  30_000 + local.normal(0, 3, n_bead)]
+        y = np.r_[local.uniform(0, 60_000, n_other),
+                  30_000 + local.normal(0, 3, n_bead)]
+        order = np.argsort(frame, kind="stable")
+        started = time.perf_counter()
+        value = repeat_neighbour_fraction(frame[order], x[order], y[order],
+                                          20.0)
+        seconds = time.perf_counter() - started
+        assert seconds < 10, seconds
+        stopped = False
+        try:
+            repeat_neighbour_fraction(frame, x, y, 20.0, stop=lambda: True)
+        except InterruptedError:
+            stopped = True
+        assert stopped
+        return f"a 20,000-frame bead: {seconds:.1f} s; stop honoured"
+
+    def one_event_is_not_a_revisit():
+        # One long binding event: many neighbours, none far apart in time.
+        frame = np.arange(150)
+        x = rng.normal(0, 5, 150)
+        y = rng.normal(0, 5, 150)
+        assert repeat_neighbour_fraction(frame, x, y, 20.0) == 0.0
+        return None
+
     check("real drift is detected", drift_detected_when_real)
     check("absent drift is not invented", no_drift_is_not_invented)
+    check("repeat neighbours expose a scrambling correction",
+          repeat_neighbours_track_drift)
+    check("frames of one event are not a revisit", one_event_is_not_a_revisit)
+    check("repeat neighbours: exact, and 3D when asked",
+          repeat_neighbours_exact_and_3d)
+    check("repeat neighbours: the sample survives lost rows",
+          repeat_neighbours_sample_survives_lost_rows)
+    check("repeat neighbours: a fiducial bead stays cheap",
+          repeat_neighbours_bead_is_fast)
 
 
 def main() -> int:

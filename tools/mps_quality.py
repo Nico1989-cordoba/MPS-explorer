@@ -708,6 +708,113 @@ def drift_check(
 
 
 # ===================================================================
+#  Did a drift correction sharpen the data or scramble it?
+# ===================================================================
+REPEAT_GAP_FRAMES = 200
+_REPEAT_NEAREST = 16
+
+
+def _frame_sample(frame: NDArray[np.int64], target: int,
+                  seed: int) -> NDArray[np.bool_]:
+    """A fixed pseudo-random share of FRAMES holding about ``target`` rows."""
+    if frame.size <= target:
+        return np.ones(frame.size, dtype=bool)
+    mixed = (frame.astype(np.uint64) * np.uint64(0x9E3779B97F4A7C15)
+             + np.uint64(seed)) & np.uint64(0xFFFFFFFF)
+    return mixed.astype(np.float64) / 2.0 ** 32 < target / frame.size
+
+
+def repeat_neighbour_fraction(
+    frame: NDArray[np.int64],
+    x_nm: NDArray[np.float64],
+    y_nm: NDArray[np.float64],
+    radius_nm: float,
+    min_gap_frames: int = REPEAT_GAP_FRAMES,
+    max_points: int = 200_000,
+    seed: int = 0,
+    z_scaled: Optional[NDArray[np.float64]] = None,
+    stop: Optional[Any] = None,
+) -> float:
+    """
+    Fraction of localizations with a neighbour within ``radius_nm`` taken
+    at least ``min_gap_frames`` earlier or later.
+
+    A docking site is revisited during a DNA-PAINT movie, so its
+    localizations from different moments should land on top of each other.
+    A drift correction that is wrong scrambles them: on the 15.07.26
+    sample, AIM with 100-frame segments reported 1.3 um of drift that was
+    not there and this fraction fell from 0.51 to 0.09. That is what it is
+    for -- telling a file from its own corrected copy. Whether it also
+    shows a correct correction helping depends on how sites are revisited:
+    when each is revisited often, revisits close in time coincide even
+    under drift and the fraction barely moves. It is not meant for
+    comparing different samples.
+
+    ``z_scaled`` makes the test 3D: pass z multiplied by the ratio of the
+    lateral to the axial radius, so one sphere of ``radius_nm`` stands for
+    the anisotropic neighbourhood. Without it, a scrambled z goes unseen.
+
+    The gap keeps the frames of a single binding event from counting as a
+    revisit. Above ``max_points`` the fraction is estimated on the
+    localizations of a fixed pseudo-random set of FRAMES, still searched
+    against every localization. Choosing by frame rather than by row keeps
+    the same queries in a corrected copy that lost some rows.
+
+    ``stop``, if given, is called between blocks of work; when it returns
+    True the computation is abandoned with InterruptedError.
+
+    Returns NaN when there is nothing to measure.
+    """
+    frame = np.asarray(frame, dtype=np.int64)
+    columns = [np.asarray(x_nm, dtype=float), np.asarray(y_nm, dtype=float)]
+    if z_scaled is not None:
+        columns.append(np.asarray(z_scaled, dtype=float))
+    points = np.column_stack(columns)
+    finite = np.all(np.isfinite(points), axis=1)
+    frame, points = frame[finite], points[finite]
+    radius = float(radius_nm)
+    if frame.size < 2 or not (np.isfinite(radius) and radius > 0):
+        return float("nan")
+    queries = np.nonzero(_frame_sample(frame, max_points, seed))[0]
+    if queries.size == 0:
+        return float("nan")
+
+    def check_stop() -> None:
+        if stop is not None and stop():
+            raise InterruptedError("stopped")
+
+    tree = cKDTree(points)
+    k = min(_REPEAT_NEAREST, frame.size)
+    revisited = 0
+    undecided: List[int] = []
+    for start in range(0, queries.size, 20_000):
+        check_stop()
+        chunk = queries[start:start + 20_000]
+        dist, idx = tree.query(points[chunk], k=k,
+                               distance_upper_bound=radius)
+        dist = dist.reshape(chunk.size, k)
+        idx = idx.reshape(chunk.size, k)
+        found = np.isfinite(dist)
+        safe = np.where(found, idx, 0)
+        apart = found & (np.abs(frame[safe] - frame[chunk][:, None])
+                         >= min_gap_frames)
+        hit = apart.any(axis=1)
+        revisited += int(np.count_nonzero(hit))
+        # Every one of the k nearest is within reach and none is far in
+        # time -- a long binding event, typically. The answer may lie
+        # further out, so these few are settled exactly.
+        undecided.extend(chunk[~hit & found[:, -1]].tolist())
+    for n, i in enumerate(undecided):
+        if n % 1000 == 0:
+            check_stop()
+        near = np.asarray(tree.query_ball_point(points[i], radius),
+                          dtype=np.int64)
+        if np.any(np.abs(frame[near] - frame[i]) >= min_gap_frames):
+            revisited += 1
+    return revisited / queries.size
+
+
+# ===================================================================
 #  How much of the axial range is actually used
 # ===================================================================
 @dataclass

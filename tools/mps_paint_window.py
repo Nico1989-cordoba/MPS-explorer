@@ -208,10 +208,32 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         events = report.events
         lay.addWidget(_label(
             f"{report.n_locs:,} localizations  ->  {events.n:,} binding "
-            f"events     ({report.compression:.2f} localizations per event, "
+            f"events kept     ({report.compression:.2f} localizations per "
+            f"kept event, "
             f"link radius {report.radius_nm:.1f} nm, "
             f"max dark {events.max_dark_time} frames)",
             TITLE_FG, bold=True))
+        left_out = []
+        if events.n_discarded:
+            text = (f"{events.n_discarded:,} localizations are failed fits "
+                    f"(no usable precision): they count towards their "
+                    f"event's length but not its position.")
+            if events.n_no_position:
+                text += (f" {events.n_no_position:,} events made only of "
+                         f"failed fits have no position and were left out.")
+            left_out.append(text + " (Picasso loses every event that "
+                                   "contains a zero precision.)")
+        if events.n_unplaced:
+            left_out.append(
+                f"{events.n_unplaced:,} localizations have no coordinates "
+                f"and were not linked.")
+        if events.n_censored:
+            left_out.append(
+                f"{events.n_censored:,} events already bound in the first "
+                f"frame or still bound in the last were left out: their "
+                f"length is only a lower bound.")
+        if left_out:
+            lay.addWidget(_label("  ".join(left_out), _DIM))
         lay.addWidget(_label(
             "Everything downstream must be recomputed on EVENTS, not on "
             "localizations. In DNA-PAINT a docking site keeps emitting for "

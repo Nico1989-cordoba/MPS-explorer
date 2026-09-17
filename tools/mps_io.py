@@ -83,6 +83,38 @@ PIXEL_COLUMNS: Tuple[str, ...] = (
     "y_pick_rot",
 )
 
+# A fitted precision this far below the file's median, on a localization
+# that is NOT unusually bright, is a failed fit. On the 15.07.26 DNA-PAINT
+# files every such localization had its width collapsed to the fitter's
+# floor (about 0.06 px) and a sixth of the usual photons; the nearest
+# genuine ones sat above 0.2x. Precision scales as 1/sqrt(photons), so a
+# real 0.1x takes about a hundred times the typical photon count -- which
+# is exactly what a linked or combined localization has, hence the
+# exemptions below.
+FAILED_FIT_PRECISION_FRACTION = 0.1
+
+
+def plausible_precision(
+    values: NDArray[np.float64],
+    exempt: Optional[NDArray[np.bool_]] = None,
+) -> NDArray[np.bool_]:
+    """
+    True where a precision is finite, positive and not a failed fit.
+
+    ``exempt`` marks localizations the relative floor must not apply to
+    (bright ones); they still need a finite, positive precision.
+    """
+    values = np.asarray(values, dtype=float)
+    good = np.isfinite(values) & (values > 0)
+    if good.any():
+        floor = FAILED_FIT_PRECISION_FRACTION * float(np.median(values[good]))
+        above = values >= floor
+        if exempt is not None:
+            above |= np.asarray(exempt, dtype=bool)
+        good &= above
+    return good
+
+
 # ThunderSTORM spells the same quantities differently, and in nm. Mapping
 # them to the Picasso names lets everything downstream speak one
 # vocabulary instead of branching on the file format.
@@ -127,6 +159,9 @@ class Localizations:
     info: List[Dict[str, Any]] = field(default_factory=list)
     # "yaml" | "hdf5" | "yaml_scan" | "none"
     metadata_source: str = "none"
+    # Subtracted from the file's frame numbers so they count from 0: 1 for
+    # a ThunderSTORM export, 0 otherwise. Decided once, at load time.
+    frame_offset: int = 0
 
     # ---------------------------------------------------------- basics
     @property
@@ -180,9 +215,18 @@ class Localizations:
     # ------------------------------------------------- named accessors
     @property
     def frame(self) -> Optional[NDArray[np.int64]]:
-        """Frame index of each localization, or None for a file without one."""
+        """
+        Frame index of each localization, counted from 0, or None.
+
+        Picasso counts from 0. ThunderSTORM counts from 1 (ImageJ's slice
+        numbering), so its frames are shifted by ``frame_offset``: the
+        DNA-PAINT code decides which binding events were already under way
+        when imaging started by looking for frame 0.
+        """
         values = self.column("frame")
-        return None if values is None else np.asarray(values, dtype=np.int64)
+        if values is None:
+            return None
+        return np.asarray(values, dtype=np.int64) - int(self.frame_offset)
 
     @property
     def photons(self) -> Optional[NDArray[np.float64]]:
@@ -217,11 +261,38 @@ class Localizations:
 
         The single number Picasso's own guidance is phrased in ("2*NeNA",
         "3*LP"), so it is worth having one definition of it.
+
+        NaN where EITHER component is a failed fit: zero, not finite, or
+        below FAILED_FIT_PRECISION_FRACTION of that axis's median. A failed
+        fit often reports a collapsed precision on one axis while the
+        other stays plausible, and averaging hides it: the mean comes out
+        ordinary and the localization passes as a good one. So each axis
+        is tested before averaging. (Picasso's ``lib.ensure_sanity`` only
+        rejects negative values, so it keeps all of these.)
+
+        The relative floor is not applied to localizations brighter than
+        the median, nor to a file whose rows are already
+        merged events (an ``n`` or ``len`` column): a very small precision
+        is genuine there.
         """
         lpx, lpy = self.lpx_nm, self.lpy_nm
+        if lpx is None and lpy is None:
+            return None
+        if self.has("n") or self.has("len"):
+            exempt: Optional[NDArray[np.bool_]] = np.ones(self.n, dtype=bool)
+        else:
+            photons = self.photons
+            exempt = None
+            if photons is not None and np.isfinite(photons).any():
+                exempt = photons > float(np.nanmedian(photons))
         if lpx is None or lpy is None:
-            return lpx if lpy is None else lpy
-        return 0.5 * (lpx + lpy)
+            single = lpx if lpy is None else lpy
+            assert single is not None
+            return np.where(plausible_precision(single, exempt), single,
+                            np.nan)
+        good = (plausible_precision(lpx, exempt)
+                & plausible_precision(lpy, exempt))
+        return np.where(good, 0.5 * (lpx + lpy), np.nan)
 
     # -------------------------------------------------- from metadata
     @property
@@ -289,6 +360,7 @@ class Localizations:
                      for name, values in self.columns.items()},
             info=self.info,
             metadata_source=self.metadata_source,
+            frame_offset=self.frame_offset,
         )
 
 
@@ -414,6 +486,20 @@ def _load_csv(path: str, fmt: int) -> Localizations:
             f"nanometres, load it with fileformat=FORMAT_CUSTOM_CSV."
         )
 
+    # ThunderSTORM numbers frames from 1. Picasso's "Export for
+    # ThunderSTORM" writes the same layout with its own 0-based frames, and
+    # gives itself away with a background-noise column of zeros, which a
+    # real ThunderSTORM fit never produces.
+    frame_offset = 0
+    frame_column = lookup.get("frame")
+    if fmt == FORMAT_THUNDERSTORM_CSV and frame_column is not None:
+        frames = np.asarray(frame[frame_column])
+        bkgstd = lookup.get("bkgstd [photon]")
+        from_picasso = (bkgstd is not None and
+                        np.all(np.asarray(frame[bkgstd], dtype=float) == 0))
+        if frames.size and frames.min() >= 1 and not from_picasso:
+            frame_offset = 1
+
     return Localizations(
         x_nm=x,
         y_nm=y,
@@ -425,6 +511,7 @@ def _load_csv(path: str, fmt: int) -> Localizations:
         columns=columns,
         info=[],
         metadata_source="none",
+        frame_offset=frame_offset,
     )
 
 
@@ -477,6 +564,12 @@ DERIVED_SUFFIXES: Tuple[str, ...] = (
     "_filtered_clusters_thunderstorm",
 )
 
+# Also written by the Picasso tools menu, but a drift-corrected copy IS a
+# file someone may want to analyse. It is therefore not skipped; its stem
+# is reduced to the original's so that having both in one folder is
+# reported as the same acquisition twice.
+_SAME_ACQUISITION_PATTERNS: Tuple[Any, ...] = (re.compile(r"_aim(?![a-z0-9])"),)
+
 # The channel-numbered ROI export written by ``MPS_explorer.save_roi``
 # ("{stem}_ch{channel}_roi.csv"). It needs a pattern rather than a fixed
 # suffix because of the channel number, and it cannot be shortened to
@@ -489,7 +582,14 @@ DERIVED_SUFFIXES: Tuple[str, ...] = (
 # by hand afterwards ("..._ch1_roi_filterby-123to57.csv" is in the real
 # dataset), and "_" is a word character, so a \b here would let exactly
 # those through. The marker identifies the file whatever follows it.
-_DERIVED_PATTERNS: Tuple[Any, ...] = (re.compile(r"_ch\d+_roi"),)
+_DERIVED_PATTERNS: Tuple[Any, ...] = (
+    re.compile(r"_ch\d+_roi"),
+    # Written next to the input by the Picasso tools menu: a cluster subset,
+    # a molecule map and binding events, none of them an axon's
+    # localizations. Whole tokens only -- "__linked" files are the user's
+    # own Picasso output and are real input.
+    re.compile(r"_(?:clusters|molmap|link)(?![a-z0-9])"),
+)
 
 
 def is_derived_output(name: str) -> bool:
@@ -513,7 +613,7 @@ def source_stem(name: str) -> str:
     stem = os.path.splitext(os.path.basename(name))[0].lower()
     for suffix in DERIVED_SUFFIXES:
         stem = stem.replace(suffix, "")
-    for pattern in _DERIVED_PATTERNS:
+    for pattern in _DERIVED_PATTERNS + _SAME_ACQUISITION_PATTERNS:
         stem = pattern.sub("", stem)
     return stem.strip("_")
 

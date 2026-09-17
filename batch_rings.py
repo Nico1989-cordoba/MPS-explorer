@@ -107,9 +107,10 @@ def main(argv: List[str]) -> int:
 
     print(f"{len(files)} file(s) under {args.data_root}")
     if skipped:
-        print(f"{len(skipped)} skipped as MPS Explorer's own derived output "
-              f"(cluster centres, ROI exports, neighbour distances, filtered "
-              f"clusters); --include-derived to analyse them anyway")
+        print(f"{len(skipped)} skipped as derived output (cluster centres, "
+              f"ROI exports, neighbour distances, filtered clusters, and the "
+              f"Picasso tools' cluster, molecule-map and link files); "
+              f"--include-derived to analyse them anyway")
 
     # A derived suffix nobody has added to DERIVED_SUFFIXES yet shows up
     # here as two files claiming the same acquisition. Analysing both
