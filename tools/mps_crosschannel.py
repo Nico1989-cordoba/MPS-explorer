@@ -32,12 +32,16 @@ assumptions stated and no claim about which one answers the biology.
 
 Channel registration is the limiting factor
 -------------------------------------------
-Every cross-channel distance inherits the error of the affine alignment
-between channels. Xu et al. (2013) report ~7 nm residual for their
-two-colour STORM. Pass ``registration_rms_nm`` (the RMS the user's own
-calibration tool reports) and every cross-channel distance comparable to
-it is flagged, because a 10 nm "co-localization" measured with a 7 nm
-alignment error is not a measurement.
+Every cross-channel number inherits the error of putting the two channels
+in one frame. Xu et al. (2013) report ~7 nm residual for two-colour STORM;
+in Exchange-PAINT the error is the drift between imaging rounds, in x, y
+AND z. Both functions here take a ``tools.mps_registration.Registration``
+and expect channel B ALREADY moved by its shift (``Registration.apply``).
+The registration's errors then qualify the results: a cross-channel
+distance comparable to the lateral error is flagged, because a 10 nm
+"co-localization" measured with a 7 nm alignment error is not a
+measurement; and the axial error bounds the phase, which a focus
+difference between rounds shifts one to one.
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -64,6 +68,16 @@ from tools.mps_periodicity import (
     ZPeriodicityResult,
     fit_z_periodicity,
 )
+from tools.mps_registration import (
+    NO_REGISTRATION,
+    Registration,
+    export_registration,
+)
+
+# An axial registration error above this fraction of the period is called
+# out: a tenth of a period is a fifth of the whole in-phase-to-antiphase
+# range.
+PHASE_UNCERTAINTY_WARN = 0.1
 
 
 # ============================================================================
@@ -83,6 +97,10 @@ class AxialPhaseResult:
     phase_fraction: Optional[float]  # |offset| / period, folded to [0, 0.5]
     z_result_a: ZPeriodicityResult
     z_result_b: ZPeriodicityResult
+    registration: Registration = field(default_factory=lambda: NO_REGISTRATION)
+    # The axial registration error as a fraction of the period, or None
+    # when either is unknown.
+    phase_uncertainty: Optional[float] = None
     warnings: List[str] = field(default_factory=list)
 
     @property
@@ -102,6 +120,7 @@ def axial_phase(
     z_a: NDArray[np.float64],
     z_b: NDArray[np.float64],
     period_nm: Optional[float] = None,
+    registration: Optional[Registration] = None,
 ) -> AxialPhaseResult:
     """
     Offset between two channels' axial periodic distributions.
@@ -109,9 +128,12 @@ def axial_phase(
     Parameters
     ----------
     z_a, z_b : axial coordinates of each channel, in nm. Channel A is the
-        reference (betaII-spectrin).
+        reference (betaII-spectrin); channel B already registered onto it.
     period_nm : the MPS period to express the offset against. None uses the
         mean Delta-Z measured on channel A, falling back to channel B.
+    registration : how channel B was registered. Its axial error is
+        reported as ``phase_uncertainty``; when it is unknown, the result
+        says that a focus difference between rounds is inside the offset.
 
     Returns
     -------
@@ -120,6 +142,7 @@ def axial_phase(
     peaks are only ever located modulo the period.
     """
     warnings_: List[str] = []
+    registration = registration or NO_REGISTRATION
     za = np.asarray(z_a, dtype=float).ravel()
     zb = np.asarray(z_b, dtype=float).ravel()
 
@@ -149,11 +172,28 @@ def axial_phase(
             "offset cannot be expressed as a phase."
         )
 
+    uncertainty: Optional[float] = None
+    axial_error = registration.axial_rms_nm
+    if axial_error is None:
+        warnings_.append(
+            "The axial registration of channel B is unknown: any focus "
+            "difference between the two rounds is inside the measured "
+            "offset, one to one. Register the channels on markers "
+            "localized in both rounds.")
+    elif period and period > 0:
+        uncertainty = axial_error / period
+        if uncertainty >= PHASE_UNCERTAINTY_WARN:
+            warnings_.append(
+                f"The axial registration error alone ({axial_error:.0f} nm) "
+                f"is {uncertainty:.2f} of the period, so the phase is known "
+                f"only to about +/-{uncertainty:.2f}.")
+
     return AxialPhaseResult(
         peak_a_nm=float(ra.main_peak_nm), peak_b_nm=float(rb.main_peak_nm),
         offset_nm=offset, period_a_nm=pa, period_b_nm=pb,
         period_used_nm=period, phase_fraction=frac,
-        z_result_a=ra, z_result_b=rb, warnings=warnings_,
+        z_result_a=ra, z_result_b=rb, registration=registration,
+        phase_uncertainty=uncertainty, warnings=warnings_,
     )
 
 
@@ -193,7 +233,9 @@ class CrossChannelResult:
     median_radius_a_nm: Optional[float]
     median_radius_b_nm: Optional[float]
 
+    # The lateral registration error, from ``registration``.
     registration_rms_nm: Optional[float]
+    registration: Registration = field(default_factory=lambda: NO_REGISTRATION)
     warnings: List[str] = field(default_factory=list)
 
 
@@ -247,7 +289,8 @@ def cross_channel_transverse(
     *,
     slab: Optional[Tuple[float, float]] = None,
     slab_half_width_nm: float = DEFAULT_SLAB_HALF_WIDTH_NM,
-    registration_rms_nm: Optional[float] = None,
+    registration: Optional[Registration] = None,
+    analyze_kwargs_b: Optional[Dict[str, Any]] = None,
     n_null: int = 200,
     annulus_half_width_nm: float = 50.0,
     grid_spacing_nm: float = 5.0,
@@ -260,14 +303,17 @@ def cross_channel_transverse(
     Parameters
     ----------
     x_a, y_a, z_a : reference channel (betaII-spectrin), nm.
-    x_b, y_b, z_b : partner channel (alpha-adducin or 4.1B), nm.
+    x_b, y_b, z_b : partner channel (alpha-adducin or 4.1B), nm, already
+        registered onto channel A.
     slab : explicit (zmin, zmax). None centres a slab on channel A's main
         axial peak -- the MPS segment is defined by spectrin. Note that a
         partner protein sitting antiphase to spectrin is, by construction,
         under-represented in a slab centred on spectrin; check
         ``axial_phase`` before reading the transverse numbers.
-    registration_rms_nm : RMS residual of the affine channel alignment.
-        Cross-channel distances of this order are not measurements.
+    registration : how channel B was registered. Cross-channel distances
+        within three times its lateral error are flagged.
+    analyze_kwargs_b : overrides of ``analyze_kwargs`` for channel B -- its
+        own clustering parameters, pixel size and source name.
     n_null : randomizations for the null distribution of heterotypic 1NN.
 
     Returns
@@ -275,6 +321,9 @@ def cross_channel_transverse(
     CrossChannelResult
     """
     warnings_: List[str] = []
+    registration = registration or NO_REGISTRATION
+    lateral_error = registration.lateral_rms_nm
+    kwargs_b = {**analyze_kwargs, **(analyze_kwargs_b or {})}
     xa, ya, za = (np.asarray(v, float).ravel() for v in (x_a, y_a, z_a))
     xb, yb, zb = (np.asarray(v, float).ravel() for v in (x_b, y_b, z_b))
 
@@ -291,7 +340,7 @@ def cross_channel_transverse(
         warnings_.append(f"Channel A analysis failed: {exc}")
     try:
         an_b = analyze_axon(xb, yb, zb, slab_override=slab,
-                            run_randomization=False, **analyze_kwargs)
+                            run_randomization=False, **kwargs_b)
     except Exception as exc:                              # noqa: BLE001
         warnings_.append(f"Channel B analysis failed: {exc}")
 
@@ -307,11 +356,16 @@ def cross_channel_transverse(
         nn_ab, nn_ba = np.asarray(d_ab, float), np.asarray(d_ba, float)
         med_ab, med_ba = float(np.median(nn_ab)), float(np.median(nn_ba))
 
-        if registration_rms_nm and med_ab <= 3 * registration_rms_nm:
+        if lateral_error is None:
+            warnings_.append(
+                "The lateral registration of channel B is unknown, so no "
+                "heterotypic distance can be told apart from a registration "
+                "artefact.")
+        elif med_ab <= 3 * lateral_error:
             warnings_.append(
                 f"Median heterotypic distance ({med_ab:.0f} nm) is within "
-                f"3x the channel registration RMS "
-                f"({registration_rms_nm:.0f} nm). At this separation the "
+                f"3x the channel registration error "
+                f"({lateral_error:.0f} nm). At this separation the "
                 f"two channels cannot be told apart from a registration "
                 f"artefact."
             )
@@ -373,7 +427,7 @@ def cross_channel_transverse(
         angular_nn_median_deg=ang_med, best_rotation_deg=best_rot,
         max_correlation=max_corr, rotation_fraction_of_spacing=rot_frac,
         median_radius_a_nm=rad_a, median_radius_b_nm=rad_b,
-        registration_rms_nm=registration_rms_nm,
+        registration_rms_nm=lateral_error, registration=registration,
         warnings=warnings_,
     )
 
@@ -384,36 +438,50 @@ def export_cross_channel(
     source_a: str = "",
     source_b: str = "",
 ) -> Dict[str, Any]:
-    """Flat record for CSV export, one row per axon per channel pair."""
+    """
+    Flat record for CSV export, one row per axon per channel pair.
+
+    The columns are the same whatever was computed -- a part that was not
+    is left empty -- so rows from 2D and 3D pairs share one table.
+    """
     row: Dict[str, Any] = {"source_channel_a": source_a,
                            "source_channel_b": source_b}
-    if axial is not None:
-        row.update({
-            "axial_peak_a_nm": round(axial.peak_a_nm, 2),
-            "axial_peak_b_nm": round(axial.peak_b_nm, 2),
-            "axial_offset_nm": round(axial.offset_nm, 2),
-            "period_a_nm": axial.period_a_nm,
-            "period_b_nm": axial.period_b_nm,
-            "axial_phase_fraction": axial.phase_fraction,
-            "axial_phase_label": axial.interpretation_hint,
-        })
-    if transverse is not None:
-        t = transverse
-        row.update({
-            "slab_zmin_nm": round(t.slab_nm[0], 2),
-            "slab_zmax_nm": round(t.slab_nm[1], 2),
-            "n_clusters_a": t.n_clusters_a,
-            "n_clusters_b": t.n_clusters_b,
-            "median_hetero_nn_a_to_b_nm": t.median_hetero_nn_a_to_b,
-            "median_hetero_nn_b_to_a_nm": t.median_hetero_nn_b_to_a,
-            "null_median_hetero_nn_nm": t.null_median_a_to_b,
-            "fraction_null_below_measured": t.fraction_null_below_measured,
-            "angular_nn_median_deg": t.angular_nn_median_deg,
-            "rotation_fraction_of_spacing": t.rotation_fraction_of_spacing,
-            "max_angular_correlation": t.max_correlation,
-            "median_radius_a_nm": t.median_radius_a_nm,
-            "median_radius_b_nm": t.median_radius_b_nm,
-            "registration_rms_nm": t.registration_rms_nm,
-            "n_warnings": len(t.warnings),
-        })
+    registration = (transverse.registration if transverse is not None
+                    else axial.registration if axial is not None
+                    else NO_REGISTRATION)
+    row.update(export_registration(registration))
+    a = axial
+    row.update({
+        "axial_peak_a_nm": None if a is None else round(a.peak_a_nm, 2),
+        "axial_peak_b_nm": None if a is None else round(a.peak_b_nm, 2),
+        "axial_offset_nm": None if a is None else round(a.offset_nm, 2),
+        "period_a_nm": None if a is None else a.period_a_nm,
+        "period_b_nm": None if a is None else a.period_b_nm,
+        "axial_phase_fraction": None if a is None else a.phase_fraction,
+        "axial_phase_uncertainty": None if a is None else a.phase_uncertainty,
+        "axial_phase_label": None if a is None else a.interpretation_hint,
+    })
+    t = transverse
+    row.update({
+        "slab_zmin_nm": None if t is None else round(t.slab_nm[0], 2),
+        "slab_zmax_nm": None if t is None else round(t.slab_nm[1], 2),
+        "n_clusters_a": None if t is None else t.n_clusters_a,
+        "n_clusters_b": None if t is None else t.n_clusters_b,
+        "median_hetero_nn_a_to_b_nm":
+            None if t is None else t.median_hetero_nn_a_to_b,
+        "median_hetero_nn_b_to_a_nm":
+            None if t is None else t.median_hetero_nn_b_to_a,
+        "null_median_hetero_nn_nm":
+            None if t is None else t.null_median_a_to_b,
+        "fraction_null_below_measured":
+            None if t is None else t.fraction_null_below_measured,
+        "angular_nn_median_deg":
+            None if t is None else t.angular_nn_median_deg,
+        "rotation_fraction_of_spacing":
+            None if t is None else t.rotation_fraction_of_spacing,
+        "max_angular_correlation": None if t is None else t.max_correlation,
+        "median_radius_a_nm": None if t is None else t.median_radius_a_nm,
+        "median_radius_b_nm": None if t is None else t.median_radius_b_nm,
+        "n_warnings": None if t is None else len(t.warnings),
+    })
     return row

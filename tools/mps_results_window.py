@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import csv
 import os
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pyqtgraph as pg
@@ -37,6 +37,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools.mps_analysis import AxonAnalysis
 from tools.mps_plot_style import AXIS_FG, set_title, style_dark
+from tools.results_table import append_rows
 
 
 # Colour-blind-safe palette, matching the one already used in MPS_explorer.
@@ -379,9 +380,13 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         a = self.analysis
         px = "unknown" if a.pixel_size_nm is None else f"{a.pixel_size_nm:g} nm"
         src = {"yaml": "from Picasso YAML",
+               "hdf5": "from the metadata inside the HDF5",
+               "yaml_scan": "from Picasso YAML",
+               "override": "given explicitly",
                "manual": "entered manually",
                "unknown": "UNKNOWN"}.get(a.pixel_size_source, a.pixel_size_source)
-        colour = "#333333" if a.pixel_size_source == "yaml" else _C_ORANGE
+        colour = ("#333333" if a.pixel_size_source in ("yaml", "hdf5", "yaml_scan")
+                  else _C_ORANGE)
         self.lbl_provenance.setText(
             f"<b>{os.path.basename(a.source_name) or '(unnamed ROI)'}</b><br>"
             f"Pixel size: <span style='color:{colour}'><b>{px}</b> ({src})</span>"
@@ -652,22 +657,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         record = self.analysis.export_dict()
         try:
-            # Append when the file already has the same header, so a batch
-            # of axons accumulates into one table instead of overwriting.
-            existing_header: Optional[List[str]] = None
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8", newline="") as f:
-                    r = csv.reader(f)
-                    existing_header = next(r, None)
-
-            append = existing_header == list(record.keys())
-            mode = "a" if append else "w"
-            with open(path, mode, encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=list(record.keys()))
-                if not append:
-                    writer.writeheader()
-                writer.writerow(record)
-        except OSError as exc:
+            # A batch of axons accumulates into one table. A file with other
+            # columns is refused rather than overwritten.
+            append = append_rows(path, [record])
+        except (OSError, ValueError, csv.Error) as exc:
             QtWidgets.QMessageBox.critical(
                 self, "Export failed", f"Could not write {path}:\n\n{exc}")
             return

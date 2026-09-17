@@ -39,7 +39,12 @@ import hdbscan
 # --- Gazal et al. (2026) per-axon MPS analysis -------------------------------
 # Automatic replication of the paper's per-axon parameters. These modules are
 # Qt-free so the whole pipeline can be run and validated headlessly.
-from tools.cluster_quality import CircularROI, PolygonROI, SquareROI
+from tools.cluster_quality import (
+    CircularROI,
+    PolygonROI,
+    SquareROI,
+    points_in_polygon,
+)
 from tools.mps_analysis import analyze_axon
 from tools.mps_periodicity import fit_z_periodicity
 from tools import mps_io
@@ -262,6 +267,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.roi_indices: Optional[NDArray[np.int64]] = None
         self.quality_window: Optional[Any] = None
         self.paint_window: Optional[Any] = None
+        self.two_channel_window: Optional[Any] = None
+        # The ROI shape and axial range the current channel-1 selection was
+        # made with. The ROI widget can move without being applied (a
+        # redraw puts a default one up), so this, not the widget, describes
+        # xroi.
+        self._applied_roi_shape: Optional[Any] = None
+        self._applied_slab: Optional[Tuple[float, float]] = None
         self.picasso_tools = PicassoTools(self)
 
         # Channel 1 raw coordinates (pixel→nm converted)
@@ -469,6 +481,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.yroi = self.yroi[keep]
             self.roi_indices = base[keep]
 
+        self._applied_roi_shape = (
+            None if ind_inside_roi is None else self._current_roi_shape())
+        self._applied_slab = (
+            (float(self.zmin), float(self.zmax))
+            if (self._z_range_user_edited and self.zmin is not None
+                and self.zmax is not None) else None)
+        if self.two_channel_window is not None and \
+                self.two_channel_window.isVisible():
+            self.two_channel_window.update_selection(
+                self._applied_roi_shape, self._applied_slab)
+
     # ------------------------------------------------------------------
     #  Acquisition-level panels: data quality and DNA-PAINT
     # ------------------------------------------------------------------
@@ -523,6 +546,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         )
         self.action_paint.triggered.connect(self.show_paint_panel)
 
+        self.action_two_channels = QtWidgets.QAction("Two channels", self)
+        self.action_two_channels.setToolTip(
+            "Register channel 2 onto channel 1 (markers or a calibration), "
+            "then compare them: axial phase and transverse arrangement."
+        )
+        self.action_two_channels.triggered.connect(
+            self.show_two_channel_panel)
+
         # Tools that call the Picasso program. They are wired lazily through
         # self.picasso_tools, which is created later in __init__.
         picasso_menu = QtWidgets.QMenu("Picasso tools", self)
@@ -568,6 +599,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         )
         toolbar.addAction(self.action_quality)
         toolbar.addAction(self.action_paint)
+        toolbar.addAction(self.action_two_channels)
         picasso_button = QtWidgets.QToolButton(toolbar)
         picasso_button.setText("Picasso tools")
         picasso_button.setToolTip(
@@ -669,6 +701,81 @@ class MPS_explorer(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(
                 self, "DNA-PAINT", f"Could not build the panel:\n{error}")
 
+    def _field_parameter(self, edit: Any, fallback: float) -> float:
+        try:
+            value = float(edit.text())
+        except (TypeError, ValueError):
+            return fallback
+        return value if value > 0 else fallback
+
+    def _clustering_parameters(
+        self,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        eps and min samples typed for each channel. "auto" or a blank
+        field falls back to the stored settings.
+        """
+        s = self.mps_settings
+
+        def read(eps: Any, minimum: Any) -> Dict[str, Any]:
+            return dict(
+                eps_nm=self._field_parameter(eps, float(s.eps_nm)),
+                min_samples=int(self._field_parameter(
+                    minimum, float(s.min_samples))))
+
+        return (read(self.ui.lineEdit_eps, self.ui.lineEdit_minsamples),
+                read(self.ui.lineEdit_eps_2, self.ui.lineEdit_minsamples_2))
+
+    def show_two_channel_panel(self) -> None:
+        """Open the two-channel panel on the two loaded files."""
+        if self.locs1 is None or self.locs2 is None:
+            QtWidgets.QMessageBox.information(
+                self, "Two channels",
+                "Load a file in channel 1 (betaII-spectrin) and one in "
+                "channel 2 (the partner protein) first.")
+            return
+        s = self.mps_settings
+        roi = self._applied_roi_shape if self.xroi is not None else None
+        slab = self._applied_slab
+        shared = dict(dbcv_threshold=float(s.dbcv_threshold), roi=roi)
+        params_a, params_b = self._clustering_parameters()
+        kwargs_a = dict(
+            shared, **params_a,
+            pixel_size_nm=self.locs1.pixel_size_nm,
+            pixel_size_source=self.locs1.pixel_size_source,
+            source_name=self.ui.lineEdit_filename.text(),
+        )
+        kwargs_b = dict(
+            **params_b,
+            pixel_size_nm=self.locs2.pixel_size_nm,
+            pixel_size_source=self.locs2.pixel_size_source,
+            source_name=self.ui.lineEdit_filename_2.text(),
+        )
+        try:
+            from tools.mps_twochannel_window import (
+                TwoChannelInputs,
+                show_two_channel_window,
+            )
+
+            if self.two_channel_window is not None:
+                self.two_channel_window.close()
+            self.two_channel_window = show_two_channel_window(
+                TwoChannelInputs(
+                    loc_a=self.locs1, loc_b=self.locs2, roi=roi, slab=slab,
+                    slab_half_width_nm=float(s.slab_half_width_nm),
+                    kwargs_a=kwargs_a, kwargs_b=kwargs_b),
+                parent=self, parameters=self._clustering_parameters)
+            self.logger.info(
+                f"Two-channel panel opened for "
+                f"{os.path.basename(self.locs1.path)} and "
+                f"{os.path.basename(self.locs2.path)}"
+                + ("" if roi is not None else " (no ROI)"))
+        except Exception as error:     # noqa: BLE001 - surfaced to the user
+            self.logger.error(f"Two-channel panel failed: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Two channels", f"Could not build the panel:\n{error}")
+
     def _apply_mps_settings(self) -> None:
         """
         Restore the DBSCAN parameters persisted from the previous session.
@@ -703,6 +810,40 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.mps_settings.validate()
         save_settings(self.mps_settings)
 
+    def _channel1_pixel_size(self) -> Tuple[Optional[float], str]:
+        """
+        Pixel size of the channel-1 file and where it came from.
+
+        ``self.pxsize`` belongs to whichever file was loaded last, which is
+        channel 2's if that one was loaded after.
+        """
+        if self.locs1 is not None:
+            return self.locs1.pixel_size_nm, self.locs1.pixel_size_source
+        return self.pxsize, self.pxsize_source
+
+    def _polygon_vertices(self) -> NDArray[np.float64]:
+        """The polygon ROI's vertices in data coordinates.
+
+        ``getState()['points']`` gives them relative to the ROI's own
+        position, so a dragged polygon would still select where it was.
+        """
+        return np.array([
+            [p.x(), p.y()] for p in (
+                self.polygon_roi.mapToParent(h.pos())
+                for h in self.polygon_roi.getHandles())
+        ], dtype=float)
+
+    def _rotated_square_corners(self) -> Optional[NDArray[np.float64]]:
+        """The square ROI's corners in data coordinates, if it is rotated."""
+        if abs(float(self.square_roi.angle())) < 1e-9:
+            return None
+        w, h = self.square_roi.size()
+        return np.array([
+            [p.x(), p.y()] for p in (
+                self.square_roi.mapToParent(QtCore.QPointF(cx, cy))
+                for cx, cy in ((0, 0), (w, 0), (w, h), (0, h)))
+        ], dtype=float)
+
     def _current_roi_shape(self) -> Optional[Any]:
         """
         Describe the active ROI for the edge-touching bad-cluster criterion.
@@ -726,14 +867,15 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     radius=(ROI_DIAMETER_SCALE_FACTOR * s) / 2,
                 )
             if self.ui.radioButton_squareROI.isChecked():
+                corners = self._rotated_square_corners()
+                if corners is not None:
+                    return PolygonROI(vertices=corners)
                 xmin, ymin = self.square_roi.pos()
                 xmax, ymax = self.square_roi.pos() + self.square_roi.size()
                 return SquareROI(xmin=float(xmin), ymin=float(ymin),
                                  xmax=float(xmax), ymax=float(ymax))
             if self.ui.radioButton_polygonROI.isChecked():
-                verts = np.asarray(self.polygon_roi.getState()["points"],
-                                   dtype=float)
-                return PolygonROI(vertices=verts)
+                return PolygonROI(vertices=self._polygon_vertices())
         except (AttributeError, KeyError, TypeError):
             return None
         return None
@@ -801,15 +943,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
         s = self.mps_settings
         params = dict(
             source_name=self.ui.lineEdit_filename.text(),
-            pixel_size_nm=self.pxsize,
-            pixel_size_source=self.pxsize_source,
+            pixel_size_nm=self._channel1_pixel_size()[0],
+            pixel_size_source=self._channel1_pixel_size()[1],
             eps_nm=float(overrides.pop("eps_nm", s.eps_nm)),
             min_samples=int(overrides.pop("min_samples", s.min_samples)),
             slab_half_width_nm=float(
                 overrides.pop("slab_half_width_nm", s.slab_half_width_nm)),
             dbcv_threshold=float(
                 overrides.pop("dbcv_threshold", s.dbcv_threshold)),
-            roi=self._current_roi_shape(),
+            # The ROI the selection was made with: the widget may since
+            # have been redrawn at its default place.
+            roi=self._applied_roi_shape,
         )
         params.update(overrides)
 
@@ -946,9 +1090,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 half_width_nm=s.slab_half_width_nm,
                 eps_nm=s.eps_nm, min_samples=s.min_samples,
                 dbcv_threshold=s.dbcv_threshold,
-                pixel_size_nm=self.pxsize,
-                pixel_size_source=self.pxsize_source,
-                roi=self._current_roi_shape(),
+                pixel_size_nm=self._channel1_pixel_size()[0],
+                pixel_size_source=self._channel1_pixel_size()[1],
+                roi=self._applied_roi_shape,
             )
         except Exception as exc:                          # noqa: BLE001
             QtWidgets.QApplication.restoreOverrideCursor()
@@ -1028,6 +1172,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     self.fileformat2 = int(self.fileformat_2.currentIndex())
                     self.logger.debug(f"File format: {['Picasso HDF5', 'ThunderStorm CSV', 'Custom CSV'][self.fileformat2]}")
                     self.xdata2, self.ydata2, self.zdata2 = self.import_file(root.filenamedata2, self.fileformat2, channel=2)
+                    if self.two_channel_window is not None:
+                        self.two_channel_window.close()
                     self.logger.info(f"Channel 2 loaded: {len(self.xdata2):,} localizations")
                 else:
                     self.logger.debug("File dialog cancelled for channel 2")
@@ -1067,6 +1213,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.xroi_unfiltered = self.yroi_unfiltered = None
         self.zroi_unfiltered = None
         self.roi_indices = None
+        self._applied_roi_shape = None
+        self._applied_slab = None
         self.cluster_labels = None
         self.original_points = self.original_z = None
         self.cluster_centroids = self.good_cluster_centroids = None
@@ -1074,7 +1222,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.distances = None
         self.Nneighbor = None
         self.mps_analysis = None
-        for window in (self.mps_window, self.rings_window):
+        for window in (self.mps_window, self.rings_window,
+                       self.two_channel_window):
             if window is not None:
                 window.close()
         # The plots still show the previous file until they are redrawn;
@@ -1638,8 +1787,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             xmin, ymin = self.square_roi.pos()
             xmax, ymax = self.square_roi.pos() + self.square_roi.size()
 
-            # Vectorized boolean mask: True where point is inside the square
-            mask = (self.x > xmin) & (self.x < xmax) & (self.y > ymin) & (self.y < ymax)
+            # Vectorized boolean mask: True where point is inside the square.
+            # A rotated square is tested as the polygon it is drawn as.
+            corners = self._rotated_square_corners()
+            if corners is not None:
+                mask = points_in_polygon(self.data_points, corners)
+            else:
+                mask = ((self.x > xmin) & (self.x < xmax)
+                        & (self.y > ymin) & (self.y < ymax))
             points_inside_roi = self.data_points[mask]
 
             # Guard: bail out if ROI contains no localizations
@@ -1661,7 +1816,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         elif self.ui.radioButton_polygonROI.isChecked():
             # Polygon ROI filtering using ray-casting algorithm
-            vertices = self.polygon_roi.getState()['points']  # (N, 2) array
+            vertices = self._polygon_vertices()
 
             import time
             t_start = time.perf_counter()
@@ -1821,7 +1976,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 xmax, ymax = self.square_roi.pos() + self.square_roi.size()
 
                 # Vectorized boolean mask for channel 2
-                mask2 = (self.x2 > xmin) & (self.x2 < xmax) & (self.y2 > ymin) & (self.y2 < ymax)
+                corners2 = self._rotated_square_corners()
+                if corners2 is not None:
+                    mask2 = points_in_polygon(self.data_points2, corners2)
+                else:
+                    mask2 = ((self.x2 > xmin) & (self.x2 < xmax)
+                             & (self.y2 > ymin) & (self.y2 < ymax))
                 points_inside_roi2 = self.data_points2[mask2]
 
                 # Guard: bail out if ROI contains no localizations in ch2
@@ -2150,65 +2310,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
     def _point_in_polygon(self, points: NDArray[np.float64],
                           polygon: NDArray[np.float64]) -> NDArray[np.bool_]:
-        """Optimized ray-casting algorithm for point-in-polygon test.
-
-        Vectorized NumPy implementation with optimizations for complex polygons (100+ vertices).
-        Uses O(n*m) algorithm but with low constant factors via vectorization.
-
-        Parameters
-        ----------
-        points : NDArray[np.float64]
-            (N, 2) array of test points [x, y]
-        polygon : NDArray[np.float64]
-            (M, 2) array of polygon vertices in order
-
-        Returns
-        -------
-        NDArray[np.bool_]
-            Boolean mask of length N, True where point is inside polygon
-
-        References
-        ----------
-        https://en.wikipedia.org/wiki/Point_in_polygon
-        Ray casting: count polygon edge intersections with horizontal ray from point
-        """
-        x = points[:, 0]
-        y = points[:, 1]
-        n = len(polygon)
-
-        # Initialize result array
-        inside = np.zeros(len(points), dtype=bool)
-
-        # Process each edge of polygon
-        # Vectorized approach: for each edge, check all points at once
-        p1 = polygon[0]
-
-        for i in range(n):
-            p2 = polygon[(i + 1) % n]
-
-            # Quick bounding box check to skip edges that can't affect any points
-            ymin = min(p1[1], p2[1])
-            ymax = max(p1[1], p2[1])
-
-            # Only process points in y-range of this edge
-            y_mask = (y >= ymin) & (y < ymax)
-
-            if np.any(y_mask):
-                # Calculate x-coordinate of intersection with horizontal ray
-                # Line parametric: (1-t)*p1 + t*p2
-                # Solve for t when y-coordinate equals point y
-                dy = p2[1] - p1[1]
-
-                if dy != 0:
-                    t = (y[y_mask] - p1[1]) / dy
-                    x_intersect = p1[0] + t * (p2[0] - p1[0])
-
-                    # Toggle inside flag for points right of intersection
-                    inside[y_mask] ^= x[y_mask] <= x_intersect
-
-            p1 = p2
-
-        return inside
+        """Boolean mask of the (N, 2) ``points`` inside ``polygon``."""
+        return points_in_polygon(points, polygon)
 
     def _apply_polygon_smoothing(self, polygon: NDArray[np.float64],
                                  smoothness: int = 5) -> NDArray[np.float64]:
@@ -3353,6 +3456,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.quality_window.close()
         if self.paint_window is not None:
             self.paint_window.close()
+        if self.two_channel_window is not None:
+            self.two_channel_window.close()
         self.picasso_tools.shutdown()
 
         self.logger.info("=" * 80)

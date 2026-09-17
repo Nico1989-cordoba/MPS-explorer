@@ -160,6 +160,55 @@ def distance_to_roi_boundary(
     raise TypeError(f"Unknown ROI shape type: {type(roi)!r}")
 
 
+def points_in_polygon(
+    points: NDArray[np.float64], polygon: NDArray[np.float64]
+) -> NDArray[np.bool_]:
+    """
+    Ray casting: True for each (x, y) row of ``points`` inside ``polygon``.
+
+    ``polygon`` is an (M, 2) array of vertices in order; the closing edge
+    is implied.
+    """
+    points = np.asarray(points, dtype=float)
+    polygon = np.asarray(polygon, dtype=float)
+    x = points[:, 0]
+    y = points[:, 1]
+    inside = np.zeros(len(points), dtype=bool)
+    if len(polygon) < 3:
+        return inside       # no area: a polygon being rebuilt, say
+    p1 = polygon[0]
+    for i in range(len(polygon)):
+        p2 = polygon[(i + 1) % len(polygon)]
+        ymin, ymax = min(p1[1], p2[1]), max(p1[1], p2[1])
+        in_band = (y >= ymin) & (y < ymax)
+        dy = p2[1] - p1[1]
+        if dy != 0 and np.any(in_band):
+            t = (y[in_band] - p1[1]) / dy
+            x_cross = p1[0] + t * (p2[0] - p1[0])
+            inside[in_band] ^= x[in_band] <= x_cross
+        p1 = p2
+    return inside
+
+
+def points_in_roi(
+    x: NDArray[np.float64], y: NDArray[np.float64], roi: ROIShape
+) -> NDArray[np.bool_]:
+    """
+    Which points an ROI selects, by the same rules as the main window: a
+    circle includes its boundary, a square excludes its edges.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if isinstance(roi, CircularROI):
+        return np.hypot(x - roi.center_x, y - roi.center_y) <= roi.radius
+    if isinstance(roi, SquareROI):
+        return ((x > roi.xmin) & (x < roi.xmax)
+                & (y > roi.ymin) & (y < roi.ymax))
+    if isinstance(roi, PolygonROI):
+        return points_in_polygon(np.column_stack([x, y]), roi.vertices)
+    raise TypeError(f"Unknown ROI shape type: {type(roi)!r}")
+
+
 # ============================================================================
 # Criterion 1: edge-touching clusters
 # ============================================================================
