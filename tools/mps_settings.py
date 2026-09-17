@@ -61,6 +61,8 @@ class MPSSettings:
     dbcv_threshold: float = DEFAULT_DBCV_THRESHOLD
     auto_analyze_on_cluster: bool = True
     last_export_dir: str = ""
+    # Empty means "search the PATH and the usual install folders".
+    picasso_path: str = ""
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -87,6 +89,8 @@ class MPSSettings:
                 "Stored dbcv_threshold=%r out of range; using %s",
                 self.dbcv_threshold, DEFAULT_DBCV_THRESHOLD)
             self.dbcv_threshold = DEFAULT_DBCV_THRESHOLD
+        if not isinstance(self.picasso_path, str):
+            self.picasso_path = ""
         return self
 
 

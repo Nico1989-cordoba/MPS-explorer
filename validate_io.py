@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tools import mps_metadata  # noqa: E402
 from tools.mps_io import (  # noqa: E402
     FORMAT_CUSTOM_CSV,
+    FORMAT_PICASSO_HDF5,
     FORMAT_THUNDERSTORM_CSV,
     Localizations,
     duplicate_sources,
@@ -297,12 +298,52 @@ def test_units() -> None:
         assert np.allclose(loc.columns["lpx"], 0.10)
         return "columns[] keeps native units"
 
+    def failed_fits_marked():
+        # A median of 0.10 px, one axis collapsed on four localizations.
+        lpx = np.full(200, 0.10)
+        lpy = np.full(200, 0.10)
+        lpx[0], lpy[1], lpx[2], lpy[3] = 0.0, np.inf, 1e-8, 0.005
+        lpx[4] = 0.03                      # bright but genuine: 0.3x
+        bad = Localizations(
+            x_nm=np.zeros(200), y_nm=np.zeros(200), z_nm=np.zeros(200),
+            path="synthetic", fileformat=FORMAT_PICASSO_HDF5,
+            pixel_size_nm=100.0, pixel_size_source="test",
+            columns={"lpx": lpx, "lpy": lpy},
+        )
+        lp = bad.lp_lateral_nm
+        assert np.all(np.isnan(lp[:4])), lp[:5]
+        assert np.all(np.isfinite(lp[4:])), lp[:6]
+        assert abs(lp[4] - 6.5) < 1e-9, lp[4]
+        # The same tiny precision on a BRIGHT localization is genuine.
+        photons = np.linspace(500.0, 1100.0, 200)
+        photons[2], photons[3] = 90_000.0, 100.0
+        bright = Localizations(
+            x_nm=np.zeros(200), y_nm=np.zeros(200), z_nm=np.zeros(200),
+            path="synthetic", fileformat=FORMAT_PICASSO_HDF5,
+            pixel_size_nm=100.0, pixel_size_source="test",
+            columns={"lpx": lpx, "lpy": lpy, "photons": photons},
+        )
+        lp = bright.lp_lateral_nm
+        assert np.isfinite(lp[2]) and np.isnan(lp[3]), lp[:4]
+        # And in a file of merged events (Picasso link), on any of them.
+        linked = Localizations(
+            x_nm=np.zeros(200), y_nm=np.zeros(200), z_nm=np.zeros(200),
+            path="synthetic", fileformat=FORMAT_PICASSO_HDF5,
+            pixel_size_nm=100.0, pixel_size_source="test",
+            columns={"lpx": lpx, "lpy": lpy, "n": np.ones(200)},
+        )
+        lp = linked.lp_lateral_nm
+        assert np.all(np.isfinite(lp[2:])) and np.all(np.isnan(lp[:2])), lp[:5]
+        return ("zero, infinite and collapsed fits NaN; a 0.3x one, a bright "
+                "one and merged events kept")
+
     check("x and y scaled to nm", xy_scaled)
     check("lpx and lpy scaled to nm", lpxy_scaled)
     check("lpz NOT scaled", lpz_not_scaled)
     check("z NOT scaled", z_not_scaled)
     check("lp_lateral_nm", lateral_mean)
     check("native columns untouched", native_untouched)
+    check("failed fits marked in lp_lateral_nm", failed_fits_marked)
 
 
 # ================================================= 4. shape and failure modes
@@ -372,16 +413,31 @@ def test_csv() -> None:
                 "frame,x [nm],y [nm],z [nm],intensity [photon],"
                 "uncertainty_xy [nm]\n"
             )
+            # ThunderSTORM numbers frames from 1.
             for i in range(10):
-                handle.write(f"{i},{100 + i},{200 + i},{i * 10},900,12.5\n")
+                handle.write(
+                    f"{i + 1},{100 + i},{200 + i},{i * 10},900,12.5\n")
         loc = load_localizations(path)
         assert loc.pixel_size_source == "not_applicable"
         assert loc.n == 10
         # Already nm, and no pixel size exists to wrongly apply.
         assert np.allclose(loc.lpx_nm, 12.5)
         assert np.allclose(loc.photons, 900.0)
-        assert loc.frame is not None and loc.frame[3] == 3
-        return "aliases resolved, no scaling invented"
+        # Counted from 0 like Picasso's, while columns[] keeps the file's.
+        assert loc.frame is not None and loc.frame[0] == 0, loc.frame
+        assert int(np.asarray(loc.columns["frame"])[0]) == 1
+        assert loc.subset(np.arange(5, 10)).frame[0] == 5
+        # Picasso's own "Export for ThunderSTORM" keeps 0-based frames and
+        # writes a background-noise column of zeros.
+        exported = os.path.join(tmp, "from_picasso.csv")
+        with open(exported, "w", encoding="utf-8") as handle:
+            handle.write("id,frame,x [nm],y [nm],z [nm],bkgstd [photon]\n")
+            for i in range(10):
+                handle.write(f"{i},{i + 12},{100 + i},{200 + i},0,0\n")
+        picasso = load_localizations(exported)
+        assert picasso.frame is not None and picasso.frame[0] == 12
+        return ("aliases resolved, no scaling invented, ThunderSTORM frames "
+                "from 0, Picasso's export left alone")
 
     def custom_three_columns():
         path = os.path.join(tmp, "bare.csv")
@@ -558,6 +614,32 @@ def test_derived_outputs() -> None:
         ) == {}
         return "distinct axons not grouped"
 
+    def picasso_outputs():
+        for name in (
+            "x_picked_axon7_clusters.hdf5",
+            "x_picked_axon7_cluster_centers.hdf5",
+            "x_picked_axon7_clusters_molmap.hdf5",
+            "x_picked_axon7_aim_clusters.hdf5",
+            "x_picked_axon7_link.hdf5",
+        ):
+            assert is_derived_output(name), name
+        # A drift-corrected copy may be the file to analyse: kept, but
+        # reported as the same acquisition as its original.
+        assert not is_derived_output("x_picked_axon7_aim.hdf5")
+        found = duplicate_sources(
+            ["/d/x_picked_axon7.hdf5", "/d/x_picked_axon7_aim.hdf5"])
+        assert len(found) == 1, found
+        assert duplicate_sources(["/d/x_aimed_axon7.hdf5",
+                                  "/d/x_axon7.hdf5"]) == {}
+        # Whole tokens only: the user's own Picasso-linked files are input.
+        for name in ("x_undrift_filter__linked.hdf5",
+                     "x__linked_picked_axon2.hdf5",
+                     "x_axon2_clustersA.hdf5", "x_linkage.hdf5"):
+            assert not is_derived_output(name), name
+        assert duplicate_sources(["/d/x__linked_picked_axon2.hdf5",
+                                  "/d/x_picked_axon2.hdf5"]) == {}
+        return "clusters/molmap/link skipped; _aim reported as a duplicate"
+
     def real_folder_is_clean_now():
         root = os.path.join(DATA_ROOT, "ROI 2")
         if not os.path.isdir(root):
@@ -572,6 +654,7 @@ def test_derived_outputs() -> None:
     check("real _roi2 filenames NOT excluded", real_files_kept)
     check("duplicate acquisition detected", collision_detected)
     check("distinct acquisitions not flagged", no_false_collision)
+    check("files written by the Picasso tools", picasso_outputs)
     check("real ROI 2 folder", real_folder_is_clean_now)
 
 

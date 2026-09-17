@@ -43,6 +43,7 @@ from tools.cluster_quality import CircularROI, PolygonROI, SquareROI
 from tools.mps_analysis import analyze_axon
 from tools.mps_periodicity import fit_z_periodicity
 from tools import mps_io
+from tools.mps_picasso_tools import PicassoTools
 from tools.mps_settings import load_settings, save_settings
 
 # Import logging configuration
@@ -260,6 +261,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.roi_indices: Optional[NDArray[np.int64]] = None
         self.quality_window: Optional[Any] = None
         self.paint_window: Optional[Any] = None
+        self.picasso_tools = PicassoTools(self)
 
         # Channel 1 raw coordinates (pixel→nm converted)
         self.xdata: Optional[NDArray[np.float64]] = None
@@ -498,6 +500,33 @@ class MPS_explorer(QtWidgets.QMainWindow):
             "tab inside it."
         )
         self.action_paint.triggered.connect(self.show_paint_panel)
+
+        # Tools that call the Picasso program. They are wired lazily through
+        # self.picasso_tools, which is created later in __init__.
+        menu.addSeparator()
+        picasso_menu = menu.addMenu("Picasso tools")
+        picasso_menu.setToolTipsVisible(True)
+        actions = (
+            ("Undrift with AIM...", "undrift",
+             "Drift correction in x, y and z (AIM). Runs on the whole "
+             "loaded file and writes *_aim.hdf5 next to it."),
+            ("SMLM clustering...", "cluster",
+             "Picasso's SMLM clusterer, with separate lateral and axial "
+             "radii for 3D data."),
+            ("Molecular mapping (G5M)...", "map_molecules",
+             "Split clusters into molecules whose widths are bounded by the "
+             "localization precision. Needs clustered localizations."),
+        )
+        for label, method, tip in actions:
+            action = picasso_menu.addAction(label)
+            action.setToolTip(tip)
+            action.triggered.connect(
+                lambda _checked=False, m=method: getattr(self.picasso_tools, m)())
+        picasso_menu.addSeparator()
+        where = picasso_menu.addAction("Picasso location...")
+        where.setToolTip("Choose the Picasso executable, or check which one "
+                         "is used.")
+        where.triggered.connect(lambda: self.picasso_tools.locate())
 
     def _roi_localizations(self) -> Optional[Any]:
         """
@@ -935,14 +964,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                                                                title='Select file')
                 if root.filenamedata != '':
                     self.logger.info(f"Channel 1 file selected: {root.filenamedata}")
-                    # New data means a new axial distribution, so the Z range
-                    # goes back to being derived automatically.
-                    self._z_range_user_edited = False
-                    self.ui.lineEdit_filename.setText(root.filenamedata)
-                    self.fileformat1 = int(self.fileformat.currentIndex())
-                    self.logger.debug(f"File format: {['Picasso HDF5', 'ThunderStorm CSV', 'Custom CSV'][self.fileformat1]}")
-                    self.xdata, self.ydata, self.zdata = self.import_file(root.filenamedata, self.fileformat1, channel=1)
-                    self.logger.info(f"Channel 1 loaded: {len(self.xdata):,} localizations")
+                    self.load_channel1(root.filenamedata,
+                                       int(self.fileformat.currentIndex()))
                 else:
                     self.logger.debug("File dialog cancelled for channel 1")
                     return
@@ -965,6 +988,48 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
    
     
+    def load_channel1(self, path: str, fileformat: int = 0) -> bool:
+        """Load a file into channel 1 without the file dialog."""
+        try:
+            x, y, z = self.import_file(path, fileformat, channel=1)
+        except ValueError as error:
+            # Nothing has changed yet: the previous file stays loaded.
+            self.logger.error(f"Could not load {path}: {error}")
+            QtWidgets.QMessageBox.warning(
+                self, "Could not load the file",
+                f"{os.path.basename(path)} was not loaded:\n{error}")
+            return False
+        self.xdata, self.ydata, self.zdata = x, y, z
+        self.ui.lineEdit_filename.setText(path)
+        self.fileformat.setCurrentIndex(fileformat)
+        self.fileformat1 = fileformat
+        self.logger.debug(f"File format: {['Picasso HDF5', 'ThunderStorm CSV', 'Custom CSV'][self.fileformat1]}")
+        # New data means a new axial distribution, so the Z range goes back
+        # to being derived automatically.
+        self._z_range_user_edited = False
+        # Everything derived from the previous file refers to ITS rows. Left
+        # in place, the ROI button would cut the old coordinates, the panels
+        # would index the new file with old row numbers, and the exports
+        # would write the old results under the new file's name. Clearing
+        # the scatter makes ROI ask for Scatter first.
+        self.x = self.y = self.z = self.data_points = None
+        self.xroi = self.yroi = self.zroi = None
+        self.xroi_unfiltered = self.yroi_unfiltered = None
+        self.zroi_unfiltered = None
+        self.roi_indices = None
+        self.cluster_labels = None
+        self.original_points = self.original_z = None
+        self.cluster_centroids = self.good_cluster_centroids = None
+        self.bad_cluster_indices = []
+        self.distances = None
+        self.Nneighbor = None
+        self.mps_analysis = None
+        for window in (self.mps_window, self.rings_window):
+            if window is not None:
+                window.close()
+        self.logger.info(f"Channel 1 loaded: {len(x):,} localizations")
+        return True
+
     def _get_pixel_size_from_yaml(self, hdf5_filename: str) -> Optional[float]:
         """
         Reads the pixel size recorded for a Picasso HDF5 file.
@@ -2164,6 +2229,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             z_roi = self.zroi
             labels = self.dblabels if hasattr(self, 'dblabels') else None
             suffix = f"_ch{channel}_roi"
+            if x_roi is None:
+                QtWidgets.QMessageBox.warning(
+                    self, "No ROI", "Select a ROI in channel 1 first.")
+                return
         elif channel == 2:
             x_roi = self.xroi2
             y_roi = self.yroi2
@@ -2934,7 +3003,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         Format: Standard CSV with headers
         """
         try:
-            if not hasattr(self, 'cluster_labels'):
+            if self.cluster_labels is None or self.xroi is None:
                 QtWidgets.QMessageBox.warning(self, "Error", "No clustering data available")
                 return
     
@@ -3006,7 +3075,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             Channel to save (1 or 2).
         """
         try:
-            if not hasattr(self, 'cluster_labels'):
+            if self.cluster_labels is None or self.xroi is None:
                 QtWidgets.QMessageBox.warning(self, "Error", "No clustering data available")
                 return
     
@@ -3256,6 +3325,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.quality_window.close()
         if self.paint_window is not None:
             self.paint_window.close()
+        self.picasso_tools.shutdown()
 
         self.logger.info("=" * 80)
         self.logger.info("MPS Explorer Application Closed")

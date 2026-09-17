@@ -96,13 +96,19 @@ def link_localizations(
     """
     Assign each localization to a binding event.
 
-    Follows ``picasso.postprocess._get_link_groups`` exactly, including
-    one detail worth stating: the chain takes the FIRST unassigned
-    localization within ``radius_nm`` in the search window, not the
-    nearest one. Taking the nearest would arguably be better, but it
-    would silently disagree with ``picasso link`` on the same data, and
-    being able to cross-check against Picasso is worth more than a
-    marginal improvement.
+    Follows ``picasso.postprocess._get_link_groups``, including one detail
+    worth stating: the chain takes the FIRST unassigned localization
+    within ``radius_nm`` in the search window, not the nearest one.
+    Taking the nearest would arguably be better, but it would silently
+    disagree with ``picasso link`` on the same data, and being able to
+    cross-check against Picasso is worth more than a marginal improvement.
+
+    Checked against Picasso 0.9.10 on NCtransversal_Roi2_2_1 (19,143
+    localizations, 1.5 px, one dark frame): given the same input, the
+    events are identical. One way the two could still differ: Picasso
+    sorts by frame with an unstable quicksort, so when two localizations
+    of the same frame are both within reach, which one is "first" may not
+    be the same here.
 
     The chain is relative to the LAST localization added, not to the
     first, so a long event may wander further than ``radius_nm`` in
@@ -198,9 +204,18 @@ class BindingEvents:
     photons: Optional[NDArray[np.float64]]
     photon_rate: Optional[NDArray[np.float64]]
     group: Optional[NDArray[np.int64]]
-    link_group: NDArray[np.int64]     # per input localization
+    link_group: NDArray[np.int64]     # per input localization; -1 = no position
     radius_nm: float
     max_dark_time: int
+    # Failed fits (see build_events): linked, but no weight in a position.
+    n_discarded: int = 0
+    # Events left out because they were already bound in the first frame
+    # or still bound in the last, so their length is only a lower bound.
+    n_censored: int = 0
+    # Events left out because every localization in them is a failed fit.
+    n_no_position: int = 0
+    # Localizations without finite coordinates, which cannot be linked.
+    n_unplaced: int = 0
 
     @property
     def n(self) -> int:
@@ -218,53 +233,100 @@ def build_events(
     group: Optional[NDArray[np.int64]] = None,
     radius_nm: float,
     max_dark_time: int = DEFAULT_MAX_DARK_TIME,
+    n_frames: Optional[int] = None,
+    remove_ambiguous_lengths: bool = True,
 ) -> BindingEvents:
     """
     Link localizations and collapse each event to a single point.
+
+    Frames are counted from 0 (``Localizations.frame`` already shifts
+    ThunderSTORM's 1-based numbering).
 
     The position is the inverse-variance weighted mean when ``lp_nm`` is
     given, otherwise the plain mean. Weighting matters: within one event
     the localizations differ in photon count by a lot, and a dim frame
     should not pull the event's position as hard as a bright one.
-    """
-    link = link_localizations(
-        frame, x_nm, y_nm, radius_nm, max_dark_time, group
-    )
-    n_events = int(link.max()) + 1 if link.size else 0
-    if n_events == 0:
-        empty_i = np.empty(0, dtype=np.int64)
-        empty_f = np.empty(0, dtype=float)
-        return BindingEvents(
-            empty_f, empty_f, None, empty_i, empty_i, empty_i, empty_i,
-            None, None, None, link, radius_nm, max_dark_time,
-        )
 
+    Failed fits -- a precision that is NaN, zero or negative, which is how
+    ``Localizations.lp_lateral_nm`` marks them -- are linked like any
+    other localization, so the event keeps its frames, but get no say in
+    its position. They are counted in ``n_discarded``. An event made only
+    of failed fits has no position and is dropped (``n_no_position``).
+    Localizations without coordinates are not linked (``n_unplaced``).
+    Picasso does otherwise:
+    it keeps a zero precision, the infinite weight makes the event's
+    position NaN, and saving then deletes the whole event -- mostly long
+    ones (55 events averaging 20 localizations in NCtransversal_Roi2_2_1),
+    which biases tau_bright low and merges the dark times on either side.
+
+    ``remove_ambiguous_lengths`` drops events that were already bound in
+    the first frame or still bound in the last. Their length is CENSORED:
+    the recorded value is a lower bound, not a measurement, and keeping
+    them biases tau_bright low. The last-frame half needs ``n_frames``;
+    without it a warning says it was skipped. Picasso applies the same
+    rule, but its end test (``last < Frames``) is always true for frames
+    counted from 0, so it only ever trims the start.
+    """
     frame = np.asarray(frame, dtype=np.int64)
-    weights = (
-        np.ones(link.size, dtype=float)
-        if lp_nm is None
-        else 1.0 / np.clip(np.asarray(lp_nm, dtype=float), 1e-6, None) ** 2
-    )
+    x_nm = np.asarray(x_nm, dtype=float)
+    y_nm = np.asarray(y_nm, dtype=float)
+    n_input = frame.size
+    # Only a localization without a position cannot be linked at all.
+    placed = np.isfinite(x_nm) & np.isfinite(y_nm)
+    if lp_nm is None:
+        fitted = placed.copy()
+    else:
+        precision = np.asarray(lp_nm, dtype=float)
+        fitted = placed & np.isfinite(precision) & (precision > 0)
+    n_unplaced = int(n_input - np.count_nonzero(placed))
+    n_discarded = int(np.count_nonzero(placed & ~fitted))
+
+    keep_idx = np.nonzero(placed)[0]
+
+    def placed_only(values: Any) -> Any:
+        return None if values is None else np.asarray(values)[placed]
+
+    f = frame[placed]
+    x = x_nm[placed]
+    y = y_nm[placed]
+    z = placed_only(z_nm)
+    ph = placed_only(photons)
+    g = placed_only(group)
+    link = link_localizations(f, x, y, radius_nm, max_dark_time, g)
+    # link_group is reported for the ORIGINAL input, with -1 where a
+    # localization had no position, so a caller can still map back.
+    full_link = np.full(n_input, -1, dtype=np.int64)
+    full_link[keep_idx] = link
+    n_events = int(link.max()) + 1 if link.size else 0
+
+    if lp_nm is None:
+        weights = np.ones(link.size, dtype=float)
+    else:
+        lp = np.asarray(lp_nm, dtype=float)[placed]
+        good = fitted[placed]
+        weights = np.zeros(link.size, dtype=float)
+        weights[good] = 1.0 / lp[good] ** 2
     weight_sum = np.bincount(link, weights=weights, minlength=n_events)
-    weight_sum[weight_sum == 0] = 1.0
+    has_position = weight_sum > 0
+    divisor = np.where(has_position, weight_sum, 1.0)
 
     def weighted(values: NDArray[np.float64]) -> NDArray[np.float64]:
         return np.bincount(
             link, weights=np.asarray(values, dtype=float) * weights,
             minlength=n_events,
-        ) / weight_sum
+        ) / divisor
 
     counts = np.bincount(link, minlength=n_events).astype(np.int64)
     first = np.full(n_events, np.iinfo(np.int64).max, dtype=np.int64)
-    np.minimum.at(first, link, frame)
+    np.minimum.at(first, link, f)
     last = np.full(n_events, np.iinfo(np.int64).min, dtype=np.int64)
-    np.maximum.at(last, link, frame)
+    np.maximum.at(last, link, f)
     length = (last - first + 1).astype(np.int64)
 
     total_photons: Optional[NDArray[np.float64]] = (
-        None if photons is None
+        None if ph is None
         else np.asarray(
-            np.bincount(link, weights=np.asarray(photons, dtype=float),
+            np.bincount(link, weights=np.asarray(ph, dtype=float),
                         minlength=n_events),
             dtype=np.float64,
         )
@@ -273,27 +335,47 @@ def build_events(
         length, 1
     )
     event_group = None
-    if group is not None:
+    if g is not None:
         # Scatter-assign: every localization of an event writes its own
         # label into the event's slot. Safe because linking never lets an
         # event span two groups, so they are all writing the same value.
         event_group = np.zeros(n_events, dtype=np.int64)
-        event_group[link] = np.asarray(group, dtype=np.int64)
+        event_group[link] = np.asarray(g, dtype=np.int64)
+
+    # The link_group column keeps the ORIGINAL event numbering, so a
+    # localization can still be traced back; the arrays below hold the
+    # surviving events only.
+    uncensored = np.ones(n_events, dtype=bool)
+    if remove_ambiguous_lengths:
+        uncensored &= first > 0
+        if n_frames is not None:
+            uncensored &= last < int(n_frames) - 1
+        else:
+            warnings_module.warn(
+                "acquisition length unknown: events still bound in the last "
+                "frame were kept, so tau_bright is biased low",
+                stacklevel=2,
+            )
+    keep = has_position & uncensored
 
     return BindingEvents(
-        x_nm=weighted(x_nm),
-        y_nm=weighted(y_nm),
-        z_nm=None if z_nm is None else weighted(z_nm),
-        first_frame=first,
-        last_frame=last,
-        length=length,
-        n_locs=counts,
-        photons=total_photons,
-        photon_rate=rate,
-        group=event_group,
-        link_group=link,
+        x_nm=weighted(x)[keep],
+        y_nm=weighted(y)[keep],
+        z_nm=None if z is None else weighted(z)[keep],
+        first_frame=first[keep],
+        last_frame=last[keep],
+        length=length[keep],
+        n_locs=counts[keep],
+        photons=None if total_photons is None else total_photons[keep],
+        photon_rate=None if rate is None else rate[keep],
+        group=None if event_group is None else event_group[keep],
+        link_group=full_link,
         radius_nm=float(radius_nm),
         max_dark_time=int(max_dark_time),
+        n_discarded=n_discarded,
+        n_censored=int(np.count_nonzero(has_position & ~uncensored)),
+        n_no_position=int(np.count_nonzero(~has_position)),
+        n_unplaced=n_unplaced,
     )
 
 
@@ -844,17 +926,18 @@ class PaintReport:
     qpaint_result: Optional[QPaintResult] = None
     radius_nm: float = float("nan")
     missing: List[str] = field(default_factory=list)
+    link_warnings: List[str] = field(default_factory=list)
 
     @property
     def compression(self) -> float:
         """Localizations per binding event; 1.0 means nothing linked."""
         if self.events is None or self.events.n == 0:
             return float("nan")
-        return self.n_locs / self.events.n
+        return float(np.mean(self.events.n_locs))
 
     @property
     def warnings(self) -> List[str]:
-        out: List[str] = []
+        out: List[str] = list(self.link_warnings)
         for part in (self.sticking, self.kinetics_result, self.qpaint_result):
             if part is not None:
                 out.extend(part.warnings)
@@ -899,15 +982,19 @@ def paint_report(
         radius_nm = LINK_RADIUS_IN_PRECISIONS * float(np.nanmedian(lp))
     report.radius_nm = float(radius_nm)
 
-    report.events = build_events(
-        frame, loc.x_nm, loc.y_nm,
-        z_nm=loc.z_nm if loc.is_3d else None,
-        photons=loc.photons,
-        lp_nm=lp,
-        group=site_labels,
-        radius_nm=report.radius_nm,
-        max_dark_time=max_dark_time,
-    )
+    with warnings_module.catch_warnings(record=True) as caught:
+        warnings_module.simplefilter("always")
+        report.events = build_events(
+            frame, loc.x_nm, loc.y_nm,
+            z_nm=loc.z_nm if loc.is_3d else None,
+            photons=loc.photons,
+            lp_nm=lp,
+            group=site_labels,
+            radius_nm=report.radius_nm,
+            max_dark_time=max_dark_time,
+            n_frames=loc.n_frames,
+        )
+    report.link_warnings.extend(str(w.message) for w in caught)
 
     if site_labels is not None:
         report.sticking = frame_analysis(site_labels, frame, loc.n_frames)
