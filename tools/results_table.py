@@ -17,7 +17,7 @@ from __future__ import annotations
 import csv
 import io
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
 class TableMismatch(ValueError):
@@ -47,6 +47,48 @@ def _existing(path: str) -> Tuple[Optional[List[str]], bool]:
 def read_header(path: str) -> Optional[List[str]]:
     """The column names of the table at ``path``; None when there is none."""
     return _existing(path)[0]
+
+
+def refuse_other_analysis(path: str, record: Dict[str, Any],
+                          columns: Sequence[str]) -> None:
+    """
+    Raise TableMismatch when the table at ``path`` holds rows of another
+    analysis than ``record``: rows that differ in any of ``columns`` (which
+    clusters, which contour) describe the same axons differently, and a
+    statistic over a table pooling them would count axons twice or mix two
+    methods. A value missing on either side is not a difference.
+    """
+    for column in columns:
+        value = record.get(column)
+        if value is None:
+            continue
+        others = column_values(path, column) - {str(value), ""}
+        if others:
+            raise TableMismatch(
+                f"{os.path.basename(path)} holds rows with {column} = "
+                f"{', '.join(sorted(others))}, and this row has {value}. "
+                f"Each analysis goes to a table of its own, so that no "
+                f"statistic pools two analyses of the same axons: choose "
+                f"another file.")
+
+
+def column_values(path: str, column: str) -> Set[str]:
+    """
+    The values ``column`` takes in the table at ``path``: empty when there
+    is no table, no such column, or text that is not UTF-8 (append_rows
+    then says what is wrong with the file).
+    """
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return set()
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames is None or column not in reader.fieldnames:
+                return set()
+            return {row[column] for row in reader
+                    if row.get(column) is not None}
+    except UnicodeDecodeError:
+        return set()
 
 
 def _mismatch(path: str, header: List[str], fields: List[str]) -> str:

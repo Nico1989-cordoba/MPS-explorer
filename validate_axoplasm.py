@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Checks for tools/mps_axoplasm.py: placing a widefield betaIII-tubulin image
-on the localizations, the axoplasm mask, and the membrane/interior
-classification.
+on the localizations, the axoplasm mask, the membrane/interior
+classification, the clusters both widefield images put inside the axon,
+and the MPS analysis repeated without them (tools/mps_analysis.py).
 
 Synthetic images with a known answer, plus the April 2026 ROI 1 data when
 it is present (its widefield images sit (-2.05, +5.55) px from the STORM
@@ -846,8 +847,190 @@ def test_anchored() -> None:
     check("the export's columns", exported_columns)
 
 
+def ring_with_inside(rng: np.random.Generator, radius: float = 1500.0,
+                     n_ring: int = 36, inside=((-450.0, 0.0), (300.0, 350.0),
+                                               (150.0, -420.0), (0.0, 0.0))):
+    """
+    Localizations (nm) of dense clusters on a ring, plus clusters inside
+    it, and the ROI around them. Returns x, y, z, the ROI and the centres.
+    """
+    from tools.cluster_quality import CircularROI
+
+    centre = np.array([6000.0, 6000.0])
+    angles = np.linspace(0, 2 * np.pi, n_ring, endpoint=False)
+    ring = centre + radius * np.column_stack([np.cos(angles), np.sin(angles)])
+    centres = np.vstack([ring, centre + np.asarray(inside, float)])
+    xs, ys = [], []
+    for cx, cy in centres:
+        xs.append(cx + rng.normal(0, 6.0, 25))
+        ys.append(cy + rng.normal(0, 6.0, 25))
+    x, y = np.concatenate(xs), np.concatenate(ys)
+    z = rng.normal(0.0, 20.0, x.size)
+    roi = CircularROI(center_x=6000.0, center_y=6000.0, radius=radius + 900)
+    return x, y, z, roi, centres, len(inside)
+
+
+def test_without_clusters() -> None:
+    print("\n7. THE MPS ANALYSIS WITH AND WITHOUT THE DISCARDED CLUSTERS")
+    from tools import mps_analysis as ma
+    from tools.results_table import (TableMismatch, append_rows,
+                                     refuse_other_analysis)
+
+    rng = np.random.default_rng(21)
+    x, y, z, roi, _centres, n_in = ring_with_inside(rng)
+    base = ma.analyze_axon(x, y, z, roi=roi, n_randomizations=100,
+                           random_seed=3)
+    inside = np.hypot(base.centroids[:, 0] - 6000.0,
+                      base.centroids[:, 1] - 6000.0) < 1000.0
+    truth_um = 2 * np.pi * 1500.0 / 1000.0
+    comparison = ma.compare_discard(base, inside, margin_nm=250.0)
+    every, applied = comparison.all_clusters, comparison.discard_applied
+
+    def the_axon():
+        assert base.n_clusters_kept == 40 and inside.sum() == n_in, \
+            (base.n_clusters_kept, inside.sum())
+        assert base.contour_2opt == "one start"
+        return (f"40 clusters, {n_in} inside; measured perimeter "
+                f"{base.perimeter_um:.2f} um against a ring of "
+                f"{truth_um:.2f} um")
+
+    def every_start_changes_only_the_contour():
+        assert every.contour_2opt == "every start"
+        assert every.cluster_set == "all clusters" and not every.discard_applied
+        assert every.n_clusters_kept == base.n_clusters_kept
+        assert np.array_equal(every.centroids, base.centroids)
+        assert np.array_equal(every.areas.areas_nm2, base.areas.areas_nm2)
+        assert np.array_equal(every.nn.first_nn_nm, base.nn.first_nn_nm)
+        assert every.perimeter_um <= base.perimeter_um + 1e-9
+        assert every.randomization.n_iterations == 100
+        return (f"perimeter {base.perimeter_um:.2f} -> "
+                f"{every.perimeter_um:.2f} um; areas and 1NN unchanged")
+
+    def the_discard_redoes_every_step():
+        labels = ma.good_cluster_labels(base.labels,
+                                        base.bad_report.bad_labels)
+        assert applied.discarded_labels == frozenset(
+            int(v) for v in labels[inside])
+        assert applied.n_clusters_kept == 36
+        assert applied.n_clusters_discarded == n_in
+        assert np.array_equal(applied.centroids, base.centroids[~inside])
+        assert applied.areas.areas_nm2.size == 36
+        assert applied.nn.first_nn_nm.size == 36
+        spacing = 2 * 1500.0 * np.sin(np.pi / 36)
+        assert abs(applied.median_1nn_nm / spacing - 1) < 0.05, \
+            (applied.median_1nn_nm, spacing)
+        assert abs(applied.perimeter_um / truth_um - 1) < 0.02, \
+            applied.perimeter_um
+        assert applied.perimeter_um < every.perimeter_um
+        assert applied.perimeter.health.n_deep_vertices == 0
+        assert every.perimeter.health.n_deep_vertices > 0
+        assert applied.occupancy is not None and applied.randomization is not None
+        assert np.array_equal(applied.randomization.experimental_1nn_nm,
+                              applied.nn.first_nn_nm)
+        assert applied.randomization.n_iterations == 100
+        return (f"perimeter {every.perimeter_um:.2f} -> "
+                f"{applied.perimeter_um:.2f} um (ring {truth_um:.2f}); 1NN "
+                f"{every.median_1nn_nm:.0f} -> {applied.median_1nn_nm:.0f} nm "
+                f"(ring spacing {spacing:.0f}); occupancy "
+                f"{every.occupancy_percent:.1f} -> "
+                f"{applied.occupancy_percent:.1f} %; KS D "
+                f"{every.ks_statistic:.3f} -> {applied.ks_statistic:.3f}")
+
+    def its_warnings_say_so():
+        k = len(base.upstream_warnings)
+        assert applied.warnings[:k] == base.upstream_warnings
+        assert f"{n_in} of 40 clusters left out" in applied.warnings[k]
+        assert "250 nm" in applied.warnings[k]
+        assert every.warnings[:k] == base.upstream_warnings
+        return f"'{applied.warnings[k][:60]}...'"
+
+    def nothing_discarded_same_numbers():
+        none = ma.compare_discard(base, np.zeros(40, bool), margin_nm=250.0,
+                                  all_clusters=every)
+        same = none.discard_applied
+        assert none.all_clusters is every
+        assert same.discard_applied and same.n_clusters_discarded == 0
+        for name in ("perimeter_um", "median_1nn_nm", "occupancy_percent",
+                     "ks_statistic", "ks_pvalue", "median_area_nm2"):
+            assert getattr(same, name) == getattr(every, name), name
+        assert any("none of the 40" in w for w in same.warnings)
+        return "every number equal to 'all clusters'"
+
+    def the_margin_alone_moves_nothing():
+        moved = ma.with_discard_margin(applied, 300.0)
+        assert moved.discard_margin_nm == 300.0
+        assert moved.perimeter is applied.perimeter
+        assert moved.ks_statistic == applied.ks_statistic
+        k = len(base.upstream_warnings)
+        assert "300 nm" in moved.warnings[k] and "250 nm" not in moved.warnings[k]
+        assert moved.export_dict()["discard_margin_nm"] == 300.0
+        return "the same numbers, recorded at 300 nm"
+
+    def refused_inputs():
+        expect_error(lambda: ma.without_clusters(base, np.zeros(39, bool),
+                                                 margin_nm=250.0),
+                     "39 discard flag")
+        expect_error(lambda: ma.without_clusters(applied, np.zeros(36, bool),
+                                                 margin_nm=250.0),
+                     "all the clusters")
+        expect_error(lambda: ma.without_clusters(
+            base, inside, margin_nm=250.0, contour=every.perimeter),
+            "other clusters")
+        one = ma.reconstruct_perimeter(base.centroids[~inside])
+        expect_error(lambda: ma.without_clusters(
+            base, inside, margin_nm=250.0, contour=one), "one 2-opt start")
+        other = ma.analyze_axon(x, y, z, roi=roi, run_randomization=False)
+        expect_error(lambda: ma.compare_discard(
+            base, inside, margin_nm=250.0,
+            all_clusters=ma.with_every_start(other)), "not this analysis")
+        return "5 refused"
+
+    def exported_rows():
+        rows = [base.export_dict(), every.export_dict(), applied.export_dict()]
+        assert list(rows[0]) == list(rows[1]) == list(rows[2])
+        sets = [(r["cluster_set"], r["contour_2opt"]) for r in rows]
+        assert sets == [("all clusters", "one start"),
+                        ("all clusters", "every start"),
+                        ("discard applied", "every start")], sets
+        assert rows[0]["n_clusters_discarded"] is None
+        assert rows[2]["n_clusters_discarded"] == n_in
+        assert rows[2]["discard_margin_nm"] == 250.0
+        return f"{len(rows[0])} columns, the same for the three"
+
+    def one_table_per_analysis():
+        folder = tempfile.mkdtemp(prefix="discard_tables_")
+        try:
+            path = os.path.join(folder, "t.csv")
+            row = applied.export_dict()
+            refuse_other_analysis(path, row, ma.ANALYSIS_COLUMNS)
+            append_rows(path, [row])
+            refuse_other_analysis(path, row, ma.ANALYSIS_COLUMNS)
+            append_rows(path, [row])
+            for other in (every.export_dict(), base.export_dict()):
+                try:
+                    refuse_other_analysis(path, other, ma.ANALYSIS_COLUMNS)
+                except TableMismatch as error:
+                    assert "table of its own" in str(error), str(error)
+                else:
+                    raise AssertionError("a table of another analysis")
+            return "two rows of one analysis, the other two refused"
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    check("the axon: a ring with clusters inside", the_axon)
+    check("every start changes only the contour",
+          every_start_changes_only_the_contour)
+    check("without them, every step again", the_discard_redoes_every_step)
+    check("the warnings say what was left out", its_warnings_say_so)
+    check("nothing discarded: the same numbers", nothing_discarded_same_numbers)
+    check("moving the margin re-runs nothing", the_margin_alone_moves_nothing)
+    check("inputs that do not fit are refused", refused_inputs)
+    check("the three exports", exported_rows)
+    check("one table per analysis", one_table_per_analysis)
+
+
 def test_real_data() -> None:
-    print("\n7. APRIL 2026  (widefield images and STORM data)")
+    print("\n8. APRIL 2026  (widefield images and STORM data)")
 
     def april():
         if not all(os.path.exists(p) for p in (APRIL_FULL, APRIL_SPEC,
@@ -920,13 +1103,43 @@ def test_real_data() -> None:
                 f"0 of {found.n} discarded, though the tubulin alone puts "
                 f"{found.n_tubulin_only} inside")
 
+    def analysis_axon7():
+        if not all(os.path.exists(p) for p in (APRIL_SPEC, APRIL_TUB,
+                                               APRIL_AXON7)):
+            return "skipped, data not present"
+        from tools import mps_analysis as ma
+
+        found, _new, _lengths, analysis = anchored_on(
+            APRIL_AXON7, APRIL_TUB, APRIL_SPEC, (-2.0531, 5.5531),
+            with_analysis=True)
+        both = ma.compare_discard(
+            analysis, found.discarded, margin_nm=found.margin_nm,
+            contour_all=found.contour_all_starts,
+            contour_kept=found.contour_anchored)
+        every, applied = both.all_clusters, both.discard_applied
+        # The panel's two contours are the analyses' own.
+        assert every.perimeter is found.contour_all_starts
+        assert applied.perimeter is found.contour_anchored
+        assert applied.n_clusters_kept == analysis.n_clusters_kept - 5
+        assert applied.median_1nn_nm != every.median_1nn_nm
+        assert applied.occupancy_percent != every.occupancy_percent
+        return (f"perimeter {analysis.perimeter_um:.2f} (measured) / "
+                f"{every.perimeter_um:.2f} / {applied.perimeter_um:.2f} um; "
+                f"1NN {every.median_1nn_nm:.1f} -> "
+                f"{applied.median_1nn_nm:.1f} nm; occupancy "
+                f"{every.occupancy_percent:.1f} -> "
+                f"{applied.occupancy_percent:.1f} %")
+
     check("axon 7: the clusters inside, and the contour without them",
           anchored_axon7)
+    check("axon 7: every parameter with and without them", analysis_axon7)
     check("ROI 2, axon 1: no membrane cluster discarded", anchored_roi2)
 
 
-def anchored_on(axon_path, tub_path, spec_path, shift_px):
-    """analyze_axon, both masks and anchored_clusters for one real axon."""
+def anchored_on(axon_path, tub_path, spec_path, shift_px,
+                with_analysis=False):
+    """analyze_axon, both masks and anchored_clusters for one real axon;
+    the analysis too when ``with_analysis``."""
     from tools.mps_analysis import analyze_axon
     from tools.mps_io import load_localizations
 
@@ -955,9 +1168,11 @@ def anchored_on(axon_path, tub_path, spec_path, shift_px):
     tcol, trow = frame(toff, c[:, 0], c[:, 1])
     found = ax.anchored_clusters(c, tmask, tcol, trow, inner, ccol, crow,
                                  250.0, contour_all=analysis.perimeter)
-    return (found, found.contour_anchored,
-            (found.contour_all.perimeter_um,
-             found.contour_all_starts.perimeter_um))
+    lengths = (found.contour_all.perimeter_um,
+               found.contour_all_starts.perimeter_um)
+    if with_analysis:
+        return found, found.contour_anchored, lengths, analysis
+    return found, found.contour_anchored, lengths
 
 
 def main() -> int:
@@ -970,6 +1185,7 @@ def main() -> int:
     test_mask()
     test_classification()
     test_anchored()
+    test_without_clusters()
     test_real_data()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")

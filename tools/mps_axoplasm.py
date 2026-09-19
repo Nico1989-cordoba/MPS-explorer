@@ -43,7 +43,8 @@ reported so it can be checked:
    the 18 April axons the spectrin interior has about 25 % contrast
    against the ring, where the tubulin image stands 5-60 counts over a
    baseline of about 400; either image alone misplaces clusters in its own
-   way, which is why the two must agree.
+   way, which is why the two must agree. tools.mps_analysis.without_clusters
+   then repeats every parameter of the MPS analysis without them.
 
 @author: Nicolas (ngomez) + Claude
 """

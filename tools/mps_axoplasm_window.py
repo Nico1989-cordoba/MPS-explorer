@@ -12,7 +12,8 @@ Top to bottom:
   4. the classification with the margin the user sets, and the export;
   5. the MPS analysis' clusters that are not anchored to the membrane --
      the ones both widefield images put inside the axon -- and the contour
-     rebuilt without them.
+     rebuilt without them. The main window is told, and repeats the whole
+     MPS analysis without them beside the original.
 
 The calculations are in ``tools.mps_axoplasm``.
 
@@ -97,6 +98,12 @@ class AxoplasmInputs:
     # The contour the MPS analysis built from those clusters
     # (tools.mps_geometry.PerimeterResult), or None.
     contour: Callable[[], Optional[Any]] = field(default=lambda: None)
+    # Told the clusters not anchored to the membrane each time they are
+    # found again -- the AnchoredClusters and the centres (nm) they were
+    # found for -- or (None, None) when there are none to tell.
+    anchored_changed: Callable[[Optional[ax.AnchoredClusters],
+                                Optional[np.ndarray]], None] = field(
+        default=lambda found, centroids: None)
 
 
 @dataclass
@@ -361,7 +368,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             "widefield images put it inside the axon by more than the "
             "margin: inside the tubulin mask, and inside the dark area the "
             "betaII-spectrin ring encloses. The contour is then rebuilt "
-            "from the rest with 2-opt from every starting point.")
+            "from the rest with 2-opt from every starting point, and the "
+            "MPS analysis window repeats every parameter with and without "
+            "them.")
         lay = QtWidgets.QVBoxLayout(box)
         self.label_anchored = _label("")
         lay.addWidget(self.label_anchored)
@@ -655,6 +664,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                                                   margin)
                 self._find_anchored(c, margin)
         self._refresh()
+        # After drawing: the main window may take seconds to repeat the MPS
+        # analysis without the discarded clusters.
+        self.inputs.anchored_changed(self.anchored, self.anchored_centroids)
 
     def _find_anchored(self, centroids: np.ndarray, margin: float) -> None:
         """The clusters both images put inside, and the contour without."""
@@ -820,6 +832,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                    f"{spread:.2f} µm" if spread else "") + ")")
         if parts:
             lines.append("Perimeter: " + "; ".join(parts) + ".")
+        if new is not None and found.contour_all_starts is not None:
+            lines.append("The MPS analysis window repeats every parameter "
+                         "with the last two contours, side by side.")
         return "\n".join(lines)
 
     def _write_labels(self) -> None:

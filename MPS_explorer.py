@@ -13,7 +13,7 @@ pyuic5 -x data_explorer.ui -o data_explorer.py
 
 import os
 import sys
-from typing import Callable, Optional, Tuple, List, Dict, Union, Any
+from typing import Callable, Optional, Tuple, List, Dict, Union, Any, NamedTuple
 from pathlib import Path
 import logging
 import traceback
@@ -108,6 +108,15 @@ CLUSTER_CENTROID_POINT_SIZE = _viz_config.get('point_size_centroid', 10)
 if sys.platform == "win32":
     myappid = "MPS-Explorer.1.0"
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+
+
+class _HeldDiscard(NamedTuple):
+    """The MPS analysis with and without the discarded clusters."""
+
+    base: Any          # the AxonAnalysis it was computed from
+    key: bytes         # which clusters were discarded
+    comparison: Any    # tools.mps_analysis.DiscardComparison
+
 
 class MPS_explorer(QtWidgets.QMainWindow):
     
@@ -370,6 +379,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # The selection array the last analysis was run on. A new selection
         # is a new array, and the analysis no longer describes it.
         self._analysed_x: Optional[NDArray[np.float64]] = None
+        # The same analysis with all its clusters and without the ones the
+        # axoplasm panel found inside the axon (a _HeldDiscard), or None.
+        self.mps_discard: Optional[Any] = None
         self.mps_window: Optional[Any] = None        # results window (kept alive)
         self.rings_window: Optional[Any] = None      # multi-segment panel
         self.mps_settings = load_settings()          # persisted across sessions
@@ -848,7 +860,103 @@ class MPS_explorer(QtWidgets.QMainWindow):
             roi=self._applied_roi_shape,
             clusters=self._current_cluster_centroids,
             selection_key=self.roi_indices,
-            contour=self._current_perimeter)
+            contour=self._current_perimeter,
+            anchored_changed=self._anchored_changed)
+
+    def _anchored_changed(self, found: Optional[Any],
+                          centroids: Optional[NDArray[np.float64]]) -> None:
+        """
+        The axoplasm panel found again which clusters are not anchored to
+        the membrane: repeat the MPS analysis with all the clusters and
+        without those, both with 2-opt from every start, for the results
+        window's second and third columns.
+
+        The part with all the clusters does not depend on the discard and
+        is kept while the analysis stays the same; the other is kept while
+        the same clusters are discarded, so moving the margin is instant
+        until it changes which ones go.
+        """
+        # Called from the panel's slots: an exception escaping here would
+        # take the whole application down, for a comparison that is only
+        # an addition to the measured analysis.
+        try:
+            self._compare_discard(found, centroids)
+        except Exception as error:     # noqa: BLE001 - logged
+            self.logger.error(
+                f"MPS analysis without the discarded clusters failed: "
+                f"{error}", exc_info=True)
+            self.mps_discard = None
+
+    def _compare_discard(self, found: Optional[Any],
+                         centroids: Optional[NDArray[np.float64]]) -> None:
+        """The body of _anchored_changed."""
+        from tools.mps_analysis import (
+            compare_discard, with_discard_margin, DiscardComparison)
+
+        analysis = self.mps_analysis
+        held = self.mps_discard
+        if held is not None and held.base is not analysis:
+            held = None
+        comparison: Optional[Any] = None
+        current = self._current_cluster_centroids()
+        if (found is not None and centroids is not None
+                and current is not None and analysis is not None
+                and np.array_equal(np.asarray(centroids, float), current)):
+            key = np.asarray(found.discarded, bool).tobytes()
+            if held is not None and held.key == key:
+                comparison = held.comparison
+                applied = comparison.discard_applied
+                if applied.discard_margin_nm != found.margin_nm:
+                    comparison = DiscardComparison(
+                        all_clusters=comparison.all_clusters,
+                        discard_applied=with_discard_margin(
+                            applied, found.margin_nm))
+            else:
+                QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+                try:
+                    comparison = compare_discard(
+                        analysis, found.discarded, margin_nm=found.margin_nm,
+                        contour_all=found.contour_all_starts,
+                        contour_kept=found.contour_anchored,
+                        all_clusters=(None if held is None
+                                      else held.comparison.all_clusters))
+                except Exception as error:     # noqa: BLE001 - logged
+                    self.logger.error(
+                        f"MPS analysis without the discarded clusters "
+                        f"failed: {error}", exc_info=True)
+                    comparison = None
+                finally:
+                    QtWidgets.QApplication.restoreOverrideCursor()
+                if comparison is not None:
+                    every = comparison.all_clusters.perimeter_um
+                    kept = comparison.discard_applied.perimeter_um
+                    self.logger.info(
+                        f"MPS analysis repeated with every 2-opt start: "
+                        f"{found.n_discarded} of {found.n} clusters "
+                        f"discarded, perimeter "
+                        f"{'n/a' if every is None else f'{every:.2f}'} -> "
+                        f"{'n/a' if kept is None else f'{kept:.2f}'} um")
+            if comparison is not None:
+                held = _HeldDiscard(base=analysis, key=key,
+                                    comparison=comparison)
+            else:
+                held = None
+        else:
+            held = None
+        changed = held is not self.mps_discard and not (
+            held is not None and self.mps_discard is not None
+            and held.comparison is self.mps_discard.comparison)
+        self.mps_discard = held
+        if changed and self.mps_window is not None \
+                and self.mps_window.analysis is analysis:
+            self.mps_window.refresh()
+
+    def _discard_for(self, analysis: Any) -> Optional[Any]:
+        """The DiscardComparison of ``analysis``, if there is one."""
+        held = self.mps_discard
+        if held is None or held.base is not analysis:
+            return None
+        return held.comparison
 
     def show_axoplasm_panel(self) -> None:
         """Open the axoplasm panel on the channel-1 selection."""
@@ -1186,9 +1294,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.bad_cluster_indices = sorted(analysis.bad_report.bad_labels)
         self.good_cluster_centroids = analysis.centroids
         self._render_good_clusters_panel(analysis.centroids)
-        if self.axoplasm_window is not None and \
-                self.axoplasm_window.isVisible():
-            self.axoplasm_window.refresh_clusters()
+        # The axoplasm panel finds the discarded clusters of THIS analysis,
+        # and with them the results window's other two columns: bring it up
+        # to date even when it is closed, since its images are still loaded.
+        window = self.axoplasm_window
+        if window is not None:
+            if window.inputs.selection_key is self.roi_indices:
+                window.refresh_clusters()
+            else:
+                inputs = self._axoplasm_inputs()
+                if inputs is not None:
+                    window.update_selection(inputs)
 
         if show_window:
             self._show_mps_window(analysis)
@@ -1210,7 +1326,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if self.mps_window is None:
             self.mps_window = MPSResultsWindow(
                 analysis, rerun_callback=rerun, parent=self,
-                rings_callback=self.run_ring_analysis)
+                rings_callback=self.run_ring_analysis,
+                discard_callback=self._discard_for)
         else:
             self.mps_window.analysis = analysis
             self.mps_window.refresh()
@@ -1481,6 +1598,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.Nneighbor = None
         self.mps_analysis = None
         self._analysed_x = None
+        self.mps_discard = None
         # Channel 2's selection was cut with channel 1's ROI, which is gone.
         self.xroi2 = self.yroi2 = self.zroi2 = None
         self.cluster_labels2 = self.cluster_centroids2 = None
