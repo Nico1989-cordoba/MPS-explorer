@@ -346,6 +346,37 @@ def test_duplicates() -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+# ===================================================================
+#  4. What the program writes is not what it reads
+# ===================================================================
+def test_derived_files() -> None:
+    print("\n4. THE PROGRAM'S OWN TABLES ARE NOT INPUTS")
+    from tools.mps_io import find_localization_files
+
+    folder = tempfile.mkdtemp(prefix="mps_derived_")
+    written = ["axon7_axoplasm.csv", "axon7_axoplasm_localizations.csv",
+               "axon7_axoplasm_clusters.csv", "axon7_mps_parameters.csv",
+               "axon7_mps_parameters_discard.csv", "axon7_mps_rings.csv",
+               "axon7_mps_rings_pairs.csv", "axon7_ch1_all_clusters.csv",
+               "axon7_cluster_centers.csv", "axon7_1neighbor_distances.csv",
+               "axon7_two_channels.csv"]
+    for name in ["axon7.hdf5"] + written:
+        open(os.path.join(folder, name), "w").close()
+
+    def only_the_axon():
+        # A batch over the folder of the real axon 7 took two of these
+        # tables for axons and reported them as files that failed to load.
+        files, skipped = find_localization_files(folder, pattern="axon")
+        assert [os.path.basename(f) for f in files] == ["axon7.hdf5"], files
+        assert len(skipped) == len(written), (len(skipped), len(written))
+        return f"1 axon, {len(skipped)} tables of our own skipped"
+
+    try:
+        check("a batch does not analyse the tables we wrote", only_the_axon)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
 def main() -> int:
     print("=" * 72)
     print("EXPORT CHECKS")
@@ -353,6 +384,7 @@ def main() -> int:
     test_describe_roi()
     test_analysis_carries_the_roi()
     test_duplicates()
+    test_derived_files()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")
     print("=" * 72)

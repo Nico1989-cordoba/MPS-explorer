@@ -18,6 +18,14 @@ animal identity that was never supplied, and a comparison that ignores
 which animal an axon came from is pseudoreplication -- see the module
 docstring of tools/mps_batch.py.
 
+There is no ROI here: each file is one picked axon, so the automatic
+curation measures edge-touching against the convex hull of the
+localizations instead of a drawn boundary. That keeps other clusters
+than the GUI does -- on the April axon 7, 90 clusters against 94, a
+perimeter of 20.73 um against 21.52 -- so rows from here and rows
+exported from the GUI are not the same measurement. Every row says
+which it is, in ``edge_reference``; do not pool the two without it.
+
 @author: Nicolas (ngomez) + Claude
 """
 
