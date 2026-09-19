@@ -31,9 +31,12 @@ reported so it can be checked:
    varies from axon to axon. The user adjusts it and the value used is
    recorded.
 
-3. THE CLASSIFICATION. Every localization gets its signed distance to the
-   mask's edge, positive inside. It is "interior" when it lies deeper than
-   a margin the user sets, and "membrane" otherwise.
+3. THE DISTANCE TO THE MASK. Every localization gets its signed distance
+   to the mask's edge, positive inside (``classify``). The tubulin alone
+   does not decide what is inside: where the mask drifts off the spectrin
+   ring it puts membrane localizations inside, which on axon 7 of April
+   was most of what it put there. A localization is counted inside only
+   through its cluster, in step 4 (``localization_labels``).
 
 4. THE CLUSTERS NOT ANCHORED TO THE MEMBRANE. The widefield betaII-spectrin
    image shows the membrane as a blurred bright ring around a dark inside
@@ -112,9 +115,19 @@ DEFAULT_MARGIN_NM = 250.0
 # data records 133 nm in its widefield images and is analysed with 135.
 PIXEL_SIZE_REFUSE = 0.10
 
+# Where the tubulin mask alone puts a localization (classify): only the
+# distance to its edge is reported, never these labels as "inside".
 LABEL_INTERIOR = "interior"
 LABEL_MEMBRANE = "membrane"
 LABEL_OUTSIDE = "outside region"
+
+# Where a localization is, through its cluster (localization_labels): inside
+# when its cluster is one both widefield images put inside the axon (a
+# discarded one), at the membrane when its cluster is kept, and in no
+# cluster when DBSCAN left it out or its cluster was curated away.
+LOC_INSIDE = "inside"
+LOC_MEMBRANE = "membrane"
+LOC_NO_CLUSTER = "no cluster"
 
 
 # ===================================================================
@@ -856,8 +869,11 @@ class Classification:
 def classify(mask: AxoplasmMask, col: NDArray[np.float64],
              row: NDArray[np.float64], margin_nm: float) -> Classification:
     """
-    Interior when deeper inside the axoplasm than ``margin_nm``, membrane
-    otherwise; localizations off the analysed region are labelled apart.
+    Each localization's signed distance to the mask's edge, and where the
+    mask alone would put it: interior when deeper inside the axoplasm than
+    ``margin_nm``, membrane otherwise, and apart when off the analysed
+    region. The panel reports the distances but counts a localization
+    inside only through its cluster (localization_labels).
     """
     distance = mask.distance_at(col, row)
     labels = np.full(distance.shape, LABEL_MEMBRANE, dtype=object)
@@ -866,6 +882,62 @@ def classify(mask: AxoplasmMask, col: NDArray[np.float64],
         labels[distance > float(margin_nm)] = LABEL_INTERIOR
     return Classification(distance_nm=distance, labels=labels,
                           margin_nm=float(margin_nm))
+
+
+def cluster_of_points(
+    x_nm: NDArray[np.float64], y_nm: NDArray[np.float64],
+    z_nm: NDArray[np.float64],
+    ref_x_nm: NDArray[np.float64], ref_y_nm: NDArray[np.float64],
+    ref_z_nm: NDArray[np.float64], ref_cluster: NDArray[np.intp],
+) -> NDArray[np.intp]:
+    """
+    For each point, the cluster of the same point among the reference
+    ones -- the localizations the MPS analysis clustered -- or -1 when it
+    is not among them. Points are matched by their exact coordinates:
+    both sets come from the same file, so a localization has the same
+    three numbers in each.
+    """
+    def rows(x: Any, y: Any, z: Any) -> NDArray[Any]:
+        table = np.ascontiguousarray(np.column_stack(
+            [np.asarray(x, float).ravel(), np.asarray(y, float).ravel(),
+             np.asarray(z, float).ravel()]))
+        return table.view(np.dtype((np.void, table.dtype.itemsize * 3))
+                          ).ravel()
+
+    ref = rows(ref_x_nm, ref_y_nm, ref_z_nm)
+    ref_cluster = np.asarray(ref_cluster, dtype=np.intp).ravel()
+    if ref.size != ref_cluster.size:
+        raise ValueError("One cluster per reference point is needed.")
+    points = rows(x_nm, y_nm, z_nm)
+    out = np.full(points.size, -1, dtype=np.intp)
+    if ref.size == 0 or points.size == 0:
+        return out
+    order = np.argsort(ref, kind="stable")
+    ordered = ref[order]
+    at = np.searchsorted(ordered, points)
+    found = at < ordered.size
+    found[found] = ordered[at[found]] == points[found]
+    out[found] = ref_cluster[order[at[found]]]
+    return out
+
+
+def localization_labels(cluster_of: NDArray[np.intp],
+                        discarded: NDArray[np.bool_]) -> NDArray[np.object_]:
+    """
+    Where each localization is, through its cluster: LOC_INSIDE when its
+    cluster is one both images put inside the axon (``discarded``, one
+    flag per kept cluster), LOC_MEMBRANE when its cluster is kept, and
+    LOC_NO_CLUSTER when it belongs to none (``cluster_of`` -1).
+    """
+    index = np.asarray(cluster_of, dtype=np.intp).ravel()
+    flags = np.asarray(discarded, dtype=bool).ravel()
+    labels = np.full(index.shape, LOC_NO_CLUSTER, dtype=object)
+    member = (index >= 0) & (index < flags.size)
+    inside = np.zeros(index.shape, dtype=bool)
+    inside[member] = flags[index[member]]
+    labels[member & ~inside] = LOC_MEMBRANE
+    labels[inside] = LOC_INSIDE
+    return labels
 
 
 @dataclass
@@ -910,17 +982,35 @@ class AnchoredClusters:
         with np.errstate(invalid="ignore"):
             return np.asarray(depth > self.margin_nm)
 
+    # The clusters fall in four groups, one of each per cluster: inside
+    # both images (discarded), inside the tubulin mask only, inside the
+    # spectrin interior only, and inside neither (a cluster off an image's
+    # analysed region counts as not inside it).
+    @property
+    def tubulin_only(self) -> NDArray[np.bool_]:
+        """Inside by the tubulin mask only: kept."""
+        return (self._inside(self.depth_tubulin_nm)
+                & ~self._inside(self.depth_spectrin_nm))
+
+    @property
+    def spectrin_only(self) -> NDArray[np.bool_]:
+        """Inside the spectrin interior only: kept."""
+        return (self._inside(self.depth_spectrin_nm)
+                & ~self._inside(self.depth_tubulin_nm))
+
+    @property
+    def inside_neither(self) -> NDArray[np.bool_]:
+        """Inside neither image: kept, on the membrane."""
+        return (~self._inside(self.depth_tubulin_nm)
+                & ~self._inside(self.depth_spectrin_nm))
+
     @property
     def n_tubulin_only(self) -> int:
-        """Inside by the tubulin mask only: kept."""
-        return int((self._inside(self.depth_tubulin_nm)
-                    & ~self._inside(self.depth_spectrin_nm)).sum())
+        return int(self.tubulin_only.sum())
 
     @property
     def n_spectrin_only(self) -> int:
-        """Inside the spectrin interior only: kept."""
-        return int((self._inside(self.depth_spectrin_nm)
-                    & ~self._inside(self.depth_tubulin_nm)).sum())
+        return int(self.spectrin_only.sum())
 
 
 def anchored_clusters(
@@ -1025,19 +1115,25 @@ def summary_row(
     registration: ImageRegistration,
     mask: AxoplasmMask,
     result: Classification,
-    cluster_result: Optional[Classification],
     spectrin: Optional[AxoplasmMask] = None,
     anchored: Optional[AnchoredClusters] = None,
     spectrin_image: str = "",
+    located: Optional[NDArray[np.object_]] = None,
+    n_clusters: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     One row per axon; the same columns whatever was computed.
 
     ``spectrin_image`` is the widefield image the ring interior (and so
     the discard) was found in. It can differ from ``reference``, the image
-    the shift was measured against.
+    the shift was measured against. ``located`` is localization_labels
+    for the localizations of ``result``: the localizations are counted
+    inside only through their clusters, never by the tubulin mask alone.
     """
     sx, sy = registration.shift_nm(pixel_size_nm)
+
+    def count(label: str) -> Optional[int]:
+        return None if located is None else int(np.sum(located == label))
 
     def rounded(value: Optional[float], digits: int = 4) -> Optional[float]:
         return None if value is None else round(float(value), digits)
@@ -1110,15 +1206,19 @@ def summary_row(
         "mask_area_um2": round(mask.area_um2, 4),
         "ring_area_um2": round(mask.ring_area_um2, 4),
         "n_localizations": result.n,
-        "n_interior": result.count(LABEL_INTERIOR),
-        "n_membrane": result.count(LABEL_MEMBRANE),
-        "n_outside_region": result.count(LABEL_OUTSIDE),
-        "fraction_interior": rounded(result.fraction_interior),
-        "n_clusters": None if cluster_result is None else cluster_result.n,
-        "n_clusters_interior": (None if cluster_result is None
-                                else cluster_result.count(LABEL_INTERIOR)),
-        "n_clusters_membrane": (None if cluster_result is None
-                                else cluster_result.count(LABEL_MEMBRANE)),
+        # Off the region the tubulin mask was built in: no distance.
+        "n_outside_tubulin_region": result.count(LABEL_OUTSIDE),
+        # Through their clusters, as both images place those
+        # (localization_labels); empty until both have been compared.
+        "n_localizations_inside": count(LOC_INSIDE),
+        "n_localizations_membrane": count(LOC_MEMBRANE),
+        "n_localizations_no_cluster": count(LOC_NO_CLUSTER),
+        "fraction_inside": (
+            None if located is None or result.n == 0
+            else round(int(np.sum(located == LOC_INSIDE)) / result.n, 4)),
+        # The clusters the MPS analysis kept for this selection.
+        "n_clusters": (n_clusters if n_clusters is not None
+                       else None if anchored is None else anchored.n),
         **spectrin_columns,
         "n_warnings": (len(registration.warnings) + len(mask.warnings)
                        + (0 if spectrin is None else len(spectrin.warnings))
@@ -1135,20 +1235,22 @@ def cluster_rows(
     spectrin_image: str = "",
 ) -> List[Dict[str, Any]]:
     """One row per cluster: where each image puts it, and whether it went.
-    ``spectrin_image`` is the widefield image of the ring interior."""
+    ``spectrin_image`` is the widefield image of the ring interior.
+    ``cluster`` numbers the clusters as the localizations table does."""
     def depth(value: float) -> Any:
         return round(float(value), 1) if np.isfinite(value) else float(value)
 
     return [
         {"source_localizations": localizations, "roi": roi,
          "spectrin_interior_image": spectrin_image,
+         "cluster": i,
          "x_nm": round(float(x), 2), "y_nm": round(float(y), 2),
          "depth_in_tubulin_mask_nm": depth(dt),
          "depth_in_spectrin_interior_nm": depth(ds),
          "margin_nm": anchored.margin_nm,
          "discarded": bool(gone)}
-        for (x, y), dt, ds, gone in zip(
+        for i, ((x, y), dt, ds, gone) in enumerate(zip(
             np.asarray(centroids_nm, dtype=float).reshape(-1, 2),
             anchored.depth_tubulin_nm, anchored.depth_spectrin_nm,
-            anchored.discarded)
+            anchored.discarded))
     ]
