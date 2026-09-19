@@ -667,9 +667,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             "is not touched, and keeps the commas and points that pandas,\n"
             "R and Prism expect."
         )
-        self.action_excel.triggered.connect(self.copy_table_for_excel)
+        self.action_excel.triggered.connect(self._on_copy_for_excel)
         toolbar.addAction(self.action_excel)
         self.analysis_toolbar = toolbar
+
+    def _on_copy_for_excel(self) -> None:
+        # Not the method itself: a triggered slot returns nothing, and it
+        # would also be handed the action's checked flag.
+        self.copy_table_for_excel()
 
     def copy_table_for_excel(self) -> Optional[str]:
         """

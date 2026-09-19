@@ -60,7 +60,7 @@ import json
 import math
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -1309,7 +1309,7 @@ def cluster_rows(
     centroids_nm: NDArray[np.float64],
     anchored: AnchoredClusters,
     spectrin_image: str = "",
-    labels: Optional[Sequence[int]] = None,
+    labels: Optional[Union[Sequence[int], NDArray[np.int64]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     One row per cluster: where each image puts it, and whether it went.
