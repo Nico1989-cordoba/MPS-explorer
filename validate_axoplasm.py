@@ -578,6 +578,52 @@ def test_classification() -> None:
                        for c in without), list(without)
         return f"{len(without)} columns, the same with or without clusters"
 
+    def a_failure_is_not_a_measurement():
+        # A threshold above everything leaves no axoplasm. That used to
+        # export mask_area_um2 0.0, 0 discarded and 0 % inside -- a
+        # failure written exactly like an axon with nothing inside -- and
+        # distances of "-inf" that pandas reads as a number.
+        image = disc_image(shape, centre, radius)
+        empty = ax.build_mask(image, centre, radius, PIXEL_NM,
+                              threshold=float(image.max()) + 1.0,
+                              smooth_sigma_px=0.0)
+        assert empty.empty
+        cols = centre[0] + np.array([2.0, 14.0])
+        rows = np.full(cols.shape, centre[1])
+        result = ax.classify(empty, cols, rows, 250.0)
+        assert np.isneginf(result.distance_nm).all(), result.distance_nm
+        reg = ax.ImageRegistration(shift_px=(1.0, -2.0), source="manual")
+        row = ax.summary_row(
+            localizations="a.hdf5", tubulin="t.tif", reference="",
+            registration_file="", roi="none", pixel_size_nm=PIXEL_NM,
+            offset_px=(0.0, 0.0), registration=reg, mask=empty,
+            result=result, n_clusters=2,
+            located=ax.localization_labels(np.array([0, 1]),
+                                           np.array([True, False])))
+        assert row["mask_status"] == "empty at this threshold", row
+        for column in ("mask_area_um2", "n_outside_tubulin_region",
+                       "n_localizations_inside", "n_localizations_membrane",
+                       "fraction_inside"):
+            assert row[column] is None, (column, row[column])
+        return "empty mask: a status, not zeros"
+
+    def depths_that_are_not_numbers_are_empty():
+        # -inf (no mask at all) and nan (off the analysed region) are not
+        # depths; the cluster table wrote both as words.
+        found = ax.AnchoredClusters(
+            depth_tubulin_nm=np.array([-np.inf, np.nan, 300.0]),
+            depth_spectrin_nm=np.array([np.nan, -np.inf, 400.0]),
+            margin_nm=250.0, discarded=np.array([False, False, True]),
+            contour_all=None, contour_all_starts=None, contour_anchored=None,
+            registration="measured, score 13.5")
+        rows = ax.cluster_rows(localizations="a.hdf5", roi="none",
+                               centroids_nm=np.zeros((3, 2)), anchored=found)
+        assert [r["depth_in_tubulin_mask_nm"] for r in rows] == \
+            [None, None, 300.0], rows
+        assert [r["depth_in_spectrin_interior_nm"] for r in rows] == \
+            [None, None, 400.0], rows
+        return "no -inf and no nan in the cluster table"
+
     def localizations_through_their_clusters():
         # References: three clusters' localizations and some noise; the
         # selection holds some of them, one shared with no reference.
@@ -604,6 +650,10 @@ def test_classification() -> None:
     check("the margin", margin)
     check("a spectrin ring on a blurred edge", ring_on_the_edge)
     check("the summary row", summary)
+    check("a failure is exported as a failure, not as zeros",
+          a_failure_is_not_a_measurement)
+    check("depths that are not numbers are empty cells",
+          depths_that_are_not_numbers_are_empty)
     check("a localization is inside only through its cluster",
           localizations_through_their_clusters)
 

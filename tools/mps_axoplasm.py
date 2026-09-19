@@ -969,6 +969,12 @@ class AnchoredClusters:
     contour_all_starts: Optional[PerimeterResult]
     contour_anchored: Optional[PerimeterResult]
     warnings: List[str] = field(default_factory=list)
+    # How the widefield images were placed on the localizations when this
+    # was found ("measured, score 13.5", "set by hand", ...). Which
+    # clusters are inside depends on it entirely -- on axon 7, 5 of 94
+    # after the shift was measured against 4 of 94 before -- so it travels
+    # with the discard into every table that reports it.
+    registration: str = ""
 
     @property
     def n(self) -> int:
@@ -1024,6 +1030,7 @@ def anchored_clusters(
     margin_nm: float,
     contour_all: Optional[PerimeterResult] = None,
     contour_cache: Optional[Dict[bytes, PerimeterResult]] = None,
+    registration: str = "",
 ) -> AnchoredClusters:
     """
     Discard the clusters both images put inside the axon, and rebuild the
@@ -1079,7 +1086,8 @@ def anchored_clusters(
         depth_tubulin_nm=depth_t, depth_spectrin_nm=depth_s,
         margin_nm=margin, discarded=discarded, contour_all=contour_all,
         contour_all_starts=shortest(centroids),
-        contour_anchored=shortest(kept), warnings=warnings)
+        contour_anchored=shortest(kept), warnings=warnings,
+        registration=registration)
 
 
 def axon_centre(col: NDArray[np.float64], row: NDArray[np.float64]
@@ -1146,8 +1154,23 @@ def summary_row(
     """
     sx, sy = registration.shift_nm(pixel_size_nm)
 
+    # What could be measured at all. An empty mask, or a spectrin image
+    # with no dark interior, used to export 0 discarded, 0 % inside and
+    # areas of 0.0: numbers indistinguishable from a real axon where
+    # nothing is inside. They are left empty now, and these columns say
+    # why.
+    mask_ok = not mask.empty
+    interior_ok = spectrin is not None and not spectrin.empty
+    # Could the images measure anything at all, and did they place the
+    # clusters? With an empty mask, or a spectrin image with no dark
+    # inside, the old row read 0 discarded, 0 % inside and an area of
+    # 0.0: a failure written exactly like an axon with nothing inside.
+    measured = mask_ok and (spectrin is None or interior_ok)
+    placed = anchored is not None and mask_ok and interior_ok
+
     def count(label: str) -> Optional[int]:
-        return None if located is None else int(np.sum(located == label))
+        return (None if located is None or not measured
+                else int(np.sum(located == label)))
 
     def rounded(value: Optional[float], digits: int = 4) -> Optional[float]:
         return None if value is None else round(float(value), digits)
@@ -1166,6 +1189,16 @@ def summary_row(
     new = None if anchored is None else anchored.contour_anchored
     spectrin_columns = {
         "spectrin_interior_image": None if spectrin is None else spectrin_image,
+        "spectrin_interior_status": (
+            "not loaded" if spectrin is None
+            else "ok" if interior_ok
+            else "no dark interior found in this image"),
+        # How the widefield images were placed when the clusters were
+        # sorted. Loading the spectrin image is enough to sort them, so
+        # this says whether that happened before or after the shift was
+        # measured -- on axon 7, 4 clusters discarded against 5.
+        "discard_registration": (None if anchored is None
+                                 else anchored.registration or None),
         "spectrin_interior_cut": None if spectrin is None else finite(
             spectrin.threshold, 2),
         "spectrin_interior_cut_source": (None if spectrin is None
@@ -1174,25 +1207,32 @@ def summary_row(
         "spectrin_level_ring": level("ring"),
         "spectrin_level_half_max": level("half_max"),
         "spectrin_level_spill": level("spill"),
-        "spectrin_interior_area_um2": (None if spectrin is None
-                                       else round(spectrin.area_um2, 4)),
-        "n_clusters_discarded": (None if anchored is None
+        "spectrin_interior_area_um2": (round(spectrin.area_um2, 4)
+                                       if interior_ok else None),
+        "n_clusters_discarded": (None if anchored is None or not placed
                                  else anchored.n_discarded),
-        "n_clusters_inside_tubulin_only": (None if anchored is None
-                                           else anchored.n_tubulin_only),
-        "n_clusters_inside_spectrin_only": (None if anchored is None
-                                            else anchored.n_spectrin_only),
+        "n_clusters_inside_tubulin_only": (
+            None if anchored is None or not placed
+            else anchored.n_tubulin_only),
+        "n_clusters_inside_spectrin_only": (
+            None if anchored is None or not placed
+            else anchored.n_spectrin_only),
         "perimeter_all_clusters_um": (None if all_ is None
                                       else finite(all_.perimeter_um)),
         "perimeter_all_clusters_all_starts_um": (
             None if all_starts is None else finite(all_starts.perimeter_um)),
-        "perimeter_anchored_um": (None if new is None
+        # The contour without the discarded clusters is only a result
+        # when the discard could be evaluated; otherwise it is the contour
+        # of all of them under another name.
+        "perimeter_anchored_um": (None if new is None or not placed
                                   else finite(new.perimeter_um)),
-        "perimeter_anchored_2opt_starts": None if new is None else new.n_starts,
+        "perimeter_anchored_2opt_starts": (None if new is None or not placed
+                                           else new.n_starts),
         "perimeter_anchored_start_spread_um": (
-            None if new is None else finite(new.start_spread_um)),
+            None if new is None or not placed
+            else finite(new.start_spread_um)),
         "anchored_contour_deep_vertices": (
-            None if new is None or new.health is None
+            None if new is None or not placed or new.health is None
             else new.health.n_deep_vertices),
     }
 
@@ -1217,7 +1257,10 @@ def summary_row(
         "otsu_threshold": round(mask.otsu, 3),
         "smooth_sigma_nm": round(mask.smooth_sigma_px * pixel_size_nm, 1),
         "margin_nm": result.margin_nm,
-        "mask_area_um2": round(mask.area_um2, 4),
+        # Empty means the threshold left no axoplasm at all, not an
+        # axon of zero area.
+        "mask_status": "ok" if mask_ok else "empty at this threshold",
+        "mask_area_um2": round(mask.area_um2, 4) if mask_ok else None,
         "ring_area_um2": round(mask.ring_area_um2, 4),
         # The axial cut these localizations survived, which the panel
         # takes from the main window and cannot recompute.
@@ -1228,14 +1271,15 @@ def summary_row(
         "selection_z_source": z_range_source,
         "n_localizations": result.n,
         # Off the region the tubulin mask was built in: no distance.
-        "n_outside_tubulin_region": result.count(LABEL_OUTSIDE),
+        "n_outside_tubulin_region": (result.count(LABEL_OUTSIDE)
+                                     if mask_ok else None),
         # Through their clusters, as both images place those
         # (localization_labels); empty until both have been compared.
         "n_localizations_inside": count(LOC_INSIDE),
         "n_localizations_membrane": count(LOC_MEMBRANE),
         "n_localizations_no_cluster": count(LOC_NO_CLUSTER),
         "fraction_inside": (
-            None if located is None or result.n == 0
+            None if located is None or result.n == 0 or not measured
             else round(int(np.sum(located == LOC_INSIDE)) / result.n, 4)),
         # The clusters the MPS analysis kept for this selection.
         "n_clusters": (n_clusters if n_clusters is not None
@@ -1259,7 +1303,13 @@ def cluster_rows(
     ``spectrin_image`` is the widefield image of the ring interior.
     ``cluster`` numbers the clusters as the localizations table does."""
     def depth(value: float) -> Any:
-        return round(float(value), 1) if np.isfinite(value) else float(value)
+        """The depth, or an empty cell.
+
+        Not -inf (no mask at all) and not nan (off the analysed region):
+        both used to be written as words a reader takes for numbers, and
+        pandas turns -inf into a mean of -inf.
+        """
+        return round(float(value), 1) if np.isfinite(value) else None
 
     return [
         {"source_localizations": localizations, "roi": roi,

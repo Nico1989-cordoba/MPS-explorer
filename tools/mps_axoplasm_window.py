@@ -912,10 +912,34 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         # analysis without the discarded clusters.
         self.inputs.anchored_changed(self.anchored, self.anchored_centroids)
 
+    def _registration_state(self) -> str:
+        """How the widefield images are placed right now, in one phrase."""
+        reg = self.registration()
+        words = {"none": "no shift", "manual": "set by hand",
+                 "measured": "measured",
+                 "adjusted": "measured, then adjusted by hand"}
+        state = words.get(reg.source, reg.source)
+        if reg.score is not None:
+            state += f", score {reg.score:.1f}"
+            if reg.score < ax.MIN_REGISTRATION_SCORE:
+                state += " (low)"
+        return state
+
     def _find_anchored(self, centroids: np.ndarray, margin: float) -> None:
         """The clusters both images put inside, and the contour without."""
         if self.reference is None or self.axoplasm is None \
                 or len(centroids) < 3:
+            return
+        # Which clusters are inside depends entirely on where the images
+        # sit: with no shift, axon 7 gave 4 discarded and a 19.65 um
+        # contour against 5 and 18.48 um once the shift was measured.
+        # Sorting them before anything is placed would hand the results
+        # window, and the tables, a discard measured on an unplaced image.
+        if self.registration().source == "none":
+            self.anchored_notes = [
+                "The widefield images are not placed on the localizations "
+                "yet: measure the shift in section 2 (or set one by hand) "
+                "before the clusters can be sorted."]
             return
         offset = self.reference_offset
         col, row = self._coordinates_in(offset, self.inputs.loc.x_nm,
@@ -938,7 +962,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.anchored = ax.anchored_clusters(
             centroids, self.axoplasm, tcol, trow, interior, scol, srow,
             margin, contour_all=self.inputs.contour(),
-            contour_cache=self._contour_cache)
+            contour_cache=self._contour_cache,
+            registration=self._registration_state())
 
     def _sync_threshold(self) -> None:
         mask = self.axoplasm
@@ -1032,7 +1057,11 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                     "both put it inside the axon.")
         found = self.anchored
         if found is None:
-            if self.anchored_notes or self.axoplasm is None:
+            # Why there is nothing to show, when there is a reason: an
+            # empty section 5 left "measure the shift first" unsaid.
+            if self.anchored_notes:
+                return self.anchored_notes[0]
+            if self.axoplasm is None:
                 return ""
             if self.inputs.clusters() is None:
                 return ("Run 'cluster Ch1' on this selection: the clusters "
@@ -1368,8 +1397,11 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             {"source_localizations": source, "roi": roi,
              "x_nm": round(float(x), 2), "y_nm": round(float(y), 2),
              "z_nm": round(float(z), 2),
+             # Empty where there is no distance: off the analysed region,
+             # or no mask at all. Written as "nan" and "-inf", both were
+             # read back as numbers.
              "distance_to_tubulin_edge_nm": (
-                 round(float(d), 1) if np.isfinite(d) else float(d)),
+                 round(float(d), 1) if np.isfinite(d) else None),
              "cluster": "" if c < 0 else int(c),
              "label": str(label)}
             for x, y, z, d, c, label in zip(loc.x_nm, loc.y_nm, loc.z_nm,

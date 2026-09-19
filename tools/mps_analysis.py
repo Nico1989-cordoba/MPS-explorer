@@ -212,6 +212,11 @@ class AxonAnalysis:
     # DBSCAN labels of the clusters left out.
     discard_margin_nm: Optional[float] = None
     discarded_labels: FrozenSet[int] = frozenset()
+    # How the widefield images were placed when those clusters were found
+    # ("measured, score 13.5", "set by hand", ...). The discard is only as
+    # good as that placement, and this row is where a reader of the table
+    # can see it; the panel's own table carries the same column.
+    discard_registration: str = ""
 
     # ---------------- convenience accessors for the panel ----------------
 
@@ -466,6 +471,10 @@ class AxonAnalysis:
                 self.bad_report.edge_criterion_disabled),
             "n_clusters_discarded": self.n_clusters_discarded,
             "discard_margin_nm": self.discard_margin_nm,
+            # How the widefield images were placed when the discarded
+            # clusters were found: at no shift the same axon gives another
+            # set of them, and nothing in this row used to say so.
+            "discard_registration": self.discard_registration or None,
             "perimeter_um": self.perimeter_um,
             "clusters_per_um": self.clusters_per_um,
             # How the tour was refined: 2-opt from one start (the legacy
@@ -862,6 +871,7 @@ def without_clusters(
     discarded: NDArray[np.bool_],
     *,
     margin_nm: float,
+    registration: str = "",
     contour: Optional[PerimeterResult] = None,
 ) -> AxonAnalysis:
     """
@@ -881,7 +891,8 @@ def without_clusters(
     built -- the one the panel drew -- and must join exactly the clusters
     that remain.
     """
-    return _rerun(analysis, discarded, contour=contour, margin_nm=margin_nm)
+    return _rerun(analysis, discarded, contour=contour, margin_nm=margin_nm,
+                  registration=registration)
 
 
 def with_every_start(
@@ -920,6 +931,7 @@ def _rerun(
     *,
     contour: Optional[PerimeterResult],
     margin_nm: Optional[float],
+    registration: str = "",
 ) -> AxonAnalysis:
     """Steps 3-6 again, 2-opt from every start, without the flagged
     clusters; ``margin_nm`` None records that nothing was discarded."""
@@ -969,6 +981,7 @@ def _rerun(
         upstream_warnings=list(analysis.upstream_warnings),
         discard_margin_nm=None if margin_nm is None else float(margin_nm),
         discarded_labels=dropped,
+        discard_registration="" if margin_nm is None else registration,
     )
 
 
@@ -992,6 +1005,7 @@ def compare_discard(
     contour_all: Optional[PerimeterResult] = None,
     contour_kept: Optional[PerimeterResult] = None,
     all_clusters: Optional[AxonAnalysis] = None,
+    registration: str = "",
 ) -> DiscardComparison:
     """
     with_every_start and without_clusters of ``analysis``.
@@ -1011,7 +1025,8 @@ def compare_discard(
              else with_every_start(analysis, contour=contour_all))
     if flags.any():
         applied = without_clusters(analysis, flags, margin_nm=margin_nm,
-                                   contour=contour_kept)
+                                   contour=contour_kept,
+                                   registration=registration)
     else:
         if flags.size != analysis.n_clusters_kept:
             raise ValueError(
@@ -1022,6 +1037,7 @@ def compare_discard(
         applied = dataclasses.replace(
             every, discard_margin_nm=float(margin_nm),
             discarded_labels=frozenset(),
+            discard_registration=registration,
             warnings=upstream + [note] + every.warnings[len(upstream):])
     return DiscardComparison(all_clusters=every, discard_applied=applied)
 
@@ -1040,8 +1056,8 @@ def _discard_note(n_dropped: int, n_before: int, margin_nm: float) -> str:
         f"Methods.")
 
 
-def with_discard_margin(analysis: AxonAnalysis,
-                        margin_nm: float) -> AxonAnalysis:
+def with_discard_margin(analysis: AxonAnalysis, margin_nm: float,
+                        registration: Optional[str] = None) -> AxonAnalysis:
     """
     ``analysis`` (from without_clusters) recorded at another margin that
     leaves out the same clusters: every number stays, only the margin it is
@@ -1055,5 +1071,7 @@ def with_discard_margin(analysis: AxonAnalysis,
     n_dropped = len(analysis.discarded_labels)
     warnings[at] = _discard_note(
         n_dropped, analysis.n_clusters_kept + n_dropped, margin_nm)
-    return dataclasses.replace(analysis, discard_margin_nm=float(margin_nm),
-                               warnings=warnings)
+    return dataclasses.replace(
+        analysis, discard_margin_nm=float(margin_nm), warnings=warnings,
+        discard_registration=(analysis.discard_registration
+                              if registration is None else registration))

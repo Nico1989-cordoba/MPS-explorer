@@ -944,11 +944,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if held is not None and held.key == key:
                 comparison = held.comparison
                 applied = comparison.discard_applied
-                if applied.discard_margin_nm != found.margin_nm:
+                if (applied.discard_margin_nm != found.margin_nm
+                        or applied.discard_registration != found.registration):
                     comparison = DiscardComparison(
                         all_clusters=comparison.all_clusters,
                         discard_applied=with_discard_margin(
-                            applied, found.margin_nm))
+                            applied, found.margin_nm,
+                            registration=found.registration))
             else:
                 QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
                 try:
@@ -956,6 +958,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                         analysis, found.discarded, margin_nm=found.margin_nm,
                         contour_all=found.contour_all_starts,
                         contour_kept=found.contour_anchored,
+                        registration=found.registration,
                         all_clusters=(None if held is None
                                       else held.comparison.all_clusters))
                 except Exception as error:     # noqa: BLE001 - logged
