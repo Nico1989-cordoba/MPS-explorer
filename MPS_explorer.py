@@ -1357,6 +1357,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # plots and exports reflect the same automatically curated set.
         self.bad_cluster_indices = sorted(analysis.bad_report.bad_labels)
         self.good_cluster_centroids = analysis.centroids
+        # The nearest-neighbour distances were measured between the
+        # PREVIOUS centroids. Keeping them let "save dist data" write 94
+        # rows for an analysis with 55 clusters, with no header and no
+        # provenance to notice it by, while the centres panel already
+        # showed the new ones.
+        self.distances = None
+        self.Nneighbor = None
+        self.empty_layout(self.ui.zhistlayout_cmdist)
         self._render_good_clusters_panel(analysis.centroids)
         # The axoplasm panel finds the discarded clusters of THIS analysis,
         # and with them the results window's discard column: bring it up
@@ -2895,8 +2903,27 @@ class MPS_explorer(QtWidgets.QMainWindow):
             "CSV Files (*.csv)"
         )
         
-        if filename:
-            np.savetxt(filename, dist, delimiter=",", fmt="%.2f")
+        if not filename:
+            return
+        data = {}
+        labels = self._current_cluster_labels()
+        if labels is not None and len(labels) == len(dist):
+            data["cluster_label"] = np.asarray(labels, dtype=int)
+        for k in range(dist.shape[1]):
+            data[f"nn{k + 1}_nm"] = dist[:, k]
+        try:
+            pd.DataFrame(data).to_csv(filename, index=False,
+                                      float_format="%.2f")
+        except Exception as error:                     # noqa: BLE001
+            self.logger.error(f"Could not save the distances: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Save Error",
+                f"Failed to save the distances:\n\n{error}")
+            return
+        self.logger.info(f"Saved {dist.shape[0]} row(s) of "
+                         f"{dist.shape[1]} neighbour distance(s) to "
+                         f"{filename}")
 
     def on_algorithm_changed(self, algorithm: str) -> None:
         """Handle algorithm selection change to show/hide algorithm-specific parameters.
@@ -3552,8 +3579,30 @@ class MPS_explorer(QtWidgets.QMainWindow):
             "CSV Files (*.csv)"
         )
         
-        if filename:
-            np.savetxt(filename, cluster_centers_xy, delimiter=",", fmt="%.2f", comments="")
+        if not filename:
+            return
+        # With a header and the cluster's own label, so the file says what
+        # it holds and can be joined to the other tables. It had neither,
+        # and a failure to write it was swallowed by pyqtgraph's exception
+        # hook: the user saw nothing at all.
+        data = {}
+        labels = self._current_cluster_labels()
+        if labels is not None and len(labels) == len(cluster_centers_xy):
+            data["cluster_label"] = np.asarray(labels, dtype=int)
+        data["x [nm]"] = cluster_centers_xy[:, 0]
+        data["y [nm]"] = cluster_centers_xy[:, 1]
+        try:
+            pd.DataFrame(data).to_csv(filename, index=False,
+                                      float_format="%.2f")
+        except Exception as error:                     # noqa: BLE001
+            self.logger.error(f"Could not save the cluster centres: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Save Error",
+                f"Failed to save the cluster centres:\n\n{error}")
+            return
+        self.logger.info(
+            f"Saved {len(cluster_centers_xy)} cluster centres to {filename}")
     
     
     
