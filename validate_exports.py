@@ -14,6 +14,7 @@ Run:  python validate_exports.py
 from __future__ import annotations
 
 import csv
+import dataclasses
 import os
 import shutil
 import sys
@@ -178,7 +179,81 @@ def test_analysis_carries_the_roi() -> None:
             assert column in row, column
         return ", ".join(AXON_KEY_COLUMNS)
 
+    def the_parameters_that_decide_are_columns():
+        row = with_roi.export_dict()
+        # Every one of these changes a reported number and was in no
+        # column: the occupancy threshold outright, the rest by deciding
+        # which localizations or which randomization were measured.
+        for column, expected in (("mahalanobis_threshold", 3.0),
+                                 ("ellipse_mode", "clip"),
+                                 ("random_seed", 0),
+                                 ("randomization_requested", 0),
+                                 ("slab_source", "automatic")):
+            assert row[column] == expected, (column, row[column])
+        assert row["z_main_peak_auto_nm"] is not None
+        assert row["contour_deep_limit_nm"] is not None
+        assert row["contour_hull_radius_nm"] is not None
+        return (f"Mahalanobis {row['mahalanobis_threshold']}, deep limit "
+                f"{row['contour_deep_limit_nm']} nm")
+
+    def another_threshold_is_visible():
+        loose = analyze_axon(x, y, z, roi=roi, run_randomization=False,
+                             mahalanobis_threshold=0.1)
+        row, tight = loose.export_dict(), with_roi.export_dict()
+        assert row["mahalanobis_threshold"] == 0.1, row
+        assert row["occupancy_percent"] != tight["occupancy_percent"]
+        return (f"{tight['occupancy_percent']:.1f} % at 3, "
+                f"{row['occupancy_percent']:.1f} % at 0.1")
+
+    def the_mixture_is_a_column():
+        row = with_roi.export_dict()
+        means = row["gmm_means_nm"].split("|")
+        assert len(means) == row["gmm_n_components"], (means, row)
+        assert len(row["gmm_weights"].split("|")) == len(means)
+        assert len(row["gmm_sigmas_nm"].split("|")) == len(means)
+        # ";" is what Excel splits a row on where the decimal mark is a
+        # comma, so no cell may hold one.
+        assert not any(";" in str(v) for v in row.values()), row
+        return row["gmm_means_nm"]
+
+    def a_hand_picked_slab_says_so():
+        peak = float(with_roi.z_result.main_peak_nm)
+        same = analyze_axon(x, y, z, roi=roi, run_randomization=False,
+                            main_peak_override_nm=peak)
+        other = analyze_axon(x, y, z, roi=roi, run_randomization=False,
+                             main_peak_override_nm=peak + 40.0)
+        typed = analyze_axon(x, y, z, roi=roi, run_randomization=False,
+                             slab_override=(peak - 50.0, peak + 50.0))
+        # Re-running from the results window sends the peak it shows; that
+        # is not a choice, and it used to add a warning saying it was.
+        assert same.export_dict()["slab_source"] == "automatic"
+        assert not any("selected manually" in w for w in same.warnings)
+        assert other.export_dict()["slab_source"] == "peak chosen"
+        assert any("selected manually" in w for w in other.warnings)
+        assert typed.export_dict()["slab_source"] == "range typed"
+        return "automatic / peak chosen / range typed"
+
+    def free_text_carries_no_separator():
+        # Real warnings do contain ';' ("0.38 vs 0.32); the 180 nm slab
+        # ..."), and one in a cell splits the row into columns in Excel
+        # where the decimal mark is a comma.
+        noisy = dataclasses.replace(with_roi, warnings=["a; b", "c;d"])
+        row = noisy.export_dict()
+        assert row["warnings"] == "a, b | c,d", row["warnings"]
+        assert row["n_warnings"] == 2
+        return row["warnings"]
+
     check("the ROI the localizations came from is a column", roi_is_exported)
+    check("free text carries no field separator",
+          free_text_carries_no_separator)
+    check("the parameters that decide the numbers are columns",
+          the_parameters_that_decide_are_columns)
+    check("another occupancy threshold is visible in the row",
+          another_threshold_is_visible)
+    check("the fitted axial mixture is in the row, without ';'",
+          the_mixture_is_a_column)
+    check("a slab chosen by hand is not called automatic",
+          a_hand_picked_slab_says_so)
     check("what the edge criterion measured against is a column",
           edge_reference_is_exported)
     check("the analysis with the discard keeps both", the_discard_keeps_them)

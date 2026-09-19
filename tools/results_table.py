@@ -138,6 +138,18 @@ def check_appendable(path: str, rows: Sequence[Dict[str, Any]],
         raise TableMismatch(_mismatch(path, header, fields))
 
 
+def cell_text(text: str) -> str:
+    """
+    Free text for a CSV cell.
+
+    The canonical table is comma-separated, and ";" is what Excel splits a
+    row on where the decimal mark is a comma -- this user's case -- so a
+    ";" inside a cell turns one row into several columns there. Sentences
+    read the same with a comma.
+    """
+    return str(text).replace(";", ",")
+
+
 def _text(value: Any) -> str:
     """A cell as the CSV writer will write it, for comparing keys."""
     return "" if value is None else str(value)

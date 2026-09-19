@@ -96,6 +96,7 @@ from tools.mps_spatial import (
     compute_nn_distances,
 )
 from tools.mps_settings import DEFAULT_DBCV_THRESHOLD
+from tools.results_table import cell_text
 
 # Paper defaults (Gazal et al. 2026)
 DEFAULT_EPS_NM = 25.0
@@ -121,6 +122,16 @@ PAPER_REFERENCE: Dict[str, Tuple[str, float, str]] = {
     "median_1nn_nm": ("1NN spacing (median)", PAPER_MEDIAN_OF_MEDIANS_NM, "nm"),
     "clusters_per_um": ("Clusters per um", PAPER_SLOPE_CLUSTERS_PER_UM, "1/um"),
 }
+
+
+def _joined(values: Any, digits: int) -> str:
+    """A list of numbers in one cell, separated by "|".
+
+    Not by ";": the canonical CSV is comma-separated, and a ";" inside a
+    cell is what Excel splits on where the decimal mark is a comma, which
+    turns one row into several columns.
+    """
+    return "|".join(f"{float(v):.{digits}f}" for v in np.asarray(values).ravel())
 
 
 @dataclass
@@ -189,6 +200,11 @@ class AxonAnalysis:
     # clusters against 90 -- so a table pooling both must be able to say
     # which is which.
     edge_reference: str = "none"
+    # "automatic", "peak chosen" or "range typed": how the axial slab was
+    # decided. The table's note says "auto from GMM main peak" whatever
+    # happened, so without this column a slab picked by hand -- another
+    # ring of the same axon -- cannot be told from the automatic one.
+    slab_source: str = "automatic"
 
     # --- set by without_clusters -----------------------------------------
     # The margin the axoplasm panel discarded clusters with (None: nothing
@@ -419,12 +435,28 @@ class AxonAnalysis:
             "slab_half_width_nm": self.slab_half_width_nm,
             "slab_zmin_nm": round(self.slab_zmin_nm, 2),
             "slab_zmax_nm": round(self.slab_zmax_nm, 2),
+            # Whether that slab is the automatic one, and what the
+            # automatic one would have been: a row measured on another ring
+            # of the same axon is otherwise indistinguishable.
+            "slab_source": self.slab_source,
+            "z_main_peak_auto_nm": round(self.z_result.main_peak_nm, 2),
             "n_locs_total": self.n_locs_total,
             "n_locs_slab": self.n_locs_slab,
             "gmm_n_components": self.z_result.n_components,
+            # The mixture the slab was chosen from. Its weights are what
+            # "ambiguous main peak" refers to, and the widths say whether
+            # the components are separated at all; both were on screen
+            # only. Values are separated by "|", never by ";", which is
+            # the field separator Excel uses where the decimal mark is a
+            # comma.
+            "gmm_means_nm": _joined(self.z_result.means_nm, 1),
+            "gmm_weights": _joined(self.z_result.weights, 3),
+            "gmm_sigmas_nm": _joined(self.z_result.sigmas_nm, 1),
+            "gmm_converged": bool(self.z_result.converged),
+            "gmm_n_discarded_components":
+                self.z_result.n_discarded_components,
             "delta_z_mean_nm": self.mean_delta_z_nm,
-            "delta_z_values_nm": ";".join(
-                f"{d:.1f}" for d in self.z_result.delta_z_nm),
+            "delta_z_values_nm": _joined(self.z_result.delta_z_nm, 1),
             "n_clusters_raw": self.n_clusters_raw,
             "n_clusters_kept": self.n_clusters_kept,
             "n_clusters_removed": len(self.bad_report.bad_labels),
@@ -454,6 +486,14 @@ class AxonAnalysis:
             "contour_n_deep_vertices": (
                 None if self.contour_health is None
                 else self.contour_health.n_deep_vertices),
+            # What "deep" meant here: the check is a fraction of this
+            # axon's own hull radius, so the count alone cannot be read.
+            "contour_hull_radius_nm": (
+                None if self.contour_health is None
+                else round(self.contour_health.hull_radius_nm, 1)),
+            "contour_deep_limit_nm": (
+                None if self.contour_health is None
+                else round(self.contour_health.depth_limit_nm, 1)),
             "contour_max_depth_nm": (
                 None if self.contour_health is None
                 else round(self.contour_health.max_depth_nm, 1)),
@@ -476,6 +516,11 @@ class AxonAnalysis:
             "median_area_nm2": self.median_area_nm2,
             "median_r_eff_nm": self.median_r_eff_nm,
             "median_1nn_nm": self.median_1nn_nm,
+            # The threshold the occupancy was measured with. It decides
+            # the number outright (0.1 instead of 3 turned 46.5 % into
+            # 1.5 % on axon 7) and was in no column.
+            "mahalanobis_threshold": self.mahalanobis_threshold,
+            "ellipse_mode": self.ellipse_mode,
             "occupancy_percent": self.occupancy_percent,
             "occupied_length_nm": (
                 None if self.occupancy is None
@@ -488,6 +533,9 @@ class AxonAnalysis:
             "ks_cdf_crossing": (
                 None if self.randomization is None
                 else self.randomization.cdf_crossing),
+            "randomization_requested": (
+                int(self.n_randomizations) if self.run_randomization else 0),
+            "random_seed": self.random_seed,
             "randomization_n_iterations": (
                 None if self.randomization is None
                 else self.randomization.n_iterations),
@@ -502,7 +550,7 @@ class AxonAnalysis:
                 else self.randomization.randomized_median_nm),
             "ks_pvalue": self.ks_pvalue,
             "n_warnings": len(self.warnings),
-            "warnings": " | ".join(self.warnings),
+            "warnings": " | ".join(cell_text(w) for w in self.warnings),
         }
 
 
@@ -589,6 +637,7 @@ def analyze_axon(
     warnings_.extend(z_result.warnings)
 
     if slab_override is not None:
+        slab_source = "range typed"
         zmin, zmax = float(slab_override[0]), float(slab_override[1])
         slab_mask = (z_nm >= zmin) & (z_nm <= zmax)
         warnings_.append(
@@ -601,7 +650,14 @@ def analyze_axon(
         peak = (float(main_peak_override_nm)
                 if main_peak_override_nm is not None
                 else z_result.main_peak_nm)
-        if main_peak_override_nm is not None:
+        # The results window sends back the peak it is showing on every
+        # re-run, so a peak equal to the automatic one is not a choice:
+        # warning about it added a warning to analyses nobody had steered,
+        # and made the same axon export n_warnings 4 or 5 for no reason.
+        chosen = (main_peak_override_nm is not None
+                  and abs(peak - z_result.main_peak_nm) > 0.05)
+        slab_source = "peak chosen" if chosen else "automatic"
+        if chosen:
             warnings_.append(
                 f"Axial peak selected manually at z = {peak:.0f} nm "
                 f"(automatic choice was {z_result.main_peak_nm:.0f} nm)."
@@ -626,6 +682,7 @@ def analyze_axon(
         n_locs_slab=int(xs.size),
         x_slab=xs, y_slab=ys, z_slab=zs,
         roi=roi,
+        slab_source=slab_source,
     )
 
     settings: Dict[str, Any] = dict(

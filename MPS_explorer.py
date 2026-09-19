@@ -855,9 +855,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         from tools.mps_axoplasm_window import AxoplasmInputs
 
+        # The axial cut this selection went through, which the panel
+        # cannot recompute but every count it exports depends on.
+        z_range = (None if self.zmin is None or self.zmax is None
+                   else (float(self.zmin), float(self.zmax)))
+        z_source = ("none" if z_range is None
+                    else "typed" if self._z_range_user_edited
+                    else "axial peak")
         return AxoplasmInputs(
             loc=self.locs1.subset(self.roi_indices), movie=self.locs1,
             roi=self._applied_roi_shape,
+            z_range=z_range, z_range_source=z_source,
             clusters=self._current_cluster_centroids,
             selection_key=self.roi_indices,
             contour=self._current_perimeter,
@@ -1267,6 +1275,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 overrides.pop("slab_half_width_nm", s.slab_half_width_nm)),
             dbcv_threshold=float(
                 overrides.pop("dbcv_threshold", s.dbcv_threshold)),
+            # The occupancy threshold is a paper parameter, not a spin-box
+            # default: it comes from the stored settings unless the results
+            # window sends another one.
+            mahalanobis_threshold=float(
+                overrides.pop("mahalanobis_threshold",
+                              s.mahalanobis_threshold)),
             # The ROI the selection was made with: the widget may since
             # have been redrawn at its default place.
             roi=self._applied_roi_shape,

@@ -50,6 +50,7 @@ from tools.cluster_quality import good_cluster_labels
 from tools.mps_analysis import (
     ANALYSIS_COLUMNS, AXON_KEY_COLUMNS, AxonAnalysis, DiscardComparison)
 from tools.mps_plot_style import AXIS_FG, set_title, style_dark
+from tools.mps_settings import DEFAULT_MAHALANOBIS_THRESHOLD
 from tools.results_table import (
     append_rows, refuse_other_analysis, replace_rows)
 
@@ -200,6 +201,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.spin_maha.setRange(0.1, 10.0)
         self.spin_maha.setDecimals(1)
         self.spin_maha.setSingleStep(0.5)
+        # Qt starts a spin box at its minimum, which here is 0.1: an
+        # analysis re-run from this window while the box had never been
+        # synced measured occupancy with that threshold (1.5 % instead of
+        # 46.5 % on axon 7), and no exported column said so.
+        self.spin_maha.setValue(DEFAULT_MAHALANOBIS_THRESHOLD)
         self.spin_maha.setToolTip(
             "Occupancy threshold: a perimeter point counts as occupied when\n"
             "it lies within this Mahalanobis distance of some cluster's\n"
@@ -496,8 +502,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # remove the largest, most biologically relevant clusters in an
         # axon (log-area vs. DBCV score correlation -0.78 to -0.79).
         self.spin_dbcv.setValue(a.dbcv_threshold)
-        if a.occupancy is not None:
-            self.spin_maha.setValue(a.occupancy.mahalanobis_threshold)
+        # From the analysis, not from its occupancy: an analysis with too
+        # few clusters to measure occupancy still ran with a threshold, and
+        # reading it back from the widget is what let 0.1 through.
+        self.spin_maha.setValue(a.mahalanobis_threshold)
 
         for wdg in (self.combo_peak, self.spin_half, self.spin_eps,
                     self.spin_min, self.spin_dbcv, self.spin_maha):
@@ -849,7 +857,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _on_reset(self) -> None:
         from tools.mps_settings import (
-            DEFAULT_DBCV_THRESHOLD, DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES,
+            DEFAULT_DBCV_THRESHOLD, DEFAULT_EPS_NM,
+            DEFAULT_MAHALANOBIS_THRESHOLD, DEFAULT_MIN_SAMPLES,
             DEFAULT_SLAB_HALF_WIDTH_NM,
         )
         for w in (self.spin_half, self.spin_eps, self.spin_min,
@@ -859,7 +868,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.spin_eps.setValue(DEFAULT_EPS_NM)
         self.spin_min.setValue(DEFAULT_MIN_SAMPLES)
         self.spin_dbcv.setValue(DEFAULT_DBCV_THRESHOLD)
-        self.spin_maha.setValue(3.0)
+        self.spin_maha.setValue(DEFAULT_MAHALANOBIS_THRESHOLD)
         self.combo_peak.blockSignals(True)
         self.combo_peak.setCurrentIndex(max(0, self.combo_peak.count() - 1))
         self.combo_peak.blockSignals(False)

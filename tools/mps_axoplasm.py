@@ -1127,9 +1127,16 @@ def summary_row(
     spectrin_image: str = "",
     located: Optional[NDArray[np.object_]] = None,
     n_clusters: Optional[int] = None,
+    z_range: Optional[Tuple[float, float]] = None,
+    z_range_source: str = "none",
 ) -> Dict[str, Any]:
     """
     One row per axon; the same columns whatever was computed.
+
+    ``z_range`` is the axial cut the main window applied to the
+    selection these localizations come from, and ``z_range_source`` where
+    it came from: every count below is a count over that cut, and the
+    same axon with the Z fields cleared reports quite different ones.
 
     ``spectrin_image`` is the widefield image the ring interior (and so
     the discard) was found in. It can differ from ``reference``, the image
@@ -1212,6 +1219,13 @@ def summary_row(
         "margin_nm": result.margin_nm,
         "mask_area_um2": round(mask.area_um2, 4),
         "ring_area_um2": round(mask.ring_area_um2, 4),
+        # The axial cut these localizations survived, which the panel
+        # takes from the main window and cannot recompute.
+        "selection_zmin_nm": (None if z_range is None
+                              else round(float(z_range[0]), 2)),
+        "selection_zmax_nm": (None if z_range is None
+                              else round(float(z_range[1]), 2)),
+        "selection_z_source": z_range_source,
         "n_localizations": result.n,
         # Off the region the tubulin mask was built in: no distance.
         "n_outside_tubulin_region": result.count(LABEL_OUTSIDE),

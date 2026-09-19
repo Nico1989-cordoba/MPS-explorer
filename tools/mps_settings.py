@@ -50,6 +50,13 @@ DEFAULT_SLAB_HALF_WIDTH_NM = 90.0
 # also act as a de facto size filter.
 DEFAULT_DBCV_THRESHOLD = -1.0
 
+# The occupancy threshold of Gazal et al. (2026): a perimeter point counts
+# as occupied within this Mahalanobis distance of a cluster's constrained
+# Gaussian. It decides the occupancy outright -- 0.1 instead of 3 turned
+# 46.5 % into 1.5 % on axon 7 -- so it is stored, exported, and never left
+# to whatever a spin box happens to show.
+DEFAULT_MAHALANOBIS_THRESHOLD = 3.0
+
 
 @dataclass
 class MPSSettings:
@@ -59,6 +66,7 @@ class MPSSettings:
     min_samples: int = DEFAULT_MIN_SAMPLES
     slab_half_width_nm: float = DEFAULT_SLAB_HALF_WIDTH_NM
     dbcv_threshold: float = DEFAULT_DBCV_THRESHOLD
+    mahalanobis_threshold: float = DEFAULT_MAHALANOBIS_THRESHOLD
     auto_analyze_on_cluster: bool = True
     last_export_dir: str = ""
     # Where the open dialogs start: the folder of the last file opened.
@@ -91,6 +99,11 @@ class MPSSettings:
                 "Stored dbcv_threshold=%r out of range; using %s",
                 self.dbcv_threshold, DEFAULT_DBCV_THRESHOLD)
             self.dbcv_threshold = DEFAULT_DBCV_THRESHOLD
+        if not (0.1 <= self.mahalanobis_threshold <= 10.0):
+            logger.warning(
+                "Stored mahalanobis_threshold=%r out of range; using %s",
+                self.mahalanobis_threshold, DEFAULT_MAHALANOBIS_THRESHOLD)
+            self.mahalanobis_threshold = DEFAULT_MAHALANOBIS_THRESHOLD
         if not isinstance(self.picasso_path, str):
             self.picasso_path = ""
         for name in ("last_open_dir", "last_export_dir"):

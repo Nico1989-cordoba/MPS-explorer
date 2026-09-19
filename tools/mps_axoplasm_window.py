@@ -159,6 +159,14 @@ class AxoplasmInputs:
     cluster_of: Callable[[np.ndarray, np.ndarray, np.ndarray],
                          Optional[np.ndarray]] = field(
         default=lambda x, y, z: None)
+    # The axial cut the main window applied to this selection, and where
+    # it came from ("typed", "axial peak" or "none"). Every count in this
+    # panel is a count of the localizations that survived it: clearing the
+    # Z fields on axon 7 took the selection from 10,034 to 23,743 and
+    # fraction_inside from 0.0141 to 0.0060, with nothing in the table to
+    # say why.
+    z_range: Optional[Tuple[float, float]] = None
+    z_range_source: str = "none"
 
 
 @dataclass
@@ -1319,7 +1327,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             mask=self.axoplasm, result=self.result,
             spectrin=self.spectrin_interior, anchored=self.anchored,
             spectrin_image=self._interior_image(), located=self.located,
-            n_clusters=self._n_clusters())
+            n_clusters=self._n_clusters(),
+            z_range=self.inputs.z_range,
+            z_range_source=self.inputs.z_range_source)
 
     def _n_clusters(self) -> Optional[int]:
         """How many clusters the MPS analysis kept here; None before."""

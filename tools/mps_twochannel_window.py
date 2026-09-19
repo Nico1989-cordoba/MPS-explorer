@@ -780,6 +780,14 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         row["slab_mode"] = "manual" if self.inputs.slab else "automatic"
         row["n_locs_a"] = self.outcome.n_a
         row["n_locs_b"] = self.outcome.n_b
+        # Both scales, and where each came from. A disagreement between
+        # them rescales every distance in this row (the 2023 data records
+        # 133 nm against the 135 nm it is analysed with); it was reported
+        # in the panel's notes only, which no column carried.
+        for tag, channel in (("a", self.inputs.loc_a),
+                             ("b", self.inputs.loc_b)):
+            row[f"pixel_size_{tag}_nm"] = channel.pixel_size_nm
+            row[f"pixel_size_{tag}_source"] = channel.pixel_size_source
         for tag, params in (("a", self.outcome.parameters_a),
                             ("b", self.outcome.parameters_b)):
             row[f"eps_{tag}_nm"] = params.get("eps_nm")
