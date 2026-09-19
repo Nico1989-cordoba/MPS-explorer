@@ -18,6 +18,21 @@ All eight per-axon parameters of the paper are now covered. Any that cannot
 be computed for a given axon (too few surviving clusters, for instance) come
 back as None and are shown as "n/a" rather than as zero.
 
+The contour is built with 2-opt from every start, keeping the shortest
+tour, whose result does not depend on the cluster the tour starts from.
+Before 2026-09-19 it was refined from one start; ``all_starts=False``
+still does that, and the exported ``contour_2opt`` column says which.
+
+``without_clusters`` re-runs steps 3-6 on a subset of the clusters: the
+ones the axoplasm panel keeps after discarding those both widefield images
+place inside the axon. Everything before the clusters are fixed -- the
+axial slab, DBSCAN, the automatic curation -- is shared, so the analysis
+of all the clusters and this one differ only by the clusters left out,
+and the user can take either one to the statistics.
+
+Beyond the paper, the analysis reports the centre of the contour: its
+area centroid (tools.mps_geometry.contour_centre).
+
 This module is deliberately free of any Qt dependency so the whole pipeline
 can be run and tested headlessly (see validate_full_18axons.py).
 
@@ -26,8 +41,9 @@ can be run and tested headlessly (see validate_full_18axons.py).
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -39,6 +55,7 @@ from tools.cluster_quality import (
     PolygonROI,
     ROIShape,
     good_cluster_centroids,
+    good_cluster_labels,
     identify_bad_clusters,
 )
 from tools.mps_geometry import (
@@ -46,7 +63,11 @@ from tools.mps_geometry import (
     PAPER_MEDIAN_CLUSTER_AREA_NM2,
     PAPER_MEDIAN_R_EFF_NM,
     PAPER_SLOPE_CLUSTERS_PER_UM,
+    DEEP_VERTEX_FRACTION,
+    MAX_OVER_MEDIAN_LIMIT,
     ClusterAreaResult,
+    ContourCentre,
+    ContourHealth,
     PerimeterResult,
     compute_cluster_areas,
     reconstruct_perimeter,
@@ -78,6 +99,11 @@ from tools.mps_settings import DEFAULT_DBCV_THRESHOLD
 # Paper defaults (Gazal et al. 2026)
 DEFAULT_EPS_NM = 25.0
 DEFAULT_MIN_SAMPLES = 10
+
+# The exported columns that say which analysis a row is. Two rows that
+# differ in one of them describe the same axon two ways, and must go to
+# separate tables (tools.results_table.refuse_other_analysis).
+ANALYSIS_COLUMNS = ("cluster_set", "contour_2opt")
 
 # Reference values for the "vs paper" column of the results panel.
 # (label, value, unit, tolerance_fraction) -- tolerance is only used to
@@ -136,7 +162,44 @@ class AxonAnalysis:
 
     warnings: List[str] = field(default_factory=list)
 
+    # --- what steps 3-6 ran with, so without_clusters can repeat them ----
+    mahalanobis_threshold: float = 3.0
+    ellipse_mode: str = "clip"
+    run_randomization: bool = True
+    n_randomizations: int = DEFAULT_N_RANDOMIZATIONS
+    random_seed: int = 0
+    # The warnings raised before the clusters were fixed (pixel size, axial
+    # slab, curation): an analysis of a subset of the clusters shares them.
+    upstream_warnings: List[str] = field(default_factory=list)
+
+    # --- set by without_clusters -----------------------------------------
+    # The margin the axoplasm panel discarded clusters with (None: nothing
+    # was discarded, this is the analysis of every kept cluster), and the
+    # DBSCAN labels of the clusters left out.
+    discard_margin_nm: Optional[float] = None
+    discarded_labels: FrozenSet[int] = frozenset()
+
     # ---------------- convenience accessors for the panel ----------------
+
+    @property
+    def discard_applied(self) -> bool:
+        return self.discard_margin_nm is not None
+
+    @property
+    def cluster_set(self) -> str:
+        """Which clusters the numbers describe, as the exported column."""
+        return "discard applied" if self.discard_applied else "all clusters"
+
+    @property
+    def n_clusters_discarded(self) -> Optional[int]:
+        return len(self.discarded_labels) if self.discard_applied else None
+
+    @property
+    def contour_2opt(self) -> Optional[str]:
+        """"one start" or "every start"; None without a contour."""
+        if self.perimeter is None:
+            return None
+        return "every start" if self.perimeter.n_starts > 1 else "one start"
 
     @property
     def mean_delta_z_nm(self) -> Optional[float]:
@@ -149,6 +212,27 @@ class AxonAnalysis:
     @property
     def clusters_per_um(self) -> Optional[float]:
         return self.perimeter.clusters_per_um if self.perimeter else None
+
+    @property
+    def contour_health(self) -> Optional[ContourHealth]:
+        return self.perimeter.health if self.perimeter else None
+
+    @property
+    def centre(self) -> Optional[ContourCentre]:
+        """The area centroid of the contour. None without one, and when it
+        crosses itself, encloses no area or has a non-finite vertex."""
+        return self.perimeter.centre if self.perimeter else None
+
+    @property
+    def contour_tour_over_hull(self) -> Optional[float]:
+        """Exposed on its own so a batch can compare it between groups.
+
+        If the contours of one genotype are more inflated than those of
+        the other, every perimeter-derived difference between the groups
+        is confounded, and the only way to notice is to compare this.
+        """
+        health = self.contour_health
+        return health.tour_over_hull if health else None
 
     @property
     def median_area_nm2(self) -> Optional[float]:
@@ -186,6 +270,29 @@ class AxonAnalysis:
         def fmt(v: Optional[float], nd: int = 1) -> str:
             return "n/a" if v is None else f"{v:,.{nd}f}"
 
+        kept = f"{self.n_clusters_kept}"
+        if self.discarded_labels:
+            kept += f" ({len(self.discarded_labels)} discarded)"
+        starts = 1 if self.perimeter is None else self.perimeter.n_starts
+        joined = ("centroids connected, 2-opt" if starts == 1 else
+                  f"centroids connected, 2-opt from all {starts} starts")
+        centre = self.centre
+        if centre is not None:
+            where = f"x {centre.x_nm:.0f}, y {centre.y_nm:.0f} nm"
+            where_note = (f"area centroid of the contour, which encloses "
+                          f"{centre.area_um2:.2f} um^2; same frame as the "
+                          f"localizations")
+        else:
+            where = "n/a"
+            if self.perimeter is None:
+                where_note = ""
+            elif self.perimeter.self_intersections_after > 0:
+                where_note = "the contour crosses itself"
+            else:
+                where_note = ("the contour encloses no area, or a cluster "
+                              "centre is not a finite coordinate")
+        shift = None if centre is None else centre.max_shift_nm
+
         rows: List[Tuple[str, str, str, str]] = [
             ("Localizations (ROI)", f"{self.n_locs_total:,}", "-", ""),
             ("Localizations (180 nm slab)", f"{self.n_locs_slab:,}", "-", ""),
@@ -195,10 +302,45 @@ class AxonAnalysis:
             ("Delta-Z (axial periodicity)", fmt(self.mean_delta_z_nm, 1),
              "170 +/- 15 nm", f"{len(self.z_result.delta_z_nm)} interval(s)"),
             ("Clusters detected (raw)", f"{self.n_clusters_raw}", "-", ""),
-            ("Clusters kept (auto-curated)", f"{self.n_clusters_kept}", "-",
-             f"{len(self.bad_report.bad_labels)} removed"),
-            ("Perimeter", fmt(self.perimeter_um, 2) + " um", "-",
-             "centroids connected, 2-opt"),
+            ("Clusters kept (auto-curated)", kept, "-",
+             f"{len(self.bad_report.bad_labels)} removed"
+             + ("" if not self.discard_applied else
+                f"; discarded: inside both widefield images by more than "
+                f"{self.discard_margin_nm:,.0f} nm")),
+            ("Perimeter", fmt(self.perimeter_um, 2) + " um", "-", joined),
+            # These checks and their limits are this program's, not the
+            # paper's: the paper column stays "-".
+            ("  centres deep inside the hull",
+             "n/a" if self.contour_health is None
+             else f"{self.contour_health.n_deep_vertices}",
+             "-",
+             "" if self.contour_health is None
+             else f"this program flags any deeper than "
+                  f"{self.contour_health.depth_limit_nm:,.0f} nm "
+                  f"({DEEP_VERTEX_FRACTION:.0%} of the hull radius); "
+                  f"deepest {self.contour_health.max_depth_nm:,.0f} nm"),
+            ("  contour / its convex hull",
+             "n/a" if self.contour_health is None
+             else f"{self.contour_health.tour_over_hull:.2f}",
+             "-",
+             "" if self.contour_health is None
+             else f"hull {self.contour_health.hull_perimeter_um:.2f} um; "
+                  f"context only, it has no threshold"),
+            ("  longest step / median",
+             "n/a" if self.contour_health is None
+             else f"{self.contour_health.max_over_median:.1f}",
+             "-",
+             "" if self.contour_health is None
+             else f"this program flags above "
+                  f"{MAX_OVER_MEDIAN_LIMIT:.0f}; "
+                  f"{self.contour_health.edge_max_nm:,.0f} nm against "
+                  f"{self.contour_health.edge_median_nm:,.0f} nm"),
+            ("Centre", where, "-", where_note),
+            ("  moves with one cluster out",
+             "n/a" if shift is None else f"{shift:,.0f} nm", "-",
+             "" if shift is None
+             else "the most it moves, leaving each cluster of the contour "
+                  "out in turn"),
             ("Clusters per um", fmt(self.clusters_per_um, 2), "4.08", ""),
             ("Cluster area (median)", fmt(self.median_area_nm2, 0) + " nm^2",
              "1,965 nm^2", "convex hull"),
@@ -238,6 +380,9 @@ class AxonAnalysis:
         """
         return {
             "source": self.source_name,
+            # "all clusters" or "discard applied": the two analyses of one
+            # axon are two rows, and a statistic must not pool them.
+            "cluster_set": self.cluster_set,
             "pixel_size_nm": self.pixel_size_nm,
             "pixel_size_source": self.pixel_size_source,
             "eps_nm": self.eps_nm,
@@ -259,8 +404,47 @@ class AxonAnalysis:
             "removed_low_dbcv": len(self.bad_report.low_dbcv),
             "edge_criterion_disabled": bool(
                 self.bad_report.edge_criterion_disabled),
+            "n_clusters_discarded": self.n_clusters_discarded,
+            "discard_margin_nm": self.discard_margin_nm,
             "perimeter_um": self.perimeter_um,
             "clusters_per_um": self.clusters_per_um,
+            # How the tour was refined: 2-opt from one start (the legacy
+            # behaviour) or the shortest over every start. Tables of the
+            # two must not be pooled either.
+            "contour_2opt": self.contour_2opt,
+            # Contour health: the perimeter above is only a perimeter if
+            # these say so, and a reader of the CSV cannot tell otherwise.
+            "contour_hull_um": (
+                None if self.contour_health is None
+                else round(self.contour_health.hull_perimeter_um, 3)),
+            "contour_tour_over_hull": (
+                None if self.contour_health is None
+                else round(self.contour_health.tour_over_hull, 3)),
+            "contour_max_over_median": (
+                None if self.contour_health is None
+                else round(self.contour_health.max_over_median, 2)),
+            "contour_n_deep_vertices": (
+                None if self.contour_health is None
+                else self.contour_health.n_deep_vertices),
+            "contour_max_depth_nm": (
+                None if self.contour_health is None
+                else round(self.contour_health.max_depth_nm, 1)),
+            "contour_length_in_long_edges": (
+                None if self.contour_health is None
+                else round(self.contour_health.length_in_long_edges, 3)),
+            # The area centroid of the contour, in the localizations' own
+            # frame, the area it encloses, and the most it moves when one
+            # cluster is left out of it.
+            "centre_x_nm": (None if self.centre is None
+                            else round(self.centre.x_nm, 1)),
+            "centre_y_nm": (None if self.centre is None
+                            else round(self.centre.y_nm, 1)),
+            "contour_area_um2": (None if self.centre is None
+                                 else round(self.centre.area_um2, 4)),
+            "centre_max_shift_nm": (
+                None if self.centre is None
+                or self.centre.max_shift_nm is None
+                else round(self.centre.max_shift_nm, 1)),
             "median_area_nm2": self.median_area_nm2,
             "median_r_eff_nm": self.median_r_eff_nm,
             "median_1nn_nm": self.median_1nn_nm,
@@ -325,6 +509,7 @@ def analyze_axon(
     run_randomization: bool = True,
     n_randomizations: int = DEFAULT_N_RANDOMIZATIONS,
     random_seed: int = 0,
+    all_starts: bool = True,
 ) -> AxonAnalysis:
     """
     Run the full per-axon pipeline on one ROI's localizations.
@@ -342,6 +527,11 @@ def analyze_axon(
         slab entirely.
     custom_contour_order : explicit ordering of the cluster centroids for
         the perimeter, for axons where the automatic contour is wrong.
+
+    all_starts : build the contour with 2-opt from every start and keep
+        the shortest tour (default). False refines it from one start, as
+        this program did before 2026-09-19; on the 18 April axons that
+        tour came out longer in 13, by up to 7.1 %.
 
     Returns
     -------
@@ -393,7 +583,7 @@ def analyze_axon(
 
     xs, ys, zs = x_nm[slab_mask], y_nm[slab_mask], z_nm[slab_mask]
 
-    base = dict(
+    base: Dict[str, Any] = dict(
         source_name=source_name,
         pixel_size_nm=pixel_size_nm,
         pixel_size_source=pixel_size_source,
@@ -409,6 +599,14 @@ def analyze_axon(
         x_slab=xs, y_slab=ys, z_slab=zs,
     )
 
+    settings: Dict[str, Any] = dict(
+        mahalanobis_threshold=mahalanobis_threshold,
+        ellipse_mode=ellipse_mode,
+        run_randomization=run_randomization,
+        n_randomizations=n_randomizations,
+        random_seed=random_seed,
+    )
+
     if xs.size < min_samples:
         warnings_.append(
             f"Only {xs.size} localizations inside the axial slab "
@@ -421,7 +619,8 @@ def analyze_axon(
             n_clusters_raw=0, n_clusters_kept=0,
             centroids=np.empty((0, 2)),
             perimeter=None, areas=None, nn=None,
-            warnings=warnings_, **base,
+            warnings=warnings_, upstream_warnings=list(warnings_),
+            **settings, **base,
         )
 
     # ---------------- step 1: DBSCAN + automatic curation ---------------
@@ -450,27 +649,82 @@ def analyze_axon(
     centroids = good_cluster_centroids(xs, ys, labels, report.bad_labels)
     n_kept = len(centroids)
 
-    base_cluster = dict(
+    base_cluster: Dict[str, Any] = dict(
         labels=labels, bad_report=report,
         n_clusters_raw=n_raw, n_clusters_kept=n_kept,
         centroids=centroids,
     )
 
+    steps = _cluster_steps(
+        xs, ys, labels, set(report.bad_labels), centroids,
+        custom_contour_order=custom_contour_order, all_starts=all_starts,
+        **settings)
+    return AxonAnalysis(
+        perimeter=steps.perimeter, areas=steps.areas, nn=steps.nn,
+        occupancy=steps.occupancy, randomization=steps.randomization,
+        warnings=warnings_ + steps.warnings,
+        upstream_warnings=list(warnings_),
+        **settings, **base, **base_cluster,
+    )
+
+
+@dataclass
+class _ClusterSteps:
+    """What steps 3-6 produce from one set of clusters."""
+
+    areas: Optional[ClusterAreaResult]
+    perimeter: Optional[PerimeterResult]
+    nn: Optional[NNResult]
+    occupancy: Optional[OccupancyResult]
+    randomization: Optional[RandomizationResult]
+    warnings: List[str]
+
+
+def _cluster_steps(
+    xs: NDArray[np.float64],
+    ys: NDArray[np.float64],
+    labels: NDArray[np.int64],
+    excluded: Set[int],
+    centroids: NDArray[np.float64],
+    *,
+    mahalanobis_threshold: float,
+    ellipse_mode: str,
+    run_randomization: bool,
+    n_randomizations: int,
+    random_seed: int,
+    custom_contour_order: Optional[NDArray[np.intp]] = None,
+    all_starts: bool = False,
+    contour: Optional[PerimeterResult] = None,
+    left_after: str = "curation",
+) -> _ClusterSteps:
+    """
+    Steps 3-6 on the clusters whose labels are not in ``excluded``.
+
+    ``centroids`` are those clusters' centres, in label order. The contour
+    is ``contour`` when one is given (it must join exactly these centres),
+    otherwise it is built from them. ``left_after`` names what the clusters
+    went through, for the message when too few are left.
+    """
+    warnings_: List[str] = []
+    n_kept = len(centroids)
+
     # ---------------- step 3: areas (independent of the contour) --------
-    areas = compute_cluster_areas(xs, ys, labels,
-                                  exclude_labels=report.bad_labels)
+    areas = compute_cluster_areas(xs, ys, labels, exclude_labels=excluded)
     warnings_.extend(areas.warnings)
 
     # ---------------- step 3: perimeter ---------------------------------
-    perimeter: Optional[PerimeterResult] = None
-    if n_kept >= 3:
+    perimeter: Optional[PerimeterResult] = contour
+    if perimeter is None and n_kept >= 3:
         perimeter = reconstruct_perimeter(
-            centroids, refine=True, custom_order=custom_contour_order)
+            centroids, refine=True, custom_order=custom_contour_order,
+            all_starts=all_starts)
+    if perimeter is not None:
         warnings_.extend(perimeter.warnings)
     else:
         warnings_.append(
-            f"Only {n_kept} cluster(s) survived curation: a closed contour "
-            f"needs at least 3, so perimeter and occupancy cannot be computed."
+            f"Only {n_kept} cluster(s) survived {left_after}: a closed "
+            f"contour needs at least 3, so perimeter and occupancy cannot "
+            f"be computed."
         )
 
     # ---------------- step 4: 1NN ---------------------------------------
@@ -485,7 +739,7 @@ def analyze_axon(
         try:
             occupancy = compute_occupancy(
                 xs, ys, labels, perimeter.contour,
-                exclude_labels=report.bad_labels,
+                exclude_labels=excluded,
                 mahalanobis_threshold=mahalanobis_threshold,
                 ellipse_mode=ellipse_mode,
             )
@@ -495,7 +749,8 @@ def analyze_axon(
 
     # ---------------- step 6: randomization control ---------------------
     randomization: Optional[RandomizationResult] = None
-    if run_randomization and perimeter is not None and nn is not None             and n_kept >= 2:
+    if (run_randomization and perimeter is not None and nn is not None
+            and n_kept >= 2):
         try:
             randomization = randomize_cluster_positions(
                 centroids, perimeter.contour,
@@ -507,8 +762,208 @@ def analyze_axon(
         except Exception as exc:                      # noqa: BLE001
             warnings_.append(f"Randomization control failed: {exc}")
 
-    return AxonAnalysis(
-        perimeter=perimeter, areas=areas, nn=nn, occupancy=occupancy,
-        randomization=randomization,
-        warnings=warnings_, **base, **base_cluster,
+    return _ClusterSteps(areas=areas, perimeter=perimeter, nn=nn,
+                         occupancy=occupancy, randomization=randomization,
+                         warnings=warnings_)
+
+
+def without_clusters(
+    analysis: AxonAnalysis,
+    discarded: NDArray[np.bool_],
+    *,
+    margin_nm: float,
+    contour: Optional[PerimeterResult] = None,
+) -> AxonAnalysis:
+    """
+    The same analysis with some of its kept clusters left out.
+
+    ``discarded`` flags rows of ``analysis.centroids``: the clusters the
+    axoplasm panel found more than ``margin_nm`` inside the axon in both
+    widefield images. Steps 3-6 -- cluster areas, contour, 1NN, occupancy
+    and the randomization -- run again on the rest, with the settings
+    ``analysis`` ran with, the same random seed included. The axial slab,
+    DBSCAN and the automatic curation are those of ``analysis``.
+
+    The contour is built with 2-opt from every start, as in
+    with_every_start, which is what this must be compared with: the two
+    differ only by the clusters left out, and with nothing discarded they
+    are the same numbers. ``contour``, when given, is that contour already
+    built -- the one the panel drew -- and must join exactly the clusters
+    that remain.
+    """
+    return _rerun(analysis, discarded, contour=contour, margin_nm=margin_nm)
+
+
+def with_every_start(
+    analysis: AxonAnalysis,
+    *,
+    contour: Optional[PerimeterResult] = None,
+) -> AxonAnalysis:
+    """
+    The same analysis with its contour built by 2-opt from every start.
+
+    2-opt is a local search: the tour it settles on depends on the cluster
+    it starts from. On the 18 April axons, rotating the start changed the
+    perimeter by up to 12.9 %, more than leaving one or two clusters out
+    does, and in either direction: with one start, discarding interior
+    clusters lengthened two contours of four. The shortest tour over every
+    start does not depend on where the centres are listed from, so the
+    effect of the discard is measured between this analysis and
+    without_clusters, both built that way. Steps 3-6 run again, since the
+    contour moves occupancy and the randomization; nothing before them
+    changes. ``contour`` is the contour of all the kept clusters already
+    built with every start.
+
+    An analysis already built that way -- analyze_axon's default -- comes
+    back as it is, and so does one with too few clusters for a contour.
+    """
+    if not analysis.discard_applied and (
+            analysis.perimeter is None or analysis.perimeter.n_starts > 1):
+        return analysis
+    return _rerun(analysis, np.zeros(analysis.n_clusters_kept, dtype=bool),
+                  contour=contour, margin_nm=None)
+
+
+def _rerun(
+    analysis: AxonAnalysis,
+    discarded: NDArray[np.bool_],
+    *,
+    contour: Optional[PerimeterResult],
+    margin_nm: Optional[float],
+) -> AxonAnalysis:
+    """Steps 3-6 again, 2-opt from every start, without the flagged
+    clusters; ``margin_nm`` None records that nothing was discarded."""
+    flags = np.asarray(discarded, dtype=bool).ravel()
+    if flags.size != analysis.n_clusters_kept:
+        raise ValueError(
+            f"{flags.size} discard flag(s) for the "
+            f"{analysis.n_clusters_kept} clusters the analysis kept.")
+    if analysis.discard_applied:
+        raise ValueError("Start from the analysis of all the clusters.")
+    labels = good_cluster_labels(analysis.labels,
+                                 analysis.bad_report.bad_labels)
+    if labels.size != analysis.n_clusters_kept:
+        raise ValueError("The analysis' labels do not match its centroids.")
+    centroids = np.asarray(analysis.centroids, dtype=float)[~flags]
+    if contour is not None:
+        if (contour.n_clusters != len(centroids)
+                or not np.array_equal(contour.contour,
+                                      centroids[contour.order])):
+            raise ValueError(
+                "The contour given joins other clusters than the ones left.")
+        if contour.n_starts == 1 and len(centroids) >= 4:
+            raise ValueError(
+                "The contour given was built from one 2-opt start, not "
+                "from every start.")
+    dropped = frozenset(int(label) for label in labels[flags])
+    steps = _cluster_steps(
+        analysis.x_slab, analysis.y_slab, analysis.labels,
+        set(analysis.bad_report.bad_labels) | set(dropped), centroids,
+        mahalanobis_threshold=analysis.mahalanobis_threshold,
+        ellipse_mode=analysis.ellipse_mode,
+        run_randomization=analysis.run_randomization,
+        n_randomizations=analysis.n_randomizations,
+        random_seed=analysis.random_seed,
+        all_starts=True, contour=contour,
+        left_after=("curation" if margin_nm is None
+                    else "curation and the discard"))
+    notes = ([] if margin_nm is None else
+             [_discard_note(len(dropped), analysis.n_clusters_kept,
+                            margin_nm)])
+    return dataclasses.replace(
+        analysis,
+        n_clusters_kept=int(len(centroids)), centroids=centroids,
+        areas=steps.areas, perimeter=steps.perimeter, nn=steps.nn,
+        occupancy=steps.occupancy, randomization=steps.randomization,
+        warnings=list(analysis.upstream_warnings) + notes + steps.warnings,
+        upstream_warnings=list(analysis.upstream_warnings),
+        discard_margin_nm=None if margin_nm is None else float(margin_nm),
+        discarded_labels=dropped,
     )
+
+
+@dataclass
+class DiscardComparison:
+    """
+    One axon analysed with all its kept clusters and without the discarded
+    ones, both with 2-opt from every start: they differ only by the
+    clusters left out.
+    """
+
+    all_clusters: AxonAnalysis
+    discard_applied: AxonAnalysis
+
+
+def compare_discard(
+    analysis: AxonAnalysis,
+    discarded: NDArray[np.bool_],
+    *,
+    margin_nm: float,
+    contour_all: Optional[PerimeterResult] = None,
+    contour_kept: Optional[PerimeterResult] = None,
+    all_clusters: Optional[AxonAnalysis] = None,
+) -> DiscardComparison:
+    """
+    with_every_start and without_clusters of ``analysis``.
+
+    ``contour_all`` and ``contour_kept`` are the two contours already built
+    with every start (the axoplasm panel builds them). ``all_clusters`` is
+    a with_every_start result of this same analysis kept from before: it
+    does not depend on the discard, so only the other half is recomputed
+    when the margin moves. With nothing discarded, the second half is the
+    first one with the discard recorded, not a second run.
+    """
+    flags = np.asarray(discarded, dtype=bool).ravel()
+    if all_clusters is not None and (all_clusters.labels is not analysis.labels
+                                     or all_clusters.discard_applied):
+        raise ValueError("all_clusters is not this analysis of all clusters.")
+    every = (all_clusters if all_clusters is not None
+             else with_every_start(analysis, contour=contour_all))
+    if flags.any():
+        applied = without_clusters(analysis, flags, margin_nm=margin_nm,
+                                   contour=contour_kept)
+    else:
+        if flags.size != analysis.n_clusters_kept:
+            raise ValueError(
+                f"{flags.size} discard flag(s) for the "
+                f"{analysis.n_clusters_kept} clusters the analysis kept.")
+        upstream = list(every.upstream_warnings)
+        note = _discard_note(0, analysis.n_clusters_kept, margin_nm)
+        applied = dataclasses.replace(
+            every, discard_margin_nm=float(margin_nm),
+            discarded_labels=frozenset(),
+            warnings=upstream + [note] + every.warnings[len(upstream):])
+    return DiscardComparison(all_clusters=every, discard_applied=applied)
+
+
+def _discard_note(n_dropped: int, n_before: int, margin_nm: float) -> str:
+    if n_dropped == 0:
+        return (
+            f"Discard applied: none of the {n_before} clusters is more than "
+            f"{margin_nm:,.0f} nm inside the axon in both widefield images, "
+            f"so none was left out.")
+    return (
+        f"Discard applied: {n_dropped} of {n_before} clusters left out, "
+        f"those both widefield images place more than {margin_nm:,.0f} nm "
+        f"inside the axon. Gazal et al. (2026) do not describe leaving out "
+        f"clusters that lie inside the axon: this step goes beyond their "
+        f"Methods.")
+
+
+def with_discard_margin(analysis: AxonAnalysis,
+                        margin_nm: float) -> AxonAnalysis:
+    """
+    ``analysis`` (from without_clusters) recorded at another margin that
+    leaves out the same clusters: every number stays, only the margin it is
+    reported with changes, so moving the margin does not re-run steps 3-6.
+    """
+    if not analysis.discard_applied:
+        raise ValueError("This analysis has no discarded clusters.")
+    warnings = list(analysis.warnings)
+    # without_clusters puts its note right after the inherited warnings.
+    at = len(analysis.upstream_warnings)
+    n_dropped = len(analysis.discarded_labels)
+    warnings[at] = _discard_note(
+        n_dropped, analysis.n_clusters_kept + n_dropped, margin_nm)
+    return dataclasses.replace(analysis, discard_margin_nm=float(margin_nm),
+                               warnings=warnings)

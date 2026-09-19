@@ -59,6 +59,10 @@ COMPARABLE_PARAMETERS: Dict[str, str] = {
     "median_1nn_nm": "median_1nn_nm",
     "occupancy_percent": "occupancy_percent",
     "mean_delta_z_nm": "mean_delta_z_nm",
+    # Not a property of the axon but of its reconstruction: a group whose
+    # contours are more inflated than the other's would show a difference
+    # in every perimeter-derived parameter above without any biology.
+    "contour_tour_over_hull": "contour_tour_over_hull",
 }
 
 

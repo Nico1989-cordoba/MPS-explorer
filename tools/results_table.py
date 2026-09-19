@@ -17,7 +17,7 @@ from __future__ import annotations
 import csv
 import io
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
 class TableMismatch(ValueError):
@@ -49,6 +49,48 @@ def read_header(path: str) -> Optional[List[str]]:
     return _existing(path)[0]
 
 
+def refuse_other_analysis(path: str, record: Dict[str, Any],
+                          columns: Sequence[str]) -> None:
+    """
+    Raise TableMismatch when the table at ``path`` holds rows of another
+    analysis than ``record``: rows that differ in any of ``columns`` (which
+    clusters, which contour) describe the same axons differently, and a
+    statistic over a table pooling them would count axons twice or mix two
+    methods. A value missing on either side is not a difference.
+    """
+    for column in columns:
+        value = record.get(column)
+        if value is None:
+            continue
+        others = column_values(path, column) - {str(value), ""}
+        if others:
+            raise TableMismatch(
+                f"{os.path.basename(path)} holds rows with {column} = "
+                f"{', '.join(sorted(others))}, and this row has {value}. "
+                f"Each analysis goes to a table of its own, so that no "
+                f"statistic pools two analyses of the same axons: choose "
+                f"another file.")
+
+
+def column_values(path: str, column: str) -> Set[str]:
+    """
+    The values ``column`` takes in the table at ``path``: empty when there
+    is no table, no such column, or text that is not UTF-8 (append_rows
+    then says what is wrong with the file).
+    """
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return set()
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames is None or column not in reader.fieldnames:
+                return set()
+            return {row[column] for row in reader
+                    if row.get(column) is not None}
+    except UnicodeDecodeError:
+        return set()
+
+
 def _mismatch(path: str, header: List[str], fields: List[str]) -> str:
     name = os.path.basename(path)
     if len(header) == 1 and any(sep in header[0] for sep in (";", "\t")):
@@ -74,6 +116,28 @@ def _mismatch(path: str, header: List[str], fields: List[str]) -> str:
             f"lose its rows, so nothing was written. Choose another file.")
 
 
+def _fields(rows: Sequence[Dict[str, Any]],
+            fieldnames: Optional[Sequence[str]]) -> List[str]:
+    if not rows:
+        raise ValueError("No rows to write.")
+    return (list(fieldnames) if fieldnames is not None
+            else list(dict.fromkeys(k for row in rows for k in row)))
+
+
+def check_appendable(path: str, rows: Sequence[Dict[str, Any]],
+                     fieldnames: Optional[Sequence[str]] = None) -> None:
+    """
+    Raise TableMismatch, writing nothing, when append_rows would refuse
+    ``rows`` at ``path``. An export that writes several tables checks them
+    all first, so that a refusal never leaves some of them written: a
+    second attempt would then add the same axon twice to those.
+    """
+    fields = _fields(rows, fieldnames)
+    header, _ = _existing(path)
+    if header is not None and header != fields:
+        raise TableMismatch(_mismatch(path, header, fields))
+
+
 def append_rows(path: str, rows: Sequence[Dict[str, Any]],
                 fieldnames: Optional[Sequence[str]] = None) -> bool:
     """
@@ -84,10 +148,7 @@ def append_rows(path: str, rows: Sequence[Dict[str, Any]],
     False when a new one was written. A file with other columns is not
     touched: TableMismatch says what differs.
     """
-    if not rows:
-        raise ValueError("No rows to write.")
-    fields = (list(fieldnames) if fieldnames is not None
-              else list(dict.fromkeys(k for row in rows for k in row)))
+    fields = _fields(rows, fieldnames)
     header, terminated = _existing(path)
     if header is not None and header != fields:
         raise TableMismatch(_mismatch(path, header, fields))

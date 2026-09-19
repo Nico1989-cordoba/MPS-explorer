@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Checks for tools/mps_axoplasm.py: placing a widefield betaIII-tubulin image
-on the localizations, the axoplasm mask, and the membrane/interior
-classification.
+on the localizations, the axoplasm mask, the membrane/interior
+classification, the clusters both widefield images put inside the axon,
+and the MPS analysis repeated without them (tools/mps_analysis.py).
 
 Synthetic images with a known answer, plus the April 2026 ROI 1 data when
 it is present (its widefield images sit (-2.05, +5.55) px from the STORM
@@ -50,6 +51,20 @@ APRIL_AXON7 = os.path.join(
     DATA, "1°Reunión de avances de tesis", "Abril", "ROI 1", "Axon 7",
     "26.04.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_filter_render_"
     "byRCC1000_picked_axon7.hdf5")
+# ROI 2 is another camera region, with its own widefield images. Its picks
+# are exact subsets of the RCC-corrected full field below (checked frame by
+# frame), which is therefore what registers them.
+APRIL2 = os.path.join(DATA, "1°Reunión de avances de tesis", "Abril")
+APRIL2_FULL = os.path.join(
+    APRIL2, "26.4.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_filter_"
+    "render_RCC1000.hdf5")
+APRIL2_SPEC = os.path.join(DATA, "30.4.26", "WF_spec_2",
+                           "WF_spec_2_MMStack.ome.tif")
+APRIL2_TUB = os.path.join(DATA, "30.4.26", "WF_tub_2",
+                          "WF_tub_2_MMStack.ome.tif")
+APRIL2_AXON1 = os.path.join(
+    APRIL2, "ROI 2", "26.4.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_"
+    "filter_picked_Axon1_roi2.hdf5")
 
 
 def check(name: str, fn) -> None:
@@ -555,8 +570,633 @@ def test_classification() -> None:
 
 
 # ============================================================ real data
+def spectrin_ring_image(shape, centre, radius, *, width=1.2, ring=300.0,
+                        base=100.0, inside=None, gap=None, neighbour=None,
+                        pool=None):
+    """
+    A widefield spectrin image of one ring: a blurred bright band of
+    ``radius`` px on a ``base`` background. ``inside`` makes the axon's
+    inside darker than the background, as on the April data (inside ~740,
+    myelin ~900, ring ~990 on axon 7). ``gap`` = (start, end) in radians
+    leaves a sector of the band at the background level; ``neighbour`` =
+    (col, row, radius, brightness) adds another ring; ``pool`` = (col, row,
+    radius, level) paints a darker area, as myelin can be.
+    """
+    rows, cols = shape
+    rr, cc = np.mgrid[0:rows, 0:cols].astype(float)
+
+    def band(cx, cy, r, amp):
+        d = np.hypot(cc - cx, rr - cy)
+        return amp * np.exp(-0.5 * ((d - r) / width) ** 2)
+
+    own = band(centre[0], centre[1], radius, ring - base)
+    if gap is not None:
+        ang = np.mod(np.arctan2(rr - centre[1], cc - centre[0]), 2 * np.pi)
+        own[(ang >= gap[0]) & (ang <= gap[1])] = 0.0
+    image = base + own
+    if inside is not None:
+        d = np.hypot(cc - centre[0], rr - centre[1])
+        step = np.clip((radius - d) / (2 * width), 0.0, 1.0)
+        image = image - (base - inside) * step
+    if neighbour is not None:
+        image = image + band(neighbour[0], neighbour[1], neighbour[2],
+                             neighbour[3] - base)
+    if pool is not None:
+        d = np.hypot(cc - pool[0], rr - pool[1])
+        image = np.where(d < pool[2], np.minimum(image, pool[3]), image)
+    return ndimage.gaussian_filter(image, 0.7)
+
+
+def ring_centres(rng, centre, radius, n=40, gap=None):
+    """Cluster centres on the ring, in image pixels (col, row)."""
+    ang = rng.uniform(0, 2 * np.pi, 4 * n)
+    if gap is not None:
+        ang = ang[(ang < gap[0]) | (ang > gap[1])]
+    ang = ang[:n]
+    r = radius + rng.normal(0, 0.15, ang.size)
+    return centre[0] + r * np.cos(ang), centre[1] + r * np.sin(ang)
+
+
+def inside_hull(mask: ax.AxoplasmMask, col, row) -> bool:
+    """Every pixel of the mask lies inside the hull of (col, row)."""
+    from scipy.spatial import ConvexHull
+    r0, _r1, c0, _c1 = mask.region
+    up = mask.upsample
+    fr, fc = np.nonzero(mask.mask)
+    pc = c0 + (fc + 0.5) / up - 0.5
+    pr = r0 + (fr + 0.5) / up - 0.5
+    hull = ConvexHull(np.column_stack([col, row]))
+    a, b = hull.equations[:, :2], hull.equations[:, 2]
+    return bool(np.all(np.column_stack([pc, pr]) @ a.T + b <= 1e-6))
+
+
+def test_anchored() -> None:
+    print("\n6. CLUSTERS NOT ANCHORED TO THE MEMBRANE")
+    shape = (80, 80)
+    centre, radius = (40.0, 40.0), 14.0
+
+    def build(image, col, row):
+        return ax.build_ring_interior(image, centre, radius, PIXEL_NM,
+                                      ring_col=col, ring_row=row)
+
+    def closed_ring():
+        rng = np.random.default_rng(1)
+        image = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius)
+        inner = build(image, col, row)
+        lv = inner.levels
+        assert inner.threshold_source == "half maximum", inner.warnings
+        assert not inner.warnings, inner.warnings
+        assert lv["interior"] < lv["half_max"] < lv["ring"], lv
+        # Every cluster of the ring sits outside the interior, the centre
+        # deep inside it.
+        depth_ring = inner.distance_at(col, row)
+        depth_centre = inner.distance_at(np.array([centre[0]]),
+                                         np.array([centre[1]]))[0]
+        assert np.all(depth_ring < 0), depth_ring.max()
+        assert depth_centre > 0.6 * radius * PIXEL_NM, depth_centre
+        return (f"cut at half maximum; ring clusters {depth_ring.max():.0f} "
+                f"nm at most, the centre {depth_centre:.0f} nm inside")
+
+    def brighter_neighbour():
+        # Otsu over the region cuts above a dimmer ring and opens it; the
+        # axon's own levels do not.
+        rng = np.random.default_rng(2)
+        image = spectrin_ring_image(shape, centre, radius,
+                                    neighbour=(40.0, 71.0, 12.0, 900.0))
+        col, row = ring_centres(rng, centre, radius)
+        inner = build(image, col, row)
+        otsu = ax.otsu_threshold(ndimage.gaussian_filter(image, 1.0))
+        assert otsu > inner.levels["ring"], (otsu, inner.levels)
+        assert inner.threshold_source == "half maximum", inner.warnings
+        assert inside_hull(inner, col, row)
+        return (f"Otsu {otsu:.0f} lies above this ring ({inner.levels['ring']:.0f}); "
+                f"its own half maximum {inner.threshold:.0f} still closes it")
+
+    def gap_in_the_ring():
+        rng = np.random.default_rng(3)
+        # The inside (100) is darker than the background (180), which the
+        # gap brings the ring down to; the ring's half maximum is ~200.
+        gap = (0.3, 1.5)
+        image = spectrin_ring_image(shape, centre, radius, base=180.0,
+                                    inside=100.0, gap=gap)
+        col, row = ring_centres(rng, centre, radius, gap=gap)
+        inner = build(image, col, row)
+        lv = inner.levels
+        assert inner.threshold_source == "spill point", inner.threshold_source
+        assert inner.warnings and "open" in inner.warnings[0], inner.warnings
+        assert lv["interior"] < inner.threshold < lv["half_max"], lv
+        assert inside_hull(inner, col, row)
+        # The flood stops where it would cross the chord the clusters' hull
+        # draws over the gap, so the interior is smaller than the axon's
+        # inside -- by design, the warning says so -- but it still holds
+        # the middle of the axon with room to spare.
+        depth = inner.distance_at(np.array([centre[0]]),
+                                  np.array([centre[1]]))[0]
+        assert depth > 500.0, depth
+        # Without the gap the same ring closes at its half maximum.
+        closed = build(spectrin_ring_image(shape, centre, radius, base=180.0,
+                                           inside=100.0),
+                       *ring_centres(rng, centre, radius))
+        assert closed.threshold_source == "half maximum", closed.warnings
+        return (f"flooded to {inner.threshold:.0f} of a half maximum of "
+                f"{lv['half_max']:.0f}, inside the clusters' hull, the middle "
+                f"{depth:.0f} nm deep; closed, the same ring cuts at half "
+                f"maximum")
+
+    def dark_myelin_outside():
+        # The darkest point of the region is outside the ring: the interior
+        # must still be the axon's own.
+        rng = np.random.default_rng(4)
+        image = spectrin_ring_image(shape, centre, radius,
+                                    pool=(70.0, 10.0, 8.0, 20.0))
+        col, row = ring_centres(rng, centre, radius)
+        inner = build(image, col, row)
+        assert inner.smoothed.min() < inner.levels["interior"]
+        assert inside_hull(inner, col, row)
+        depth = inner.distance_at(np.array([centre[0]]),
+                                  np.array([centre[1]]))[0]
+        assert depth > 0, depth
+        return (f"region minimum {inner.smoothed.min():.0f}, the interior "
+                f"seeded at {inner.levels['interior']:.0f} inside the ring")
+
+    def degenerate_inputs():
+        image = spectrin_ring_image(shape, centre, radius)
+        two = build(image, np.array([30.0, 50.0]), np.array([40.0, 40.0]))
+        line = build(image, np.array([30.0, 40.0, 50.0]),
+                     np.array([40.0, 40.0, 40.0]))
+        flat = build(np.full(shape, 100.0), *ring_centres(
+            np.random.default_rng(5), centre, radius))
+        for name, got in (("two", two), ("line", line), ("flat", flat)):
+            assert got.empty and got.warnings, (name, got.warnings)
+            assert np.all(np.isneginf(got.distance_at(
+                np.array([centre[0]]), np.array([centre[1]])))), name
+        return "two centres, a line and a flat image give an empty interior"
+
+    def both_must_agree():
+        rng = np.random.default_rng(6)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=40)
+        # Four clusters well inside; the tubulin disc is shifted 3 px to
+        # the right, so the ring's right side falls inside it too.
+        icol = centre[0] + np.array([-3.0, 2.0, 0.0, 3.0])
+        irow = centre[1] + np.array([0.0, -3.0, 3.0, 2.0])
+        ccol = np.concatenate([col, icol, [75.0]])
+        crow = np.concatenate([row, irow, [5.0]])
+        tub = disc_image(shape, (centre[0] + 3.0, centre[1]), radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        nm = np.column_stack([ccol, crow]) * PIXEL_NM
+        found = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                     crow, 250.0)
+        expected = np.zeros(len(ccol), bool)
+        expected[40:44] = True
+        assert np.array_equal(found.discarded, expected), \
+            np.nonzero(found.discarded)[0]
+        assert found.n_tubulin_only >= 3, found.n_tubulin_only
+        # The far cluster is off both regions: NaN depths, kept.
+        assert np.isnan(found.depth_tubulin_nm[-1]) or \
+            found.depth_tubulin_nm[-1] < 0
+        assert not found.discarded[-1]
+        wide = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol, crow,
+                                    5000.0)
+        assert wide.n_discarded == 0
+        return (f"discarded exactly the 4 inside; {found.n_tubulin_only} "
+                f"ring clusters inside the shifted tubulin alone were kept")
+
+    def the_contour_without_them():
+        rng = np.random.default_rng(7)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=50)
+        icol = centre[0] + rng.uniform(-6, 6, 6)
+        irow = centre[1] + rng.uniform(-6, 6, 6)
+        ccol, crow = np.concatenate([col, icol]), np.concatenate([row, irow])
+        tub = disc_image(shape, centre, radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        nm = np.column_stack([ccol, crow]) * PIXEL_NM
+        found = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                     crow, 250.0)
+        truth = 2 * np.pi * radius * PIXEL_NM / 1000.0
+        new = found.contour_anchored
+        assert found.n_discarded == 6, found.n_discarded
+        assert new.n_starts == 50 and new.health.n_deep_vertices == 0
+        assert abs(new.perimeter_um / truth - 1) < 0.05, \
+            (new.perimeter_um, truth)
+        assert found.contour_all_starts.perimeter_um > new.perimeter_um
+        # Without the analysis' contour, it is built as the analysis
+        # builds it: from every start.
+        assert found.contour_all is found.contour_all_starts
+        return (f"{new.perimeter_um:.2f} um against a true "
+                f"{truth:.2f} um; with the inside ones "
+                f"{found.contour_all_starts.perimeter_um:.2f} um")
+
+    def nothing_discarded_nothing_rebuilt():
+        rng = np.random.default_rng(8)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=30)
+        tub = disc_image(shape, centre, radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        cache: dict = {}
+        found = ax.anchored_clusters(np.column_stack([col, row]) * PIXEL_NM,
+                                     tmask, col, row, inner, col, row, 250.0,
+                                     contour_cache=cache)
+        assert found.n_discarded == 0
+        assert found.contour_anchored is found.contour_all_starts
+        assert len(cache) == 1
+        return "the same contour, built once"
+
+    def the_analysis_contour_is_reused():
+        rng = np.random.default_rng(10)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=30)
+        icol, irow = centre[0] + np.array([3.0]), centre[1] + np.array([0.0])
+        ccol, crow = np.concatenate([col, icol]), np.concatenate([row, irow])
+        tub = disc_image(shape, centre, radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        nm = np.column_stack([ccol, crow]) * PIXEL_NM
+        every = ax.reconstruct_perimeter(nm, all_starts=True)
+        cache: dict = {}
+        found = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol, crow,
+                                     250.0, contour_all=every,
+                                     contour_cache=cache)
+        assert found.contour_all is every
+        assert found.contour_all_starts is every
+        assert found.n_discarded == 1 and len(cache) == 2
+        one = ax.reconstruct_perimeter(nm)
+        again = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                     crow, 250.0, contour_all=one)
+        assert again.contour_all is one
+        assert again.contour_all_starts is not one
+        assert again.contour_all_starts.n_starts == len(nm)
+        other = ax.reconstruct_perimeter(nm[:-1], all_starts=True)
+        stale = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                     crow, 250.0, contour_all=other)
+        assert stale.contour_all_starts is not other
+        # As many clusters, somewhere else: not taken either.
+        moved = ax.reconstruct_perimeter(nm + 500.0, all_starts=True)
+        held: dict = {}
+        shifted = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                       crow, 250.0, contour_all=moved,
+                                       contour_cache=held)
+        assert shifted.contour_all_starts is not moved
+        assert all(c is not moved for c in held.values())
+        assert np.array_equal(shifted.contour_all_starts.contour,
+                              every.contour)
+        return ("every start: taken as it is; one start, fewer clusters or "
+                "other positions: rebuilt")
+
+    def exported_columns():
+        rng = np.random.default_rng(9)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=30)
+        tub = disc_image(shape, centre, radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        nm = np.column_stack([col, row]) * PIXEL_NM
+        found = ax.anchored_clusters(nm, tmask, col, row, inner, col, row,
+                                     250.0)
+        result = ax.classify(tmask, col, row, 250.0)
+        common = dict(localizations="a.hdf5", tubulin="t.tif",
+                      reference="s.tif", registration_file="", roi="-",
+                      pixel_size_nm=PIXEL_NM, offset_px=(0.0, 0.0),
+                      registration=ax.ImageRegistration(), mask=tmask,
+                      result=result, cluster_result=result)
+        without = ax.summary_row(**common)
+        with_ = ax.summary_row(**common, spectrin=inner, anchored=found,
+                               spectrin_image="s2.tif")
+        assert list(without) == list(with_)
+        assert with_["n_clusters_discarded"] == 0
+        assert without["n_clusters_discarded"] is None
+        # The image the interior came from, which need not be the one the
+        # shift was measured against.
+        assert with_["spectrin_interior_image"] == "s2.tif"
+        assert with_["registration_reference_image"] == "s.tif"
+        assert without["spectrin_interior_image"] is None
+        rows = ax.cluster_rows(localizations="a.hdf5", roi="-",
+                               centroids_nm=nm, anchored=found,
+                               spectrin_image="s2.tif")
+        assert len(rows) == 30 and not any(r["discarded"] for r in rows)
+        assert all(r["spectrin_interior_image"] == "s2.tif" for r in rows)
+        return (f"{len(with_)} columns either way, with the spectrin image "
+                f"of the interior; one row per cluster")
+
+    check("a closed ring: cut at its half maximum", closed_ring)
+    check("a brighter neighbour does not open it", brighter_neighbour)
+    check("a gap: flooded only to the spill point", gap_in_the_ring)
+    check("darker myelin outside is not the interior", dark_myelin_outside)
+    check("too few centres, a line, no ring", degenerate_inputs)
+    check("a cluster goes only when both images agree", both_must_agree)
+    check("the contour is rebuilt without them", the_contour_without_them)
+    check("nothing discarded, nothing rebuilt twice",
+          nothing_discarded_nothing_rebuilt)
+    check("the analysis' own contour, when it is every start's",
+          the_analysis_contour_is_reused)
+    check("the export's columns", exported_columns)
+
+
+def ring_with_inside(rng: np.random.Generator, radius: float = 1500.0,
+                     n_ring: int = 36, inside=((-450.0, 0.0), (300.0, 350.0),
+                                               (150.0, -420.0), (0.0, 0.0))):
+    """
+    Localizations (nm) of dense clusters on a ring, plus clusters inside
+    it, and the ROI around them. Returns x, y, z, the ROI and the centres.
+    """
+    from tools.cluster_quality import CircularROI
+
+    centre = np.array([6000.0, 6000.0])
+    angles = np.linspace(0, 2 * np.pi, n_ring, endpoint=False)
+    ring = centre + radius * np.column_stack([np.cos(angles), np.sin(angles)])
+    centres = np.vstack([ring, centre + np.asarray(inside, float)])
+    xs, ys = [], []
+    for cx, cy in centres:
+        xs.append(cx + rng.normal(0, 6.0, 25))
+        ys.append(cy + rng.normal(0, 6.0, 25))
+    x, y = np.concatenate(xs), np.concatenate(ys)
+    z = rng.normal(0.0, 20.0, x.size)
+    roi = CircularROI(center_x=6000.0, center_y=6000.0, radius=radius + 900)
+    return x, y, z, roi, centres, len(inside)
+
+
+def test_without_clusters() -> None:
+    print("\n7. THE MPS ANALYSIS WITH AND WITHOUT THE DISCARDED CLUSTERS")
+    from tools import mps_analysis as ma
+    from tools.results_table import (TableMismatch, append_rows,
+                                     refuse_other_analysis)
+
+    rng = np.random.default_rng(21)
+    x, y, z, roi, _centres, n_in = ring_with_inside(rng)
+    base = ma.analyze_axon(x, y, z, roi=roi, n_randomizations=100,
+                           random_seed=3)
+    # The same axon refined from one start, as this program did before
+    # 2026-09-19.
+    legacy = ma.analyze_axon(x, y, z, roi=roi, n_randomizations=100,
+                             random_seed=3, all_starts=False)
+    inside = np.hypot(base.centroids[:, 0] - 6000.0,
+                      base.centroids[:, 1] - 6000.0) < 1000.0
+    truth_um = 2 * np.pi * 1500.0 / 1000.0
+    comparison = ma.compare_discard(base, inside, margin_nm=250.0)
+    every, applied = comparison.all_clusters, comparison.discard_applied
+    redone = ma.with_every_start(legacy)
+
+    def the_axon():
+        assert base.n_clusters_kept == 40 and inside.sum() == n_in, \
+            (base.n_clusters_kept, inside.sum())
+        assert base.contour_2opt == "every start"
+        assert base.perimeter.n_starts == 40
+        assert legacy.contour_2opt == "one start"
+        # Already built from every start: the analysis of all the clusters
+        # is the measured one itself, not a second run.
+        assert every is base and ma.with_every_start(base) is base
+        return (f"40 clusters, {n_in} inside; perimeter {base.perimeter_um:.2f} "
+                f"um (one start {legacy.perimeter_um:.2f}) against a ring of "
+                f"{truth_um:.2f} um")
+
+    def every_start_changes_only_the_contour():
+        # Another draw of the same ring, where one start settles on a
+        # longer tour, so that repeating it from every start has something
+        # to change.
+        x0, y0, z0, roi0, _c0, _n0 = ring_with_inside(
+            np.random.default_rng(0))
+        kw = dict(roi=roi0, n_randomizations=100, random_seed=3)
+        one = ma.analyze_axon(x0, y0, z0, all_starts=False, **kw)
+        default = ma.analyze_axon(x0, y0, z0, **kw)
+        again = ma.with_every_start(one)
+        assert one.perimeter_um > again.perimeter_um + 0.5, \
+            (one.perimeter_um, again.perimeter_um)
+        assert again.contour_2opt == "every start"
+        assert again.cluster_set == "all clusters"
+        assert not again.discard_applied
+        assert again.n_clusters_kept == one.n_clusters_kept
+        assert np.array_equal(again.centroids, one.centroids)
+        assert np.array_equal(again.areas.areas_nm2, one.areas.areas_nm2)
+        assert np.array_equal(again.nn.first_nn_nm, one.nn.first_nn_nm)
+        # The steps that follow the contour were run again ...
+        assert again.occupancy_percent != one.occupancy_percent
+        assert again.ks_statistic != one.ks_statistic
+        assert again.randomization.n_iterations == 100
+        # ... and give what analyze_axon now measures in the first place.
+        for name in ("perimeter_um", "occupancy_percent", "ks_statistic",
+                     "ks_pvalue", "median_1nn_nm"):
+            assert getattr(again, name) == getattr(default, name), name
+        assert np.array_equal(again.perimeter.order, default.perimeter.order)
+        assert again.centre.x_nm == default.centre.x_nm
+        # On the ring of the other checks the two tours are the same.
+        assert redone.perimeter_um == base.perimeter_um
+        return (f"one start {one.perimeter_um:.2f} -> every start "
+                f"{again.perimeter_um:.2f} um, occupancy "
+                f"{one.occupancy_percent:.1f} -> "
+                f"{again.occupancy_percent:.1f} %, KS D "
+                f"{one.ks_statistic:.3f} -> {again.ks_statistic:.3f}: the "
+                f"default analysis' numbers; areas and 1NN unchanged")
+
+    def the_discard_redoes_every_step():
+        labels = ma.good_cluster_labels(base.labels,
+                                        base.bad_report.bad_labels)
+        assert applied.discarded_labels == frozenset(
+            int(v) for v in labels[inside])
+        assert applied.n_clusters_kept == 36
+        assert applied.n_clusters_discarded == n_in
+        assert np.array_equal(applied.centroids, base.centroids[~inside])
+        assert applied.areas.areas_nm2.size == 36
+        assert applied.nn.first_nn_nm.size == 36
+        spacing = 2 * 1500.0 * np.sin(np.pi / 36)
+        assert abs(applied.median_1nn_nm / spacing - 1) < 0.05, \
+            (applied.median_1nn_nm, spacing)
+        assert abs(applied.perimeter_um / truth_um - 1) < 0.02, \
+            applied.perimeter_um
+        assert applied.perimeter_um < every.perimeter_um
+        assert applied.perimeter.health.n_deep_vertices == 0
+        assert every.perimeter.health.n_deep_vertices > 0
+        assert applied.occupancy is not None and applied.randomization is not None
+        assert np.array_equal(applied.randomization.experimental_1nn_nm,
+                              applied.nn.first_nn_nm)
+        assert applied.randomization.n_iterations == 100
+        return (f"perimeter {every.perimeter_um:.2f} -> "
+                f"{applied.perimeter_um:.2f} um (ring {truth_um:.2f}); 1NN "
+                f"{every.median_1nn_nm:.0f} -> {applied.median_1nn_nm:.0f} nm "
+                f"(ring spacing {spacing:.0f}); occupancy "
+                f"{every.occupancy_percent:.1f} -> "
+                f"{applied.occupancy_percent:.1f} %; KS D "
+                f"{every.ks_statistic:.3f} -> {applied.ks_statistic:.3f}")
+
+    def its_warnings_say_so():
+        k = len(base.upstream_warnings)
+        assert applied.warnings[:k] == base.upstream_warnings
+        assert f"{n_in} of 40 clusters left out" in applied.warnings[k]
+        assert "250 nm" in applied.warnings[k]
+        assert every.warnings[:k] == base.upstream_warnings
+        return f"'{applied.warnings[k][:60]}...'"
+
+    def nothing_discarded_same_numbers():
+        none = ma.compare_discard(base, np.zeros(40, bool), margin_nm=250.0,
+                                  all_clusters=every)
+        same = none.discard_applied
+        assert none.all_clusters is every
+        assert same.discard_applied and same.n_clusters_discarded == 0
+        for name in ("perimeter_um", "median_1nn_nm", "occupancy_percent",
+                     "ks_statistic", "ks_pvalue", "median_area_nm2"):
+            assert getattr(same, name) == getattr(every, name), name
+        assert any("none of the 40" in w for w in same.warnings)
+        return "every number equal to 'all clusters'"
+
+    def the_margin_alone_moves_nothing():
+        moved = ma.with_discard_margin(applied, 300.0)
+        assert moved.discard_margin_nm == 300.0
+        assert moved.perimeter is applied.perimeter
+        assert moved.ks_statistic == applied.ks_statistic
+        k = len(base.upstream_warnings)
+        assert "300 nm" in moved.warnings[k] and "250 nm" not in moved.warnings[k]
+        assert moved.export_dict()["discard_margin_nm"] == 300.0
+        return "the same numbers, recorded at 300 nm"
+
+    def refused_inputs():
+        expect_error(lambda: ma.without_clusters(base, np.zeros(39, bool),
+                                                 margin_nm=250.0),
+                     "39 discard flag")
+        expect_error(lambda: ma.without_clusters(applied, np.zeros(36, bool),
+                                                 margin_nm=250.0),
+                     "all the clusters")
+        expect_error(lambda: ma.without_clusters(
+            base, inside, margin_nm=250.0, contour=every.perimeter),
+            "other clusters")
+        one = ma.reconstruct_perimeter(base.centroids[~inside])
+        expect_error(lambda: ma.without_clusters(
+            base, inside, margin_nm=250.0, contour=one), "one 2-opt start")
+        other = ma.analyze_axon(x, y, z, roi=roi, run_randomization=False)
+        expect_error(lambda: ma.compare_discard(
+            base, inside, margin_nm=250.0,
+            all_clusters=ma.with_every_start(other)), "not this analysis")
+        return "5 refused"
+
+    def the_centre_with_and_without_them():
+        # The ring is centred at (6000, 6000). The clusters inside, as
+        # vertices, pull the centre of the contour; without them it is the
+        # ring's.
+        off = {name: float(np.hypot(a.centre.x_nm - 6000.0,
+                                    a.centre.y_nm - 6000.0))
+               for name, a in (("all", base), ("kept", applied))}
+        assert off["kept"] < 5.0, off
+        assert off["all"] > off["kept"], off
+        assert applied.centre.max_shift_nm < base.centre.max_shift_nm
+        rows = {r[0]: r[1] for r in applied.summary_rows()}
+        assert rows["Centre"] == (f"x {applied.centre.x_nm:.0f}, "
+                                  f"y {applied.centre.y_nm:.0f} nm")
+        record = applied.export_dict()
+        assert record["centre_x_nm"] == round(applied.centre.x_nm, 1)
+        assert record["centre_y_nm"] == round(applied.centre.y_nm, 1)
+        assert record["centre_max_shift_nm"] == round(
+            applied.centre.max_shift_nm, 1)
+        assert abs(record["contour_area_um2"]
+                   - np.pi * 1.5 ** 2) / (np.pi * 1.5 ** 2) < 0.02
+        return (f"{off['kept']:.1f} nm from the ring's centre without them, "
+                f"{off['all']:.0f} nm with them; one cluster out moves it "
+                f"{applied.centre.max_shift_nm:.0f} vs "
+                f"{base.centre.max_shift_nm:.0f} nm")
+
+    def centres_that_are_not_defined():
+        # A contour given by hand that crosses itself: no centre, and the
+        # table says why.
+        order = np.array(base.perimeter.order)
+        order[[3, 20]] = order[[20, 3]]
+        crossed = ma.analyze_axon(x, y, z, roi=roi, run_randomization=False,
+                                  custom_contour_order=order)
+        assert crossed.perimeter.self_intersections_after > 0
+        assert crossed.centre is None
+        rows = {r[0]: r for r in crossed.summary_rows()}
+        assert rows["Centre"][1] == "n/a"
+        assert rows["Centre"][3] == "the contour crosses itself"
+        assert rows["  moves with one cluster out"][1] == "n/a"
+        record = crossed.export_dict()
+        assert all(record[c] is None for c in (
+            "centre_x_nm", "centre_y_nm", "contour_area_um2",
+            "centre_max_shift_nm"))
+        # A discard that leaves three clusters: a triangle, built from
+        # every start, whose centre cannot lose a vertex.
+        few = ring_with_inside(np.random.default_rng(5), n_ring=3,
+                               inside=((-300.0, 0.0), (200.0, 250.0)))
+        five = ma.analyze_axon(*few[:3], roi=few[3], run_randomization=False)
+        gone = np.hypot(five.centroids[:, 0] - 6000.0,
+                        five.centroids[:, 1] - 6000.0) < 1000.0
+        assert five.n_clusters_kept == 5 and gone.sum() == 2
+        three = ma.compare_discard(five, gone, margin_nm=250.0).discard_applied
+        assert three.n_clusters_kept == 3
+        assert three.contour_2opt == "every start"
+        assert three.centre is not None and three.centre.max_shift_nm is None
+        record = three.export_dict()
+        assert record["centre_max_shift_nm"] is None
+        assert record["centre_x_nm"] == round(three.centre.x_nm, 1)
+        # Too few clusters for a contour: nothing to rebuild or centre.
+        two = ring_with_inside(np.random.default_rng(6), n_ring=1,
+                               inside=((0.0, 0.0),))
+        bare = ma.analyze_axon(*two[:3], roi=two[3], run_randomization=False)
+        assert bare.perimeter is None and bare.centre is None
+        assert ma.with_every_start(bare) is bare
+        rows = {r[0]: r for r in bare.summary_rows()}
+        assert rows["Centre"][1] == "n/a" and rows["Centre"][3] == ""
+        return ("a crossing contour, a triangle and two clusters: n/a and "
+                "empty columns, never a number")
+
+    def exported_rows():
+        rows = [legacy.export_dict(), base.export_dict(),
+                applied.export_dict()]
+        assert list(rows[0]) == list(rows[1]) == list(rows[2])
+        sets = [(r["cluster_set"], r["contour_2opt"]) for r in rows]
+        assert sets == [("all clusters", "one start"),
+                        ("all clusters", "every start"),
+                        ("discard applied", "every start")], sets
+        assert rows[0]["n_clusters_discarded"] is None
+        assert rows[2]["n_clusters_discarded"] == n_in
+        assert rows[2]["discard_margin_nm"] == 250.0
+        for column in ("centre_x_nm", "centre_y_nm", "contour_area_um2",
+                       "centre_max_shift_nm"):
+            assert all(r[column] is not None for r in rows), column
+        return f"{len(rows[0])} columns, the same for the three"
+
+    def one_table_per_analysis():
+        folder = tempfile.mkdtemp(prefix="discard_tables_")
+        try:
+            path = os.path.join(folder, "t.csv")
+            row = applied.export_dict()
+            refuse_other_analysis(path, row, ma.ANALYSIS_COLUMNS)
+            append_rows(path, [row])
+            refuse_other_analysis(path, row, ma.ANALYSIS_COLUMNS)
+            append_rows(path, [row])
+            for other in (base.export_dict(), legacy.export_dict()):
+                try:
+                    refuse_other_analysis(path, other, ma.ANALYSIS_COLUMNS)
+                except TableMismatch as error:
+                    assert "table of its own" in str(error), str(error)
+                else:
+                    raise AssertionError("a table of another analysis")
+            return "two rows of one analysis, the other two refused"
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    check("the axon: a ring with clusters inside", the_axon)
+    check("one start, repeated from every start: only the contour changes",
+          every_start_changes_only_the_contour)
+    check("without them, every step again", the_discard_redoes_every_step)
+    check("the warnings say what was left out", its_warnings_say_so)
+    check("nothing discarded: the same numbers", nothing_discarded_same_numbers)
+    check("moving the margin re-runs nothing", the_margin_alone_moves_nothing)
+    check("inputs that do not fit are refused", refused_inputs)
+    check("the centre, with and without them",
+          the_centre_with_and_without_them)
+    check("centres that are not defined", centres_that_are_not_defined)
+    check("the three exports", exported_rows)
+    check("one table per analysis", one_table_per_analysis)
+
+
 def test_real_data() -> None:
-    print("\n6. APRIL 2026, ROI 1  (widefield images and STORM data)")
+    print("\n8. APRIL 2026  (widefield images and STORM data)")
 
     def april():
         if not all(os.path.exists(p) for p in (APRIL_FULL, APRIL_SPEC,
@@ -591,6 +1231,151 @@ def test_real_data() -> None:
 
     check("registration and one axon", april)
 
+    def anchored_axon7():
+        if not all(os.path.exists(p) for p in (APRIL_SPEC, APRIL_TUB,
+                                               APRIL_AXON7)):
+            return "skipped, data not present"
+        found, new, lengths = anchored_on(APRIL_AXON7, APRIL_TUB, APRIL_SPEC,
+                                          (-2.0531, 5.5531))
+        assert found.n_discarded == 5, found.n_discarded
+        assert 15.5 < new.perimeter_um < 17.0, new.perimeter_um
+        assert new.health.n_deep_vertices <= 1, new.health.n_deep_vertices
+        # The MPS analysis builds its contour from every start: the panel
+        # takes it as it is.
+        assert found.contour_all is found.contour_all_starts
+        return (f"{found.n_discarded} of {found.n} discarded; perimeter "
+                f"{lengths[0]:.2f} (MPS analysis, every start) -> "
+                f"{new.perimeter_um:.2f} um")
+
+    def anchored_roi2():
+        # The axon where a spectrin interior not bounded by the clusters
+        # leaked along the myelin and took seven membrane clusters.
+        if not all(os.path.exists(p) for p in (APRIL2_FULL, APRIL2_SPEC,
+                                               APRIL2_TUB, APRIL2_AXON1)):
+            return "skipped, data not present"
+        from tools.mps_io import load_localizations
+
+        spec = ax.load_widefield(APRIL2_SPEC)
+        full = load_localizations(APRIL2_FULL)
+        px = full.pixel_size_nm
+        off, _ = ax.camera_offset(spec, full.info, px)
+        reg = ax.measure_shift(spec.image, full.x_nm / px + off[0],
+                               full.y_nm / px + off[1])
+        assert reg.score is not None and reg.score >= ax.MIN_REGISTRATION_SCORE, \
+            reg.score
+        assert not reg.warnings, reg.warnings
+        found, new, _lengths = anchored_on(APRIL2_AXON1, APRIL2_TUB,
+                                           APRIL2_SPEC, reg.shift_px)
+        assert found.n_discarded == 0, found.n_discarded
+        return (f"registered to WF_spec_2 ({reg.shift_px[0]:+.2f}, "
+                f"{reg.shift_px[1]:+.2f}) px, score {reg.score:.1f}; "
+                f"0 of {found.n} discarded, though the tubulin alone puts "
+                f"{found.n_tubulin_only} inside")
+
+    def analysis_axon7():
+        if not all(os.path.exists(p) for p in (APRIL_SPEC, APRIL_TUB,
+                                               APRIL_AXON7)):
+            return "skipped, data not present"
+        from tools import mps_analysis as ma
+
+        found, _new, _lengths, analysis = anchored_on(
+            APRIL_AXON7, APRIL_TUB, APRIL_SPEC, (-2.0531, 5.5531),
+            with_analysis=True)
+        both = ma.compare_discard(
+            analysis, found.discarded, margin_nm=found.margin_nm,
+            contour_all=found.contour_all_starts,
+            contour_kept=found.contour_anchored)
+        every, applied = both.all_clusters, both.discard_applied
+        # The measured analysis is the one with all the clusters, and the
+        # panel's two contours are the analyses' own.
+        assert every is analysis
+        assert every.perimeter is found.contour_all_starts
+        assert applied.perimeter is found.contour_anchored
+        assert applied.n_clusters_kept == analysis.n_clusters_kept - 5
+        assert applied.median_1nn_nm != every.median_1nn_nm
+        assert applied.occupancy_percent != every.occupancy_percent
+        moved = float(np.hypot(applied.centre.x_nm - every.centre.x_nm,
+                               applied.centre.y_nm - every.centre.y_nm))
+        return (f"perimeter {every.perimeter_um:.2f} -> "
+                f"{applied.perimeter_um:.2f} um; 1NN "
+                f"{every.median_1nn_nm:.1f} -> "
+                f"{applied.median_1nn_nm:.1f} nm; occupancy "
+                f"{every.occupancy_percent:.1f} -> "
+                f"{applied.occupancy_percent:.1f} %; the centre moves "
+                f"{moved:.0f} nm")
+
+    def one_start_axon7():
+        if not os.path.exists(APRIL_AXON7):
+            return "skipped, data not present"
+        from tools import mps_analysis as ma
+        from tools.mps_io import load_localizations
+
+        loc = load_localizations(APRIL_AXON7)
+        args = (loc.x_nm, loc.y_nm, loc.z_nm)
+        kw = dict(pixel_size_nm=loc.pixel_size_nm, n_randomizations=50,
+                  random_seed=0)
+        every = ma.analyze_axon(*args, **kw)
+        one = ma.analyze_axon(*args, all_starts=False, **kw)
+        redone = ma.with_every_start(one)
+        assert every.contour_2opt == "every start"
+        assert one.contour_2opt == "one start"
+        assert one.perimeter_um > every.perimeter_um + 0.5, \
+            (one.perimeter_um, every.perimeter_um)
+        assert redone.perimeter_um == every.perimeter_um
+        assert np.array_equal(redone.perimeter.order, every.perimeter.order)
+        assert redone.occupancy_percent == every.occupancy_percent \
+            != one.occupancy_percent
+        assert redone.ks_statistic == every.ks_statistic != one.ks_statistic
+        return (f"one start {one.perimeter_um:.2f} um, every start "
+                f"{every.perimeter_um:.2f} um; one start repeated from every "
+                f"start gives the latter, occupancy and KS included")
+
+    check("axon 7: the clusters inside, and the contour without them",
+          anchored_axon7)
+    check("axon 7: one start, as before 2026-09-19, is longer",
+          one_start_axon7)
+    check("axon 7: every parameter with and without them", analysis_axon7)
+    check("ROI 2, axon 1: no membrane cluster discarded", anchored_roi2)
+
+
+def anchored_on(axon_path, tub_path, spec_path, shift_px,
+                with_analysis=False):
+    """analyze_axon, both masks and anchored_clusters for one real axon;
+    the analysis too when ``with_analysis``."""
+    from tools.mps_analysis import analyze_axon
+    from tools.mps_io import load_localizations
+
+    loc = load_localizations(axon_path)
+    px = loc.pixel_size_nm
+    analysis = analyze_axon(loc.x_nm, loc.y_nm, loc.z_nm,
+                            pixel_size_nm=px, run_randomization=False)
+    tub = ax.load_widefield(tub_path)
+    spec = ax.load_widefield(spec_path)
+    toff, _ = ax.camera_offset(tub, loc.info, px)
+    soff, _ = ax.camera_offset(spec, loc.info, px)
+
+    def frame(off, x, y):
+        return x / px + off[0] + shift_px[0], y / px + off[1] + shift_px[1]
+
+    col, row = frame(toff, analysis.x_slab, analysis.y_slab)
+    centre, radius, reach = ax.axon_centre(col, row)
+    tmask = ax.build_mask(tub.image, centre, radius, px, reach_px=reach)
+    scol, srow = frame(soff, analysis.x_slab, analysis.y_slab)
+    scentre, sradius, sreach = ax.axon_centre(scol, srow)
+    c = np.asarray(analysis.centroids, float)
+    ccol, crow = frame(soff, c[:, 0], c[:, 1])
+    inner = ax.build_ring_interior(spec.image, scentre, sradius, px,
+                                   ring_col=ccol, ring_row=crow,
+                                   reach_px=sreach)
+    tcol, trow = frame(toff, c[:, 0], c[:, 1])
+    found = ax.anchored_clusters(c, tmask, tcol, trow, inner, ccol, crow,
+                                 250.0, contour_all=analysis.perimeter)
+    lengths = (found.contour_all.perimeter_um,
+               found.contour_all_starts.perimeter_um)
+    if with_analysis:
+        return found, found.contour_anchored, lengths, analysis
+    return found, found.contour_anchored, lengths
+
 
 def main() -> int:
     print("=" * 72)
@@ -601,6 +1386,8 @@ def main() -> int:
     test_registration()
     test_mask()
     test_classification()
+    test_anchored()
+    test_without_clusters()
     test_real_data()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")

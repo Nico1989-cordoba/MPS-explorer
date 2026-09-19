@@ -473,3 +473,16 @@ def good_cluster_centroids(
     if not centroids:
         return np.empty((0, 2))
     return np.around(np.array(centroids), decimals=2)
+
+
+def good_cluster_labels(
+    labels: NDArray[np.int64],
+    bad_labels: Set[int],
+) -> NDArray[np.int64]:
+    """
+    The label of each centroid ``good_cluster_centroids`` returns, in the
+    same order: row i of the centroids is the cluster labelled [i] here.
+    """
+    return np.array([int(label) for label in np.unique(labels)
+                     if label != -1 and int(label) not in bad_labels],
+                    dtype=np.int64)
