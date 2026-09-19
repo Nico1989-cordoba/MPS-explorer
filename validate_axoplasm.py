@@ -1004,12 +1004,17 @@ def test_anchored() -> None:
         assert with_["spectrin_interior_image"] == "s2.tif"
         assert with_["registration_reference_image"] == "s.tif"
         assert without["spectrin_interior_image"] is None
+        names = list(range(0, 60, 2))
         rows = ax.cluster_rows(localizations="a.hdf5", roi="-",
                                centroids_nm=nm, anchored=found,
-                               spectrin_image="s2.tif")
+                               spectrin_image="s2.tif", labels=names)
         assert len(rows) == 30 and not any(r["discarded"] for r in rows)
         assert all(r["spectrin_interior_image"] == "s2.tif" for r in rows)
-        assert [r["cluster"] for r in rows] == list(range(30))
+        # The labels the analysis gave these clusters, not their position
+        # among the kept ones: the two stop matching the rest of the
+        # program as soon as the curation removes one.
+        assert [r["cluster_label"] for r in rows] == names
+        assert all(r["group"] == "membrane" for r in rows), rows[0]
         return (f"{len(with_)} columns either way, with the spectrin image "
                 f"of the interior; one row per cluster, numbered")
 

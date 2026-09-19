@@ -839,6 +839,21 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return np.asarray(analysis.centroids, dtype=float)
 
+    def _current_cluster_labels(self) -> Optional[NDArray[np.int64]]:
+        """
+        The DBSCAN label of each kept cluster, in the order of
+        _current_cluster_centroids: what every table of this program calls
+        a cluster by, so that the axoplasm panel's rows and this window's
+        per-localization export name the same cluster the same way.
+        """
+        if self._current_cluster_centroids() is None:
+            return None
+        from tools.cluster_quality import good_cluster_labels
+
+        analysis = self.mps_analysis
+        return good_cluster_labels(np.asarray(analysis.labels),
+                                   analysis.bad_report.bad_labels)
+
     def _current_perimeter(self) -> Optional[Any]:
         """
         The contour the MPS analysis built from those clusters, when the
@@ -866,6 +881,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             loc=self.locs1.subset(self.roi_indices), movie=self.locs1,
             roi=self._applied_roi_shape,
             z_range=z_range, z_range_source=z_source,
+            cluster_labels=self._current_cluster_labels,
             clusters=self._current_cluster_centroids,
             selection_key=self.roi_indices,
             contour=self._current_perimeter,
@@ -2757,8 +2773,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         Exports the (x, y, z) coordinates of all localizations within the selected
         Region of Interest (ROI) to a CSV file compatible with ThunderSTORM and other
-        analysis software. The output includes columns for x [nm], y [nm], z [nm],
-        and optionally cluster labels if clustering has been performed.
+        analysis software. The columns are x [nm], y [nm], z [nm], and nothing
+        else: the cluster of each localization is in "save all cluster data",
+        which writes the analysis' own slab and its labels. This file and that
+        one are not the same set of localizations (this one is cut by the Z
+        range of the main window, that one by the analysis' axial slab).
 
         Parameters
         ----------
@@ -2783,7 +2802,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
             x_roi = self.xroi
             y_roi = self.yroi
             z_roi = self.zroi
-            labels = self.dblabels if hasattr(self, 'dblabels') else None
             suffix = f"_ch{channel}_roi"
             if x_roi is None:
                 QtWidgets.QMessageBox.warning(
@@ -2793,7 +2811,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
             x_roi = self.xroi2
             y_roi = self.yroi2
             z_roi = self.zroi2
-            labels = self.dblabels2 if hasattr(self, 'dblabels2') else None
             suffix = f"_ch{channel}_roi"
             if x_roi is None:
                 QtWidgets.QMessageBox.warning(
@@ -2810,18 +2827,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             'y [nm]': y_roi,
             'z [nm]': z_roi,
         }
-        
-        # Add cluster labels if available
-        if labels is not None:
-            data['cluster_id'] = labels
-        
+
         df = pd.DataFrame(data)
         
         # Open file dialog with suggested filename
         file_dialog = QFileDialog()
         default_filename = f"{root_name}{suffix}.csv"
         filename, _ = file_dialog.getSaveFileName(
-            caption="Save ROI Data with Clusters",
+            caption="Save the ROI selection (x, y, z)",
             directory=default_filename,  # Suggest the default filename
             filter="CSV Files (*.csv)"
         )
@@ -3639,7 +3652,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         analysis's clusters, without the ones it rejected (see
         _clusters_to_export). Noise points (cluster = -1) are preserved.
 
-        Output columns: x [nm], y [nm], z [nm], cluster_id
+        Output columns: x [nm], y [nm], z [nm], cluster_label
 
         This export format is suitable for custom post-processing pipelines or when
         standard software packages are not available.
@@ -3682,7 +3695,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 'x [nm]': x_data,
                 'y [nm]': y_data,
                 'z [nm]': z_data,
-                'cluster_id': labels
+                # The DBSCAN label, which is what the axoplasm panel's
+                # tables call cluster_label too. It used to be written
+                # here under another name beside another numbering.
+                'cluster_label': labels
             }
             
             # Set default filename

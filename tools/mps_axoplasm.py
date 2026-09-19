@@ -1309,10 +1309,25 @@ def cluster_rows(
     centroids_nm: NDArray[np.float64],
     anchored: AnchoredClusters,
     spectrin_image: str = "",
+    labels: Optional[Sequence[int]] = None,
 ) -> List[Dict[str, Any]]:
-    """One row per cluster: where each image puts it, and whether it went.
+    """
+    One row per cluster: where each image puts it, and whether it went.
+
     ``spectrin_image`` is the widefield image of the ring interior.
-    ``cluster`` numbers the clusters as the localizations table does."""
+    ``labels`` are the clusters' DBSCAN labels, in the order of
+    ``centroids_nm``: that is the number every table of this program uses
+    for a cluster, including the main window's per-localization export.
+    Numbering the rows instead only matched it while the automatic
+    curation removed nothing -- with one cluster removed, 48 of 88
+    clusters were numbered differently in the two files.
+
+    Which side of each image a cluster is on is written out, rather than
+    left to be recomputed from the depths: the depths are rounded to
+    0.1 nm and the decision is not, so a cluster 250.05 nm inside at a
+    margin of 250 came back on the other side (13 "tubulin only" against
+    the 14 the panel counts).
+    """
     def depth(value: float) -> Any:
         """The depth, or an empty cell.
 
@@ -1322,16 +1337,33 @@ def cluster_rows(
         """
         return round(float(value), 1) if np.isfinite(value) else None
 
+    gone = np.asarray(anchored.discarded, dtype=bool)
+    inside_t = np.asarray(anchored.tubulin_only, dtype=bool) | gone
+    inside_s = np.asarray(anchored.spectrin_only, dtype=bool) | gone
+    names = np.asarray(labels).ravel() if labels is not None else None
+
+    def group(t: bool, s: bool) -> str:
+        if t and s:
+            return "discarded"
+        if t:
+            return "tubulin only"
+        if s:
+            return "spectrin only"
+        return "membrane"
+
     return [
         {"source_localizations": localizations, "roi": roi,
          "spectrin_interior_image": spectrin_image,
-         "cluster": i,
+         "cluster_label": i if names is None else int(names[i]),
          "x_nm": round(float(x), 2), "y_nm": round(float(y), 2),
          "depth_in_tubulin_mask_nm": depth(dt),
          "depth_in_spectrin_interior_nm": depth(ds),
          "margin_nm": anchored.margin_nm,
-         "discarded": bool(gone)}
-        for i, ((x, y), dt, ds, gone) in enumerate(zip(
+         "inside_tubulin_mask": bool(inside_t[i]),
+         "inside_spectrin_interior": bool(inside_s[i]),
+         "group": group(bool(inside_t[i]), bool(inside_s[i])),
+         "discarded": bool(left_out)}
+        for i, ((x, y), dt, ds, left_out) in enumerate(zip(
             np.asarray(centroids_nm, dtype=float).reshape(-1, 2),
             anchored.depth_tubulin_nm, anchored.depth_spectrin_nm,
             anchored.discarded))

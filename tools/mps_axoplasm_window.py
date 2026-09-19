@@ -167,6 +167,11 @@ class AxoplasmInputs:
     # say why.
     z_range: Optional[Tuple[float, float]] = None
     z_range_source: str = "none"
+    # The DBSCAN label of each kept cluster, in the order of ``clusters``,
+    # or None when the selection has not been analysed. Every table names
+    # a cluster by that label, the main window's own export included.
+    cluster_labels: Callable[[], Optional[np.ndarray]] = field(
+        default=lambda: None)
 
 
 @dataclass
@@ -1379,7 +1384,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             localizations=str(self.inputs.movie.path),
             roi=describe_roi(self.inputs.roi),
             centroids_nm=self.anchored_centroids, anchored=self.anchored,
-            spectrin_image=self._interior_image())
+            spectrin_image=self._interior_image(),
+            labels=self.inputs.cluster_labels())
 
     def localization_rows(self) -> List[Dict[str, Any]]:
         assert self.result is not None
@@ -1392,6 +1398,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         placed = self.located is not None and self.loc_cluster is not None
         cluster = (self.loc_cluster if placed
                    else np.full(loc.n, -1, dtype=np.intp))
+        # The label the rest of the program calls this cluster by, not its
+        # position among the kept ones: the two differ as soon as the
+        # automatic curation removes a cluster.
+        names = self.inputs.cluster_labels()
         where = (self.located if placed
                  else np.full(loc.n, "", dtype=object))
         return [
@@ -1403,7 +1413,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
              # read back as numbers.
              "distance_to_tubulin_edge_nm": (
                  round(float(d), 1) if np.isfinite(d) else None),
-             "cluster": "" if c < 0 else int(c),
+             "cluster_label": ("" if c < 0 else int(c) if names is None
+                               else int(names[c])),
              "label": str(label)}
             for x, y, z, d, c, label in zip(loc.x_nm, loc.y_nm, loc.z_nm,
                                             self.result.distance_nm,
