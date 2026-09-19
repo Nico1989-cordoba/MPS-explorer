@@ -18,14 +18,20 @@ All eight per-axon parameters of the paper are now covered. Any that cannot
 be computed for a given axon (too few surviving clusters, for instance) come
 back as None and are shown as "n/a" rather than as zero.
 
+The contour is built with 2-opt from every start, keeping the shortest
+tour, whose result does not depend on the cluster the tour starts from.
+Before 2026-09-19 it was refined from one start; ``all_starts=False``
+still does that, and the exported ``contour_2opt`` column says which.
+
 ``without_clusters`` re-runs steps 3-6 on a subset of the clusters: the
 ones the axoplasm panel keeps after discarding those both widefield images
-place inside the axon. ``with_every_start`` re-runs them on all the kept
-clusters. Both build the contour with 2-opt from every start, whose result
-does not depend on the starting cluster, and everything before the
-clusters are fixed -- the axial slab, DBSCAN, the automatic curation -- is
-shared, so the two differ only by the clusters left out and the user can
-take either one to the statistics.
+place inside the axon. Everything before the clusters are fixed -- the
+axial slab, DBSCAN, the automatic curation -- is shared, so the analysis
+of all the clusters and this one differ only by the clusters left out,
+and the user can take either one to the statistics.
+
+Beyond the paper, the analysis reports the centre of the contour: its
+area centroid (tools.mps_geometry.contour_centre).
 
 This module is deliberately free of any Qt dependency so the whole pipeline
 can be run and tested headlessly (see validate_full_18axons.py).
@@ -60,6 +66,7 @@ from tools.mps_geometry import (
     DEEP_VERTEX_FRACTION,
     MAX_OVER_MEDIAN_LIMIT,
     ClusterAreaResult,
+    ContourCentre,
     ContourHealth,
     PerimeterResult,
     compute_cluster_areas,
@@ -211,6 +218,12 @@ class AxonAnalysis:
         return self.perimeter.health if self.perimeter else None
 
     @property
+    def centre(self) -> Optional[ContourCentre]:
+        """The area centroid of the contour. None without one, and when it
+        crosses itself, encloses no area or has a non-finite vertex."""
+        return self.perimeter.centre if self.perimeter else None
+
+    @property
     def contour_tour_over_hull(self) -> Optional[float]:
         """Exposed on its own so a batch can compare it between groups.
 
@@ -263,6 +276,22 @@ class AxonAnalysis:
         starts = 1 if self.perimeter is None else self.perimeter.n_starts
         joined = ("centroids connected, 2-opt" if starts == 1 else
                   f"centroids connected, 2-opt from all {starts} starts")
+        centre = self.centre
+        if centre is not None:
+            where = f"x {centre.x_nm:.0f}, y {centre.y_nm:.0f} nm"
+            where_note = (f"area centroid of the contour, which encloses "
+                          f"{centre.area_um2:.2f} um^2; same frame as the "
+                          f"localizations")
+        else:
+            where = "n/a"
+            if self.perimeter is None:
+                where_note = ""
+            elif self.perimeter.self_intersections_after > 0:
+                where_note = "the contour crosses itself"
+            else:
+                where_note = ("the contour encloses no area, or a cluster "
+                              "centre is not a finite coordinate")
+        shift = None if centre is None else centre.max_shift_nm
 
         rows: List[Tuple[str, str, str, str]] = [
             ("Localizations (ROI)", f"{self.n_locs_total:,}", "-", ""),
@@ -302,6 +331,12 @@ class AxonAnalysis:
              "" if self.contour_health is None
              else f"{self.contour_health.edge_max_nm:,.0f} nm against "
                   f"{self.contour_health.edge_median_nm:,.0f} nm"),
+            ("Centre", where, "-", where_note),
+            ("  moves with one cluster out",
+             "n/a" if shift is None else f"{shift:,.0f} nm", "-",
+             "" if shift is None
+             else "the most it moves, leaving each cluster of the contour "
+                  "out in turn"),
             ("Clusters per um", fmt(self.clusters_per_um, 2), "4.08", ""),
             ("Cluster area (median)", fmt(self.median_area_nm2, 0) + " nm^2",
              "1,965 nm^2", "convex hull"),
@@ -393,6 +428,19 @@ class AxonAnalysis:
             "contour_length_in_long_edges": (
                 None if self.contour_health is None
                 else round(self.contour_health.length_in_long_edges, 3)),
+            # The area centroid of the contour, in the localizations' own
+            # frame, the area it encloses, and the most it moves when one
+            # cluster is left out of it.
+            "centre_x_nm": (None if self.centre is None
+                            else round(self.centre.x_nm, 1)),
+            "centre_y_nm": (None if self.centre is None
+                            else round(self.centre.y_nm, 1)),
+            "contour_area_um2": (None if self.centre is None
+                                 else round(self.centre.area_um2, 4)),
+            "centre_max_shift_nm": (
+                None if self.centre is None
+                or self.centre.max_shift_nm is None
+                else round(self.centre.max_shift_nm, 1)),
             "median_area_nm2": self.median_area_nm2,
             "median_r_eff_nm": self.median_r_eff_nm,
             "median_1nn_nm": self.median_1nn_nm,
@@ -457,6 +505,7 @@ def analyze_axon(
     run_randomization: bool = True,
     n_randomizations: int = DEFAULT_N_RANDOMIZATIONS,
     random_seed: int = 0,
+    all_starts: bool = True,
 ) -> AxonAnalysis:
     """
     Run the full per-axon pipeline on one ROI's localizations.
@@ -474,6 +523,11 @@ def analyze_axon(
         slab entirely.
     custom_contour_order : explicit ordering of the cluster centroids for
         the perimeter, for axons where the automatic contour is wrong.
+
+    all_starts : build the contour with 2-opt from every start and keep
+        the shortest tour (default). False refines it from one start, as
+        this program did before 2026-09-19; on the 18 April axons that
+        tour came out longer in 13, by up to 7.1 %.
 
     Returns
     -------
@@ -599,7 +653,8 @@ def analyze_axon(
 
     steps = _cluster_steps(
         xs, ys, labels, set(report.bad_labels), centroids,
-        custom_contour_order=custom_contour_order, **settings)
+        custom_contour_order=custom_contour_order, all_starts=all_starts,
+        **settings)
     return AxonAnalysis(
         perimeter=steps.perimeter, areas=steps.areas, nn=steps.nn,
         occupancy=steps.occupancy, randomization=steps.randomization,
@@ -754,9 +809,12 @@ def with_every_start(
     contour moves occupancy and the randomization; nothing before them
     changes. ``contour`` is the contour of all the kept clusters already
     built with every start.
+
+    An analysis already built that way -- analyze_axon's default -- comes
+    back as it is, and so does one with too few clusters for a contour.
     """
-    if (analysis.perimeter is not None and analysis.perimeter.n_starts > 1
-            and not analysis.discard_applied):
+    if not analysis.discard_applied and (
+            analysis.perimeter is None or analysis.perimeter.n_starts > 1):
         return analysis
     return _rerun(analysis, np.zeros(analysis.n_clusters_kept, dtype=bool),
                   contour=contour, margin_nm=None)

@@ -23,11 +23,14 @@ Changing any of them re-runs the analysis on the same localizations and
 redraws everything.
 
 Once the axoplasm panel has found the clusters not anchored to the
-membrane, two more columns appear: every parameter with all the clusters
-and with the discard applied, both with the contour built by 2-opt from
-every start, so they differ only by the clusters left out. The plots show
-any of the three, and each has its own export, so the user decides which
-numbers go to the statistics.
+membrane, another column appears: every parameter again with the discard
+applied. Both it and the measured column build the contour by 2-opt from
+every start, so they differ only by the clusters left out. (An analysis
+refined from one start, as this program did before 2026-09-19, gets a
+third column in between: all the clusters, every start.) The plots show any of them,
+and each has its own export, so the user decides which numbers go to the
+statistics. The contour plot marks the centre of each contour, its area
+centroid, with a cross.
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -59,6 +62,9 @@ _C_GREY = "#888888"
 _C_DARK_OUTLINE = "#e0e0e0"
 # The clusters the discard left out, as the axoplasm panel draws them.
 _C_DISCARDED = "#ff4040"
+# The centre of the contour shown (Okabe-Ito reddish purple, as in the
+# axoplasm panel, whose yellow is already the spectrin interior).
+_C_CENTRE = "#cc79a7"
 
 # Columns of the parameter table.
 (_COL_NAME, _COL_MEASURED, _COL_EVERY, _COL_DISCARD, _COL_PAPER,
@@ -116,7 +122,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         splitter.setStretchFactor(1, 5)
         root.addWidget(splitter, stretch=1)
         self.splitter = splitter
-        # The table is widened once when its two extra columns appear; after
+        # The table is widened once when its extra columns appear; after
         # that the divider stays where the user leaves it.
         self._widened = False
 
@@ -253,7 +259,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             QtCore.Qt.TextSelectableByMouse)
         lay.addWidget(self.lbl_provenance)
 
-        # Which analysis the plots show, once there are three.
+        # Which analysis the plots show, once the discard is compared.
         self.box_shown = QtWidgets.QWidget()
         shown = QtWidgets.QHBoxLayout(self.box_shown)
         shown.setContentsMargins(0, 0, 0, 0)
@@ -283,18 +289,12 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         for col in (_COL_NAME, _COL_MEASURED, _COL_EVERY, _COL_DISCARD):
             self.table.horizontalHeader().setSectionResizeMode(
                 col, QtWidgets.QHeaderView.ResizeToContents)
-        self.table.horizontalHeaderItem(_COL_MEASURED).setToolTip(
-            "As the MPS analysis measures every axon: the contour refined\n"
-            "by 2-opt from one start.")
         self.table.horizontalHeaderItem(_COL_EVERY).setToolTip(
             "Every kept cluster, with the contour refined by 2-opt from\n"
-            "every start (the shortest tour). One start can settle on a\n"
-            "longer tour -- by up to 12.9 % on the April axons -- which\n"
-            "would blur the comparison with the next column.")
-        self.table.horizontalHeaderItem(_COL_DISCARD).setToolTip(
-            "Every parameter again without the clusters the axoplasm panel\n"
-            "discarded, the contour also from every start: it differs from\n"
-            "'All clusters' only by those clusters. Values in bold changed.")
+            "every start (the shortest tour). Shown only when the measured\n"
+            "analysis used one start, which can settle on a longer tour --\n"
+            "by up to 7.1 % on the April axons -- and would blur the\n"
+            "comparison with the next column.")
         for col in (_COL_EVERY, _COL_DISCARD):
             self.table.setColumnHidden(col, True)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -338,7 +338,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         self.plot_contour = pg.PlotWidget()
         style_dark(self.plot_contour)
-        set_title(self.plot_contour, "Clusters and reconstructed perimeter")
+        set_title(self.plot_contour,
+                  "Clusters, reconstructed perimeter and its centre (+)")
         self.plot_contour.setAspectLocked(True)
         self.plot_contour.setLabels(bottom="x [nm]", left="y [nm]")
         grid.addWidget(self.plot_contour, 0, 0, 2, 1)
@@ -420,13 +421,35 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 return self.comparison.discard_applied
         return self.analysis
 
+    def _every_column(self) -> bool:
+        """Whether 'All clusters' says something the measured column does
+        not: only when the measured contour came from one 2-opt start."""
+        return (self.comparison is not None
+                and self.comparison.all_clusters is not self.analysis)
+
     def _sync_discard_widgets(self) -> None:
-        three = self.comparison is not None
-        self.box_shown.setVisible(three)
-        self.box_export.setVisible(three)
-        for col in (_COL_EVERY, _COL_DISCARD):
-            self.table.setColumnHidden(col, not three)
-        if three and not self._widened:
+        compared = self.comparison is not None
+        every = self._every_column()
+        self.box_shown.setVisible(compared)
+        self.box_export.setVisible(compared)
+        self.radio_every.setVisible(every)
+        self.btn_export_every.setVisible(every)
+        if not every and self.radio_every.isChecked():
+            self.radio_measured.setChecked(True)
+        self.table.setColumnHidden(_COL_EVERY, not every)
+        self.table.setColumnHidden(_COL_DISCARD, not compared)
+        one_start = self.analysis.contour_2opt == "one start"
+        self.table.horizontalHeaderItem(_COL_MEASURED).setToolTip(
+            "As the MPS analysis measures every axon: the contour refined\n"
+            + ("by 2-opt from one start, as before 2026-09-19."
+               if one_start else
+               "by 2-opt from every start, keeping the shortest tour."))
+        self.table.horizontalHeaderItem(_COL_DISCARD).setToolTip(
+            "Every parameter again without the clusters the axoplasm panel\n"
+            "discarded, the contour also from every start: it differs from\n"
+            + ("'All clusters'" if every else "'Measured'")
+            + " only by those clusters. Values in bold changed.")
+        if compared and not self._widened:
             # Before the window is first laid out the splitter has no size
             # yet; its width will be the window's.
             total = max(sum(self.splitter.sizes()), self.width())
@@ -620,7 +643,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 brush=pg.mkBrush(0, 114, 178, 110)))
 
         if a.discard_applied and self.comparison is not None:
-            # The contour with every cluster, for what the discard changed.
+            # The contour with every cluster, and its centre, for what the
+            # discard changed.
             every = self.comparison.all_clusters.perimeter
             if every is not None:
                 closed = np.vstack([every.contour, every.contour[:1]])
@@ -628,6 +652,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                     closed[:, 0], closed[:, 1],
                     pen=pg.mkPen(_C_GREY, width=1,
                                  style=QtCore.Qt.PenStyle.DashLine)))
+                if every.centre is not None:
+                    self.plot_contour.addItem(pg.ScatterPlotItem(
+                        [every.centre.x_nm], [every.centre.y_nm], size=14,
+                        symbol="+", pen=pg.mkPen(_C_GREY),
+                        brush=pg.mkBrush(_C_GREY)))
             labels = good_cluster_labels(self.analysis.labels,
                                          self.analysis.bad_report.bad_labels)
             out = np.isin(labels, list(a.discarded_labels))
@@ -670,6 +699,12 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.plot_contour.addItem(pg.ScatterPlotItem(
                 a.centroids[:, 0], a.centroids[:, 1], size=7,
                 pen=pg.mkPen(_C_DARK_OUTLINE), brush=pg.mkBrush(_C_GREEN)))
+
+        # The centre of the contour drawn: its area centroid.
+        if a.centre is not None:
+            self.plot_contour.addItem(pg.ScatterPlotItem(
+                [a.centre.x_nm], [a.centre.y_nm], size=18, symbol="+",
+                pen=pg.mkPen("#000000"), brush=pg.mkBrush(_C_CENTRE)))
 
     def _draw_z(self) -> None:
         a = self._shown()
@@ -854,8 +889,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         record = analysis.export_dict()
         try:
-            # The measured analysis, the one with every 2-opt start and the
-            # one with the discard each go to a table of their own.
+            # The measured analysis and the one with the discard each go to
+            # a table of their own, and so does the one with every 2-opt
+            # start when the measured analysis used one start.
             refuse_other_analysis(path, record, ANALYSIS_COLUMNS)
             # A batch of axons accumulates into one table. A file with other
             # columns is refused rather than overwritten.

@@ -786,7 +786,9 @@ def test_anchored() -> None:
         assert abs(new.perimeter_um / truth - 1) < 0.05, \
             (new.perimeter_um, truth)
         assert found.contour_all_starts.perimeter_um > new.perimeter_um
-        assert found.contour_all.n_starts == 1
+        # Without the analysis' contour, it is built as the analysis
+        # builds it: from every start.
+        assert found.contour_all is found.contour_all_starts
         return (f"{new.perimeter_um:.2f} um against a true "
                 f"{truth:.2f} um; with the inside ones "
                 f"{found.contour_all_starts.perimeter_um:.2f} um")
@@ -807,6 +809,48 @@ def test_anchored() -> None:
         assert found.contour_anchored is found.contour_all_starts
         assert len(cache) == 1
         return "the same contour, built once"
+
+    def the_analysis_contour_is_reused():
+        rng = np.random.default_rng(10)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=30)
+        icol, irow = centre[0] + np.array([3.0]), centre[1] + np.array([0.0])
+        ccol, crow = np.concatenate([col, icol]), np.concatenate([row, irow])
+        tub = disc_image(shape, centre, radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        nm = np.column_stack([ccol, crow]) * PIXEL_NM
+        every = ax.reconstruct_perimeter(nm, all_starts=True)
+        cache: dict = {}
+        found = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol, crow,
+                                     250.0, contour_all=every,
+                                     contour_cache=cache)
+        assert found.contour_all is every
+        assert found.contour_all_starts is every
+        assert found.n_discarded == 1 and len(cache) == 2
+        one = ax.reconstruct_perimeter(nm)
+        again = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                     crow, 250.0, contour_all=one)
+        assert again.contour_all is one
+        assert again.contour_all_starts is not one
+        assert again.contour_all_starts.n_starts == len(nm)
+        other = ax.reconstruct_perimeter(nm[:-1], all_starts=True)
+        stale = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                     crow, 250.0, contour_all=other)
+        assert stale.contour_all_starts is not other
+        # As many clusters, somewhere else: not taken either.
+        moved = ax.reconstruct_perimeter(nm + 500.0, all_starts=True)
+        held: dict = {}
+        shifted = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                       crow, 250.0, contour_all=moved,
+                                       contour_cache=held)
+        assert shifted.contour_all_starts is not moved
+        assert all(c is not moved for c in held.values())
+        assert np.array_equal(shifted.contour_all_starts.contour,
+                              every.contour)
+        return ("every start: taken as it is; one start, fewer clusters or "
+                "other positions: rebuilt")
 
     def exported_columns():
         rng = np.random.default_rng(9)
@@ -844,6 +888,8 @@ def test_anchored() -> None:
     check("the contour is rebuilt without them", the_contour_without_them)
     check("nothing discarded, nothing rebuilt twice",
           nothing_discarded_nothing_rebuilt)
+    check("the analysis' own contour, when it is every start's",
+          the_analysis_contour_is_reused)
     check("the export's columns", exported_columns)
 
 
@@ -880,31 +926,67 @@ def test_without_clusters() -> None:
     x, y, z, roi, _centres, n_in = ring_with_inside(rng)
     base = ma.analyze_axon(x, y, z, roi=roi, n_randomizations=100,
                            random_seed=3)
+    # The same axon refined from one start, as this program did before
+    # 2026-09-19.
+    legacy = ma.analyze_axon(x, y, z, roi=roi, n_randomizations=100,
+                             random_seed=3, all_starts=False)
     inside = np.hypot(base.centroids[:, 0] - 6000.0,
                       base.centroids[:, 1] - 6000.0) < 1000.0
     truth_um = 2 * np.pi * 1500.0 / 1000.0
     comparison = ma.compare_discard(base, inside, margin_nm=250.0)
     every, applied = comparison.all_clusters, comparison.discard_applied
+    redone = ma.with_every_start(legacy)
 
     def the_axon():
         assert base.n_clusters_kept == 40 and inside.sum() == n_in, \
             (base.n_clusters_kept, inside.sum())
-        assert base.contour_2opt == "one start"
-        return (f"40 clusters, {n_in} inside; measured perimeter "
-                f"{base.perimeter_um:.2f} um against a ring of "
+        assert base.contour_2opt == "every start"
+        assert base.perimeter.n_starts == 40
+        assert legacy.contour_2opt == "one start"
+        # Already built from every start: the analysis of all the clusters
+        # is the measured one itself, not a second run.
+        assert every is base and ma.with_every_start(base) is base
+        return (f"40 clusters, {n_in} inside; perimeter {base.perimeter_um:.2f} "
+                f"um (one start {legacy.perimeter_um:.2f}) against a ring of "
                 f"{truth_um:.2f} um")
 
     def every_start_changes_only_the_contour():
-        assert every.contour_2opt == "every start"
-        assert every.cluster_set == "all clusters" and not every.discard_applied
-        assert every.n_clusters_kept == base.n_clusters_kept
-        assert np.array_equal(every.centroids, base.centroids)
-        assert np.array_equal(every.areas.areas_nm2, base.areas.areas_nm2)
-        assert np.array_equal(every.nn.first_nn_nm, base.nn.first_nn_nm)
-        assert every.perimeter_um <= base.perimeter_um + 1e-9
-        assert every.randomization.n_iterations == 100
-        return (f"perimeter {base.perimeter_um:.2f} -> "
-                f"{every.perimeter_um:.2f} um; areas and 1NN unchanged")
+        # Another draw of the same ring, where one start settles on a
+        # longer tour, so that repeating it from every start has something
+        # to change.
+        x0, y0, z0, roi0, _c0, _n0 = ring_with_inside(
+            np.random.default_rng(0))
+        kw = dict(roi=roi0, n_randomizations=100, random_seed=3)
+        one = ma.analyze_axon(x0, y0, z0, all_starts=False, **kw)
+        default = ma.analyze_axon(x0, y0, z0, **kw)
+        again = ma.with_every_start(one)
+        assert one.perimeter_um > again.perimeter_um + 0.5, \
+            (one.perimeter_um, again.perimeter_um)
+        assert again.contour_2opt == "every start"
+        assert again.cluster_set == "all clusters"
+        assert not again.discard_applied
+        assert again.n_clusters_kept == one.n_clusters_kept
+        assert np.array_equal(again.centroids, one.centroids)
+        assert np.array_equal(again.areas.areas_nm2, one.areas.areas_nm2)
+        assert np.array_equal(again.nn.first_nn_nm, one.nn.first_nn_nm)
+        # The steps that follow the contour were run again ...
+        assert again.occupancy_percent != one.occupancy_percent
+        assert again.ks_statistic != one.ks_statistic
+        assert again.randomization.n_iterations == 100
+        # ... and give what analyze_axon now measures in the first place.
+        for name in ("perimeter_um", "occupancy_percent", "ks_statistic",
+                     "ks_pvalue", "median_1nn_nm"):
+            assert getattr(again, name) == getattr(default, name), name
+        assert np.array_equal(again.perimeter.order, default.perimeter.order)
+        assert again.centre.x_nm == default.centre.x_nm
+        # On the ring of the other checks the two tours are the same.
+        assert redone.perimeter_um == base.perimeter_um
+        return (f"one start {one.perimeter_um:.2f} -> every start "
+                f"{again.perimeter_um:.2f} um, occupancy "
+                f"{one.occupancy_percent:.1f} -> "
+                f"{again.occupancy_percent:.1f} %, KS D "
+                f"{one.ks_statistic:.3f} -> {again.ks_statistic:.3f}: the "
+                f"default analysis' numbers; areas and 1NN unchanged")
 
     def the_discard_redoes_every_step():
         labels = ma.good_cluster_labels(base.labels,
@@ -985,8 +1067,77 @@ def test_without_clusters() -> None:
             all_clusters=ma.with_every_start(other)), "not this analysis")
         return "5 refused"
 
+    def the_centre_with_and_without_them():
+        # The ring is centred at (6000, 6000). The clusters inside, as
+        # vertices, pull the centre of the contour; without them it is the
+        # ring's.
+        off = {name: float(np.hypot(a.centre.x_nm - 6000.0,
+                                    a.centre.y_nm - 6000.0))
+               for name, a in (("all", base), ("kept", applied))}
+        assert off["kept"] < 5.0, off
+        assert off["all"] > off["kept"], off
+        assert applied.centre.max_shift_nm < base.centre.max_shift_nm
+        rows = {r[0]: r[1] for r in applied.summary_rows()}
+        assert rows["Centre"] == (f"x {applied.centre.x_nm:.0f}, "
+                                  f"y {applied.centre.y_nm:.0f} nm")
+        record = applied.export_dict()
+        assert record["centre_x_nm"] == round(applied.centre.x_nm, 1)
+        assert record["centre_y_nm"] == round(applied.centre.y_nm, 1)
+        assert record["centre_max_shift_nm"] == round(
+            applied.centre.max_shift_nm, 1)
+        assert abs(record["contour_area_um2"]
+                   - np.pi * 1.5 ** 2) / (np.pi * 1.5 ** 2) < 0.02
+        return (f"{off['kept']:.1f} nm from the ring's centre without them, "
+                f"{off['all']:.0f} nm with them; one cluster out moves it "
+                f"{applied.centre.max_shift_nm:.0f} vs "
+                f"{base.centre.max_shift_nm:.0f} nm")
+
+    def centres_that_are_not_defined():
+        # A contour given by hand that crosses itself: no centre, and the
+        # table says why.
+        order = np.array(base.perimeter.order)
+        order[[3, 20]] = order[[20, 3]]
+        crossed = ma.analyze_axon(x, y, z, roi=roi, run_randomization=False,
+                                  custom_contour_order=order)
+        assert crossed.perimeter.self_intersections_after > 0
+        assert crossed.centre is None
+        rows = {r[0]: r for r in crossed.summary_rows()}
+        assert rows["Centre"][1] == "n/a"
+        assert rows["Centre"][3] == "the contour crosses itself"
+        assert rows["  moves with one cluster out"][1] == "n/a"
+        record = crossed.export_dict()
+        assert all(record[c] is None for c in (
+            "centre_x_nm", "centre_y_nm", "contour_area_um2",
+            "centre_max_shift_nm"))
+        # A discard that leaves three clusters: a triangle, built from
+        # every start, whose centre cannot lose a vertex.
+        few = ring_with_inside(np.random.default_rng(5), n_ring=3,
+                               inside=((-300.0, 0.0), (200.0, 250.0)))
+        five = ma.analyze_axon(*few[:3], roi=few[3], run_randomization=False)
+        gone = np.hypot(five.centroids[:, 0] - 6000.0,
+                        five.centroids[:, 1] - 6000.0) < 1000.0
+        assert five.n_clusters_kept == 5 and gone.sum() == 2
+        three = ma.compare_discard(five, gone, margin_nm=250.0).discard_applied
+        assert three.n_clusters_kept == 3
+        assert three.contour_2opt == "every start"
+        assert three.centre is not None and three.centre.max_shift_nm is None
+        record = three.export_dict()
+        assert record["centre_max_shift_nm"] is None
+        assert record["centre_x_nm"] == round(three.centre.x_nm, 1)
+        # Too few clusters for a contour: nothing to rebuild or centre.
+        two = ring_with_inside(np.random.default_rng(6), n_ring=1,
+                               inside=((0.0, 0.0),))
+        bare = ma.analyze_axon(*two[:3], roi=two[3], run_randomization=False)
+        assert bare.perimeter is None and bare.centre is None
+        assert ma.with_every_start(bare) is bare
+        rows = {r[0]: r for r in bare.summary_rows()}
+        assert rows["Centre"][1] == "n/a" and rows["Centre"][3] == ""
+        return ("a crossing contour, a triangle and two clusters: n/a and "
+                "empty columns, never a number")
+
     def exported_rows():
-        rows = [base.export_dict(), every.export_dict(), applied.export_dict()]
+        rows = [legacy.export_dict(), base.export_dict(),
+                applied.export_dict()]
         assert list(rows[0]) == list(rows[1]) == list(rows[2])
         sets = [(r["cluster_set"], r["contour_2opt"]) for r in rows]
         assert sets == [("all clusters", "one start"),
@@ -995,6 +1146,9 @@ def test_without_clusters() -> None:
         assert rows[0]["n_clusters_discarded"] is None
         assert rows[2]["n_clusters_discarded"] == n_in
         assert rows[2]["discard_margin_nm"] == 250.0
+        for column in ("centre_x_nm", "centre_y_nm", "contour_area_um2",
+                       "centre_max_shift_nm"):
+            assert all(r[column] is not None for r in rows), column
         return f"{len(rows[0])} columns, the same for the three"
 
     def one_table_per_analysis():
@@ -1006,7 +1160,7 @@ def test_without_clusters() -> None:
             append_rows(path, [row])
             refuse_other_analysis(path, row, ma.ANALYSIS_COLUMNS)
             append_rows(path, [row])
-            for other in (every.export_dict(), base.export_dict()):
+            for other in (base.export_dict(), legacy.export_dict()):
                 try:
                     refuse_other_analysis(path, other, ma.ANALYSIS_COLUMNS)
                 except TableMismatch as error:
@@ -1018,13 +1172,16 @@ def test_without_clusters() -> None:
             shutil.rmtree(folder, ignore_errors=True)
 
     check("the axon: a ring with clusters inside", the_axon)
-    check("every start changes only the contour",
+    check("one start, repeated from every start: only the contour changes",
           every_start_changes_only_the_contour)
     check("without them, every step again", the_discard_redoes_every_step)
     check("the warnings say what was left out", its_warnings_say_so)
     check("nothing discarded: the same numbers", nothing_discarded_same_numbers)
     check("moving the margin re-runs nothing", the_margin_alone_moves_nothing)
     check("inputs that do not fit are refused", refused_inputs)
+    check("the centre, with and without them",
+          the_centre_with_and_without_them)
+    check("centres that are not defined", centres_that_are_not_defined)
     check("the three exports", exported_rows)
     check("one table per analysis", one_table_per_analysis)
 
@@ -1074,9 +1231,12 @@ def test_real_data() -> None:
         assert found.n_discarded == 5, found.n_discarded
         assert 15.5 < new.perimeter_um < 17.0, new.perimeter_um
         assert new.health.n_deep_vertices <= 1, new.health.n_deep_vertices
+        # The MPS analysis builds its contour from every start: the panel
+        # takes it as it is.
+        assert found.contour_all is found.contour_all_starts
         return (f"{found.n_discarded} of {found.n} discarded; perimeter "
-                f"{lengths[0]:.2f} (MPS analysis) -> {lengths[1]:.2f} (all, "
-                f"every start) -> {new.perimeter_um:.2f} um")
+                f"{lengths[0]:.2f} (MPS analysis, every start) -> "
+                f"{new.perimeter_um:.2f} um")
 
     def anchored_roi2():
         # The axon where a spectrin interior not bounded by the clusters
@@ -1117,21 +1277,54 @@ def test_real_data() -> None:
             contour_all=found.contour_all_starts,
             contour_kept=found.contour_anchored)
         every, applied = both.all_clusters, both.discard_applied
-        # The panel's two contours are the analyses' own.
+        # The measured analysis is the one with all the clusters, and the
+        # panel's two contours are the analyses' own.
+        assert every is analysis
         assert every.perimeter is found.contour_all_starts
         assert applied.perimeter is found.contour_anchored
         assert applied.n_clusters_kept == analysis.n_clusters_kept - 5
         assert applied.median_1nn_nm != every.median_1nn_nm
         assert applied.occupancy_percent != every.occupancy_percent
-        return (f"perimeter {analysis.perimeter_um:.2f} (measured) / "
-                f"{every.perimeter_um:.2f} / {applied.perimeter_um:.2f} um; "
-                f"1NN {every.median_1nn_nm:.1f} -> "
+        moved = float(np.hypot(applied.centre.x_nm - every.centre.x_nm,
+                               applied.centre.y_nm - every.centre.y_nm))
+        return (f"perimeter {every.perimeter_um:.2f} -> "
+                f"{applied.perimeter_um:.2f} um; 1NN "
+                f"{every.median_1nn_nm:.1f} -> "
                 f"{applied.median_1nn_nm:.1f} nm; occupancy "
                 f"{every.occupancy_percent:.1f} -> "
-                f"{applied.occupancy_percent:.1f} %")
+                f"{applied.occupancy_percent:.1f} %; the centre moves "
+                f"{moved:.0f} nm")
+
+    def one_start_axon7():
+        if not os.path.exists(APRIL_AXON7):
+            return "skipped, data not present"
+        from tools import mps_analysis as ma
+        from tools.mps_io import load_localizations
+
+        loc = load_localizations(APRIL_AXON7)
+        args = (loc.x_nm, loc.y_nm, loc.z_nm)
+        kw = dict(pixel_size_nm=loc.pixel_size_nm, n_randomizations=50,
+                  random_seed=0)
+        every = ma.analyze_axon(*args, **kw)
+        one = ma.analyze_axon(*args, all_starts=False, **kw)
+        redone = ma.with_every_start(one)
+        assert every.contour_2opt == "every start"
+        assert one.contour_2opt == "one start"
+        assert one.perimeter_um > every.perimeter_um + 0.5, \
+            (one.perimeter_um, every.perimeter_um)
+        assert redone.perimeter_um == every.perimeter_um
+        assert np.array_equal(redone.perimeter.order, every.perimeter.order)
+        assert redone.occupancy_percent == every.occupancy_percent \
+            != one.occupancy_percent
+        assert redone.ks_statistic == every.ks_statistic != one.ks_statistic
+        return (f"one start {one.perimeter_um:.2f} um, every start "
+                f"{every.perimeter_um:.2f} um; one start repeated from every "
+                f"start gives the latter, occupancy and KS included")
 
     check("axon 7: the clusters inside, and the contour without them",
           anchored_axon7)
+    check("axon 7: one start, as before 2026-09-19, is longer",
+          one_start_axon7)
     check("axon 7: every parameter with and without them", analysis_axon7)
     check("ROI 2, axon 1: no membrane cluster discarded", anchored_roi2)
 

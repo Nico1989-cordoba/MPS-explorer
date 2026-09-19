@@ -885,10 +885,12 @@ class AnchoredClusters:
     depth_spectrin_nm: NDArray[np.float64]
     margin_nm: float
     discarded: NDArray[np.bool_]
-    # All clusters, connected as the MPS analysis connects them (one 2-opt
-    # start); all clusters with 2-opt from every start; and the anchored
-    # ones with 2-opt from every start. The last two differ ONLY by the
-    # discarded clusters, so they measure what discarding them does.
+    # All clusters, connected as the MPS analysis connects them; all
+    # clusters with 2-opt from every start -- the same contour, unless the
+    # analysis was refined from one start, as it was before 2026-09-19; and
+    # the anchored ones with 2-opt from every start. The last two differ
+    # ONLY by the discarded clusters, so they measure what discarding them
+    # does.
     contour_all: Optional[PerimeterResult]
     contour_all_starts: Optional[PerimeterResult]
     contour_anchored: Optional[PerimeterResult]
@@ -939,14 +941,15 @@ def anchored_clusters(
     column/row pairs are the same centres in each image's pixels (the two
     images can sit at different camera offsets). ``contour_all`` is the
     contour the MPS analysis built from all of them; without it, it is
-    rebuilt the way the analysis builds it.
+    rebuilt the way the analysis builds it, with 2-opt from every start.
 
-    The contour of the anchored clusters is built with 2-opt from every
-    starting point, keeping the shortest tour: a new number, so it can be
-    made independent of the start without changing any number the pipeline
-    already produced. So is the contour of all the clusters, for the
-    comparison. ``contour_cache`` (keyed by the centres' bytes) saves
-    rebuilding them when only the margin moved and the same clusters stay.
+    The contour of the anchored clusters is built the same way, keeping
+    the shortest tour over every starting point, so that it does not
+    depend on the start. When ``contour_all`` came from one start, the
+    contour of all the clusters is rebuilt from every start too, for the
+    comparison; otherwise it is ``contour_all`` itself. ``contour_cache``
+    (keyed by the centres' bytes) saves rebuilding them when only the
+    margin moved and the same clusters stay.
     """
     centroids = np.asarray(centroids_nm, dtype=float).reshape(-1, 2)
     depth_t = tubulin.distance_at(tubulin_col, tubulin_row)
@@ -966,8 +969,15 @@ def anchored_clusters(
             cache[key] = reconstruct_perimeter(points, all_starts=True)
         return cache[key]
 
-    if contour_all is None and len(centroids) >= 3:
-        contour_all = reconstruct_perimeter(centroids)
+    if (contour_all is not None and contour_all.n_starts > 1
+            and contour_all.n_clusters == len(centroids)
+            and np.array_equal(contour_all.contour,
+                               centroids[contour_all.order])):
+        # Already the shortest over every start, of these same centres:
+        # the analysis' own contour stands for all the clusters.
+        cache[np.ascontiguousarray(centroids).tobytes()] = contour_all
+    if contour_all is None:
+        contour_all = shortest(centroids)
     kept = centroids[~discarded]
     if len(kept) < 3 and discarded.any():
         warnings.append(
@@ -985,6 +995,10 @@ def axon_centre(col: NDArray[np.float64], row: NDArray[np.float64]
     """
     Median centre of the selection, the median distance to it (the
     radius of a ring) and the farthest distance, all in pixels.
+
+    Only where to look for the axon in the widefield images. The centre
+    the MPS analysis reports is the area centroid of its contour
+    (tools.mps_geometry.contour_centre).
     """
     col = np.asarray(col, float)
     row = np.asarray(row, float)

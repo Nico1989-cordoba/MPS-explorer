@@ -49,6 +49,8 @@ _OUTLINE = (0, 230, 230, 255)
 _SPECTRIN_OUTLINE = (255, 230, 0, 255)
 _DISCARDED = "#ff4040"
 _ALL_CONTOUR = "#8a8a8a"
+# The centre of the green contour, as the MPS analysis window draws it.
+_CENTRE = "#cc79a7"
 # Contours rebuilt with every 2-opt start, kept per set of cluster centres.
 CONTOUR_CACHE_SIZE = 32
 
@@ -230,11 +232,14 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             pen=pg.mkPen("w"), brush=None, size=9)
         self.discarded_item = pg.ScatterPlotItem(
             pen=pg.mkPen("k"), brush=pg.mkBrush(_DISCARDED), size=10)
+        self.centre_item = pg.ScatterPlotItem(
+            pen=pg.mkPen("k"), brush=pg.mkBrush(_CENTRE), size=18,
+            symbol="+")
         for item in (self.image_item, self.outline_item,
                      self.spectrin_outline_item, self.membrane_item,
                      self.interior_item, self.contour_all_item,
                      self.contour_item, self.cluster_item,
-                     self.discarded_item):
+                     self.discarded_item, self.centre_item):
             self.plot_image.addItem(item)
         right.addWidget(self.plot_image, stretch=3)
         self.plot_hist = pg.PlotWidget()
@@ -368,9 +373,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             "widefield images put it inside the axon by more than the "
             "margin: inside the tubulin mask, and inside the dark area the "
             "betaII-spectrin ring encloses. The contour is then rebuilt "
-            "from the rest with 2-opt from every starting point, and the "
-            "MPS analysis window repeats every parameter with and without "
-            "them.")
+            "from the rest with 2-opt from every starting point, as the "
+            "MPS analysis builds its own, and the MPS analysis window "
+            "repeats every parameter with and without them. The cross is "
+            "the centre of that contour, its area centroid.")
         lay = QtWidgets.QVBoxLayout(box)
         self.label_anchored = _label("")
         lay.addWidget(self.label_anchored)
@@ -815,11 +821,13 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             f"{found.n_tubulin_only} by the tubulin, {found.n_spectrin_only} "
             f"by the spectrin.")
         parts = []
+        same = found.contour_all_starts is found.contour_all
         if found.contour_all is not None:
             parts.append(f"{found.contour_all.perimeter_um:.2f} µm with all "
-                         f"clusters, as the MPS analysis connects them "
-                         f"(dashed)")
-        if found.contour_all_starts is not None:
+                         f"clusters, as the MPS analysis connects them"
+                         + (" (2-opt from every start; dashed)" if same
+                            else " (dashed)"))
+        if found.contour_all_starts is not None and not same:
             parts.append(f"{found.contour_all_starts.perimeter_um:.2f} µm with "
                          f"all clusters and 2-opt from every start")
         new = found.contour_anchored
@@ -832,9 +840,18 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                    f"{spread:.2f} µm" if spread else "") + ")")
         if parts:
             lines.append("Perimeter: " + "; ".join(parts) + ".")
+        if new is not None and new.centre is not None:
+            c = new.centre
+            lines.append(
+                f"Centre of the green contour (+, its area centroid): "
+                f"x {c.x_nm:.0f}, y {c.y_nm:.0f} nm"
+                + ("" if c.max_shift_nm is None else
+                   f"; it moves at most {c.max_shift_nm:.0f} nm when one "
+                   f"cluster is left out") + ".")
         if new is not None and found.contour_all_starts is not None:
             lines.append("The MPS analysis window repeats every parameter "
-                         "with the last two contours, side by side.")
+                         "without the discarded clusters, next to the "
+                         "measured ones.")
         return "\n".join(lines)
 
     def _write_labels(self) -> None:
@@ -926,7 +943,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         mask = self.axoplasm
         for item in (self.membrane_item, self.interior_item,
                      self.cluster_item, self.discarded_item,
-                     self.contour_all_item, self.contour_item):
+                     self.contour_all_item, self.contour_item,
+                     self.centre_item):
             item.setData([], [])
         self.spectrin_outline_item.clear()
         if mask is None or self.tubulin is None:
@@ -997,6 +1015,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                 if drawn is not None:
                     closed = np.vstack([drawn.contour, drawn.contour[:1]])
                     item.setData(closed[:, 0], closed[:, 1])
+            new = found.contour_anchored
+            if new is not None and new.centre is not None:
+                self.centre_item.setData([new.centre.x_nm],
+                                         [new.centre.y_nm])
         else:
             centroids = self.inputs.clusters()
             if centroids is not None and len(centroids):

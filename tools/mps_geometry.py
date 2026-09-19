@@ -79,6 +79,22 @@ is what axon 7 of April reads. And the share of the length carried by
 the few steps above 3x the median runs near 30 % on a healthy ring.
 Neither can carry a threshold; both are useful next to one that can.
 
+Centre of the contour
+---------------------
+Not a parameter of the paper. ``contour_centre`` gives the area centroid
+of the contour: the centre of mass of the region it encloses. Three
+centres were compared on the anchored contours of the 18 April axons by
+leaving each cluster out in turn and measuring how far the centre moved
+(largest move per axon, median / worst): area centroid 39 / 150 nm; the
+maximum of a laminar flow with no slip on the contour 147 / 2168 nm; the
+centre of the largest inscribed circle 276 / 2404 nm. On 2/axon6_roi2,
+a contour with two lobes, the last two moved by more than 2 um where the
+area centroid moved 62 nm (on 2/axon9_roi2, also two-lobed, 703 and
+1080 nm against 64 nm); that is why it is the one computed here. It is a geometric centre
+of the contour and nothing more: like the perimeter, it is only as good
+as the contour, and a cluster from inside the axon that becomes a vertex
+moves it.
+
 @author: Nicolas (ngomez) + Claude
 """
 
@@ -422,6 +438,129 @@ def contour_health(contour: NDArray[np.float64]) -> Optional[ContourHealth]:
     return health
 
 
+# ============================================================================
+# Centre of the contour
+# ============================================================================
+
+@dataclass
+class ContourCentre:
+    """
+    The area centroid of a closed contour: the centre of mass of the
+    region it encloses, taken as uniform. It weighs the enclosed area, not
+    the vertices, so a stretch of the ring crowded with clusters does not
+    pull it the way it pulls the mean of the cluster centres.
+
+    ``max_shift_nm`` is how far it moves, at most, when any one vertex is
+    left out of the contour with the order of the rest kept (no new tour
+    is built). It is a sensitivity to single clusters, not a confidence
+    interval. A vertex whose removal makes the contour cross itself -- the
+    chord that replaces it cuts another edge, as it can past a deep notch
+    -- is skipped, since that contour has no centre. None with fewer than
+    four vertices, where leaving one out leaves no area, or when every
+    removal is skipped.
+    """
+
+    x_nm: float
+    y_nm: float
+    area_nm2: float
+    max_shift_nm: Optional[float] = None
+
+    @property
+    def area_um2(self) -> float:
+        return self.area_nm2 / 1e6
+
+
+def _chord_crosses(p: NDArray[np.float64]) -> NDArray[np.bool_]:
+    """
+    For each vertex i of the closed polygon ``p``, whether the chord from
+    vertex i-1 to vertex i+1 properly crosses an edge of the polygon other
+    than the four that touch i-1, i or i+1: whether leaving vertex i out
+    makes a polygon without crossings cross itself.
+    """
+    k = len(p)
+    a, b = np.roll(p, 1, axis=0), np.roll(p, -1, axis=0)   # chord ends
+    e0, e1 = p, np.roll(p, -1, axis=0)                     # edge j: j, j+1
+
+    def orient(o, d, q):
+        """Sign-carrying cross product (d - o) x (q - o), broadcast."""
+        return ((d[..., 0] - o[..., 0]) * (q[..., 1] - o[..., 1])
+                - (d[..., 1] - o[..., 1]) * (q[..., 0] - o[..., 0]))
+
+    A, B = a[:, None, :], b[:, None, :]            # chord i, along rows
+    E0, E1 = e0[None, :, :], e1[None, :, :]        # edge j, along columns
+    crosses = ((orient(E0, E1, A) * orient(E0, E1, B) < 0)
+               & (orient(A, B, E0) * orient(A, B, E1) < 0))
+    # The edges i-2 .. i+1 end at i-1 or i+1, or are the two replaced.
+    offset = (np.arange(k)[None, :] - np.arange(k)[:, None]) % k
+    crosses &= ~np.isin(offset, (k - 2, k - 1, 0, 1))
+    return np.asarray(crosses.any(axis=1))
+
+
+def contour_centre(contour: NDArray[np.float64]) -> Optional[ContourCentre]:
+    """
+    Area centroid of a closed polygon (shoelace formula), and how far it
+    moves when each vertex is left out in turn.
+
+    Parameters
+    ----------
+    contour : (K, 2) vertices in contour order, in nm, open (the closing
+        edge is implied). The polygon must not cross itself: the formula
+        then weighs each lobe by its signed area, and the result is not the
+        centre of anything. ``reconstruct_perimeter`` only calls this on a
+        contour without crossings.
+
+    Returns
+    -------
+    ContourCentre, or None when the contour has fewer than three vertices,
+    a non-finite vertex, or no area (all vertices on one line).
+    """
+    contour = np.asarray(contour, dtype=float)
+    if contour.ndim != 2 or contour.shape[1] != 2 or len(contour) < 3:
+        return None
+    if not np.isfinite(contour).all():
+        return None
+    # About the vertices' own mean: coordinates of tens of micrometres
+    # would otherwise lose digits in the cross products.
+    origin = contour.mean(axis=0)
+    p = contour - origin
+    x, y = p[:, 0], p[:, 1]
+    x1, y1 = np.roll(x, -1), np.roll(y, -1)
+    cross = x * y1 - x1 * y                      # twice each triangle's area
+    twice_area = float(cross.sum())
+    # The most each cross product could be, |p_k| |p_k+1|: its rounding
+    # error is a few 1e-16 of this whatever the shape, so an area below
+    # 1e-12 of it is rounding, not area -- vertices on one line.
+    scale = float((np.hypot(x, y) * np.hypot(x1, y1)).sum())
+    if scale <= 0.0 or abs(twice_area) <= 1e-12 * scale:
+        return None
+    mx = float(((x + x1) * cross).sum())
+    my = float(((y + y1) * cross).sum())
+    cx, cy = mx / (3.0 * twice_area), my / (3.0 * twice_area)
+
+    max_shift: Optional[float] = None
+    k = len(p)
+    if k >= 4:
+        # Leaving vertex i out replaces the edges (i-1, i) and (i, i+1) by
+        # the chord (i-1, i+1): subtract their terms, add the chord's.
+        xp, yp = np.roll(x, 1), np.roll(y, 1)
+        cross_prev = np.roll(cross, 1)            # edge (i-1, i)
+        chord = xp * y1 - x1 * yp                 # edge (i-1, i+1)
+        area_i = twice_area - cross_prev - cross + chord
+        mx_i = (mx - (xp + x) * cross_prev - (x + x1) * cross
+                + (xp + x1) * chord)
+        my_i = (my - (yp + y) * cross_prev - (y + y1) * cross
+                + (yp + y1) * chord)
+        ok = (np.abs(area_i) > 1e-12 * scale) & ~_chord_crosses(p)
+        if ok.any():
+            sx = mx_i[ok] / (3.0 * area_i[ok]) - cx
+            sy = my_i[ok] / (3.0 * area_i[ok]) - cy
+            max_shift = float(np.hypot(sx, sy).max())
+    return ContourCentre(x_nm=cx + float(origin[0]),
+                         y_nm=cy + float(origin[1]),
+                         area_nm2=abs(twice_area) / 2.0,
+                         max_shift_nm=max_shift)
+
+
 @dataclass
 class PerimeterResult:
     """Reconstructed axonal contour from cluster centres of mass."""
@@ -441,6 +580,9 @@ class PerimeterResult:
     # is kept and the spread says how much the start would have mattered.
     n_starts: int = 1
     start_lengths_nm: Optional[NDArray[np.float64]] = None
+    # The area centroid of the contour; None when it crosses itself or
+    # encloses no area (contour_centre).
+    centre: Optional[ContourCentre] = None
 
     @property
     def start_spread_um(self) -> Optional[float]:
@@ -485,8 +627,10 @@ def reconstruct_perimeter(
         keep the shortest tour. 2-opt only accepts improvements, so where it
         ends depends on where it starts: on the 18 April axons, rolling the
         start changed the perimeter in 144 of 270 cases, by up to 12.9 %.
-        The shortest over every start does not depend on it. Off by default
-        so the numbers the pipeline has always produced stay the same.
+        The shortest over every start does not depend on it, and the MPS
+        analysis builds its contour this way (tools.mps_analysis). Off by
+        default here: one start is what this program did before
+        2026-09-19, and validate_full_18axons.py still uses it.
 
     Returns
     -------
@@ -527,6 +671,9 @@ def reconstruct_perimeter(
             )
         before = _count_self_intersections(centroids, order)
         health = contour_health(centroids[order])
+        crossing = ([] if before == 0 else [
+            f"The manual contour crosses itself at {before} point(s): the "
+            f"area it encloses, and so its centre, are not defined."])
         return PerimeterResult(
             order=order,
             contour=centroids[order],
@@ -537,8 +684,9 @@ def reconstruct_perimeter(
             self_intersections_before=before,
             self_intersections_after=before,
             warnings=(["Manual contour ordering supplied by the user."]
-                      + (health.warnings if health else [])),
+                      + crossing + (health.warnings if health else [])),
             health=health,
+            centre=contour_centre(centroids[order]) if before == 0 else None,
         )
 
     order = _polar_angle_order(centroids)
@@ -547,7 +695,9 @@ def reconstruct_perimeter(
     n_improvements = 0
     n_starts = 1
     start_lengths: Optional[NDArray[np.float64]] = None
-    if refine and all_starts and k >= 4:
+    if refine and all_starts:
+        # With three centres every start gives the same triangle; they are
+        # still tried, so the result says it came from every start.
         lengths = np.empty(k)
         best: Optional[Tuple[float, NDArray[np.intp], int]] = None
         for start in range(k):
@@ -575,8 +725,9 @@ def reconstruct_perimeter(
     if xi_after > 0:
         warnings_.append(
             f"The reconstructed contour still self-intersects at {xi_after} "
-            f"point(s). The perimeter is unreliable; consider correcting the "
-            f"contour manually."
+            f"point(s). The perimeter is unreliable, and the area it "
+            f"encloses and its centre are not defined; consider correcting "
+            f"the contour manually."
         )
 
     length = _tour_length(centroids, order)
@@ -596,6 +747,7 @@ def reconstruct_perimeter(
         health=health,
         n_starts=n_starts,
         start_lengths_nm=start_lengths,
+        centre=contour_centre(centroids[order]) if xi_after == 0 else None,
     )
 
 

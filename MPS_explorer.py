@@ -867,9 +867,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
                           centroids: Optional[NDArray[np.float64]]) -> None:
         """
         The axoplasm panel found again which clusters are not anchored to
-        the membrane: repeat the MPS analysis with all the clusters and
-        without those, both with 2-opt from every start, for the results
-        window's second and third columns.
+        the membrane: repeat the MPS analysis without those, with 2-opt
+        from every start as the measured analysis builds its contour, for
+        the results window's discard column. (An analysis refined from one
+        start is first repeated with every start, for a column in between.)
 
         The part with all the clusters does not depend on the discard and
         is kept while the analysis stays the same; the other is kept while
@@ -931,8 +932,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     every = comparison.all_clusters.perimeter_um
                     kept = comparison.discard_applied.perimeter_um
                     self.logger.info(
-                        f"MPS analysis repeated with every 2-opt start: "
-                        f"{found.n_discarded} of {found.n} clusters "
+                        f"MPS analysis repeated without the discarded "
+                        f"clusters: {found.n_discarded} of {found.n} "
+                        f"clusters "
                         f"discarded, perimeter "
                         f"{'n/a' if every is None else f'{every:.2f}'} -> "
                         f"{'n/a' if kept is None else f'{kept:.2f}'} um")
@@ -1295,7 +1297,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.good_cluster_centroids = analysis.centroids
         self._render_good_clusters_panel(analysis.centroids)
         # The axoplasm panel finds the discarded clusters of THIS analysis,
-        # and with them the results window's other two columns: bring it up
+        # and with them the results window's discard column: bring it up
         # to date even when it is closed, since its images are still loaded.
         window = self.axoplasm_window
         if window is not None:

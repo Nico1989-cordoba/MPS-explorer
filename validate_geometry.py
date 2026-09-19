@@ -29,9 +29,10 @@ from tools.cluster_quality import (  # noqa: E402
 from tools.mps_periodicity import fit_z_periodicity, select_mps_slab  # noqa: E402
 from tools.mps_geometry import (  # noqa: E402
     reconstruct_perimeter, compute_cluster_areas, contour_health,
+    contour_centre,
     PAPER_MEDIAN_CLUSTER_AREA_NM2, PAPER_MEDIAN_R_EFF_NM,
     DEEP_VERTEX_FRACTION, MAX_OVER_MEDIAN_LIMIT,
-    _polar_angle_order, _two_opt, _two_opt_fast,
+    _polar_angle_order, _two_opt, _two_opt_fast, _count_self_intersections,
 )
 
 PXSIZE_NM = 133.0
@@ -413,15 +414,189 @@ def two_opt_checks() -> None:
         assert seconds < 10.0, seconds
         return f"110 centres, every start: {seconds:.1f} s"
 
+    def three_centres_every_start():
+        pts = np.array([[0.0, 0.0], [3000.0, 0.0], [0.0, 3000.0]])
+        every = reconstruct_perimeter(pts, all_starts=True)
+        one = reconstruct_perimeter(pts)
+        assert every.n_starts == 3 and one.n_starts == 1
+        assert np.array_equal(every.order, one.order)
+        assert every.perimeter_nm == one.perimeter_nm
+        return "3 starts tried, the same triangle"
+
     check("the fast 2-opt takes exactly the same decisions",
           the_fast_one_decides_the_same)
-    check("the default call is the pipeline's, untouched",
+    check("the default call is still one start",
           the_legacy_call_is_untouched)
+    check("every start with three centres says so",
+          three_centres_every_start)
     check("every start: the shortest tour, never longer",
           the_shortest_over_every_start)
     check("every start: independent of the input order",
           it_does_not_depend_on_the_input_order)
     check("every start: fast enough for the panel", it_is_fast_enough)
+
+
+def centre_checks() -> None:
+    print(f"\n{'=' * 78}\nCENTRE OF THE CONTOUR (area centroid)\n{'=' * 78}")
+
+    def exact_on_known_shapes():
+        far = np.array([37000.0, 52000.0])
+        square = np.array([[0, 0], [2000, 0], [2000, 2000], [0, 2000]],
+                          float) + far
+        c = contour_centre(square)
+        assert np.allclose([c.x_nm, c.y_nm], far + 1000.0, atol=1e-6)
+        assert abs(c.area_nm2 - 4e6) < 1e-3
+        # Two squares side by side and one on top of the first: an L whose
+        # centroid is (5/6, 5/6) of the side, off the vertices' mean.
+        ell = np.array([[0, 0], [2, 0], [2, 1], [1, 1], [1, 2], [0, 2]],
+                       float) * 1000.0 + far
+        c = contour_centre(ell)
+        assert np.allclose([c.x_nm, c.y_nm], far + 5000 / 6, atol=1e-6)
+        assert abs(c.area_nm2 - 3e6) < 1e-3
+        tri = np.array([[0, 0], [3000, 0], [0, 1500]], float) + far
+        c = contour_centre(tri)
+        assert np.allclose([c.x_nm, c.y_nm], far + [1000, 500], atol=1e-6)
+        ang = np.linspace(0, 2 * np.pi, 12, endpoint=False)
+        poly = far + 1600.0 * np.column_stack([np.cos(ang), np.sin(ang)])
+        c = contour_centre(poly)
+        assert np.allclose([c.x_nm, c.y_nm], far, atol=1e-6)
+        return "square, L, triangle and 12-gon, to 1e-6 nm, 64 um away"
+
+    def independent_of_start_and_direction():
+        rng = np.random.default_rng(11)
+        pts = make_ring(rng, k=60)
+        ref = contour_centre(pts)
+        for variant in (np.roll(pts, 17, axis=0), pts[::-1],
+                        np.roll(pts[::-1], 5, axis=0)):
+            c = contour_centre(variant)
+            assert abs(c.x_nm - ref.x_nm) < 1e-6
+            assert abs(c.y_nm - ref.y_nm) < 1e-6
+            assert abs(c.area_nm2 - ref.area_nm2) < 1e-3
+            assert abs(c.max_shift_nm - ref.max_shift_nm) < 1e-6
+        return "rolled and reversed: the same centre"
+
+    def moves_with_the_contour():
+        rng = np.random.default_rng(12)
+        pts = make_ring(rng, k=50, gap_deg=40.0)
+        ref = contour_centre(pts)
+        theta = 0.7
+        rot = np.array([[np.cos(theta), -np.sin(theta)],
+                        [np.sin(theta), np.cos(theta)]])
+        shift = np.array([-20000.0, 45000.0])
+        c = contour_centre(pts @ rot.T + shift)
+        expected = rot @ [ref.x_nm, ref.y_nm] + shift
+        assert np.allclose([c.x_nm, c.y_nm], expected, atol=1e-6)
+        return "rotated and shifted with it"
+
+    def leave_one_out_is_exact():
+        rng = np.random.default_rng(13)
+        worst = 0.0
+        for trial in range(30):
+            k = int(rng.integers(4, 110))
+            pts = make_ring(rng, k=k, gap_deg=float(rng.uniform(0, 120)))
+            c = contour_centre(pts)
+            brute = 0.0
+            for i in range(k):
+                d = contour_centre(np.delete(pts, i, axis=0))
+                if d is not None:
+                    brute = max(brute, float(np.hypot(d.x_nm - c.x_nm,
+                                                      d.y_nm - c.y_nm)))
+            assert abs(c.max_shift_nm - brute) < 1e-6, (c.max_shift_nm, brute)
+            worst = max(worst, c.max_shift_nm)
+        return (f"30 rings, equal to rebuilding it without each vertex "
+                f"(largest move {worst:.0f} nm)")
+
+    def a_removal_that_crosses_is_skipped():
+        # A square with a notch down to 1 um from its base: leaving the
+        # notch's neighbour out draws a chord across the notch, and that
+        # contour crosses itself. Its 'centre' would be 16.7 um away.
+        notch = np.array([[0, 0], [10, 0], [10, 10], [5, 1], [0, 10]],
+                         float) * 1000.0
+        c = contour_centre(notch)
+        simple = []
+        for i in range(len(notch)):
+            rest = np.delete(notch, i, axis=0)
+            if _count_self_intersections(rest, np.arange(len(rest))) == 0:
+                d = contour_centre(rest)
+                simple.append(np.hypot(d.x_nm - c.x_nm, d.y_nm - c.y_nm))
+        assert abs(c.max_shift_nm - max(simple)) < 1e-6, \
+            (c.max_shift_nm, max(simple))
+        # Five cluster centres whose shortest tour has the same trap.
+        pts = np.array([[29423.6, 40231.3], [30234.1, 39124.0],
+                        [30582.5, 39474.8], [30165.7, 39379.8],
+                        [29570.6, 40191.9]])
+        res = reconstruct_perimeter(pts, all_starts=True)
+        assert res.self_intersections_after == 0
+        assert res.centre.max_shift_nm < 200.0, res.centre.max_shift_nm
+        return (f"notch: {c.max_shift_nm:,.0f} nm over the removals that "
+                f"stay simple; five centres: {res.centre.max_shift_nm:.0f} nm")
+
+    def a_crowded_arc_does_not_pull_it():
+        # 45 clusters on one half of a circle, 15 on the other: the mean of
+        # the clusters is pulled half a micrometre toward the crowded side,
+        # the area centroid stays at the centre.
+        a = np.concatenate([np.linspace(0, np.pi, 45, endpoint=False),
+                            np.linspace(np.pi, 2 * np.pi, 15,
+                                        endpoint=False)])
+        pts = RING_RADIUS_NM * np.column_stack([np.cos(a), np.sin(a)])
+        c = contour_centre(pts)
+        area_off = float(np.hypot(c.x_nm, c.y_nm))
+        mean_off = float(np.hypot(*pts.mean(axis=0)))
+        assert area_off < 10.0 and mean_off > 400.0, (area_off, mean_off)
+        return (f"area centroid {area_off:.1f} nm off; mean of the centres "
+                f"{mean_off:.0f} nm off")
+
+    def undefined_is_none():
+        assert contour_centre(np.array([[0.0, 0.0], [1.0, 1.0]])) is None
+        assert contour_centre(np.array([[0.0, 0.0], [1.0, 1.0],
+                                        [2.0, 2.0]])) is None
+        assert contour_centre(np.array([[0.0, 0.0], [1.0, 0.0],
+                                        [np.nan, 1.0]])) is None
+        # On one line with coordinates binary fractions cannot hold
+        # exactly, far from the origin: rounding is not area.
+        rng = np.random.default_rng(15)
+        for _ in range(500):
+            direction = rng.normal(size=2)
+            direction /= np.linalg.norm(direction)
+            along = np.sort(rng.uniform(0.0, 5000.0, rng.integers(3, 12)))
+            line = rng.uniform(1e4, 1e5, 2) + np.outer(along, direction)
+            assert contour_centre(line) is None
+            assert contour_centre(line[::-1][rng.permutation(len(line))]) \
+                is None
+        tri = contour_centre(np.array([[0.0, 0.0], [3.0, 0.0], [0.0, 3.0]]))
+        assert tri is not None and tri.max_shift_nm is None
+        # A bow tie: the order crosses itself, and the manual contour says
+        # its centre is undefined instead of weighing the lobes by sign.
+        pts = np.array([[0.0, 0.0], [1000.0, 0.0], [0.0, 1000.0],
+                        [1000.0, 1000.0]])
+        manual = reconstruct_perimeter(pts, custom_order=np.array([0, 1, 2, 3]))
+        assert manual.self_intersections_after == 1
+        assert manual.centre is None
+        assert any("not defined" in w for w in manual.warnings)
+        return "two points, 501 lines, a NaN, a bow tie"
+
+    def the_contour_carries_it():
+        rng = np.random.default_rng(14)
+        pts = make_ring(rng, k=70, n_interior=4)
+        for every in (False, True):
+            res = reconstruct_perimeter(pts, all_starts=every)
+            ref = contour_centre(res.contour)
+            assert res.self_intersections_after == 0
+            assert res.centre is not None
+            assert res.centre.x_nm == ref.x_nm and res.centre.y_nm == ref.y_nm
+        return "one start and every start"
+
+    check("exact where the centre is known", exact_on_known_shapes)
+    check("the same whatever vertex it starts at, either way round",
+          independent_of_start_and_direction)
+    check("it moves with the contour", moves_with_the_contour)
+    check("'moves with one cluster out' is exact", leave_one_out_is_exact)
+    check("... and skips a removal that makes the contour cross itself",
+          a_removal_that_crosses_is_skipped)
+    check("a crowded stretch of ring does not pull it",
+          a_crowded_arc_does_not_pull_it)
+    check("undefined centres are None, never a number", undefined_is_none)
+    check("reconstruct_perimeter carries it", the_contour_carries_it)
 
 
 if __name__ == "__main__":
@@ -455,5 +630,6 @@ if __name__ == "__main__":
 
     contour_health_checks()
     two_opt_checks()
+    centre_checks()
     print(f"\n{'=' * 78}\n{PASSED} passed, {FAILED} failed\n{'=' * 78}")
     sys.exit(1 if FAILED else 0)
