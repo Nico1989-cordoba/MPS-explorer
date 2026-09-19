@@ -17,6 +17,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
@@ -153,6 +154,47 @@ def cell_text(text: str) -> str:
 def _text(value: Any) -> str:
     """A cell as the CSV writer will write it, for comparing keys."""
     return "" if value is None else str(value)
+
+
+# A cell this program wrote as a number: plain or in scientific notation.
+_NUMBER = re.compile(r"^-?\d+(\.\d+)?([eE][+-]?\d+)?$")
+
+
+def excel_copy(path: str, out: Optional[str] = None) -> str:
+    """
+    A copy of the table at ``path`` that Excel reads correctly where the
+    decimal mark is a comma, and the path it was written to.
+
+    The tables are written the way every statistics program expects them:
+    fields separated by commas, decimals with a point, UTF-8. Opened in
+    Excel under a Spanish (Argentina) or comparable locale, that file is
+    not merely ugly -- it is wrong. Measured on this machine with Excel
+    16.0: imported with the comma as the separator, contour_hull_um
+    11.999 becomes 11999, contour_area_um2 7.0451 becomes 70451, and a
+    p-value of 2.138e-07 becomes 213,819,615; values with one or two
+    decimals stay text, so a column can hold both. Opened by double click,
+    the whole row lands in one cell.
+
+    This copy uses what that Excel expects -- ';' between fields, ',' for
+    decimals, and a byte order mark so the accented paths are readable --
+    and leaves the original untouched. It is a copy to read, not a table
+    to add rows to: the exports refuse to append to it, as they refuse any
+    file with other columns.
+    """
+    header, _ = _existing(path)
+    if header is None:
+        raise ValueError(f"{os.path.basename(path)} is not a table.")
+    out = out or f"{os.path.splitext(path)[0]}_for_excel.csv"
+    if os.path.abspath(out) == os.path.abspath(path):
+        raise ValueError("The copy would overwrite the table itself.")
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.reader(handle))
+    with open(out, "w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle, delimiter=";")
+        for row in rows:
+            writer.writerow([cell.replace(".", ",") if _NUMBER.match(cell)
+                             else cell for cell in row])
+    return out
 
 
 def duplicate_rows(path: str, rows: Sequence[Dict[str, Any]],

@@ -658,7 +658,52 @@ class MPS_explorer(QtWidgets.QMainWindow):
         picasso_button.setMenu(picasso_menu)
         picasso_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         toolbar.addWidget(picasso_button)
+
+        self.action_excel = QtWidgets.QAction("Copy a table for Excel", self)
+        self.action_excel.setToolTip(
+            "Write a copy of an exported table that Excel opens correctly\n"
+            "where the decimal mark is a comma: fields separated by ';',\n"
+            "decimals with ',', and the accents readable. The table itself\n"
+            "is not touched, and keeps the commas and points that pandas,\n"
+            "R and Prism expect."
+        )
+        self.action_excel.triggered.connect(self.copy_table_for_excel)
+        toolbar.addAction(self.action_excel)
         self.analysis_toolbar = toolbar
+
+    def copy_table_for_excel(self) -> Optional[str]:
+        """
+        Write a copy of an exported table for Excel, and say where.
+
+        The tables this program writes are comma-separated with decimal
+        points, which is what pandas, R and Prism read. Excel under this
+        machine's locale reads them wrong rather than badly: a value of
+        11.999 imported as 11999 looks like a measurement.
+        """
+        from tools.results_table import excel_copy
+
+        start = self.mps_settings.last_export_dir or self.mps_settings.last_open_dir
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Table to copy for Excel", start, "CSV Files (*.csv)")
+        if not path:
+            return None
+        try:
+            written = excel_copy(path)
+        except Exception as error:                        # noqa: BLE001
+            self.logger.error(f"Could not copy {path} for Excel: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Copy failed",
+                f"Could not write the copy:\n\n{error}")
+            return None
+        self.mps_settings.last_export_dir = os.path.dirname(written)
+        save_settings(self.mps_settings)
+        self.logger.info(f"Wrote an Excel copy of {path} to {written}")
+        QtWidgets.QMessageBox.information(
+            self, "Copied for Excel",
+            f"Wrote {written}\n\nThe table itself was not changed. Open the "
+            f"copy in Excel; keep using the table for the statistics.")
+        return written
 
     def _roi_localizations(self) -> Optional[Any]:
         """

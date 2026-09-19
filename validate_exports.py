@@ -377,6 +377,58 @@ def test_derived_files() -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+# ===================================================================
+#  5. A copy Excel reads correctly
+# ===================================================================
+def test_excel_copy() -> None:
+    print("\n5. A COPY EXCEL READS CORRECTLY")
+    from tools.results_table import excel_copy
+
+    folder = tempfile.mkdtemp(prefix="mps_excel_")
+    path = os.path.join(folder, "axons.csv")
+    rows = [{"source": r"C:\Doctorado\1°Reunión\axon7.hdf5",
+             "roi": "circle centred at (26096, 6167) nm, radius 3376 nm",
+             "contour_hull_um": 11.999, "occupancy_percent": 46.51087158,
+             "ks_pvalue": 2.138196152288707e-07, "n_clusters_kept": 94,
+             "edge_criterion_disabled": False,
+             "warnings": "Ambiguous main peak: 0.38 vs 0.32"}]
+    append_rows(path, rows)
+
+    def a_copy_beside_the_table():
+        out = excel_copy(path)
+        assert out == os.path.join(folder, "axons_for_excel.csv"), out
+        raw = open(out, "rb").read()
+        assert raw.startswith(b"\xef\xbb\xbf"), "no byte order mark"
+        text = raw.decode("utf-8-sig")
+        first, second = text.splitlines()[:2]
+        assert first.count(";") == 7 and "," not in first, first
+        # The numbers Excel would otherwise multiply by a thousand.
+        assert ";11,999;" in second, second
+        assert ";2,138196152288707e-07" in second, second
+        # Text keeps its own commas, and the table is unchanged.
+        assert "circle centred at (26096, 6167) nm" in second, second
+        assert "0,38 vs 0,32" not in second, second
+        return second[:60]
+
+    def the_table_is_untouched():
+        before = open(path, "rb").read()
+        excel_copy(path, os.path.join(folder, "again.csv"))
+        assert open(path, "rb").read() == before
+        # And the copy is not a table to add rows to: the export refuses
+        # it, as it refuses any file with other columns.
+        expect_error(lambda: append_rows(os.path.join(folder, "again.csv"),
+                                         rows),
+                     TableMismatch, "';'")
+        return "unchanged, and not appendable"
+
+    try:
+        check("a copy with ';' and comma decimals, beside the table",
+              a_copy_beside_the_table)
+        check("the table itself is not touched", the_table_is_untouched)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
 def main() -> int:
     print("=" * 72)
     print("EXPORT CHECKS")
@@ -385,6 +437,7 @@ def main() -> int:
     test_analysis_carries_the_roi()
     test_duplicates()
     test_derived_files()
+    test_excel_copy()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")
     print("=" * 72)
