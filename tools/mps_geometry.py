@@ -36,6 +36,49 @@ while channel 2 varies by experiment (this repo's own example data pairs
 spectrin with adducin, not tubulin), so depending on it would break
 whenever the second marker changes or is absent.
 
+Contour health
+--------------
+The tour above always returns a number, and until now the only thing
+that could contradict it was the self-intersection count -- which stays
+at zero when a cluster from inside the axon becomes a vertex, when a gap
+in the ring is closed by a chord, and when both happen at once. The
+number then looks exactly as healthy as a good one.
+
+``contour_health`` adds two checks that do fire, both calibrated on
+simulated rings whose perimeter is known, so that the limits sit above
+what a correct contour produces rather than where they happen to catch
+this dataset:
+
+  vertex depth inside the hull of all the vertices, as a fraction of the
+  hull's effective radius. Over 13,000 simulated healthy contours the
+  deepest vertex reaches 0.29 (circle, centres scattered by up to 80 nm
+  on a 1.6 um radius), 0.21 (gaps of up to 160 degrees), 0.21 (a dent
+  half the radius deep), 0.305 (an oval squeezed to a waist a third of
+  its width) and 0.386 (an hourglass with a waist a quarter of its
+  width). A cluster planted inside the ring sits at 0.63. The limit is
+  0.40: above every healthy shape simulated, below the planted ones.
+
+  That margin is bought with sensitivity. At 0.40 the check only sees a
+  centre more than ~0.6 um inside a 1.6 um axon, which is far blunter
+  than a second channel would be -- the tubulin mask flags an interior
+  at 250 nm. It is meant to catch the contours that are plainly wrong
+  without ever calling a healthy one broken, not to measure the
+  interior.
+
+  longest step over the median step, for the chord a gap forces. This
+  one separates poorly and its limit is correspondingly loose: random
+  angular spacing on a ring with no gap at all already reaches 18.8, so
+  the limit is 20, which sees a 90 degree gap but not a 40 degree one.
+
+Two other numbers are reported and deliberately NOT flagged. The ratio
+of the tour to the convex hull of the same centres is what first made
+this dataset look wrong, but it depends on the number of clusters and on
+how far they scatter off a smooth outline: a perfectly correct contour
+of a ring with 140 centres scattered by 80 nm already reads 1.9, which
+is what axon 7 of April reads. And the share of the length carried by
+the few steps above 3x the median runs near 30 % on a healthy ring.
+Neither can carry a threshold; both are useful next to one that can.
+
 @author: Nicolas (ngomez) + Claude
 """
 
@@ -53,6 +96,20 @@ PAPER_MEDIAN_CLUSTER_AREA_NM2 = 1965.0
 PAPER_MEDIAN_R_EFF_NM = 25.0
 PAPER_SLOPE_CLUSTERS_PER_UM = 4.08
 PAPER_INTERCEPT_CLUSTERS = -12.62
+
+# --- contour health ---------------------------------------------------------
+# An edge this many times the median is a jump, not a step along the ring.
+LONG_EDGE_FACTOR = 3.0
+# A vertex this far inside the hull of all the vertices, as a fraction of
+# the hull's own effective radius (2 * area / perimeter, which is R for a
+# circle), is deeper than any healthy ring reaches. Against the radius and
+# not against the median step, because the median step shrinks as 1/K and
+# would make the same axon more or less suspicious with the DBSCAN
+# settings alone. Calibrated in the module docstring.
+DEEP_VERTEX_FRACTION = 0.40
+# One step this many times the median is a chord across the axon. Wide,
+# because random angular spacing alone reaches 18.8 on a gapless ring.
+MAX_OVER_MEDIAN_LIMIT = 20.0
 
 
 # ============================================================================
@@ -144,6 +201,162 @@ def _count_self_intersections(
 
 
 @dataclass
+class ContourHealth:
+    """
+    Does the reconstructed tour behave like the perimeter of a ring?
+
+    Every number here is computed from the contour's own vertices. No
+    image, no second channel and no assumption about the axon: these are
+    statements about the polygon, not about biology.
+
+    Two of them carry a warning. ``n_deep_vertices`` counts the centres
+    that sit further inside the convex hull of all the centres than any
+    healthy ring reaches, which is what a cluster from inside the axon
+    looks like. ``max_over_median`` catches the other failure: one step
+    long enough to be a chord across the axon, which is how a contour
+    closes a wide gap in the ring.
+
+    ``tour_over_hull`` and ``length_in_long_edges`` are reported but never
+    flagged, because neither separates a healthy contour from a broken one
+    (module docstring, "Contour health"). They are here as context: the
+    first says how much longer the quoted perimeter is than the shortest
+    outline enclosing the same centres, the second how much of it rests on
+    a few long steps.
+    """
+
+    hull_perimeter_nm: float
+    hull_radius_nm: float
+    tour_over_hull: float
+    edge_median_nm: float
+    edge_max_nm: float
+    max_over_median: float
+    n_long_edges: int
+    length_in_long_edges: float
+    n_deep_vertices: int
+    max_depth_nm: float
+    warnings: List[str] = field(default_factory=list)
+
+    @property
+    def hull_perimeter_um(self) -> float:
+        return self.hull_perimeter_nm / 1000.0
+
+    @property
+    def depth_limit_nm(self) -> float:
+        """How deep a vertex must be before it is counted as interior."""
+        return DEEP_VERTEX_FRACTION * self.hull_radius_nm
+
+    @property
+    def has_interior_vertices(self) -> bool:
+        """Some centres are deeper inside than a ring's ever are."""
+        return self.n_deep_vertices > 0
+
+    @property
+    def bridges_a_gap(self) -> bool:
+        """One step is long enough to be a chord across the axon."""
+        return self.max_over_median > MAX_OVER_MEDIAN_LIMIT
+
+
+def contour_health(contour: NDArray[np.float64]) -> Optional[ContourHealth]:
+    """
+    Measure a closed contour against the shape it is supposed to be.
+
+    Parameters
+    ----------
+    contour : (K, 2) vertices in contour order, in nm (open: the closing
+        edge back to the first vertex is added here).
+
+    Returns
+    -------
+    ContourHealth, or None when the vertices are degenerate (fewer than
+    three, or all on one line) and no hull exists to compare against.
+    """
+    contour = np.asarray(contour, dtype=float)
+    if contour.ndim != 2 or contour.shape[1] != 2 or len(contour) < 3:
+        return None
+    # One non-finite vertex makes every length NaN, and NaN compares false
+    # against any limit, so the checks below would report a clean bill of
+    # health on a contour that has none. reconstruct_perimeter warns.
+    if not np.isfinite(contour).all():
+        return None
+
+    closed = np.vstack([contour, contour[:1]])
+    edges = np.linalg.norm(np.diff(closed, axis=0), axis=1)
+    total = float(edges.sum())
+    median = float(np.median(edges))
+    if total <= 0.0 or median <= 0.0:
+        return None
+
+    try:
+        hull = ConvexHull(contour)
+    except QhullError:
+        return None
+    vertices = contour[hull.vertices]
+    hull_closed = np.vstack([vertices, vertices[:1]])
+    hull_length = float(np.linalg.norm(np.diff(hull_closed, axis=0),
+                                       axis=1).sum())
+    if hull_length <= 0.0:
+        return None
+
+    # How far inside the hull each vertex sits. The hull's facet equations
+    # are normal . x + offset <= 0 inside, with unit normals, so the
+    # distance to the nearest facet is minus the largest of them -- exact,
+    # and free of the edge cases a point-in-polygon test has.
+    normals = hull.equations[:, :2]
+    offsets = hull.equations[:, 2]
+    depth = -(contour @ normals.T + offsets).max(axis=1)
+
+    # 2 * area / perimeter is the radius for a circle, and stays a sensible
+    # calibre for the irregular cross-sections of the sciatic nerve. A
+    # sliver of a hull would give a radius near zero and make every vertex
+    # look deep, so it is treated as degenerate instead.
+    hull_radius = 2.0 * float(hull.volume) / hull_length
+    if not np.isfinite(hull_radius) or hull_radius <= 0.0:
+        return None
+    long_edge = edges > LONG_EDGE_FACTOR * median
+    deep = depth > DEEP_VERTEX_FRACTION * hull_radius
+    health = ContourHealth(
+        hull_perimeter_nm=hull_length,
+        hull_radius_nm=hull_radius,
+        tour_over_hull=total / hull_length,
+        edge_median_nm=median,
+        edge_max_nm=float(edges.max()),
+        max_over_median=float(edges.max()) / median,
+        n_long_edges=int(long_edge.sum()),
+        length_in_long_edges=float(edges[long_edge].sum() / total),
+        n_deep_vertices=int(deep.sum()),
+        max_depth_nm=float(depth.max()),
+    )
+
+    if health.has_interior_vertices:
+        health.warnings.append(
+            f"{health.n_deep_vertices} of the {len(contour)} centres on "
+            f"this contour sit more than {health.depth_limit_nm:,.0f} nm "
+            f"inside their own convex hull, the deepest by "
+            f"{health.max_depth_nm:,.0f} nm. No simulated ring reaches that "
+            f"depth -- not with a gap of 160 degrees, not with a dent half "
+            f"the radius deep, not on a cross-section as flat as a peanut "
+            f"whose waist is a third of its width. So either those centres "
+            f"are not on the membrane, or this axon is more concave than "
+            f"any of those. Look at the contour before using the "
+            f"perimeter: it is {health.tour_over_hull:.2f} times the hull "
+            f"of the same centres ({health.hull_perimeter_um:.2f} um), and "
+            f"clusters per um, occupancy and the randomization all follow "
+            f"it."
+        )
+    if health.bridges_a_gap:
+        health.warnings.append(
+            f"One step of the contour is {health.max_over_median:.0f} times "
+            f"the median ({health.edge_max_nm:,.0f} nm against "
+            f"{health.edge_median_nm:,.0f} nm). Random angular spacing "
+            f"alone reaches {MAX_OVER_MEDIAN_LIMIT:.0f} on a ring with no "
+            f"gap at all; past that the contour is closing a gap with a "
+            f"chord, which cuts across the axon and puts every "
+            f"localization it passes on the wrong side of the contour."
+        )
+    return health
+
+
+@dataclass
 class PerimeterResult:
     """Reconstructed axonal contour from cluster centres of mass."""
 
@@ -156,6 +369,7 @@ class PerimeterResult:
     self_intersections_before: int
     self_intersections_after: int
     warnings: List[str] = field(default_factory=list)
+    health: Optional[ContourHealth] = None
 
     @property
     def clusters_per_um(self) -> Optional[float]:
@@ -209,6 +423,16 @@ def reconstruct_perimeter(
         )
 
     warnings_: List[str] = []
+    finite = np.isfinite(centroids).all(axis=1)
+    n_bad = int(np.count_nonzero(~finite))
+    if n_bad:
+        warnings_.append(
+            f"{n_bad} of the {k} cluster centres is not a finite coordinate. "
+            f"The perimeter below is NaN and so is everything computed from "
+            f"it, and no check can contradict it, because NaN compares false "
+            f"against every limit. Find those clusters before reading any "
+            f"number from this axon."
+        )
 
     if custom_order is not None:
         order = np.asarray(custom_order, dtype=np.intp)
@@ -217,6 +441,7 @@ def reconstruct_perimeter(
                 "custom_order must be a permutation of all centroid indices."
             )
         before = _count_self_intersections(centroids, order)
+        health = contour_health(centroids[order])
         return PerimeterResult(
             order=order,
             contour=centroids[order],
@@ -226,7 +451,9 @@ def reconstruct_perimeter(
             n_2opt_improvements=0,
             self_intersections_before=before,
             self_intersections_after=before,
-            warnings=["Manual contour ordering supplied by the user."],
+            warnings=(["Manual contour ordering supplied by the user."]
+                      + (health.warnings if health else [])),
+            health=health,
         )
 
     order = _polar_angle_order(centroids)
@@ -252,6 +479,9 @@ def reconstruct_perimeter(
         )
 
     length = _tour_length(centroids, order)
+    health = contour_health(centroids[order])
+    if health is not None:
+        warnings_.extend(health.warnings)
     return PerimeterResult(
         order=order,
         contour=centroids[order],
@@ -262,6 +492,7 @@ def reconstruct_perimeter(
         self_intersections_before=xi_before,
         self_intersections_after=xi_after,
         warnings=warnings_,
+        health=health,
     )
 
 

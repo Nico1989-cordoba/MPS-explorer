@@ -46,7 +46,10 @@ from tools.mps_geometry import (
     PAPER_MEDIAN_CLUSTER_AREA_NM2,
     PAPER_MEDIAN_R_EFF_NM,
     PAPER_SLOPE_CLUSTERS_PER_UM,
+    DEEP_VERTEX_FRACTION,
+    MAX_OVER_MEDIAN_LIMIT,
     ClusterAreaResult,
+    ContourHealth,
     PerimeterResult,
     compute_cluster_areas,
     reconstruct_perimeter,
@@ -151,6 +154,21 @@ class AxonAnalysis:
         return self.perimeter.clusters_per_um if self.perimeter else None
 
     @property
+    def contour_health(self) -> Optional[ContourHealth]:
+        return self.perimeter.health if self.perimeter else None
+
+    @property
+    def contour_tour_over_hull(self) -> Optional[float]:
+        """Exposed on its own so a batch can compare it between groups.
+
+        If the contours of one genotype are more inflated than those of
+        the other, every perimeter-derived difference between the groups
+        is confounded, and the only way to notice is to compare this.
+        """
+        health = self.contour_health
+        return health.tour_over_hull if health else None
+
+    @property
     def median_area_nm2(self) -> Optional[float]:
         return self.areas.median_area_nm2 if self.areas else None
 
@@ -199,6 +217,29 @@ class AxonAnalysis:
              f"{len(self.bad_report.bad_labels)} removed"),
             ("Perimeter", fmt(self.perimeter_um, 2) + " um", "-",
              "centroids connected, 2-opt"),
+            ("  centres deep inside the hull",
+             "n/a" if self.contour_health is None
+             else f"{self.contour_health.n_deep_vertices}",
+             "0",
+             "" if self.contour_health is None
+             else f"deeper than "
+                  f"{self.contour_health.depth_limit_nm:,.0f} nm "
+                  f"({DEEP_VERTEX_FRACTION:.0%} of the hull radius); "
+                  f"deepest {self.contour_health.max_depth_nm:,.0f} nm"),
+            ("  contour / its convex hull",
+             "n/a" if self.contour_health is None
+             else f"{self.contour_health.tour_over_hull:.2f}",
+             "-",
+             "" if self.contour_health is None
+             else f"hull {self.contour_health.hull_perimeter_um:.2f} um; "
+                  f"context only, it has no threshold"),
+            ("  longest step / median",
+             "n/a" if self.contour_health is None
+             else f"{self.contour_health.max_over_median:.1f}",
+             f"<= {MAX_OVER_MEDIAN_LIMIT:.0f}",
+             "" if self.contour_health is None
+             else f"{self.contour_health.edge_max_nm:,.0f} nm against "
+                  f"{self.contour_health.edge_median_nm:,.0f} nm"),
             ("Clusters per um", fmt(self.clusters_per_um, 2), "4.08", ""),
             ("Cluster area (median)", fmt(self.median_area_nm2, 0) + " nm^2",
              "1,965 nm^2", "convex hull"),
@@ -261,6 +302,26 @@ class AxonAnalysis:
                 self.bad_report.edge_criterion_disabled),
             "perimeter_um": self.perimeter_um,
             "clusters_per_um": self.clusters_per_um,
+            # Contour health: the perimeter above is only a perimeter if
+            # these say so, and a reader of the CSV cannot tell otherwise.
+            "contour_hull_um": (
+                None if self.contour_health is None
+                else round(self.contour_health.hull_perimeter_um, 3)),
+            "contour_tour_over_hull": (
+                None if self.contour_health is None
+                else round(self.contour_health.tour_over_hull, 3)),
+            "contour_max_over_median": (
+                None if self.contour_health is None
+                else round(self.contour_health.max_over_median, 2)),
+            "contour_n_deep_vertices": (
+                None if self.contour_health is None
+                else self.contour_health.n_deep_vertices),
+            "contour_max_depth_nm": (
+                None if self.contour_health is None
+                else round(self.contour_health.max_depth_nm, 1)),
+            "contour_length_in_long_edges": (
+                None if self.contour_health is None
+                else round(self.contour_health.length_in_long_edges, 3)),
             "median_area_nm2": self.median_area_nm2,
             "median_r_eff_nm": self.median_r_eff_nm,
             "median_1nn_nm": self.median_1nn_nm,
