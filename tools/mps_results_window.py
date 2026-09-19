@@ -45,11 +45,13 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from tools import export_ui
 from tools.cluster_quality import good_cluster_labels
 from tools.mps_analysis import (
-    ANALYSIS_COLUMNS, AxonAnalysis, DiscardComparison)
+    ANALYSIS_COLUMNS, AXON_KEY_COLUMNS, AxonAnalysis, DiscardComparison)
 from tools.mps_plot_style import AXIS_FG, set_title, style_dark
-from tools.results_table import append_rows, refuse_other_analysis
+from tools.results_table import (
+    append_rows, refuse_other_analysis, replace_rows)
 
 
 # Colour-blind-safe palette, matching the one already used in MPS_explorer.
@@ -893,14 +895,22 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             # a table of their own, and so does the one with every 2-opt
             # start when the measured analysis used one start.
             refuse_other_analysis(path, record, ANALYSIS_COLUMNS)
-            # A batch of axons accumulates into one table. A file with other
-            # columns is refused rather than overwritten.
-            append = append_rows(path, [record])
+            # A batch of axons accumulates into one table, so this appends;
+            # but the same axon appended twice counts twice in every
+            # statistic over the table, so it is not done silently.
+            decision = export_ui.resolve_duplicates(
+                self, [(path, [record], AXON_KEY_COLUMNS)])
+            if decision == export_ui.CANCEL:
+                return
+            if decision == export_ui.REPLACE:
+                replaced = replace_rows(path, [record], AXON_KEY_COLUMNS)
+                done = f"Replaced {replaced} row(s) in"
+            else:
+                # A file with other columns is refused, not overwritten.
+                done = "Appended to" if append_rows(path, [record]) else "Wrote"
         except (OSError, ValueError, csv.Error) as exc:
             QtWidgets.QMessageBox.critical(
                 self, "Export failed", f"Could not write {path}:\n\n{exc}")
             return
 
-        QtWidgets.QMessageBox.information(
-            self, "Exported",
-            f"{'Appended to' if append else 'Wrote'} {path}")
+        QtWidgets.QMessageBox.information(self, "Exported", f"{done} {path}")

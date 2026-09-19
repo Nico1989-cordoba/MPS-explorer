@@ -39,8 +39,9 @@ from tools import mps_axoplasm as ax
 from tools import mps_file_drop
 from tools.mps_io import load_localizations
 from tools.mps_plot_style import AXIS_FG, TITLE_FG, set_title, style_dark
-from tools.mps_twochannel_window import describe_roi
-from tools.results_table import append_rows, check_appendable
+from tools import export_ui
+from tools.cluster_quality import describe_roi
+from tools.results_table import append_rows, check_appendable, replace_rows
 
 _OK = "#5fd75f"
 _WARN = "#ffaf5f"
@@ -1403,10 +1404,22 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             # after fixing the file would add this axon to them twice.
             for target, rows in tables:
                 check_appendable(target, rows)
+            # Asked once for the three tables, so that replacing replaces
+            # this axon everywhere or nowhere.
+            decision = export_ui.resolve_duplicates(
+                self, [(target, rows, ax.AXON_KEY_COLUMNS)
+                       for target, rows in tables])
+            if decision == export_ui.CANCEL:
+                return None
             for target, rows in tables:
-                appended = append_rows(target, rows)
-                lines.append(f"{'Appended to' if appended else 'Wrote'} "
-                             f"{target}")
+                if decision == export_ui.REPLACE:
+                    replaced = replace_rows(target, rows,
+                                            ax.AXON_KEY_COLUMNS)
+                    lines.append(f"Replaced {replaced} row(s) in {target}")
+                else:
+                    appended = append_rows(target, rows)
+                    lines.append(f"{'Appended to' if appended else 'Wrote'} "
+                                 f"{target}")
         except (OSError, ValueError, csv.Error) as error:
             QtWidgets.QMessageBox.critical(
                 self, "Export failed", f"Could not write:\n\n{error}")

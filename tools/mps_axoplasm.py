@@ -1103,6 +1103,13 @@ def axon_centre(col: NDArray[np.float64], row: NDArray[np.float64]
 # ===================================================================
 #  Export
 # ===================================================================
+
+# What says that two rows -- of any of the three tables -- describe the
+# same selection: the localization file and the ROI drawn on it. Rows of
+# two axons picked from one whole-field file agree on the first alone.
+AXON_KEY_COLUMNS = ("source_localizations", "roi")
+
+
 def summary_row(
     *,
     localizations: str,

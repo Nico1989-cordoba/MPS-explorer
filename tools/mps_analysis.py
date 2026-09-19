@@ -54,6 +54,7 @@ from tools.cluster_quality import (
     BadClusterReport,
     PolygonROI,
     ROIShape,
+    describe_roi,
     good_cluster_centroids,
     good_cluster_labels,
     identify_bad_clusters,
@@ -104,6 +105,11 @@ DEFAULT_MIN_SAMPLES = 10
 # differ in one of them describe the same axon two ways, and must go to
 # separate tables (tools.results_table.refuse_other_analysis).
 ANALYSIS_COLUMNS = ("cluster_set", "contour_2opt")
+
+# The columns that say WHICH selection a row describes. Two rows that
+# agree on them are one axon exported twice, which no table should gain
+# without the user being told (tools.export_ui).
+AXON_KEY_COLUMNS = ("source", "roi")
 
 # Reference values for the "vs paper" column of the results panel.
 # (label, value, unit, tolerance_fraction) -- tolerance is only used to
@@ -171,6 +177,18 @@ class AxonAnalysis:
     # The warnings raised before the clusters were fixed (pixel size, axial
     # slab, curation): an analysis of a subset of the clusters shares them.
     upstream_warnings: List[str] = field(default_factory=list)
+
+    # --- which selection this is -----------------------------------------
+    # The ROI the localizations were taken from. Rows of two axons picked
+    # from one whole-field file differ in nothing else, so without it an
+    # exported row cannot be attributed to an axon.
+    roi: Optional[ROIShape] = None
+    # What the edge criterion measured against: the drawn ROI, or the
+    # convex hull of the analysed localizations when none was given (the
+    # headless batch). The two curate differently -- on axon 7, 94 kept
+    # clusters against 90 -- so a table pooling both must be able to say
+    # which is which.
+    edge_reference: str = "none"
 
     # --- set by without_clusters -----------------------------------------
     # The margin the axoplasm panel discarded clusters with (None: nothing
@@ -380,6 +398,11 @@ class AxonAnalysis:
         """
         return {
             "source": self.source_name,
+            # Which axon of the file: rows of two ROIs drawn on one
+            # whole-field image are identical in every other column, so
+            # without this they cannot be told apart or joined to the
+            # panels' own tables.
+            "roi": describe_roi(self.roi),
             # "all clusters" or "discard applied": the two analyses of one
             # axon are two rows, and a statistic must not pool them.
             "cluster_set": self.cluster_set,
@@ -388,6 +411,11 @@ class AxonAnalysis:
             "eps_nm": self.eps_nm,
             "min_samples": self.min_samples,
             "dbcv_threshold": self.dbcv_threshold,
+            # What the edge criterion measured against: the drawn ROI, or
+            # the convex hull of the localizations when none was drawn, as
+            # in the headless batch. They curate differently, so rows of
+            # the two must be separable in a pooled table.
+            "edge_reference": self.edge_reference,
             "slab_half_width_nm": self.slab_half_width_nm,
             "slab_zmin_nm": round(self.slab_zmin_nm, 2),
             "slab_zmax_nm": round(self.slab_zmax_nm, 2),
@@ -597,6 +625,7 @@ def analyze_axon(
         n_locs_total=int(x_nm.size),
         n_locs_slab=int(xs.size),
         x_slab=xs, y_slab=ys, z_slab=zs,
+        roi=roi,
     )
 
     settings: Dict[str, Any] = dict(
@@ -638,6 +667,9 @@ def analyze_axon(
             roi_for_edges = PolygonROI(vertices=pts[ConvexHull(pts).vertices])
         except Exception:
             roi_for_edges = None
+    edge_reference = ("roi" if roi is not None
+                      else "convex hull" if roi_for_edges is not None
+                      else "none")
 
     report = identify_bad_clusters(
         xs, ys, labels, roi_for_edges,
@@ -664,6 +696,7 @@ def analyze_axon(
         occupancy=steps.occupancy, randomization=steps.randomization,
         warnings=warnings_ + steps.warnings,
         upstream_warnings=list(warnings_),
+        edge_reference=edge_reference,
         **settings, **base, **base_cluster,
     )
 

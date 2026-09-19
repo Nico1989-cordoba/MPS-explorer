@@ -138,6 +138,81 @@ def check_appendable(path: str, rows: Sequence[Dict[str, Any]],
         raise TableMismatch(_mismatch(path, header, fields))
 
 
+def _text(value: Any) -> str:
+    """A cell as the CSV writer will write it, for comparing keys."""
+    return "" if value is None else str(value)
+
+
+def duplicate_rows(path: str, rows: Sequence[Dict[str, Any]],
+                   key_columns: Sequence[str]) -> List[int]:
+    """
+    The line numbers at ``path`` (1 = the first row under the header) that
+    already describe what ``rows`` describe: same file, same ROI, same
+    analysis.
+
+    Appending is what makes a table of axons grow, so nothing here refuses
+    anything; but a second copy of one axon weights it twice in every
+    statistic over the table, and an export that only ever appends cannot
+    tell the user it is about to do that. The user's own table of axon 7
+    (2026-09-17) holds that axon twice, with identical rows.
+    """
+    if not key_columns:
+        return []
+    header, _ = _existing(path)
+    if header is None:
+        return []
+    missing = [c for c in key_columns if c not in header]
+    if missing:
+        raise ValueError(
+            f"{os.path.basename(path)} has no column(s) "
+            f"{', '.join(missing)} to recognise a repeated row by.")
+    keys = {tuple(_text(row.get(c)) for c in key_columns) for row in rows}
+    found: List[int] = []
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        for number, existing in enumerate(csv.DictReader(handle), start=1):
+            if tuple(existing.get(c) or "" for c in key_columns) in keys:
+                found.append(number)
+    return found
+
+
+def replace_rows(path: str, rows: Sequence[Dict[str, Any]],
+                 key_columns: Sequence[str],
+                 fieldnames: Optional[Sequence[str]] = None) -> int:
+    """
+    Put ``rows`` at ``path`` in place of the rows that describe the same
+    thing, and return how many were replaced.
+
+    The rest of the table keeps its order; the new rows go at the end. The
+    file is rewritten through a temporary file in the same folder and
+    moved over the original, so an interrupted export leaves either the
+    old table or the new one, never half of either.
+    """
+    fields = _fields(rows, fieldnames)
+    header, _ = _existing(path)
+    if header is None:
+        append_rows(path, rows, fields)
+        return 0
+    if header != fields:
+        raise TableMismatch(_mismatch(path, header, fields))
+    numbers = duplicate_rows(path, rows, key_columns)
+    if not numbers:
+        append_rows(path, rows, fields)
+        return 0
+    drop = set(numbers)
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        kept = [row for number, row in enumerate(csv.DictReader(handle),
+                                                 start=1)
+                if number not in drop]
+    temporary = path + ".replacing"
+    with open(temporary, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(kept)
+        writer.writerows(rows)
+    os.replace(temporary, path)
+    return len(drop)
+
+
 def append_rows(path: str, rows: Sequence[Dict[str, Any]],
                 fieldnames: Optional[Sequence[str]] = None) -> bool:
     """
