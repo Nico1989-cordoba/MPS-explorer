@@ -69,6 +69,7 @@ from scipy.spatial import ConvexHull, QhullError
 
 from tools import mps_metadata, mps_pixel_size
 from tools.mps_geometry import PerimeterResult, reconstruct_perimeter
+from tools.results_table import cell_text
 
 # (x, y, width, height) of the camera region, as Micro-Manager writes it.
 CameraRegion = Tuple[int, int, int, int]
@@ -1137,6 +1138,7 @@ def summary_row(
     n_clusters: Optional[int] = None,
     z_range: Optional[Tuple[float, float]] = None,
     z_range_source: str = "none",
+    warnings: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """
     One row per axon; the same columns whatever was computed.
@@ -1153,6 +1155,16 @@ def summary_row(
     inside only through their clusters, never by the tubulin mask alone.
     """
     sx, sy = registration.shift_nm(pixel_size_nm)
+    # The warnings as the panel lists them, so that the table says the
+    # same as the screen. Counting only the four objects below left out
+    # the image notes -- a pixel size stretched by 2.7 %, a camera offset
+    # assumed to be zero -- and exported n_warnings 0 with three on
+    # screen. Their text was never exported at all, so filtering a table
+    # on "no warnings" kept axons with a scale problem.
+    shown = (list(warnings) if warnings is not None else
+             list(registration.warnings) + list(mask.warnings)
+             + ([] if spectrin is None else list(spectrin.warnings))
+             + ([] if anchored is None else list(anchored.warnings)))
 
     # What could be measured at all. An empty mask, or a spectrin image
     # with no dark interior, used to export 0 discarded, 0 % inside and
@@ -1285,9 +1297,8 @@ def summary_row(
         "n_clusters": (n_clusters if n_clusters is not None
                        else None if anchored is None else anchored.n),
         **spectrin_columns,
-        "n_warnings": (len(registration.warnings) + len(mask.warnings)
-                       + (0 if spectrin is None else len(spectrin.warnings))
-                       + (0 if anchored is None else len(anchored.warnings))),
+        "n_warnings": len(shown),
+        "warnings": " | ".join(cell_text(w) for w in shown),
     }
 
 

@@ -607,6 +607,32 @@ def test_classification() -> None:
             assert row[column] is None, (column, row[column])
         return "empty mask: a status, not zeros"
 
+    def the_warnings_are_the_ones_shown():
+        # The panel lists image notes the four objects below do not hold
+        # (a stretched pixel size, an assumed camera offset), so the row
+        # takes the list the panel shows, text and all.
+        cols = centre[0] + np.array([2.0])
+        rows = np.full(cols.shape, centre[1])
+        result = ax.classify(mask, cols, rows, 250.0)
+        reg = ax.ImageRegistration(shift_px=(0.0, 0.0), source="manual",
+                                   warnings=["from the registration"])
+        kwargs = dict(localizations="a.hdf5", tubulin="t.tif", reference="",
+                      registration_file="", roi="none", pixel_size_nm=PIXEL_NM,
+                      offset_px=(0.0, 0.0), registration=reg, mask=mask,
+                      result=result)
+        shown = ["the image records 110 nm; stretched by 2.7 %",
+                 "no camera region recorded, offset assumed to be 0"]
+        row = ax.summary_row(warnings=shown, **kwargs)
+        assert row["n_warnings"] == 2, row["n_warnings"]
+        assert row["warnings"] == (
+            "the image records 110 nm, stretched by 2.7 % | "
+            "no camera region recorded, offset assumed to be 0"), row
+        # Without a list, the objects' own warnings, as before.
+        fallback = ax.summary_row(**kwargs)
+        assert fallback["n_warnings"] == 1, fallback["n_warnings"]
+        assert fallback["warnings"] == "from the registration"
+        return "two shown, two exported, no ';' in the cell"
+
     def depths_that_are_not_numbers_are_empty():
         # -inf (no mask at all) and nan (off the analysed region) are not
         # depths; the cluster table wrote both as words.
@@ -650,6 +676,8 @@ def test_classification() -> None:
     check("the margin", margin)
     check("a spectrin ring on a blurred edge", ring_on_the_edge)
     check("the summary row", summary)
+    check("the warnings exported are the ones shown",
+          the_warnings_are_the_ones_shown)
     check("a failure is exported as a failure, not as zeros",
           a_failure_is_not_a_measurement)
     check("depths that are not numbers are empty cells",

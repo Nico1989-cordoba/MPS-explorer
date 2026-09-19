@@ -54,7 +54,7 @@ from tools.mps_registration import (
     register_localizations,
     same_pixel_size,
 )
-from tools.results_table import append_rows, replace_rows
+from tools.results_table import append_rows, cell_text, replace_rows
 
 # What says two rows describe the same comparison: both files and the ROI.
 PAIR_KEY = ("source_channel_a", "source_channel_b", "roi")
@@ -604,17 +604,30 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         QtWidgets.QApplication.processEvents()
 
     # ---------------------------------------------------------- results
+    def findings_shown(self) -> List[str]:
+        """Every finding listed in the panel, in the order shown.
+
+        The exported row used to count the transverse warnings only (2 of
+        the 3 shown for a pair whose pixel sizes disagree), and never
+        carried their text, so a pooled table could not be filtered on
+        them.
+        """
+        outcome = self.outcome
+        if outcome is None:
+            return []
+        out = list(outcome.notes) + list(outcome.registration.warnings)
+        if outcome.axial is not None:
+            out += list(outcome.axial.warnings)
+        if outcome.transverse is not None:
+            out += list(outcome.transverse.warnings)
+        return out
+
     def _refresh(self) -> None:
         outcome = self.outcome
         assert outcome is not None
         self._clear(self.findings)
-        messages: List[Tuple[str, str]] = []
-        messages += [(n, _WARN) for n in outcome.notes]
-        messages += [(w, _WARN) for w in outcome.registration.warnings]
-        if outcome.axial is not None:
-            messages += [(w, _WARN) for w in outcome.axial.warnings]
-        if outcome.transverse is not None:
-            messages += [(w, _WARN) for w in outcome.transverse.warnings]
+        messages: List[Tuple[str, str]] = [(w, _WARN)
+                                           for w in self.findings_shown()]
         if not messages:
             messages = [("No warnings.", _OK)]
         for text, colour in messages:
@@ -788,6 +801,9 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
                              ("b", self.inputs.loc_b)):
             row[f"pixel_size_{tag}_nm"] = channel.pixel_size_nm
             row[f"pixel_size_{tag}_source"] = channel.pixel_size_source
+        shown = self.findings_shown()
+        row["n_warnings"] = len(shown)
+        row["warnings"] = " | ".join(cell_text(w) for w in shown)
         for tag, params in (("a", self.outcome.parameters_a),
                             ("b", self.outcome.parameters_b)):
             row[f"eps_{tag}_nm"] = params.get("eps_nm")

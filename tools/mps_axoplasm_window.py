@@ -1358,7 +1358,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             spectrin_image=self._interior_image(), located=self.located,
             n_clusters=self._n_clusters(),
             z_range=self.inputs.z_range,
-            z_range_source=self.inputs.z_range_source)
+            z_range_source=self.inputs.z_range_source,
+            warnings=self.warnings())
 
     def _n_clusters(self) -> Optional[int]:
         """How many clusters the MPS analysis kept here; None before."""
