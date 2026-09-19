@@ -35,6 +35,16 @@ reported so it can be checked:
    mask's edge, positive inside. It is "interior" when it lies deeper than
    a margin the user sets, and "membrane" otherwise.
 
+4. THE CLUSTERS NOT ANCHORED TO THE MEMBRANE. The widefield betaII-spectrin
+   image shows the membrane as a blurred bright ring around a dark inside
+   (``build_ring_interior``). A cluster of the MPS analysis is discarded
+   only when both images put it inside the axon by more than the margin,
+   and the contour is rebuilt from the rest (``anchored_clusters``). On
+   the 18 April axons the spectrin interior has about 25 % contrast
+   against the ring, where the tubulin image stands 5-60 counts over a
+   baseline of about 400; either image alone misplaces clusters in its own
+   way, which is why the two must agree.
+
 @author: Nicolas (ngomez) + Claude
 """
 
@@ -49,8 +59,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from numpy.typing import NDArray
 from scipy import ndimage
+from scipy.spatial import ConvexHull, QhullError
 
 from tools import mps_metadata, mps_pixel_size
+from tools.mps_geometry import PerimeterResult, reconstruct_perimeter
 
 # (x, y, width, height) of the camera region, as Micro-Manager writes it.
 CameraRegion = Tuple[int, int, int, int]
@@ -83,6 +95,12 @@ REGION_MIN_MARGIN_PX = 5.0
 # Warn when the mask's area is outside this range of the area the spectrin
 # ring encloses. Only a prompt to look at the overlay, not a criterion.
 AREA_RATIO_WARN = (0.5, 2.0)
+# The margin the panel opens with: how far inside a widefield edge a point
+# must be before the image is trusted to put it inside. The edge is blurred
+# by the diffraction limit, so without a margin a ring on the membrane falls
+# half inside. 250 nm is the value the Axoplasm panel was first used with on
+# the April data; the user sets it, and it is exported with every result.
+DEFAULT_MARGIN_NM = 250.0
 # An image whose recorded pixel size differs from the localizations' by
 # this much or more is refused: that is another scale altogether (another
 # binning, camera, or a unit written wrong), and placing it would be
@@ -468,6 +486,9 @@ class AxoplasmMask:
     signed_distance_nm: NDArray[np.float64]
     smoothed: NDArray[np.float64]       # the region, smoothed, image px
     warnings: List[str] = field(default_factory=list)
+    # The intensity levels a spectrin interior was cut at (see
+    # build_ring_interior); empty for a tubulin mask.
+    levels: Dict[str, float] = field(default_factory=dict)
 
     @property
     def area_um2(self) -> float:
@@ -536,18 +557,9 @@ def build_mask(
     ``threshold``, Otsu's value for the region is used.
     """
     img = np.asarray(image, dtype=np.float64)
-    rows, cols = img.shape
     ccol, crow = float(centre[0]), float(centre[1])
-    half = max(REGION_RADIUS_FACTOR * radius_px,
-               radius_px + REGION_MIN_MARGIN_PX,
-               (reach_px or 0.0) + REGION_MIN_MARGIN_PX)
-    r0 = max(0, int(math.floor(crow - half)))
-    r1 = min(rows, int(math.ceil(crow + half)) + 1)
-    c0 = max(0, int(math.floor(ccol - half)))
-    c1 = min(cols, int(math.ceil(ccol + half)) + 1)
-    if r1 - r0 < 3 or c1 - c0 < 3:
-        raise ValueError(
-            "The axon lies outside the tubulin image: check the alignment.")
+    r0, r1, c0, c1 = _region_bounds(img.shape, centre, radius_px, reach_px,
+                                    "tubulin")
     sub = img[r0:r1, c0:c1]
     smoothed = (ndimage.gaussian_filter(sub, smooth_sigma_px)
                 if smooth_sigma_px > 0 else sub.copy())
@@ -556,11 +568,7 @@ def build_mask(
     warnings: List[str] = []
 
     nr, nc = smoothed.shape
-    fine_r = (np.arange(nr * upsample) + 0.5) / upsample - 0.5
-    fine_c = (np.arange(nc * upsample) + 0.5) / upsample - 0.5
-    grid_r, grid_c = np.meshgrid(fine_r, fine_c, indexing="ij")
-    fine = ndimage.map_coordinates(smoothed, [grid_r, grid_c], order=1,
-                                   mode="nearest")
+    grid_r, grid_c, fine = _fine_grid(smoothed, upsample)
     labels, _count = ndimage.label(fine > cut)
     seed_r = int(np.clip(round((crow - r0 + 0.5) * upsample - 0.5), 0,
                          nr * upsample - 1))
@@ -609,25 +617,211 @@ def build_mask(
                 f"The mask covers only {ratio:.0%} of the area inside the "
                 f"spectrin ring. Lower the threshold, or check the "
                 f"alignment.")
-    if mask.any():
-        # The padding makes the region's border count as outside.
-        padded = np.pad(mask, 1, constant_values=False)
-        inside = ndimage.distance_transform_edt(padded)[1:-1, 1:-1]
-        outside = ndimage.distance_transform_edt(~padded)[1:-1, 1:-1]
-        # Distances run between fine-pixel centres; the edge lies half a
-        # step from the last pixel on either side.
-        signed = np.where(mask, inside - 0.5, -(outside - 0.5)) * step
-    else:
-        signed = np.full(mask.shape, -np.inf)
     return AxoplasmMask(
         threshold=cut, threshold_source="otsu" if threshold is None else "manual",
         otsu=otsu, smooth_sigma_px=float(smooth_sigma_px),
         region=(r0, r1, c0, c1), upsample=int(upsample),
         pixel_size_nm=float(pixel_size_nm), ring_radius_px=float(radius_px),
         mask=mask,
-        signed_distance_nm=np.asarray(signed, dtype=np.float64),
+        signed_distance_nm=_signed_distance(mask, step),
         smoothed=smoothed, warnings=warnings,
     )
+
+
+def _region_bounds(shape: Tuple[int, ...], centre: Tuple[float, float],
+                   radius_px: float, reach_px: Optional[float],
+                   what: str) -> Tuple[int, int, int, int]:
+    """
+    Rows and columns of the region analysed around one axon: it reaches
+    REGION_RADIUS_FACTOR radii from the centre, and at least ``reach_px``
+    plus a margin, so it holds every localization of the selection.
+    """
+    rows, cols = shape[0], shape[1]
+    ccol, crow = float(centre[0]), float(centre[1])
+    half = max(REGION_RADIUS_FACTOR * radius_px,
+               radius_px + REGION_MIN_MARGIN_PX,
+               (reach_px or 0.0) + REGION_MIN_MARGIN_PX)
+    r0 = max(0, int(math.floor(crow - half)))
+    r1 = min(rows, int(math.ceil(crow + half)) + 1)
+    c0 = max(0, int(math.floor(ccol - half)))
+    c1 = min(cols, int(math.ceil(ccol + half)) + 1)
+    if r1 - r0 < 3 or c1 - c0 < 3:
+        raise ValueError(
+            f"The axon lies outside the {what} image: check the alignment.")
+    return r0, r1, c0, c1
+
+
+def _fine_grid(smoothed: NDArray[np.float64], upsample: int
+               ) -> Tuple[NDArray[np.float64], NDArray[np.float64],
+                          NDArray[np.float64]]:
+    """The region on a grid ``upsample`` times finer than the camera's."""
+    nr, nc = smoothed.shape
+    fine_r = (np.arange(nr * upsample) + 0.5) / upsample - 0.5
+    fine_c = (np.arange(nc * upsample) + 0.5) / upsample - 0.5
+    grid_r, grid_c = np.meshgrid(fine_r, fine_c, indexing="ij")
+    fine = ndimage.map_coordinates(smoothed, [grid_r, grid_c], order=1,
+                                   mode="nearest")
+    return grid_r, grid_c, fine
+
+
+def _signed_distance(mask: NDArray[np.bool_], step: float
+                     ) -> NDArray[np.float64]:
+    """Distance to the mask's edge, nm, positive inside."""
+    if not mask.any():
+        return np.full(mask.shape, -np.inf)
+    # The padding makes the region's border count as outside.
+    padded = np.pad(mask, 1, constant_values=False)
+    inside = ndimage.distance_transform_edt(padded)[1:-1, 1:-1]
+    outside = ndimage.distance_transform_edt(~padded)[1:-1, 1:-1]
+    # Distances run between fine-pixel centres; the edge lies half a step
+    # from the last pixel on either side.
+    signed = np.where(mask, inside - 0.5, -(outside - 0.5)) * step
+    return np.asarray(signed, dtype=np.float64)
+
+
+# ===================================================================
+#  The interior the spectrin ring encloses
+# ===================================================================
+# Bisection steps for the spill level: 2**-40 of the ring's contrast.
+SPILL_BISECTIONS = 40
+
+
+def build_ring_interior(
+    image: NDArray[np.float64],
+    centre: Tuple[float, float],
+    radius_px: float,
+    pixel_size_nm: float,
+    *,
+    ring_col: NDArray[np.float64],
+    ring_row: NDArray[np.float64],
+    reach_px: Optional[float] = None,
+    smooth_sigma_px: float = DEFAULT_SMOOTH_SIGMA_PX,
+    upsample: int = DEFAULT_UPSAMPLE,
+) -> AxoplasmMask:
+    """
+    The dark interior the betaII-spectrin ring encloses in a widefield image.
+
+    Spectrin at the membrane shows in widefield as a blurred bright ring,
+    and the axon's inside as the dark area it encloses. No threshold for
+    the whole region can find it: the neighbouring axons' rings are often
+    brighter than this one's, and a cut above this ring opens it. So the
+    levels come from the axon itself:
+
+    ring level      the median of the smoothed image under the axon's own
+                    cluster centres (``ring_col``, ``ring_row``, image
+                    pixels): where the super-resolved spectrin actually is;
+    interior level  the darkest point inside the convex hull of those
+                    centres;
+    edge            half-way between the two, the half maximum of a blurred
+                    step, where its edge is for a symmetric blur.
+
+    The interior is the dark area around that darkest point, below the
+    edge level -- but never outside the convex hull of the centres. Flooded
+    any higher it would leak through a gap in the ring into the myelin,
+    which is as dark as the inside of an axon, so it is flooded only up to
+    the level at which it would leave the hull (its spill point) when that
+    comes first, and says so. With the hull as its bound, a cluster on the
+    ring can never be deep inside the interior.
+
+    Returns an ``AxoplasmMask`` on the same region as ``build_mask`` with
+    ``levels`` = interior, ring, half_max, spill, cut. An empty mask comes
+    back, with the reason in ``warnings``, when there are fewer than three
+    cluster centres or they are collinear, or when they sit no brighter
+    than the darkest point inside them.
+    """
+    img = np.asarray(image, dtype=np.float64)
+    r0, r1, c0, c1 = _region_bounds(img.shape, centre, radius_px, reach_px,
+                                    "spectrin widefield")
+    sub = img[r0:r1, c0:c1]
+    smoothed = (ndimage.gaussian_filter(sub, smooth_sigma_px)
+                if smooth_sigma_px > 0 else sub.copy())
+    grid_r, grid_c, fine = _fine_grid(smoothed, upsample)
+    step = pixel_size_nm / upsample
+    warnings: List[str] = []
+    levels: Dict[str, float] = {}
+
+    def result(mask: NDArray[np.bool_], cut: float, source: str
+               ) -> AxoplasmMask:
+        return AxoplasmMask(
+            threshold=cut, threshold_source=source, otsu=float("nan"),
+            smooth_sigma_px=float(smooth_sigma_px), region=(r0, r1, c0, c1),
+            upsample=int(upsample), pixel_size_nm=float(pixel_size_nm),
+            ring_radius_px=float(radius_px), mask=mask,
+            signed_distance_nm=_signed_distance(mask, step),
+            smoothed=smoothed, warnings=warnings, levels=levels)
+
+    empty = np.zeros(fine.shape, dtype=bool)
+    col = np.asarray(ring_col, dtype=float) - c0
+    row = np.asarray(ring_row, dtype=float) - r0
+    ok = np.isfinite(col) & np.isfinite(row)
+    col, row = col[ok], row[ok]
+    try:
+        if col.size < 3:
+            raise QhullError("fewer than three points")
+        hull = ConvexHull(np.column_stack([col, row]))
+    except (QhullError, ValueError):
+        warnings.append(
+            "The spectrin interior needs at least three cluster centres "
+            "that are not on one line; there are not.")
+        return result(empty, float("nan"), "none")
+
+    # The hull's facets: normal . (col, row) + offset <= 0 inside.
+    normals, offsets = hull.equations[:, :2], hull.equations[:, 2]
+    points = np.stack([grid_c, grid_r], axis=-1)
+    in_hull = np.all(points @ normals.T + offsets <= 1e-9, axis=-1)
+    if not in_hull.any():
+        warnings.append("The cluster centres enclose no area on the image.")
+        return result(empty, float("nan"), "none")
+
+    ring = float(np.median(ndimage.map_coordinates(
+        smoothed, [row, col], order=1, mode="nearest")))
+    seed_r, seed_c = np.unravel_index(
+        int(np.argmin(np.where(in_hull, fine, np.inf))), fine.shape)
+    interior = float(fine[seed_r, seed_c])
+    half_max = 0.5 * (interior + ring)
+    levels.update(interior=interior, ring=ring, half_max=half_max)
+    if ring <= interior:
+        warnings.append(
+            "The axon's cluster centres sit no brighter than the darkest "
+            "point inside them: the spectrin image shows no ring here.")
+        levels.update(spill=float("nan"), cut=float("nan"))
+        return result(empty, float("nan"), "none")
+
+    def basin(cut: float) -> NDArray[np.bool_]:
+        labels, _count = ndimage.label(fine < cut)
+        seed = labels[seed_r, seed_c]
+        return (labels == seed) if seed else empty
+
+    def spills(area: NDArray[np.bool_]) -> bool:
+        return bool((area & ~in_hull).any() or area[0, :].any()
+                    or area[-1, :].any() or area[:, 0].any()
+                    or area[:, -1].any())
+
+    if not spills(basin(ring)):
+        spill = ring
+    else:
+        low, high = interior, ring
+        for _ in range(SPILL_BISECTIONS):
+            middle = 0.5 * (low + high)
+            if spills(basin(middle)):
+                high = middle
+            else:
+                low = middle
+        spill = low
+    cut = min(half_max, spill)
+    levels.update(spill=spill, cut=cut)
+    source = "half maximum"
+    if spill < half_max:
+        source = "spill point"
+        reached = (spill - interior) / (half_max - interior)
+        warnings.append(
+            f"The spectrin ring is open below its half maximum: the "
+            f"interior was flooded only {reached:.0%} of the way there, up "
+            f"to where it would have left the area the clusters enclose. "
+            f"It is smaller than the axon's inside, so fewer clusters can "
+            f"be found inside it.")
+    mask = ndimage.binary_fill_holes(basin(cut))
+    return result(mask, cut, source)
 
 
 # ===================================================================
@@ -671,6 +865,120 @@ def classify(mask: AxoplasmMask, col: NDArray[np.float64],
                           margin_nm=float(margin_nm))
 
 
+@dataclass
+class AnchoredClusters:
+    """
+    Which betaII-spectrin clusters are not anchored to the membrane, and the
+    contour of the ones that are.
+
+    A cluster is discarded only when BOTH widefield images put its centre
+    inside the axon by more than the margin: deeper than ``margin_nm``
+    inside the tubulin mask AND inside the spectrin ring's dark interior.
+    Either image alone fails in its own way -- the tubulin mask merges with
+    neighbours and drifts off the ring, the spectrin ring opens where it is
+    dim -- and a cluster is kept whenever they disagree. A cluster off
+    either analysed region is kept.
+    """
+
+    depth_tubulin_nm: NDArray[np.float64]    # signed, positive inside
+    depth_spectrin_nm: NDArray[np.float64]
+    margin_nm: float
+    discarded: NDArray[np.bool_]
+    # All clusters, connected as the MPS analysis connects them (one 2-opt
+    # start); all clusters with 2-opt from every start; and the anchored
+    # ones with 2-opt from every start. The last two differ ONLY by the
+    # discarded clusters, so they measure what discarding them does.
+    contour_all: Optional[PerimeterResult]
+    contour_all_starts: Optional[PerimeterResult]
+    contour_anchored: Optional[PerimeterResult]
+    warnings: List[str] = field(default_factory=list)
+
+    @property
+    def n(self) -> int:
+        return int(self.discarded.size)
+
+    @property
+    def n_discarded(self) -> int:
+        return int(self.discarded.sum())
+
+    def _inside(self, depth: NDArray[np.float64]) -> NDArray[np.bool_]:
+        with np.errstate(invalid="ignore"):
+            return np.asarray(depth > self.margin_nm)
+
+    @property
+    def n_tubulin_only(self) -> int:
+        """Inside by the tubulin mask only: kept."""
+        return int((self._inside(self.depth_tubulin_nm)
+                    & ~self._inside(self.depth_spectrin_nm)).sum())
+
+    @property
+    def n_spectrin_only(self) -> int:
+        """Inside the spectrin interior only: kept."""
+        return int((self._inside(self.depth_spectrin_nm)
+                    & ~self._inside(self.depth_tubulin_nm)).sum())
+
+
+def anchored_clusters(
+    centroids_nm: NDArray[np.float64],
+    tubulin: AxoplasmMask,
+    tubulin_col: NDArray[np.float64],
+    tubulin_row: NDArray[np.float64],
+    spectrin: AxoplasmMask,
+    spectrin_col: NDArray[np.float64],
+    spectrin_row: NDArray[np.float64],
+    margin_nm: float,
+    contour_all: Optional[PerimeterResult] = None,
+    contour_cache: Optional[Dict[bytes, PerimeterResult]] = None,
+) -> AnchoredClusters:
+    """
+    Discard the clusters both images put inside the axon, and rebuild the
+    contour with 2-opt on the rest.
+
+    ``centroids_nm`` are the kept cluster centres of the MPS analysis; the
+    column/row pairs are the same centres in each image's pixels (the two
+    images can sit at different camera offsets). ``contour_all`` is the
+    contour the MPS analysis built from all of them; without it, it is
+    rebuilt the way the analysis builds it.
+
+    The contour of the anchored clusters is built with 2-opt from every
+    starting point, keeping the shortest tour: a new number, so it can be
+    made independent of the start without changing any number the pipeline
+    already produced. So is the contour of all the clusters, for the
+    comparison. ``contour_cache`` (keyed by the centres' bytes) saves
+    rebuilding them when only the margin moved and the same clusters stay.
+    """
+    centroids = np.asarray(centroids_nm, dtype=float).reshape(-1, 2)
+    depth_t = tubulin.distance_at(tubulin_col, tubulin_row)
+    depth_s = spectrin.distance_at(spectrin_col, spectrin_row)
+    margin = float(margin_nm)
+    with np.errstate(invalid="ignore"):
+        discarded = np.asarray((depth_t > margin) & (depth_s > margin))
+    warnings: List[str] = []
+    cache: Dict[bytes, PerimeterResult] = (
+        {} if contour_cache is None else contour_cache)
+
+    def shortest(points: NDArray[np.float64]) -> Optional[PerimeterResult]:
+        if len(points) < 3:
+            return None
+        key = np.ascontiguousarray(points).tobytes()
+        if key not in cache:
+            cache[key] = reconstruct_perimeter(points, all_starts=True)
+        return cache[key]
+
+    if contour_all is None and len(centroids) >= 3:
+        contour_all = reconstruct_perimeter(centroids)
+    kept = centroids[~discarded]
+    if len(kept) < 3 and discarded.any():
+        warnings.append(
+            f"Only {len(kept)} cluster(s) are left after discarding "
+            f"{int(discarded.sum())}: no contour can be closed.")
+    return AnchoredClusters(
+        depth_tubulin_nm=depth_t, depth_spectrin_nm=depth_s,
+        margin_nm=margin, discarded=discarded, contour_all=contour_all,
+        contour_all_starts=shortest(centroids),
+        contour_anchored=shortest(kept), warnings=warnings)
+
+
 def axon_centre(col: NDArray[np.float64], row: NDArray[np.float64]
                 ) -> Tuple[Tuple[float, float], float, float]:
     """
@@ -701,12 +1009,57 @@ def summary_row(
     mask: AxoplasmMask,
     result: Classification,
     cluster_result: Optional[Classification],
+    spectrin: Optional[AxoplasmMask] = None,
+    anchored: Optional[AnchoredClusters] = None,
 ) -> Dict[str, Any]:
     """One row per axon; the same columns whatever was computed."""
     sx, sy = registration.shift_nm(pixel_size_nm)
 
     def rounded(value: Optional[float], digits: int = 4) -> Optional[float]:
         return None if value is None else round(float(value), digits)
+
+    def finite(value: Optional[float], digits: int = 4) -> Optional[float]:
+        if value is None or not np.isfinite(value):
+            return None
+        return round(float(value), digits)
+
+    def level(name: str) -> Optional[float]:
+        return None if spectrin is None else finite(
+            spectrin.levels.get(name), 2)
+
+    all_ = None if anchored is None else anchored.contour_all
+    all_starts = None if anchored is None else anchored.contour_all_starts
+    new = None if anchored is None else anchored.contour_anchored
+    spectrin_columns = {
+        "spectrin_interior_cut": None if spectrin is None else finite(
+            spectrin.threshold, 2),
+        "spectrin_interior_cut_source": (None if spectrin is None
+                                         else spectrin.threshold_source),
+        "spectrin_level_interior": level("interior"),
+        "spectrin_level_ring": level("ring"),
+        "spectrin_level_half_max": level("half_max"),
+        "spectrin_level_spill": level("spill"),
+        "spectrin_interior_area_um2": (None if spectrin is None
+                                       else round(spectrin.area_um2, 4)),
+        "n_clusters_discarded": (None if anchored is None
+                                 else anchored.n_discarded),
+        "n_clusters_inside_tubulin_only": (None if anchored is None
+                                           else anchored.n_tubulin_only),
+        "n_clusters_inside_spectrin_only": (None if anchored is None
+                                            else anchored.n_spectrin_only),
+        "perimeter_all_clusters_um": (None if all_ is None
+                                      else finite(all_.perimeter_um)),
+        "perimeter_all_clusters_all_starts_um": (
+            None if all_starts is None else finite(all_starts.perimeter_um)),
+        "perimeter_anchored_um": (None if new is None
+                                  else finite(new.perimeter_um)),
+        "perimeter_anchored_2opt_starts": None if new is None else new.n_starts,
+        "perimeter_anchored_start_spread_um": (
+            None if new is None else finite(new.start_spread_um)),
+        "anchored_contour_deep_vertices": (
+            None if new is None or new.health is None
+            else new.health.n_deep_vertices),
+    }
 
     return {
         "source_localizations": localizations,
@@ -741,5 +1094,33 @@ def summary_row(
                                 else cluster_result.count(LABEL_INTERIOR)),
         "n_clusters_membrane": (None if cluster_result is None
                                 else cluster_result.count(LABEL_MEMBRANE)),
-        "n_warnings": len(registration.warnings) + len(mask.warnings),
+        **spectrin_columns,
+        "n_warnings": (len(registration.warnings) + len(mask.warnings)
+                       + (0 if spectrin is None else len(spectrin.warnings))
+                       + (0 if anchored is None else len(anchored.warnings))),
     }
+
+
+def cluster_rows(
+    *,
+    localizations: str,
+    roi: str,
+    centroids_nm: NDArray[np.float64],
+    anchored: AnchoredClusters,
+) -> List[Dict[str, Any]]:
+    """One row per cluster: where each image puts it, and whether it went."""
+    def depth(value: float) -> Any:
+        return round(float(value), 1) if np.isfinite(value) else float(value)
+
+    return [
+        {"source_localizations": localizations, "roi": roi,
+         "x_nm": round(float(x), 2), "y_nm": round(float(y), 2),
+         "depth_in_tubulin_mask_nm": depth(dt),
+         "depth_in_spectrin_interior_nm": depth(ds),
+         "margin_nm": anchored.margin_nm,
+         "discarded": bool(gone)}
+        for (x, y), dt, ds, gone in zip(
+            np.asarray(centroids_nm, dtype=float).reshape(-1, 2),
+            anchored.depth_tubulin_nm, anchored.depth_spectrin_nm,
+            anchored.discarded)
+    ]

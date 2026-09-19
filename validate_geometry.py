@@ -31,6 +31,7 @@ from tools.mps_geometry import (  # noqa: E402
     reconstruct_perimeter, compute_cluster_areas, contour_health,
     PAPER_MEDIAN_CLUSTER_AREA_NM2, PAPER_MEDIAN_R_EFF_NM,
     DEEP_VERTEX_FRACTION, MAX_OVER_MEDIAN_LIMIT,
+    _polar_angle_order, _two_opt, _two_opt_fast,
 )
 
 PXSIZE_NM = 133.0
@@ -335,6 +336,94 @@ def contour_health_checks() -> None:
           a_manual_order_is_checked_too)
 
 
+def two_opt_checks() -> None:
+    print(f"\n{'=' * 78}\n2-OPT FROM EVERY START\n{'=' * 78}")
+
+    def point_sets(seed, count):
+        rng = np.random.default_rng(seed)
+        for trial in range(count):
+            k = int(rng.integers(4, 110))
+            kind = trial % 4
+            if kind == 0:
+                pts = rng.normal(0, 1000, (k, 2))
+            elif kind == 1:
+                pts = make_ring(rng, k=k)
+            elif kind == 2:
+                pts = make_ring(rng, k=k, n_interior=max(1, k // 10))
+            else:
+                # A grid: many exactly equal lengths, where a rounding
+                # difference would change which reversal is taken.
+                g = int(np.ceil(np.sqrt(k)))
+                pts = np.array([[x * 100.0, y * 100.0] for x in range(g)
+                                for y in range(g)])[:k]
+            yield pts, rng.permutation(len(pts))
+
+    def the_fast_one_decides_the_same():
+        n = 0
+        for pts, start in point_sets(1, 240):
+            slow, n_slow = _two_opt(pts, start)
+            fast, n_fast = _two_opt_fast(pts, start)
+            assert np.array_equal(slow, fast) and n_slow == n_fast, \
+                (len(pts), n_slow, n_fast)
+            n += 1
+        return f"{n} tours, identical order and number of reversals"
+
+    def the_legacy_call_is_untouched():
+        rng = np.random.default_rng(2)
+        pts = make_ring(rng, k=60, n_interior=6)
+        legacy = reconstruct_perimeter(pts)
+        order, _ = _two_opt(pts, _polar_angle_order(pts))
+        assert np.array_equal(legacy.order, order)
+        assert legacy.n_starts == 1 and legacy.start_lengths_nm is None
+        assert legacy.start_spread_um is None
+        return "one start, the same tour as before"
+
+    def the_shortest_over_every_start():
+        worse = 0
+        for pts, _start in point_sets(3, 40):
+            if len(pts) < 4:
+                continue
+            every = reconstruct_perimeter(pts, all_starts=True)
+            one = reconstruct_perimeter(pts)
+            assert every.n_starts == len(pts)
+            assert abs(every.perimeter_nm - every.start_lengths_nm.min()) \
+                < 1e-6
+            assert every.perimeter_nm <= one.perimeter_nm + 1e-6
+            assert every.self_intersections_after == 0
+            worse += every.perimeter_nm < one.perimeter_nm - 1e-6
+        return f"never longer than one start; shorter in {worse} of 40"
+
+    def it_does_not_depend_on_the_input_order():
+        rng = np.random.default_rng(4)
+        for _ in range(10):
+            pts = make_ring(rng, k=50, n_interior=5)
+            a = reconstruct_perimeter(pts, all_starts=True)
+            b = reconstruct_perimeter(pts[rng.permutation(len(pts))],
+                                      all_starts=True)
+            assert abs(a.perimeter_nm - b.perimeter_nm) < 1e-6
+        return "the same length for shuffled input, 10 rings"
+
+    def it_is_fast_enough():
+        import time
+        rng = np.random.default_rng(5)
+        pts = make_ring(rng, k=100, n_interior=10)
+        t0 = time.time()
+        reconstruct_perimeter(pts, all_starts=True)
+        seconds = time.time() - t0
+        assert seconds < 10.0, seconds
+        return f"110 centres, every start: {seconds:.1f} s"
+
+    check("the fast 2-opt takes exactly the same decisions",
+          the_fast_one_decides_the_same)
+    check("the default call is the pipeline's, untouched",
+          the_legacy_call_is_untouched)
+    check("every start: the shortest tour, never longer",
+          the_shortest_over_every_start)
+    check("every start: independent of the input order",
+          it_does_not_depend_on_the_input_order)
+    check("every start: fast enough for the panel", it_is_fast_enough)
+
+
 if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     all_areas, all_r, pts = [], [], []
@@ -365,5 +454,6 @@ if __name__ == "__main__":
             print(f"    (only {len(pts)} axons here -- the paper used 34)")
 
     contour_health_checks()
+    two_opt_checks()
     print(f"\n{'=' * 78}\n{PASSED} passed, {FAILED} failed\n{'=' * 78}")
     sys.exit(1 if FAILED else 0)

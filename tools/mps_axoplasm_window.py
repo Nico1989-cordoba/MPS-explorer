@@ -9,7 +9,10 @@ Top to bottom:
      movie, to measure the shift between the acquisitions;
   2. the alignment, measured and adjustable by hand;
   3. the mask, with Otsu's threshold on the axon's region, adjustable;
-  4. the classification with the margin the user sets, and the export.
+  4. the classification with the margin the user sets, and the export;
+  5. the MPS analysis' clusters that are not anchored to the membrane --
+     the ones both widefield images put inside the axon -- and the contour
+     rebuilt without them.
 
 The calculations are in ``tools.mps_axoplasm``.
 
@@ -42,6 +45,11 @@ _DIM = "#9a9a9a"
 _INTERIOR = "#6fa8ff"
 _MEMBRANE = "#ff9f43"
 _OUTLINE = (0, 230, 230, 255)
+_SPECTRIN_OUTLINE = (255, 230, 0, 255)
+_DISCARDED = "#ff4040"
+_ALL_CONTOUR = "#8a8a8a"
+# Contours rebuilt with every 2-opt start, kept per set of cluster centres.
+CONTOUR_CACHE_SIZE = 32
 
 # Points drawn per class; the classification itself uses all of them.
 MAX_DRAWN = 20000
@@ -86,6 +94,9 @@ class AxoplasmInputs:
     # Identifies the main window's selection, to tell whether a panel
     # reopened later still shows it.
     selection_key: Any = None
+    # The contour the MPS analysis built from those clusters
+    # (tools.mps_geometry.PerimeterResult), or None.
+    contour: Callable[[], Optional[Any]] = field(default=lambda: None)
 
 
 @dataclass
@@ -118,6 +129,12 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.axoplasm: Optional[ax.AxoplasmMask] = None
         self.result: Optional[ax.Classification] = None
         self.cluster_result: Optional[ax.Classification] = None
+        self.spectrin_interior: Optional[ax.AxoplasmMask] = None
+        self.anchored: Optional[ax.AnchoredClusters] = None
+        # The cluster centres (nm) the anchored result was computed for.
+        self.anchored_centroids: Optional[np.ndarray] = None
+        self.anchored_notes: List[str] = []
+        self._contour_cache: Dict[bytes, Any] = {}
         self.selection_note: Optional[str] = None
         self._manual_threshold: Optional[float] = None
         self._threshold_range: Tuple[float, float] = (0.0, 1.0)
@@ -146,25 +163,36 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         body = QtWidgets.QHBoxLayout()
         root.addLayout(body, stretch=1)
 
+        # The controls, the results and the warnings scroll together: with
+        # five sections they no longer fit a 900-pixel window.
         left = QtWidgets.QVBoxLayout()
         left_box = QtWidgets.QWidget()
+        left_box.setObjectName("controls")
+        left_box.setStyleSheet("#controls { background: #1a1a1a; }")
         left_box.setLayout(left)
         left_box.setFixedWidth(450)
-        body.addWidget(left_box)
+        left_scroll = QtWidgets.QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        left_scroll.setStyleSheet("QScrollArea { background: #1a1a1a; }")
+        left_scroll.setWidget(left_box)
+        left_scroll.setFixedWidth(
+            450 + left_scroll.verticalScrollBar().sizeHint().width() + 4)
+        body.addWidget(left_scroll)
         left.addWidget(self._build_images())
         left.addWidget(self._build_alignment())
         left.addWidget(self._build_mask())
         left.addWidget(self._build_classification())
+        left.addWidget(self._build_anchored())
         self.findings = QtWidgets.QVBoxLayout()
         holder = QtWidgets.QWidget()
         holder.setObjectName("findings")
         holder.setStyleSheet("#findings { background: #1a1a1a; }")
         holder.setLayout(self.findings)
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        scroll.setWidget(holder)
-        left.addWidget(scroll, stretch=1)
+        left.addWidget(holder)
+        left.addStretch(1)
 
         right = QtWidgets.QVBoxLayout()
         body.addLayout(right, stretch=1)
@@ -182,14 +210,24 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.plot_image.setLabel("left", "y [nm]", color=AXIS_FG)
         self.image_item = pg.ImageItem()
         self.outline_item = pg.ImageItem()
+        self.spectrin_outline_item = pg.ImageItem()
         self.membrane_item = pg.ScatterPlotItem(
             pen=None, brush=pg.mkBrush(_MEMBRANE), size=2)
         self.interior_item = pg.ScatterPlotItem(
             pen=None, brush=pg.mkBrush(_INTERIOR), size=2)
+        self.contour_all_item = pg.PlotDataItem(
+            pen=pg.mkPen(_ALL_CONTOUR, width=1,
+                         style=QtCore.Qt.PenStyle.DashLine))
+        self.contour_item = pg.PlotDataItem(pen=pg.mkPen(_OK, width=2))
         self.cluster_item = pg.ScatterPlotItem(
             pen=pg.mkPen("w"), brush=None, size=9)
-        for item in (self.image_item, self.outline_item, self.membrane_item,
-                     self.interior_item, self.cluster_item):
+        self.discarded_item = pg.ScatterPlotItem(
+            pen=pg.mkPen("k"), brush=pg.mkBrush(_DISCARDED), size=10)
+        for item in (self.image_item, self.outline_item,
+                     self.spectrin_outline_item, self.membrane_item,
+                     self.interior_item, self.contour_all_item,
+                     self.contour_item, self.cluster_item,
+                     self.discarded_item):
             self.plot_image.addItem(item)
         right.addWidget(self.plot_image, stretch=3)
         self.plot_hist = pg.PlotWidget()
@@ -300,6 +338,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         box = QtWidgets.QGroupBox("4. Membrane or interior")
         lay = QtWidgets.QGridLayout(box)
         self.spin_margin = _spin(0, 5000, 10, suffix=" nm")
+        self.spin_margin.setValue(ax.DEFAULT_MARGIN_NM)
         self.spin_margin.setToolTip(
             "A localization is interior when it lies deeper inside the mask "
             "than this; membrane otherwise. The widefield edge is blurred "
@@ -313,6 +352,19 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.btn_export, 0, 2)
         self.label_result = _label("")
         lay.addWidget(self.label_result, 1, 0, 1, 3)
+        return box
+
+    def _build_anchored(self) -> QtWidgets.QWidget:
+        box = QtWidgets.QGroupBox("5. Clusters anchored to the membrane")
+        box.setToolTip(
+            "A cluster of the MPS analysis is discarded only when BOTH "
+            "widefield images put it inside the axon by more than the "
+            "margin: inside the tubulin mask, and inside the dark area the "
+            "betaII-spectrin ring encloses. The contour is then rebuilt "
+            "from the rest with 2-opt from every starting point.")
+        lay = QtWidgets.QVBoxLayout(box)
+        self.label_anchored = _label("")
+        lay.addWidget(self.label_anchored)
         return box
 
     # ------------------------------------------------------------ state
@@ -555,11 +607,14 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
     def _coordinates(self, x_nm: np.ndarray, y_nm: np.ndarray
                      ) -> Tuple[np.ndarray, np.ndarray]:
         """Tubulin-image pixel coordinates of positions in nm."""
+        return self._coordinates_in(self.tubulin_offset, x_nm, y_nm)
+
+    def _coordinates_in(self, offset: Tuple[float, float], x_nm: np.ndarray,
+                        y_nm: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Pixel coordinates, in an image at ``offset``, of positions in nm."""
         sx, sy = self._shift_px()
-        return (np.asarray(x_nm, float) / self.pixel_nm
-                + self.tubulin_offset[0] + sx,
-                np.asarray(y_nm, float) / self.pixel_nm
-                + self.tubulin_offset[1] + sy)
+        return (np.asarray(x_nm, float) / self.pixel_nm + offset[0] + sx,
+                np.asarray(y_nm, float) / self.pixel_nm + offset[1] + sy)
 
     def _rebuild(self) -> None:
         """Mask and classification from the current controls."""
@@ -582,6 +637,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
 
     def _reclassify(self) -> None:
         self.result = self.cluster_result = None
+        self.spectrin_interior = self.anchored = None
+        self.anchored_centroids = None
+        self.anchored_notes = []
         if self.axoplasm is not None:
             margin = self.spin_margin.value()
             col, row = self._coordinates(self.inputs.loc.x_nm,
@@ -595,7 +653,36 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                 ccol, crow = self._coordinates(c[:, 0], c[:, 1])
                 self.cluster_result = ax.classify(self.axoplasm, ccol, crow,
                                                   margin)
+                self._find_anchored(c, margin)
         self._refresh()
+
+    def _find_anchored(self, centroids: np.ndarray, margin: float) -> None:
+        """The clusters both images put inside, and the contour without."""
+        if self.reference is None or self.axoplasm is None \
+                or len(centroids) < 3:
+            return
+        offset = self.reference_offset
+        col, row = self._coordinates_in(offset, self.inputs.loc.x_nm,
+                                        self.inputs.loc.y_nm)
+        centre, radius, reach = ax.axon_centre(col, row)
+        scol, srow = self._coordinates_in(offset, centroids[:, 0],
+                                          centroids[:, 1])
+        try:
+            interior = ax.build_ring_interior(
+                self.reference.image, centre, radius, self.pixel_nm,
+                ring_col=scol, ring_row=srow, reach_px=reach)
+        except ValueError as error:
+            self.anchored_notes = [str(error)]
+            return
+        if len(self._contour_cache) > CONTOUR_CACHE_SIZE:
+            self._contour_cache.clear()
+        tcol, trow = self._coordinates(centroids[:, 0], centroids[:, 1])
+        self.spectrin_interior = interior
+        self.anchored_centroids = centroids
+        self.anchored = ax.anchored_clusters(
+            centroids, self.axoplasm, tcol, trow, interior, scol, srow,
+            margin, contour_all=self.inputs.contour(),
+            contour_cache=self._contour_cache)
 
     def _sync_threshold(self) -> None:
         mask = self.axoplasm
@@ -651,6 +738,11 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             out.extend(self.measured.registration.warnings)
         if self.axoplasm is not None:
             out.extend(self.axoplasm.warnings)
+        out.extend(self.anchored_notes)
+        if self.spectrin_interior is not None:
+            out.extend(self.spectrin_interior.warnings)
+        if self.anchored is not None:
+            out.extend(self.anchored.warnings)
         return out
 
     def _refresh(self) -> None:
@@ -675,7 +767,63 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self._write_labels()
         self._draw()
 
+    def _anchored_text(self) -> str:
+        if self.tubulin is None:
+            return ""
+        if self.reference is None:
+            return ("Load the betaII-spectrin widefield image (section 1): "
+                    "a cluster is discarded only when it and the tubulin "
+                    "both put it inside the axon.")
+        found = self.anchored
+        if found is None:
+            if self.anchored_notes or self.axoplasm is None:
+                return ""
+            if self.inputs.clusters() is None:
+                return ("Run 'cluster Ch1' on this selection: the clusters "
+                        "are the ones the MPS analysis kept.")
+            return "Fewer than three clusters: there is no ring to look inside."
+        lines = []
+        interior = self.spectrin_interior
+        if interior is not None and interior.mask.any():
+            levels = interior.levels
+            how = ("half way between the axon's dark inside and its ring"
+                   if interior.threshold_source == "half maximum" else
+                   "short of half way, where the ring opens")
+            lines.append(
+                f"Spectrin interior (yellow): {interior.area_um2:.2f} µm², "
+                f"cut at {interior.threshold:.0f} counts, {how} (inside "
+                f"{levels['interior']:.0f}, ring {levels['ring']:.0f}).")
+        else:
+            lines.append("No spectrin interior was found, so no cluster is "
+                         "discarded.")
+        lines.append(
+            f"Discarded (red): {found.n_discarded} of {found.n} clusters, "
+            f"inside both images by more than {found.margin_nm:.0f} nm. "
+            f"Kept although one image alone puts them inside: "
+            f"{found.n_tubulin_only} by the tubulin, {found.n_spectrin_only} "
+            f"by the spectrin.")
+        parts = []
+        if found.contour_all is not None:
+            parts.append(f"{found.contour_all.perimeter_um:.2f} µm with all "
+                         f"clusters, as the MPS analysis connects them "
+                         f"(dashed)")
+        if found.contour_all_starts is not None:
+            parts.append(f"{found.contour_all_starts.perimeter_um:.2f} µm with "
+                         f"all clusters and 2-opt from every start")
+        new = found.contour_anchored
+        if new is not None:
+            spread = new.start_spread_um
+            parts.append(
+                f"{new.perimeter_um:.2f} µm without the discarded ones "
+                f"(green; 2-opt from all {new.n_starts} starts"
+                + (f", which a single start could have missed by up to "
+                   f"{spread:.2f} µm" if spread else "") + ")")
+        if parts:
+            lines.append("Perimeter: " + "; ".join(parts) + ".")
+        return "\n".join(lines)
+
     def _write_labels(self) -> None:
+        self.label_anchored.setText(self._anchored_text())
         reg = self.registration()
         sx, sy = reg.shift_nm(self.pixel_nm)
         words = {"none": "no shift", "manual": "set by hand",
@@ -762,8 +910,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
     def _draw(self) -> None:
         mask = self.axoplasm
         for item in (self.membrane_item, self.interior_item,
-                     self.cluster_item):
+                     self.cluster_item, self.discarded_item,
+                     self.contour_all_item, self.contour_item):
             item.setData([], [])
+        self.spectrin_outline_item.clear()
         if mask is None or self.tubulin is None:
             self.image_item.clear()
             self.outline_item.clear()
@@ -811,10 +961,32 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                 if idx.size > MAX_DRAWN:
                     idx = rng.choice(idx, MAX_DRAWN, replace=False)
                 item.setData(loc.x_nm[idx], loc.y_nm[idx])
-        centroids = self.inputs.clusters()
-        if centroids is not None and len(centroids):
-            c = np.asarray(centroids, float)
-            self.cluster_item.setData(c[:, 0], c[:, 1])
+        interior = self.spectrin_interior
+        if interior is not None and interior.mask.any():
+            ring = interior.mask & ~ndimage.binary_erosion(interior.mask)
+            yellow = np.zeros(ring.shape + (4,), dtype=np.ubyte)
+            yellow[ring] = _SPECTRIN_OUTLINE
+            self.spectrin_outline_item.setImage(
+                np.transpose(yellow, (1, 0, 2)), levels=(0, 255))
+            ir0, ir1, ic0, ic1 = interior.region
+            self.spectrin_outline_item.setRect(self._region_rect(
+                (ir0, ir1), (ic0, ic1), self.reference_offset))
+        found = self.anchored
+        if found is not None and self.anchored_centroids is not None:
+            c = self.anchored_centroids
+            gone = found.discarded
+            self.cluster_item.setData(c[~gone, 0], c[~gone, 1])
+            self.discarded_item.setData(c[gone, 0], c[gone, 1])
+            for item, drawn in ((self.contour_all_item, found.contour_all),
+                                (self.contour_item, found.contour_anchored)):
+                if drawn is not None:
+                    closed = np.vstack([drawn.contour, drawn.contour[:1]])
+                    item.setData(closed[:, 0], closed[:, 1])
+        else:
+            centroids = self.inputs.clusters()
+            if centroids is not None and len(centroids):
+                c = np.asarray(centroids, float)
+                self.cluster_item.setData(c[:, 0], c[:, 1])
 
         self.plot_hist.clear()
         if result is not None:
@@ -848,7 +1020,15 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             offset_px=self.tubulin_offset,
             registration=self.registration(),
             mask=self.axoplasm, result=self.result,
-            cluster_result=self.cluster_result)
+            cluster_result=self.cluster_result,
+            spectrin=self.spectrin_interior, anchored=self.anchored)
+
+    def cluster_rows(self) -> List[Dict[str, Any]]:
+        assert self.anchored is not None and self.anchored_centroids is not None
+        return ax.cluster_rows(
+            localizations=str(self.inputs.movie.path),
+            roi=describe_roi(self.inputs.roi),
+            centroids_nm=self.anchored_centroids, anchored=self.anchored)
 
     def localization_rows(self) -> List[Dict[str, Any]]:
         assert self.result is not None
@@ -874,7 +1054,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
     def export_csv(self, path: Optional[str] = None) -> Optional[str]:
         """
         Append this axon to a per-axon table, and its localizations to a
-        second table beside it (``<name>_localizations.csv``).
+        second table beside it (``<name>_localizations.csv``). When the
+        clusters were checked against both images, they go to a third
+        (``<name>_clusters.csv``), with which ones were discarded.
         """
         if self.result is None:
             return None
@@ -890,17 +1072,23 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                 return None
         base, ext = os.path.splitext(path)
         detail = f"{base}_localizations{ext or '.csv'}"
+        clusters = f"{base}_clusters{ext or '.csv'}"
+        lines = []
         try:
-            appended = append_rows(path, [self.summary_row()])
-            appended_detail = append_rows(detail, self.localization_rows())
+            for target, rows in ((path, [self.summary_row()]),
+                                 (detail, self.localization_rows())):
+                appended = append_rows(target, rows)
+                lines.append(f"{'Appended to' if appended else 'Wrote'} "
+                             f"{target}")
+            if self.anchored is not None:
+                appended = append_rows(clusters, self.cluster_rows())
+                lines.append(f"{'Appended to' if appended else 'Wrote'} "
+                             f"{clusters}")
         except (OSError, ValueError, csv.Error) as error:
             QtWidgets.QMessageBox.critical(
                 self, "Export failed", f"Could not write:\n\n{error}")
             return None
-        QtWidgets.QMessageBox.information(
-            self, "Exported",
-            f"{'Appended to' if appended else 'Wrote'} {path}\n"
-            f"{'Appended to' if appended_detail else 'Wrote'} {detail}")
+        QtWidgets.QMessageBox.information(self, "Exported", "\n".join(lines))
         return path
 
 

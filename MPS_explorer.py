@@ -827,6 +827,15 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return np.asarray(analysis.centroids, dtype=float)
 
+    def _current_perimeter(self) -> Optional[Any]:
+        """
+        The contour the MPS analysis built from those clusters, when the
+        analysis describes the current channel-1 selection.
+        """
+        if self._current_cluster_centroids() is None:
+            return None
+        return self.mps_analysis.perimeter
+
     def _axoplasm_inputs(self) -> Optional[Any]:
         """The axoplasm panel's inputs, or None without an ROI selection."""
         if (self.locs1 is None or self.roi_indices is None
@@ -838,7 +847,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             loc=self.locs1.subset(self.roi_indices), movie=self.locs1,
             roi=self._applied_roi_shape,
             clusters=self._current_cluster_centroids,
-            selection_key=self.roi_indices)
+            selection_key=self.roi_indices,
+            contour=self._current_perimeter)
 
     def show_axoplasm_panel(self) -> None:
         """Open the axoplasm panel on the channel-1 selection."""

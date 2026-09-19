@@ -50,6 +50,20 @@ APRIL_AXON7 = os.path.join(
     DATA, "1°Reunión de avances de tesis", "Abril", "ROI 1", "Axon 7",
     "26.04.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_filter_render_"
     "byRCC1000_picked_axon7.hdf5")
+# ROI 2 is another camera region, with its own widefield images. Its picks
+# are exact subsets of the RCC-corrected full field below (checked frame by
+# frame), which is therefore what registers them.
+APRIL2 = os.path.join(DATA, "1°Reunión de avances de tesis", "Abril")
+APRIL2_FULL = os.path.join(
+    APRIL2, "26.4.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_filter_"
+    "render_RCC1000.hdf5")
+APRIL2_SPEC = os.path.join(DATA, "30.4.26", "WF_spec_2",
+                           "WF_spec_2_MMStack.ome.tif")
+APRIL2_TUB = os.path.join(DATA, "30.4.26", "WF_tub_2",
+                          "WF_tub_2_MMStack.ome.tif")
+APRIL2_AXON1 = os.path.join(
+    APRIL2, "ROI 2", "26.4.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_"
+    "filter_picked_Axon1_roi2.hdf5")
 
 
 def check(name: str, fn) -> None:
@@ -555,8 +569,285 @@ def test_classification() -> None:
 
 
 # ============================================================ real data
+def spectrin_ring_image(shape, centre, radius, *, width=1.2, ring=300.0,
+                        base=100.0, inside=None, gap=None, neighbour=None,
+                        pool=None):
+    """
+    A widefield spectrin image of one ring: a blurred bright band of
+    ``radius`` px on a ``base`` background. ``inside`` makes the axon's
+    inside darker than the background, as on the April data (inside ~740,
+    myelin ~900, ring ~990 on axon 7). ``gap`` = (start, end) in radians
+    leaves a sector of the band at the background level; ``neighbour`` =
+    (col, row, radius, brightness) adds another ring; ``pool`` = (col, row,
+    radius, level) paints a darker area, as myelin can be.
+    """
+    rows, cols = shape
+    rr, cc = np.mgrid[0:rows, 0:cols].astype(float)
+
+    def band(cx, cy, r, amp):
+        d = np.hypot(cc - cx, rr - cy)
+        return amp * np.exp(-0.5 * ((d - r) / width) ** 2)
+
+    own = band(centre[0], centre[1], radius, ring - base)
+    if gap is not None:
+        ang = np.mod(np.arctan2(rr - centre[1], cc - centre[0]), 2 * np.pi)
+        own[(ang >= gap[0]) & (ang <= gap[1])] = 0.0
+    image = base + own
+    if inside is not None:
+        d = np.hypot(cc - centre[0], rr - centre[1])
+        step = np.clip((radius - d) / (2 * width), 0.0, 1.0)
+        image = image - (base - inside) * step
+    if neighbour is not None:
+        image = image + band(neighbour[0], neighbour[1], neighbour[2],
+                             neighbour[3] - base)
+    if pool is not None:
+        d = np.hypot(cc - pool[0], rr - pool[1])
+        image = np.where(d < pool[2], np.minimum(image, pool[3]), image)
+    return ndimage.gaussian_filter(image, 0.7)
+
+
+def ring_centres(rng, centre, radius, n=40, gap=None):
+    """Cluster centres on the ring, in image pixels (col, row)."""
+    ang = rng.uniform(0, 2 * np.pi, 4 * n)
+    if gap is not None:
+        ang = ang[(ang < gap[0]) | (ang > gap[1])]
+    ang = ang[:n]
+    r = radius + rng.normal(0, 0.15, ang.size)
+    return centre[0] + r * np.cos(ang), centre[1] + r * np.sin(ang)
+
+
+def inside_hull(mask: ax.AxoplasmMask, col, row) -> bool:
+    """Every pixel of the mask lies inside the hull of (col, row)."""
+    from scipy.spatial import ConvexHull
+    r0, _r1, c0, _c1 = mask.region
+    up = mask.upsample
+    fr, fc = np.nonzero(mask.mask)
+    pc = c0 + (fc + 0.5) / up - 0.5
+    pr = r0 + (fr + 0.5) / up - 0.5
+    hull = ConvexHull(np.column_stack([col, row]))
+    a, b = hull.equations[:, :2], hull.equations[:, 2]
+    return bool(np.all(np.column_stack([pc, pr]) @ a.T + b <= 1e-6))
+
+
+def test_anchored() -> None:
+    print("\n6. CLUSTERS NOT ANCHORED TO THE MEMBRANE")
+    shape = (80, 80)
+    centre, radius = (40.0, 40.0), 14.0
+
+    def build(image, col, row):
+        return ax.build_ring_interior(image, centre, radius, PIXEL_NM,
+                                      ring_col=col, ring_row=row)
+
+    def closed_ring():
+        rng = np.random.default_rng(1)
+        image = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius)
+        inner = build(image, col, row)
+        lv = inner.levels
+        assert inner.threshold_source == "half maximum", inner.warnings
+        assert not inner.warnings, inner.warnings
+        assert lv["interior"] < lv["half_max"] < lv["ring"], lv
+        # Every cluster of the ring sits outside the interior, the centre
+        # deep inside it.
+        depth_ring = inner.distance_at(col, row)
+        depth_centre = inner.distance_at(np.array([centre[0]]),
+                                         np.array([centre[1]]))[0]
+        assert np.all(depth_ring < 0), depth_ring.max()
+        assert depth_centre > 0.6 * radius * PIXEL_NM, depth_centre
+        return (f"cut at half maximum; ring clusters {depth_ring.max():.0f} "
+                f"nm at most, the centre {depth_centre:.0f} nm inside")
+
+    def brighter_neighbour():
+        # Otsu over the region cuts above a dimmer ring and opens it; the
+        # axon's own levels do not.
+        rng = np.random.default_rng(2)
+        image = spectrin_ring_image(shape, centre, radius,
+                                    neighbour=(40.0, 71.0, 12.0, 900.0))
+        col, row = ring_centres(rng, centre, radius)
+        inner = build(image, col, row)
+        otsu = ax.otsu_threshold(ndimage.gaussian_filter(image, 1.0))
+        assert otsu > inner.levels["ring"], (otsu, inner.levels)
+        assert inner.threshold_source == "half maximum", inner.warnings
+        assert inside_hull(inner, col, row)
+        return (f"Otsu {otsu:.0f} lies above this ring ({inner.levels['ring']:.0f}); "
+                f"its own half maximum {inner.threshold:.0f} still closes it")
+
+    def gap_in_the_ring():
+        rng = np.random.default_rng(3)
+        # The inside (100) is darker than the background (180), which the
+        # gap brings the ring down to; the ring's half maximum is ~200.
+        gap = (0.3, 1.5)
+        image = spectrin_ring_image(shape, centre, radius, base=180.0,
+                                    inside=100.0, gap=gap)
+        col, row = ring_centres(rng, centre, radius, gap=gap)
+        inner = build(image, col, row)
+        lv = inner.levels
+        assert inner.threshold_source == "spill point", inner.threshold_source
+        assert inner.warnings and "open" in inner.warnings[0], inner.warnings
+        assert lv["interior"] < inner.threshold < lv["half_max"], lv
+        assert inside_hull(inner, col, row)
+        # The flood stops where it would cross the chord the clusters' hull
+        # draws over the gap, so the interior is smaller than the axon's
+        # inside -- by design, the warning says so -- but it still holds
+        # the middle of the axon with room to spare.
+        depth = inner.distance_at(np.array([centre[0]]),
+                                  np.array([centre[1]]))[0]
+        assert depth > 500.0, depth
+        # Without the gap the same ring closes at its half maximum.
+        closed = build(spectrin_ring_image(shape, centre, radius, base=180.0,
+                                           inside=100.0),
+                       *ring_centres(rng, centre, radius))
+        assert closed.threshold_source == "half maximum", closed.warnings
+        return (f"flooded to {inner.threshold:.0f} of a half maximum of "
+                f"{lv['half_max']:.0f}, inside the clusters' hull, the middle "
+                f"{depth:.0f} nm deep; closed, the same ring cuts at half "
+                f"maximum")
+
+    def dark_myelin_outside():
+        # The darkest point of the region is outside the ring: the interior
+        # must still be the axon's own.
+        rng = np.random.default_rng(4)
+        image = spectrin_ring_image(shape, centre, radius,
+                                    pool=(70.0, 10.0, 8.0, 20.0))
+        col, row = ring_centres(rng, centre, radius)
+        inner = build(image, col, row)
+        assert inner.smoothed.min() < inner.levels["interior"]
+        assert inside_hull(inner, col, row)
+        depth = inner.distance_at(np.array([centre[0]]),
+                                  np.array([centre[1]]))[0]
+        assert depth > 0, depth
+        return (f"region minimum {inner.smoothed.min():.0f}, the interior "
+                f"seeded at {inner.levels['interior']:.0f} inside the ring")
+
+    def degenerate_inputs():
+        image = spectrin_ring_image(shape, centre, radius)
+        two = build(image, np.array([30.0, 50.0]), np.array([40.0, 40.0]))
+        line = build(image, np.array([30.0, 40.0, 50.0]),
+                     np.array([40.0, 40.0, 40.0]))
+        flat = build(np.full(shape, 100.0), *ring_centres(
+            np.random.default_rng(5), centre, radius))
+        for name, got in (("two", two), ("line", line), ("flat", flat)):
+            assert got.empty and got.warnings, (name, got.warnings)
+            assert np.all(np.isneginf(got.distance_at(
+                np.array([centre[0]]), np.array([centre[1]])))), name
+        return "two centres, a line and a flat image give an empty interior"
+
+    def both_must_agree():
+        rng = np.random.default_rng(6)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=40)
+        # Four clusters well inside; the tubulin disc is shifted 3 px to
+        # the right, so the ring's right side falls inside it too.
+        icol = centre[0] + np.array([-3.0, 2.0, 0.0, 3.0])
+        irow = centre[1] + np.array([0.0, -3.0, 3.0, 2.0])
+        ccol = np.concatenate([col, icol, [75.0]])
+        crow = np.concatenate([row, irow, [5.0]])
+        tub = disc_image(shape, (centre[0] + 3.0, centre[1]), radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        nm = np.column_stack([ccol, crow]) * PIXEL_NM
+        found = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                     crow, 250.0)
+        expected = np.zeros(len(ccol), bool)
+        expected[40:44] = True
+        assert np.array_equal(found.discarded, expected), \
+            np.nonzero(found.discarded)[0]
+        assert found.n_tubulin_only >= 3, found.n_tubulin_only
+        # The far cluster is off both regions: NaN depths, kept.
+        assert np.isnan(found.depth_tubulin_nm[-1]) or \
+            found.depth_tubulin_nm[-1] < 0
+        assert not found.discarded[-1]
+        wide = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol, crow,
+                                    5000.0)
+        assert wide.n_discarded == 0
+        return (f"discarded exactly the 4 inside; {found.n_tubulin_only} "
+                f"ring clusters inside the shifted tubulin alone were kept")
+
+    def the_contour_without_them():
+        rng = np.random.default_rng(7)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=50)
+        icol = centre[0] + rng.uniform(-6, 6, 6)
+        irow = centre[1] + rng.uniform(-6, 6, 6)
+        ccol, crow = np.concatenate([col, icol]), np.concatenate([row, irow])
+        tub = disc_image(shape, centre, radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        nm = np.column_stack([ccol, crow]) * PIXEL_NM
+        found = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol,
+                                     crow, 250.0)
+        truth = 2 * np.pi * radius * PIXEL_NM / 1000.0
+        new = found.contour_anchored
+        assert found.n_discarded == 6, found.n_discarded
+        assert new.n_starts == 50 and new.health.n_deep_vertices == 0
+        assert abs(new.perimeter_um / truth - 1) < 0.05, \
+            (new.perimeter_um, truth)
+        assert found.contour_all_starts.perimeter_um > new.perimeter_um
+        assert found.contour_all.n_starts == 1
+        return (f"{new.perimeter_um:.2f} um against a true "
+                f"{truth:.2f} um; with the inside ones "
+                f"{found.contour_all_starts.perimeter_um:.2f} um")
+
+    def nothing_discarded_nothing_rebuilt():
+        rng = np.random.default_rng(8)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=30)
+        tub = disc_image(shape, centre, radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        cache: dict = {}
+        found = ax.anchored_clusters(np.column_stack([col, row]) * PIXEL_NM,
+                                     tmask, col, row, inner, col, row, 250.0,
+                                     contour_cache=cache)
+        assert found.n_discarded == 0
+        assert found.contour_anchored is found.contour_all_starts
+        assert len(cache) == 1
+        return "the same contour, built once"
+
+    def exported_columns():
+        rng = np.random.default_rng(9)
+        spec = spectrin_ring_image(shape, centre, radius)
+        col, row = ring_centres(rng, centre, radius, n=30)
+        tub = disc_image(shape, centre, radius)
+        tmask = ax.build_mask(tub, centre, radius, PIXEL_NM,
+                              reach_px=radius + 2)
+        inner = build(spec, col, row)
+        nm = np.column_stack([col, row]) * PIXEL_NM
+        found = ax.anchored_clusters(nm, tmask, col, row, inner, col, row,
+                                     250.0)
+        result = ax.classify(tmask, col, row, 250.0)
+        common = dict(localizations="a.hdf5", tubulin="t.tif",
+                      reference="s.tif", registration_file="", roi="-",
+                      pixel_size_nm=PIXEL_NM, offset_px=(0.0, 0.0),
+                      registration=ax.ImageRegistration(), mask=tmask,
+                      result=result, cluster_result=result)
+        without = ax.summary_row(**common)
+        with_ = ax.summary_row(**common, spectrin=inner, anchored=found)
+        assert list(without) == list(with_)
+        assert with_["n_clusters_discarded"] == 0
+        assert without["n_clusters_discarded"] is None
+        rows = ax.cluster_rows(localizations="a.hdf5", roi="-",
+                               centroids_nm=nm, anchored=found)
+        assert len(rows) == 30 and not any(r["discarded"] for r in rows)
+        return f"{len(with_)} columns either way; one row per cluster"
+
+    check("a closed ring: cut at its half maximum", closed_ring)
+    check("a brighter neighbour does not open it", brighter_neighbour)
+    check("a gap: flooded only to the spill point", gap_in_the_ring)
+    check("darker myelin outside is not the interior", dark_myelin_outside)
+    check("too few centres, a line, no ring", degenerate_inputs)
+    check("a cluster goes only when both images agree", both_must_agree)
+    check("the contour is rebuilt without them", the_contour_without_them)
+    check("nothing discarded, nothing rebuilt twice",
+          nothing_discarded_nothing_rebuilt)
+    check("the export's columns", exported_columns)
+
+
 def test_real_data() -> None:
-    print("\n6. APRIL 2026, ROI 1  (widefield images and STORM data)")
+    print("\n7. APRIL 2026  (widefield images and STORM data)")
 
     def april():
         if not all(os.path.exists(p) for p in (APRIL_FULL, APRIL_SPEC,
@@ -591,6 +882,83 @@ def test_real_data() -> None:
 
     check("registration and one axon", april)
 
+    def anchored_axon7():
+        if not all(os.path.exists(p) for p in (APRIL_SPEC, APRIL_TUB,
+                                               APRIL_AXON7)):
+            return "skipped, data not present"
+        found, new, lengths = anchored_on(APRIL_AXON7, APRIL_TUB, APRIL_SPEC,
+                                          (-2.0531, 5.5531))
+        assert found.n_discarded == 5, found.n_discarded
+        assert 15.5 < new.perimeter_um < 17.0, new.perimeter_um
+        assert new.health.n_deep_vertices <= 1, new.health.n_deep_vertices
+        return (f"{found.n_discarded} of {found.n} discarded; perimeter "
+                f"{lengths[0]:.2f} (MPS analysis) -> {lengths[1]:.2f} (all, "
+                f"every start) -> {new.perimeter_um:.2f} um")
+
+    def anchored_roi2():
+        # The axon where a spectrin interior not bounded by the clusters
+        # leaked along the myelin and took seven membrane clusters.
+        if not all(os.path.exists(p) for p in (APRIL2_FULL, APRIL2_SPEC,
+                                               APRIL2_TUB, APRIL2_AXON1)):
+            return "skipped, data not present"
+        from tools.mps_io import load_localizations
+
+        spec = ax.load_widefield(APRIL2_SPEC)
+        full = load_localizations(APRIL2_FULL)
+        px = full.pixel_size_nm
+        off, _ = ax.camera_offset(spec, full.info, px)
+        reg = ax.measure_shift(spec.image, full.x_nm / px + off[0],
+                               full.y_nm / px + off[1])
+        assert reg.score is not None and reg.score >= ax.MIN_REGISTRATION_SCORE, \
+            reg.score
+        assert not reg.warnings, reg.warnings
+        found, new, _lengths = anchored_on(APRIL2_AXON1, APRIL2_TUB,
+                                           APRIL2_SPEC, reg.shift_px)
+        assert found.n_discarded == 0, found.n_discarded
+        return (f"registered to WF_spec_2 ({reg.shift_px[0]:+.2f}, "
+                f"{reg.shift_px[1]:+.2f}) px, score {reg.score:.1f}; "
+                f"0 of {found.n} discarded, though the tubulin alone puts "
+                f"{found.n_tubulin_only} inside")
+
+    check("axon 7: the clusters inside, and the contour without them",
+          anchored_axon7)
+    check("ROI 2, axon 1: no membrane cluster discarded", anchored_roi2)
+
+
+def anchored_on(axon_path, tub_path, spec_path, shift_px):
+    """analyze_axon, both masks and anchored_clusters for one real axon."""
+    from tools.mps_analysis import analyze_axon
+    from tools.mps_io import load_localizations
+
+    loc = load_localizations(axon_path)
+    px = loc.pixel_size_nm
+    analysis = analyze_axon(loc.x_nm, loc.y_nm, loc.z_nm,
+                            pixel_size_nm=px, run_randomization=False)
+    tub = ax.load_widefield(tub_path)
+    spec = ax.load_widefield(spec_path)
+    toff, _ = ax.camera_offset(tub, loc.info, px)
+    soff, _ = ax.camera_offset(spec, loc.info, px)
+
+    def frame(off, x, y):
+        return x / px + off[0] + shift_px[0], y / px + off[1] + shift_px[1]
+
+    col, row = frame(toff, analysis.x_slab, analysis.y_slab)
+    centre, radius, reach = ax.axon_centre(col, row)
+    tmask = ax.build_mask(tub.image, centre, radius, px, reach_px=reach)
+    scol, srow = frame(soff, analysis.x_slab, analysis.y_slab)
+    scentre, sradius, sreach = ax.axon_centre(scol, srow)
+    c = np.asarray(analysis.centroids, float)
+    ccol, crow = frame(soff, c[:, 0], c[:, 1])
+    inner = ax.build_ring_interior(spec.image, scentre, sradius, px,
+                                   ring_col=ccol, ring_row=crow,
+                                   reach_px=sreach)
+    tcol, trow = frame(toff, c[:, 0], c[:, 1])
+    found = ax.anchored_clusters(c, tmask, tcol, trow, inner, ccol, crow,
+                                 250.0, contour_all=analysis.perimeter)
+    return (found, found.contour_anchored,
+            (found.contour_all.perimeter_um,
+             found.contour_all_starts.perimeter_um))
+
 
 def main() -> int:
     print("=" * 72)
@@ -601,6 +969,7 @@ def main() -> int:
     test_registration()
     test_mask()
     test_classification()
+    test_anchored()
     test_real_data()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")
