@@ -35,9 +35,18 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from tools import export_ui
 from tools.mps_gaps import RingAnalysis, analyze_rings
 from tools.mps_plot_style import PLOT_BG, set_title, style_dark
-from tools.results_table import append_rows
+from tools.results_table import (
+    append_rows, cell_text, check_appendable, refuse_other_analysis,
+    replace_rows)
+
+# What says two rows describe the same axon, and what makes two rows
+# another analysis of it: the segments of one axon cut with another guard
+# band, or in another mode, are not rows to pool with these.
+RING_KEY = ("source", "roi")
+RING_COLUMNS = ("segment_mode", "guard_nm")
 
 _C_ORANGE = "#d55e00"
 _C_GREEN = "#009e73"
@@ -714,22 +723,63 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         if not path:
             return
 
+        shown = list(self.ms.warnings) + list(self.rings.warnings)
+        notes = " | ".join(cell_text(w) for w in shown)
+
+        # The gap/patch run of a segment, found by the segment's own
+        # number: export_rows() skips a segment whose analysis failed,
+        # while runs keeps a None for it, so pairing them by position put
+        # one segment's patches and gaps on another segment's row. The
+        # headless batch already pairs them this way.
+        runs = {seg.index: run
+                for seg, run in zip(self.ms.segments, self.rings.runs)
+                if run is not None}
         seg_rows = self.ms.export_rows()
-        for k, run in enumerate(self.rings.runs):
-            if run is None or k >= len(seg_rows):
-                continue
-            seg_rows[k].update(run.export_dict())
-        pair_rows = [p.export_dict() for p in self.rings.pairs]
+        for row in seg_rows:
+            run = runs.get(row["segment_index"])
+            if run is not None:
+                row.update(run.export_dict())
+            row["ring_analysis_warnings"] = notes
+            row["n_ring_analysis_warnings"] = len(shown)
+        # The pair rows carry what the panel compares consecutive rings
+        # by; the coverage correlation is added to them by segment pair.
+        coverage = {(p.index_a, p.index_b): p.export_dict()
+                    for p in self.rings.pairs}
+        pair_rows = self.ms.pair_rows()
+        for row in pair_rows:
+            row.update(coverage.get((row["segment_a"], row["segment_b"]), {}))
+            row["ring_analysis_warnings"] = notes
+            row["n_ring_analysis_warnings"] = len(shown)
 
         # Two shapes of row go to two files rather than one ragged table: a
         # per-segment row and a per-pair row are different observations, and
         # mixing them is what makes a CSV impossible to load later.
         stem, ext = os.path.splitext(path)
         pair_path = f"{stem}_pairs{ext or '.csv'}"
+        tables = [(path, seg_rows)] + ([(pair_path, pair_rows)]
+                                       if pair_rows else [])
         try:
-            written = [self._write_csv(path, seg_rows)]
-            if pair_rows:
-                written.append(self._write_csv(pair_path, pair_rows))
+            # Both tables are checked before either is written: the
+            # segments used to be written first, so a refusal on the pairs
+            # table left them there and a second attempt doubled them.
+            for target, rows in tables:
+                check_appendable(target, rows)
+                for row in rows[:1]:
+                    refuse_other_analysis(target, row, RING_COLUMNS)
+            decision = export_ui.resolve_duplicates(
+                self, [(target, rows, RING_KEY) for target, rows in tables])
+            if decision == export_ui.CANCEL:
+                return
+            written = []
+            for target, rows in tables:
+                if decision == export_ui.REPLACE:
+                    replaced = replace_rows(target, rows, RING_KEY)
+                    written.append(f"Replaced {replaced} row(s) in {target}")
+                else:
+                    append = append_rows(target, rows)
+                    written.append(
+                        f"{'Appended' if append else 'Wrote'} {len(rows)} "
+                        f"row(s) to {target}")
         except (OSError, ValueError, csv.Error) as exc:
             QtWidgets.QMessageBox.critical(
                 self, "Export failed", f"Could not write:\n\n{exc}")
@@ -737,13 +787,3 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
         QtWidgets.QMessageBox.information(
             self, "Exported", "\n".join(w for w in written if w))
-
-    @staticmethod
-    def _write_csv(path: str, rows: List[Dict[str, Any]]) -> str:
-        if not rows:
-            return ""
-        # Every column any row has: a segment without a gap/patch analysis
-        # used to set the header and drop those columns for all rows.
-        append = append_rows(path, rows)
-        return (f"{'Appended' if append else 'Wrote'} {len(rows)} row(s) to "
-                f"{path}")
