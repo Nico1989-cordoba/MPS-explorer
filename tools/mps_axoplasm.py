@@ -8,7 +8,7 @@ membrane forms the periodic lattice at its rim. A widefield tubulin image
 taken with the super-resolution acquisition therefore tells which spectrin
 localizations lie inside the axon and which lie at its edge. That holds
 only if the image is placed where the localizations are, and if its
-blurred edge is treated as blurred. The module works in three steps, each
+blurred edge is treated as blurred. The module works in four steps, each
 reported so it can be checked:
 
 1. PLACING THE IMAGE. Picasso stores a localization at x = c for an
@@ -39,12 +39,14 @@ reported so it can be checked:
    image shows the membrane as a blurred bright ring around a dark inside
    (``build_ring_interior``). A cluster of the MPS analysis is discarded
    only when both images put it inside the axon by more than the margin,
-   and the contour is rebuilt from the rest (``anchored_clusters``). On
-   the 18 April axons the spectrin interior has about 25 % contrast
-   against the ring, where the tubulin image stands 5-60 counts over a
-   baseline of about 400; either image alone misplaces clusters in its own
-   way, which is why the two must agree. tools.mps_analysis.without_clusters
-   then repeats every parameter of the MPS analysis without them.
+   and the contour is rebuilt from the rest (``anchored_clusters``).
+   Either image alone misplaces clusters in its own way -- the tubulin
+   mask merges with its neighbours and drifts off the ring, the spectrin
+   ring opens where it is dim -- which is why the two must agree. Where
+   the spectrin interior stops short of the axon's middle (at the spill
+   point of a ring that is open), a cluster there cannot be discarded
+   whatever the tubulin says. tools.mps_analysis.without_clusters then
+   repeats every parameter of the MPS analysis without them.
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -1026,8 +1028,15 @@ def summary_row(
     cluster_result: Optional[Classification],
     spectrin: Optional[AxoplasmMask] = None,
     anchored: Optional[AnchoredClusters] = None,
+    spectrin_image: str = "",
 ) -> Dict[str, Any]:
-    """One row per axon; the same columns whatever was computed."""
+    """
+    One row per axon; the same columns whatever was computed.
+
+    ``spectrin_image`` is the widefield image the ring interior (and so
+    the discard) was found in. It can differ from ``reference``, the image
+    the shift was measured against.
+    """
     sx, sy = registration.shift_nm(pixel_size_nm)
 
     def rounded(value: Optional[float], digits: int = 4) -> Optional[float]:
@@ -1046,6 +1055,7 @@ def summary_row(
     all_starts = None if anchored is None else anchored.contour_all_starts
     new = None if anchored is None else anchored.contour_anchored
     spectrin_columns = {
+        "spectrin_interior_image": None if spectrin is None else spectrin_image,
         "spectrin_interior_cut": None if spectrin is None else finite(
             spectrin.threshold, 2),
         "spectrin_interior_cut_source": (None if spectrin is None
@@ -1122,13 +1132,16 @@ def cluster_rows(
     roi: str,
     centroids_nm: NDArray[np.float64],
     anchored: AnchoredClusters,
+    spectrin_image: str = "",
 ) -> List[Dict[str, Any]]:
-    """One row per cluster: where each image puts it, and whether it went."""
+    """One row per cluster: where each image puts it, and whether it went.
+    ``spectrin_image`` is the widefield image of the ring interior."""
     def depth(value: float) -> Any:
         return round(float(value), 1) if np.isfinite(value) else float(value)
 
     return [
         {"source_localizations": localizations, "roi": roi,
+         "spectrin_interior_image": spectrin_image,
          "x_nm": round(float(x), 2), "y_nm": round(float(y), 2),
          "depth_in_tubulin_mask_nm": depth(dt),
          "depth_in_spectrin_interior_nm": depth(ds),

@@ -6,7 +6,8 @@ or inside the axon, according to a widefield betaIII-tubulin image?
 Top to bottom:
   1. the images. The tubulin one, and optionally a widefield image of the
      super-resolved protein together with the localizations of the whole
-     movie, to measure the shift between the acquisitions;
+     movie, to measure the shift between the acquisitions. Section 5 also
+     needs that spectrin image: it finds the ring's dark inside in it;
   2. the alignment, measured and adjustable by hand;
   3. the mask, with Otsu's threshold on the axon's region, adjustable;
   4. the classification with the margin the user sets, and the export;
@@ -38,7 +39,7 @@ from tools import mps_file_drop
 from tools.mps_io import load_localizations
 from tools.mps_plot_style import AXIS_FG, TITLE_FG, set_title, style_dark
 from tools.mps_twochannel_window import describe_roi
-from tools.results_table import append_rows
+from tools.results_table import append_rows, check_appendable
 
 _OK = "#5fd75f"
 _WARN = "#ffaf5f"
@@ -265,7 +266,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             ("betaIII-tubulin, widefield:", self.edit_tubulin,
              "Widefield betaIII-tubulin", "TIFF (*.tif *.tiff)",
              self._load_tubulin, images),
-            ("betaII-spectrin, widefield (to align):", self.edit_reference,
+            ("betaII-spectrin, widefield (to align; section 5 needs it):",
+             self.edit_reference,
              "Widefield betaII-spectrin", "TIFF (*.tif *.tiff)",
              self._load_reference, images),
             ("Localizations of the whole movie (to align):", self.edit_movie,
@@ -485,7 +487,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         (self.reference, self.reference_offset,
          self.reference_notes) = self._load_image(self.edit_reference,
                                                   "spectrin widefield")
-        self._refresh()
+        # The spectrin image gives section 5 its ring interior: finding the
+        # discarded clusters again, with this image or without one, also
+        # tells the main window.
+        self._reclassify()
 
     # -------------------------------------------------------- alignment
     def _shift_px(self) -> Tuple[float, float]:
@@ -1058,14 +1063,23 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             registration=self.registration(),
             mask=self.axoplasm, result=self.result,
             cluster_result=self.cluster_result,
-            spectrin=self.spectrin_interior, anchored=self.anchored)
+            spectrin=self.spectrin_interior, anchored=self.anchored,
+            spectrin_image=self._interior_image())
+
+    def _interior_image(self) -> str:
+        """The spectrin image the ring interior was found in: the one
+        loaded, since loading one finds the interior again."""
+        if self.spectrin_interior is None or self.reference is None:
+            return ""
+        return self.reference.path
 
     def cluster_rows(self) -> List[Dict[str, Any]]:
         assert self.anchored is not None and self.anchored_centroids is not None
         return ax.cluster_rows(
             localizations=str(self.inputs.movie.path),
             roi=describe_roi(self.inputs.roi),
-            centroids_nm=self.anchored_centroids, anchored=self.anchored)
+            centroids_nm=self.anchored_centroids, anchored=self.anchored,
+            spectrin_image=self._interior_image())
 
     def localization_rows(self) -> List[Dict[str, Any]]:
         assert self.result is not None
@@ -1110,17 +1124,21 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         base, ext = os.path.splitext(path)
         detail = f"{base}_localizations{ext or '.csv'}"
         clusters = f"{base}_clusters{ext or '.csv'}"
+        tables = [(path, [self.summary_row()]),
+                  (detail, self.localization_rows())]
+        if self.anchored is not None:
+            tables.append((clusters, self.cluster_rows()))
         lines = []
         try:
-            for target, rows in ((path, [self.summary_row()]),
-                                 (detail, self.localization_rows())):
+            # Every table is checked before any is written: a refusal half
+            # way would leave the first ones written, and exporting again
+            # after fixing the file would add this axon to them twice.
+            for target, rows in tables:
+                check_appendable(target, rows)
+            for target, rows in tables:
                 appended = append_rows(target, rows)
                 lines.append(f"{'Appended to' if appended else 'Wrote'} "
                              f"{target}")
-            if self.anchored is not None:
-                appended = append_rows(clusters, self.cluster_rows())
-                lines.append(f"{'Appended to' if appended else 'Wrote'} "
-                             f"{clusters}")
         except (OSError, ValueError, csv.Error) as error:
             QtWidgets.QMessageBox.critical(
                 self, "Export failed", f"Could not write:\n\n{error}")

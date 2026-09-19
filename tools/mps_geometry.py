@@ -50,25 +50,36 @@ what a correct contour produces rather than where they happen to catch
 this dataset:
 
   vertex depth inside the hull of all the vertices, as a fraction of the
-  hull's effective radius. Over 13,000 simulated healthy contours the
-  deepest vertex reaches 0.29 (circle, centres scattered by up to 80 nm
-  on a 1.6 um radius), 0.21 (gaps of up to 160 degrees), 0.21 (a dent
-  half the radius deep), 0.305 (an oval squeezed to a waist a third of
-  its width) and 0.386 (an hourglass with a waist a quarter of its
-  width). A cluster planted inside the ring sits at 0.63. The limit is
-  0.40: above every healthy shape simulated, below the planted ones.
+  hull's effective radius. The rings simulated have a 1.6 um radius and
+  their centres scattered radially by a Gaussian. With a standard
+  deviation of up to 80 nm (5 % of the radius) the deepest vertex of a
+  circle reaches 0.29; with 40 nm, 0.21 with gaps of up to 160 degrees,
+  0.21 with a dent half the radius deep, 0.305 on an oval squeezed to a
+  waist a third of its width and 0.386 on an hourglass with a waist a
+  quarter of its width. A single cluster planted inside the ring sits at
+  a median of 0.63. The limit is 0.40: above those healthy shapes, below
+  the typical planted cluster.
+
+  It holds only for that scatter. The depth grows with the scatter
+  relative to the radius: with a standard deviation of 150 nm (9 % of
+  the radius) healthy circles reach 0.48, and a smaller axon with the
+  same scatter in nm is the same case. Where the centres scatter off the
+  outline more than the simulated rings did, a vertex over the limit can
+  be that scatter rather than a cluster from inside the axon.
 
   That margin is bought with sensitivity. At 0.40 the check only sees a
   centre more than ~0.6 um inside a 1.6 um axon, which is far blunter
   than a second channel would be -- the tubulin mask flags an interior
-  at 250 nm. It is meant to catch the contours that are plainly wrong
-  without ever calling a healthy one broken, not to measure the
-  interior.
+  at 250 nm. It is meant to catch the contours that are plainly wrong,
+  not to measure the interior.
 
   longest step over the median step, for the chord a gap forces. This
   one separates poorly and its limit is correspondingly loose: random
-  angular spacing on a ring with no gap at all already reaches 18.8, so
-  the limit is 20, which sees a 90 degree gap but not a 40 degree one.
+  angular spacing on simulated rings with no gap reached 18.8, so the
+  limit is 20. With 70 centres it sees a 90 degree gap but not a 40
+  degree one. The ratio is taken against the median step, which grows as
+  the centres get fewer, so with fewer centres a gap of the same size is
+  missed more often.
 
 Two other numbers are reported and deliberately NOT flagged. The ratio
 of the tour to the convex hull of the same centres is what first made
@@ -124,7 +135,9 @@ LONG_EDGE_FACTOR = 3.0
 # settings alone. Calibrated in the module docstring.
 DEEP_VERTEX_FRACTION = 0.40
 # One step this many times the median is a chord across the axon. Wide,
-# because random angular spacing alone reaches 18.8 on a gapless ring.
+# because random angular spacing reached 18.8 on simulated gapless rings
+# (the largest of them, not a bound: a rarer ring can pass it).
+GAPLESS_MAX_OVER_MEDIAN = 18.8
 MAX_OVER_MEDIAN_LIMIT = 20.0
 
 
@@ -350,7 +363,7 @@ def contour_health(contour: NDArray[np.float64]) -> Optional[ContourHealth]:
     Returns
     -------
     ContourHealth, or None when the vertices are degenerate (fewer than
-    three, or all on one line) and no hull exists to compare against.
+    three, or exactly on one line) and no hull exists to compare against.
     """
     contour = np.asarray(contour, dtype=float)
     if contour.ndim != 2 or contour.shape[1] != 2 or len(contour) < 3:
@@ -388,9 +401,9 @@ def contour_health(contour: NDArray[np.float64]) -> Optional[ContourHealth]:
     depth = -(contour @ normals.T + offsets).max(axis=1)
 
     # 2 * area / perimeter is the radius for a circle, and stays a sensible
-    # calibre for the irregular cross-sections of the sciatic nerve. A
-    # sliver of a hull would give a radius near zero and make every vertex
-    # look deep, so it is treated as degenerate instead.
+    # calibre for the irregular cross-sections of the sciatic nerve. Only a
+    # hull with no area is treated as degenerate here: a thin sliver still
+    # gets a (tiny) radius, and on it every vertex looks deep.
     hull_radius = 2.0 * float(hull.volume) / hull_length
     if not np.isfinite(hull_radius) or hull_radius <= 0.0:
         return None
@@ -414,12 +427,15 @@ def contour_health(contour: NDArray[np.float64]) -> Optional[ContourHealth]:
             f"{health.n_deep_vertices} of the {len(contour)} centres on "
             f"this contour sit more than {health.depth_limit_nm:,.0f} nm "
             f"inside their own convex hull, the deepest by "
-            f"{health.max_depth_nm:,.0f} nm. No simulated ring reaches that "
-            f"depth -- not with a gap of 160 degrees, not with a dent half "
-            f"the radius deep, not on a cross-section as flat as a peanut "
-            f"whose waist is a third of its width. So either those centres "
+            f"{health.max_depth_nm:,.0f} nm. No simulated ring whose centres "
+            f"scatter off the outline by up to 5 % of its radius reaches "
+            f"that depth -- not with a gap of 160 degrees, not with a dent "
+            f"half the radius deep, not on a cross-section as flat as a "
+            f"peanut whose waist is a third of its width. So those centres "
             f"are not on the membrane, or this axon is more concave than "
-            f"any of those. Look at the contour before using the "
+            f"any of those, or its centres scatter off the outline more "
+            f"than the simulated ones did. Look at the contour before using "
+            f"the "
             f"perimeter: it is {health.tour_over_hull:.2f} times the hull "
             f"of the same centres ({health.hull_perimeter_um:.2f} um), and "
             f"clusters per um, occupancy and the randomization all follow "
@@ -427,13 +443,14 @@ def contour_health(contour: NDArray[np.float64]) -> Optional[ContourHealth]:
         )
     if health.bridges_a_gap:
         health.warnings.append(
-            f"One step of the contour is {health.max_over_median:.0f} times "
+            f"One step of the contour is {health.max_over_median:.1f} times "
             f"the median ({health.edge_max_nm:,.0f} nm against "
             f"{health.edge_median_nm:,.0f} nm). Random angular spacing "
-            f"alone reaches {MAX_OVER_MEDIAN_LIMIT:.0f} on a ring with no "
-            f"gap at all; past that the contour is closing a gap with a "
-            f"chord, which cuts across the axon and puts every "
-            f"localization it passes on the wrong side of the contour."
+            f"reached {GAPLESS_MAX_OVER_MEDIAN:g} on simulated rings with no "
+            f"gap; past the limit of {MAX_OVER_MEDIAN_LIMIT:.0f} the contour "
+            f"is probably closing a gap with a chord, which cuts across the "
+            f"axon and puts every localization it passes on the wrong side "
+            f"of the contour."
         )
     return health
 
@@ -626,7 +643,8 @@ def reconstruct_perimeter(
     all_starts : run 2-opt from every starting point of the polar cycle and
         keep the shortest tour. 2-opt only accepts improvements, so where it
         ends depends on where it starts: on the 18 April axons, rolling the
-        start changed the perimeter in 144 of 270 cases, by up to 12.9 %.
+        start changed the perimeter in 144 of 252 rolled starts (14 per
+        axon besides the original), by up to 12.9 %.
         The shortest over every start does not depend on it, and the MPS
         analysis builds its contour this way (tools.mps_analysis). Off by
         default here: one start is what this program did before
@@ -683,7 +701,8 @@ def reconstruct_perimeter(
             n_2opt_improvements=0,
             self_intersections_before=before,
             self_intersections_after=before,
-            warnings=(["Manual contour ordering supplied by the user."]
+            warnings=(warnings_
+                      + ["Manual contour ordering supplied by the user."]
                       + crossing + (health.warnings if health else [])),
             health=health,
             centre=contour_centre(centroids[order]) if before == 0 else None,

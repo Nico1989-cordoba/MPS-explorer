@@ -184,7 +184,13 @@ def contour_health_checks() -> None:
         assert res.health is None, "a NaN contour must not get a clean bill"
         assert any("not a finite coordinate" in w for w in res.warnings), (
             res.warnings)
-        return f"perimeter NaN, {len(res.warnings)} warning(s), no health"
+        # A contour given by hand says so too.
+        manual = reconstruct_perimeter(pts, custom_order=np.arange(len(pts)))
+        assert np.isnan(manual.perimeter_nm) and manual.health is None
+        assert any("not a finite coordinate" in w for w in manual.warnings), (
+            manual.warnings)
+        return (f"perimeter NaN, {len(res.warnings)} warning(s), no health; "
+                f"the same with a manual order")
 
     def ratios_do_not_depend_on_scale():
         rng = np.random.default_rng(1)

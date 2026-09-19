@@ -271,7 +271,7 @@ class AxonAnalysis:
             return "n/a" if v is None else f"{v:,.{nd}f}"
 
         kept = f"{self.n_clusters_kept}"
-        if self.discard_applied:
+        if self.discarded_labels:
             kept += f" ({len(self.discarded_labels)} discarded)"
         starts = 1 if self.perimeter is None else self.perimeter.n_starts
         joined = ("centroids connected, 2-opt" if starts == 1 else
@@ -308,12 +308,14 @@ class AxonAnalysis:
                 f"; discarded: inside both widefield images by more than "
                 f"{self.discard_margin_nm:,.0f} nm")),
             ("Perimeter", fmt(self.perimeter_um, 2) + " um", "-", joined),
+            # These checks and their limits are this program's, not the
+            # paper's: the paper column stays "-".
             ("  centres deep inside the hull",
              "n/a" if self.contour_health is None
              else f"{self.contour_health.n_deep_vertices}",
-             "0",
+             "-",
              "" if self.contour_health is None
-             else f"deeper than "
+             else f"this program flags any deeper than "
                   f"{self.contour_health.depth_limit_nm:,.0f} nm "
                   f"({DEEP_VERTEX_FRACTION:.0%} of the hull radius); "
                   f"deepest {self.contour_health.max_depth_nm:,.0f} nm"),
@@ -327,9 +329,11 @@ class AxonAnalysis:
             ("  longest step / median",
              "n/a" if self.contour_health is None
              else f"{self.contour_health.max_over_median:.1f}",
-             f"<= {MAX_OVER_MEDIAN_LIMIT:.0f}",
+             "-",
              "" if self.contour_health is None
-             else f"{self.contour_health.edge_max_nm:,.0f} nm against "
+             else f"this program flags above "
+                  f"{MAX_OVER_MEDIAN_LIMIT:.0f}; "
+                  f"{self.contour_health.edge_max_nm:,.0f} nm against "
                   f"{self.contour_health.edge_median_nm:,.0f} nm"),
             ("Centre", where, "-", where_note),
             ("  moves with one cluster out",
@@ -941,8 +945,9 @@ def _discard_note(n_dropped: int, n_before: int, margin_nm: float) -> str:
     return (
         f"Discard applied: {n_dropped} of {n_before} clusters left out, "
         f"those both widefield images place more than {margin_nm:,.0f} nm "
-        f"inside the axon. Gazal et al. (2026) keep every cluster; these "
-        f"numbers depart from their method.")
+        f"inside the axon. Gazal et al. (2026) do not describe leaving out "
+        f"clusters that lie inside the axon: this step goes beyond their "
+        f"Methods.")
 
 
 def with_discard_margin(analysis: AxonAnalysis,

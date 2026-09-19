@@ -116,6 +116,28 @@ def _mismatch(path: str, header: List[str], fields: List[str]) -> str:
             f"lose its rows, so nothing was written. Choose another file.")
 
 
+def _fields(rows: Sequence[Dict[str, Any]],
+            fieldnames: Optional[Sequence[str]]) -> List[str]:
+    if not rows:
+        raise ValueError("No rows to write.")
+    return (list(fieldnames) if fieldnames is not None
+            else list(dict.fromkeys(k for row in rows for k in row)))
+
+
+def check_appendable(path: str, rows: Sequence[Dict[str, Any]],
+                     fieldnames: Optional[Sequence[str]] = None) -> None:
+    """
+    Raise TableMismatch, writing nothing, when append_rows would refuse
+    ``rows`` at ``path``. An export that writes several tables checks them
+    all first, so that a refusal never leaves some of them written: a
+    second attempt would then add the same axon twice to those.
+    """
+    fields = _fields(rows, fieldnames)
+    header, _ = _existing(path)
+    if header is not None and header != fields:
+        raise TableMismatch(_mismatch(path, header, fields))
+
+
 def append_rows(path: str, rows: Sequence[Dict[str, Any]],
                 fieldnames: Optional[Sequence[str]] = None) -> bool:
     """
@@ -126,10 +148,7 @@ def append_rows(path: str, rows: Sequence[Dict[str, Any]],
     False when a new one was written. A file with other columns is not
     touched: TableMismatch says what differs.
     """
-    if not rows:
-        raise ValueError("No rows to write.")
-    fields = (list(fieldnames) if fieldnames is not None
-              else list(dict.fromkeys(k for row in rows for k in row)))
+    fields = _fields(rows, fieldnames)
     header, terminated = _existing(path)
     if header is not None and header != fields:
         raise TableMismatch(_mismatch(path, header, fields))

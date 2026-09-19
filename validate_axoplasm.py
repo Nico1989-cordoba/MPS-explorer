@@ -870,14 +870,23 @@ def test_anchored() -> None:
                       registration=ax.ImageRegistration(), mask=tmask,
                       result=result, cluster_result=result)
         without = ax.summary_row(**common)
-        with_ = ax.summary_row(**common, spectrin=inner, anchored=found)
+        with_ = ax.summary_row(**common, spectrin=inner, anchored=found,
+                               spectrin_image="s2.tif")
         assert list(without) == list(with_)
         assert with_["n_clusters_discarded"] == 0
         assert without["n_clusters_discarded"] is None
+        # The image the interior came from, which need not be the one the
+        # shift was measured against.
+        assert with_["spectrin_interior_image"] == "s2.tif"
+        assert with_["registration_reference_image"] == "s.tif"
+        assert without["spectrin_interior_image"] is None
         rows = ax.cluster_rows(localizations="a.hdf5", roi="-",
-                               centroids_nm=nm, anchored=found)
+                               centroids_nm=nm, anchored=found,
+                               spectrin_image="s2.tif")
         assert len(rows) == 30 and not any(r["discarded"] for r in rows)
-        return f"{len(with_)} columns either way; one row per cluster"
+        assert all(r["spectrin_interior_image"] == "s2.tif" for r in rows)
+        return (f"{len(with_)} columns either way, with the spectrin image "
+                f"of the interior; one row per cluster")
 
     check("a closed ring: cut at its half maximum", closed_ring)
     check("a brighter neighbour does not open it", brighter_neighbour)
