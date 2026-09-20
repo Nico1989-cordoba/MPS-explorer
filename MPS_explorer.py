@@ -933,26 +933,30 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 "slab are written, and not the ones it left out.")
 
         paths = axon_export.table_paths(path)
-        targets = [(paths["axon"], [tables.axon],
+        # Each table carries which one it is: with only the localizations
+        # asked for, a list of (path, rows) alone would report them under
+        # the clusters table's name.
+        targets = [("axon", paths["axon"], [tables.axon],
                     axon_export.AXON_KEY_COLUMNS)]
         if tables.clusters:
-            targets.append((paths["clusters"], tables.clusters,
+            targets.append(("clusters", paths["clusters"], tables.clusters,
                             axon_export.CLUSTER_KEY_COLUMNS))
         if tables.localizations:
-            targets.append((paths["localizations"], tables.localizations,
+            targets.append(("localizations", paths["localizations"],
+                            tables.localizations,
                             axon_export.LOCALIZATION_KEY_COLUMNS))
         try:
             # Every table is checked before any is written: a refusal half
             # way through would leave this axon in one table and not the
             # others, and exporting again would then double it.
-            for target, rows, _keys in targets:
+            for _key, target, rows, _keys in targets:
                 check_appendable(target, rows)
-            decision = export_ui.resolve_duplicates(self, targets)
+            decision = export_ui.resolve_duplicates(
+                self, [(t[1], t[2], t[3]) for t in targets])
             if decision == export_ui.CANCEL:
                 return None
             counts: Dict[str, int] = {}
-            for (target, rows, keys), key in zip(targets, ("axon", "clusters",
-                                                           "localizations")):
+            for key, target, rows, keys in targets:
                 if decision == export_ui.REPLACE:
                     counts[key] = replace_rows(target, rows, keys)
                 else:
