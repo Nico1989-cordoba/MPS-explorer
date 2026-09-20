@@ -60,6 +60,10 @@ _C_GREY = "#888888"
 _C_DARK_OUTLINE = "#e0e0e0"
 # The clusters the discard left out, as the axoplasm panel draws them.
 _C_DISCARDED = "#ff4040"
+
+# The contour plot's title, which gains what it is drawing when there is
+# more than one thing it could be drawing.
+CONTOUR_TITLE = "Clusters, reconstructed perimeter and its centre (+)"
 # The centre of the contour shown (Okabe-Ito reddish purple, as in the
 # axoplasm panel, whose yellow is already the spectrin interior).
 _C_CENTRE = "#cc79a7"
@@ -276,13 +280,25 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.box_shown = QtWidgets.QWidget()
         shown = QtWidgets.QHBoxLayout(self.box_shown)
         shown.setContentsMargins(0, 0, 0, 0)
-        shown.addWidget(QtWidgets.QLabel("Plots show:"))
+        self.label_shown = QtWidgets.QLabel("Draw the plots with:")
+        font = self.label_shown.font()
+        font.setBold(True)
+        self.label_shown.setFont(font)
+        shown.addWidget(self.label_shown)
         self.radio_measured = QtWidgets.QRadioButton("measured")
         self.radio_every = QtWidgets.QRadioButton("all clusters")
         self.radio_discard = QtWidgets.QRadioButton("discard applied")
-        self.radio_discard.setToolTip(
-            "Without the clusters both widefield images place inside the\n"
-            "axon (axoplasm panel, section 5); they are drawn in red.")
+        for radio in (self.radio_measured, self.radio_every,
+                      self.radio_discard):
+            radio.setToolTip(
+                "Which clusters every plot on the right is drawn from. The "
+                "contour, the areas, the 1NN and the randomization all\n"
+                "follow this, and the plot's own title says which one it "
+                "is showing.\n\n"
+                "'Discard applied' leaves out the clusters both widefield "
+                "images place inside the axon (axoplasm panel,\n"
+                "section 5); they are drawn in red, and the contour with "
+                "every cluster stays as a grey dashed line.")
         self.radio_measured.setChecked(True)
         self._shown_group = QtWidgets.QButtonGroup(self)
         for radio in (self.radio_measured, self.radio_every,
@@ -345,8 +361,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         self.plot_contour = pg.PlotWidget()
         style_dark(self.plot_contour)
-        set_title(self.plot_contour,
-                  "Clusters, reconstructed perimeter and its centre (+)")
+        set_title(self.plot_contour, CONTOUR_TITLE)
         self.plot_contour.setAspectLocked(True)
         self.plot_contour.setLabels(bottom="x [nm]", left="y [nm]")
         grid.addWidget(self.plot_contour, 0, 0, 2, 1)
@@ -419,6 +434,29 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             return None
         return found
 
+    def _title_contour(self, shown: AxonAnalysis) -> None:
+        """
+        Say in the plot's own title which clusters it is drawing.
+
+        The window can show the axon measured or without the clusters the
+        axoplasm panel discarded, and the two contours differ by metres of
+        perimeter; with one title for both, a reader who has not noticed
+        the radio buttons above the table has no way to tell which one is
+        on screen.
+        """
+        title = CONTOUR_TITLE
+        if self.comparison is not None:
+            # Short: the plot is half the window wide, and a title it
+            # truncates says less than no title at all.
+            total = self.comparison.all_clusters.n_clusters_kept
+            if shown.discard_applied:
+                title = (f"Contour and centre (+): {shown.n_clusters_kept} "
+                         f"of {total}, {len(shown.discarded_labels)} "
+                         f"discarded")
+            else:
+                title = f"Contour and centre (+): all {total} clusters"
+        set_title(self.plot_contour, title)
+
     def _shown(self) -> AxonAnalysis:
         """The analysis the plots show."""
         if self.comparison is not None:
@@ -438,6 +476,15 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         compared = self.comparison is not None
         every = self._every_column()
         self.box_shown.setVisible(compared)
+        if compared and self.comparison is not None:
+            # The counts on the buttons themselves: the row is one line
+            # above a long table, and "89" beside "discard applied" is
+            # what makes it read as a choice rather than a label.
+            total = self.comparison.all_clusters.n_clusters_kept
+            left = self.comparison.discard_applied.n_clusters_kept
+            self.radio_measured.setText(f"measured ({total} clusters)")
+            self.radio_every.setText(f"all clusters ({total})")
+            self.radio_discard.setText(f"discard applied ({left})")
         self.box_export.setVisible(compared)
         self.radio_every.setVisible(every)
         if not every and self.radio_every.isChecked():
@@ -620,6 +667,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _draw_contour(self) -> None:
         a = self._shown()
+        self._title_contour(a)
         self.plot_contour.clear()
         if a.x_slab.size == 0:
             return
