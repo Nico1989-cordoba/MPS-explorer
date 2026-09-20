@@ -703,44 +703,70 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
     def _explain_save_buttons(self) -> None:
         """
-        Say, on each of the old save buttons, which of the new tables holds
-        the same numbers.
+        Hide the save buttons whose file is now a subset of what "Export
+        axon" writes, and say on the rest what they are for.
 
-        They are kept, because they write what another program expects and
-        because channel 2 has no table of its own yet. But four of the five
-        now write a subset of what "Export axon" writes, from the same
-        state, and two files of the same axon that disagree are exactly
-        what this phase is about; the tooltip says which one to keep for
-        the statistics.
+        Hidden, not removed: the methods stay, and so do the files they
+        write, so bringing a button back is deleting one line here. Three
+        of the five are hidden because every column they wrote is in the
+        new tables, under a name that says what it is:
+
+          save ROI Ch1          -> the localizations table: x_nm, y_nm,
+                                   z_nm of the same selection, plus which
+                                   of them the analysed slab holds.
+          save clusters centers -> the clusters table: centroid_x_nm,
+                                   centroid_y_nm beside cluster_label.
+          save all cluster data -> the localizations table: the same
+                                   points and the same cluster_label,
+                                   plus cluster_kept and in_slab.
+
+        "save dist data" is NOT hidden. It writes one column per neighbour
+        (nn1_nm, nn2_nm, ...) for however many the histogram was asked
+        for, and the clusters table holds the first one only. The 2nd and
+        further neighbours are nowhere else.
+
+        "save ROI Ch2" is not hidden either: channel 2 has no table of its
+        own. Nor is the ThunderSTORM one, which writes for another
+        program.
         """
-        covered = "\n\nFor the statistics use 'Export axon': "
-        tips = (
+        covered = ("This file is a subset of what 'Export axon' writes; it "
+                   "is kept for other programs.\n\n")
+        superseded = (
             (self.ui.pushButton_savexyzROI,
-             "Save the channel-1 selection (x, y, z) as plain text."
-             + covered + "its localizations table holds the same points, "
-             "with the cluster each one is in."),
+             "Save the channel-1 selection (x, y, z) as plain text.\n\n"
+             + covered + "The localizations table holds the same points, "
+             "with the cluster each one is in and whether the analysed "
+             "slab holds it."),
+            (self.ui.pushButton_savecluscenters,
+             "Save the cluster centres of mass.\n\n" + covered
+             + "The clusters table holds them as centroid_x_nm and "
+             "centroid_y_nm, with the area, the 1NN and the place on the "
+             "contour of each cluster."),
+            (self.ui.pushButton_saveAllClusterData,
+             "Save every clustered localization with its cluster.\n\n"
+             + covered + "The localizations table holds the same, plus "
+             "whether the axial slab holds each point."),
+        )
+        kept = (
             (self.ui.pushButton_savexyzROI_2,
              "Save the channel-2 selection (x, y, z) as plain text.\n\n"
-             "Channel 2 has no table of its own yet: this is the only way "
-             "to write it out."),
+             "Channel 2 has no table of its own: this is the only way to "
+             "write it out."),
             (self.ui.pushButton_savedistdata,
-             "Save the nearest-neighbour distances behind the histogram."
-             + covered + "its clusters table holds the 1NN of every "
-             "cluster, and which neighbour it is to."),
-            (self.ui.pushButton_savecluscenters,
-             "Save the cluster centres of mass."
-             + covered + "its clusters table holds them, with the area, "
-             "the 1NN and the place on the contour of each one."),
-            (self.ui.pushButton_saveAllClusterData,
-             "Save every clustered localization with its cluster."
-             + covered + "its localizations table holds the same, plus "
-             "whether the axial slab holds each point."),
+             "Save the nearest-neighbour distances behind the histogram: "
+             "one column per neighbour asked for.\n\n"
+             "'Export axon' writes the first neighbour of every cluster "
+             "(nn_1_nm, and which cluster it is to). The second and "
+             "further neighbours are only here."),
             (self.ui.pushButton_saveAllClusterDataThunderStorm,
              "Save the clustered localizations in the columns ThunderSTORM "
              "reads.\n\nThis one is for another program, so it stays as it "
              "is."),
         )
-        for button, tip in tips:
+        for button, tip in superseded:
+            button.setToolTip(tip)
+            button.setVisible(False)
+        for button, tip in kept:
             button.setToolTip(tip)
 
     def _on_edit_identity(self) -> None:
