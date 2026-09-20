@@ -32,6 +32,7 @@ Run:  python validate_plot_colours.py
 
 from __future__ import annotations
 
+import itertools
 import os
 import sys
 import traceback
@@ -42,7 +43,10 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from tools.mps_plot_style import (  # noqa: E402
-    DARK_BG, LIGHT_BG, MARKS, OKABE_ITO, PANEL_BG, ROLES, neutral, role,
+    AXIS_FG, DARK_BG, LIGHT_BG, MARKS, OKABE_ITO, PANEL_BG,
+    PANEL_TAB_BG, PANEL_TAB_BG_SELECTED, ROLES, SEGMENT_CYCLE,
+    SEGMENT_GLYPHS, SEGMENT_SYMBOLS, TEXT_DIM, TEXT_DIM_LIGHT, TITLE_FG,
+    neutral, role, verdict,
 )
 
 PASSED = 0
@@ -137,6 +141,24 @@ def distance(a: str, b: str, kind: str) -> float:
     """How far apart two colours are, for this kind of vision."""
     return float(np.linalg.norm(to_lab(simulate(a, kind))
                                 - to_lab(simulate(b, kind))))
+
+
+def luminance(colour: str) -> float:
+    """Relative luminance, as WCAG 2.1 defines it."""
+    r, g, b = linearise(to_rgb(colour))
+    return float(0.2126 * r + 0.7152 * g + 0.0722 * b)
+
+
+def contrast(a: str, b: str) -> float:
+    """The WCAG contrast ratio between two colours, 1 to 21.
+
+    This is a different question from the CIE Lab distance above. That
+    one asks whether two marks can be told apart; this one asks whether
+    text can be read, and text is the harder case: a 3 px dot only has
+    to be seen, a sentence has to be followed.
+    """
+    high, low = sorted((luminance(a), luminance(b)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
 
 
 def blend(colour: str, alpha: int, background: str) -> str:
@@ -437,6 +459,13 @@ def test_backgrounds() -> None:
         assert not weak, weak
         return f"{len(ROLES)} roles, all above {OFF_BACKGROUND:.0f}"
 
+    def the_dim_text_follows_the_background():
+        # Prose in a panel is read on the panel's own grey; the same
+        # prose in a table is read on the application's white.
+        assert distance(TEXT_DIM, PANEL_BG, "normal") > 40
+        assert distance(TEXT_DIM_LIGHT, LIGHT_BG, "normal") > 40
+        return f"{TEXT_DIM} on the panel, {TEXT_DIM_LIGHT} on white"
+
     def the_neutral_follows_the_background():
         assert distance(neutral(True), DARK_BG, "normal") > 60
         assert distance(neutral(False), LIGHT_BG, "normal") > 60
@@ -453,7 +482,182 @@ def test_backgrounds() -> None:
     check("on white", on_white)
     check("the neutral follows the background",
           the_neutral_follows_the_background)
+    check("the dim text follows the background",
+          the_dim_text_follows_the_background)
     check("what is drawn faint is still visible", faint_roles_are_still_visible)
+
+
+def test_text_contrast() -> None:
+    print("\n--- a verdict has to be read, not just seen ---")
+    # WCAG 2.1 AA for body text. A mark in a plot is held to the CIE Lab
+    # distances above instead: it only has to be distinguished.
+    READABLE = 4.5
+
+    def on_the_panels():
+        weak = {kind: contrast(verdict(kind), PANEL_BG)
+                for kind in MARKS
+                if contrast(verdict(kind), PANEL_BG) < READABLE}
+        assert not weak, weak
+        worst = min((contrast(verdict(k), PANEL_BG), k) for k in MARKS)
+        return f"worst is {worst[1]} at {worst[0]:.1f}:1"
+
+    def on_the_white_chrome():
+        # The tables of the MPS and rings windows and every dialog are
+        # on the application's own white, where the panel's colours are
+        # not readable: this is what verdict(dark=False) exists for.
+        weak = {kind: round(contrast(verdict(kind, dark=False), LIGHT_BG), 2)
+                for kind in MARKS
+                if contrast(verdict(kind, dark=False), LIGHT_BG) < READABLE}
+        assert not weak, weak
+        worst = min((contrast(verdict(k, dark=False), LIGHT_BG), k)
+                    for k in MARKS)
+        return f"worst is {worst[1]} at {worst[0]:.1f}:1"
+
+    def the_panel_colours_would_not_have_done():
+        # The measurement that says the light set is needed at all, so
+        # nobody later collapses the two back into one.
+        bad = {kind: round(contrast(role(kind), LIGHT_BG), 2)
+               for kind in MARKS
+               if contrast(role(kind), LIGHT_BG) < READABLE}
+        assert bad, "the panel colours are readable on white after all"
+        return "  ".join(f"{k}: {v}:1" for k, v in sorted(bad.items()))
+
+    def both_sets_keep_their_hue():
+        # Darkened, not recoloured: a reader should see the same green
+        # in a table as in a panel.
+        drift = {}
+        for kind in ("good", "warn", "bad"):
+            dark_lab = to_lab(to_rgb(verdict(kind)))
+            light_lab = to_lab(to_rgb(verdict(kind, dark=False)))
+            # Compare the a*/b* direction, not the lightness.
+            angle_dark = np.arctan2(dark_lab[2], dark_lab[1])
+            angle_light = np.arctan2(light_lab[2], light_lab[1])
+            gap = abs(np.degrees(angle_dark - angle_light))
+            drift[kind] = min(gap, 360 - gap)
+        assert all(v < 25 for v in drift.values()), drift
+        return "  ".join(f"{k}: {v:.0f} deg" for k, v in drift.items())
+
+    def the_furniture_is_readable_too():
+        # The tab bar and the titles of a panel. Not information, but
+        # still text somebody has to read.
+        pairs = {
+            "a tab": (AXIS_FG, PANEL_TAB_BG),
+            "the open tab": (TITLE_FG, PANEL_TAB_BG_SELECTED),
+            "a title": (TITLE_FG, PANEL_BG),
+            "prose": (TEXT_DIM, PANEL_BG),
+        }
+        weak = {name: round(contrast(a, b), 2)
+                for name, (a, b) in pairs.items()
+                if contrast(a, b) < READABLE}
+        assert not weak, weak
+        worst = min((contrast(a, b), name) for name, (a, b) in pairs.items())
+        return f"worst is {worst[1]} at {worst[0]:.1f}:1"
+
+    check("every verdict is readable on a panel", on_the_panels)
+    check("so is the panel's own furniture", the_furniture_is_readable_too)
+    check("every verdict is readable on the white chrome",
+          on_the_white_chrome)
+    check("which the panel's own colours would not have been",
+          the_panel_colours_would_not_have_done)
+    check("and the light set is the same hues, only darker",
+          both_sets_keep_their_hue)
+
+
+def test_segments() -> None:
+    print("\n--- segments of one axon, which can outnumber the palette ---")
+
+    def the_palette_cannot_hold_five_categories():
+        # The justification for SEGMENT_SYMBOLS, measured rather than
+        # asserted: find the largest subset of the eight whose every pair
+        # stays apart under every kind of vision.
+        pool = [c for name, c in OKABE_ITO.items() if name != "black"]
+        best: Tuple[str, ...] = ()
+        for size in range(len(pool), 1, -1):
+            for combo in itertools.combinations(pool, size):
+                if all(min(distance(a, b, k) for k in SIMULATIONS) >= APART
+                       for a, b in itertools.combinations(combo, 2)):
+                    best = combo
+                    break
+            if best:
+                break
+        names = {c: n for n, c in OKABE_ITO.items()}
+        assert len(best) < len(SEGMENT_CYCLE), best
+        return (f"the largest mutually-apart set is {len(best)} "
+                f"({', '.join(names[c] for c in best)}), and the panel may "
+                f"draw {len(SEGMENT_CYCLE)}")
+
+    def segments_next_to_each_other_stay_apart():
+        # Which is the comparison the panel is for: one ring against the
+        # ring above it.
+        close, worst = [], None
+        for i in range(len(SEGMENT_CYCLE) - 1):
+            for kind in SIMULATIONS:
+                d = distance(SEGMENT_CYCLE[i], SEGMENT_CYCLE[i + 1], kind)
+                if worst is None or d < worst:
+                    worst = d
+                if d < APART:
+                    close.append(f"{i} vs {i + 1}: {d:.0f} ({kind})")
+        assert not close, close
+        return (f"{len(SEGMENT_CYCLE)} in the cycle, closest consecutive "
+                f"pair {worst:.0f}")
+
+    def a_segment_also_carries_a_symbol_and_a_number():
+        assert len(SEGMENT_SYMBOLS) == len(SEGMENT_CYCLE), (
+            SEGMENT_SYMBOLS, SEGMENT_CYCLE)
+        assert len(SEGMENT_GLYPHS) == len(SEGMENT_SYMBOLS), (
+            SEGMENT_GLYPHS, SEGMENT_SYMBOLS)
+        assert len(set(SEGMENT_SYMBOLS)) == len(SEGMENT_SYMBOLS), \
+            SEGMENT_SYMBOLS
+        assert len(set(SEGMENT_GLYPHS)) == len(SEGMENT_GLYPHS), \
+            SEGMENT_GLYPHS
+        assert len(set(SEGMENT_CYCLE)) == len(SEGMENT_CYCLE), SEGMENT_CYCLE
+        # By code point, not by the character: this runs in a console
+        # that cannot encode a filled circle.
+        return "  ".join(
+            f"{s}/{'U+%04X' % ord(g) if ord(g) > 127 else g}"
+            for s, g in zip(SEGMENT_SYMBOLS, SEGMENT_GLYPHS))
+
+    def a_segment_number_is_not_printed_in_its_own_colour():
+        # It is read, so it is held to the reading bar. Four of the five
+        # segment colours are below it on white, which is why the table
+        # prints the glyph and the number instead.
+        light = {i: round(contrast(c, LIGHT_BG), 2)
+                 for i, c in enumerate(SEGMENT_CYCLE)
+                 if contrast(c, LIGHT_BG) < 4.5}
+        assert light, "every segment colour is readable on white after all"
+        return ("segments " + ", ".join(str(i) for i in light)
+                + " would be " + ", ".join(f"{v}:1" for v in light.values()))
+
+    def three_segments_is_the_usual_case():
+        # Most axons come out in three. No triple in the palette is
+        # mutually apart without yellow, so what the order buys is that
+        # the two pairs a reader compares -- 0 against 1, 1 against 2 --
+        # are the two largest distances available, and the outer pair
+        # falls short only for a tritanope.
+        pairs = {}
+        for a, b in ((0, 1), (1, 2), (0, 2)):
+            pairs[f"{a}-{b}"] = min(
+                distance(SEGMENT_CYCLE[a], SEGMENT_CYCLE[b], k)
+                for k in SIMULATIONS)
+        assert pairs["0-1"] >= APART and pairs["1-2"] >= APART, pairs
+        assert pairs["0-2"] > 20, pairs
+        outer = min(
+            (distance(SEGMENT_CYCLE[0], SEGMENT_CYCLE[2], k), k)
+            for k in SIMULATIONS)
+        assert outer[1] == "tritanopia", outer
+        return ("  ".join(f"{k}: {v:.0f}" for k, v in pairs.items())
+                + f"  (the outer pair is short only under {outer[1]})")
+
+    check("no five hues in the palette can be told apart at once",
+          the_palette_cannot_hold_five_categories)
+    check("the three a usual axon has are as far apart as the palette allows",
+          three_segments_is_the_usual_case)
+    check("a segment and the segment next to it are apart",
+          segments_next_to_each_other_stay_apart)
+    check("every segment has its own symbol as well",
+          a_segment_also_carries_a_symbol_and_a_number)
+    check("and its number is not printed in its own colour",
+          a_segment_number_is_not_printed_in_its_own_colour)
 
 
 def test_greyscale() -> None:
@@ -511,6 +715,8 @@ def main() -> int:
     test_palette()
     test_roles_in_one_plot()
     test_backgrounds()
+    test_text_contrast()
+    test_segments()
     test_greyscale()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")

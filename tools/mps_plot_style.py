@@ -26,10 +26,19 @@ in particular: orange and vermillion, the colours of a warning and of a
 failure, are only 18 apart in CIE Lab for a deuteranope, and the two are
 read one under the other in the same list.
 
-``validate_plot_colours.py`` checks what is written here: every pair of
-roles that appears in one plot is simulated under normal vision and under
-the three dichromacies and must stay apart in CIE Lab, and every role
-must stand off both backgrounds.
+There is one place where eight colours are not enough: the axial
+segments of an axon, which are ordered and can be five. Measured, no
+more than three of the eight stay apart from each other under every
+dichromacy, so SEGMENT_CYCLE only promises that a segment and the
+segment NEXT to it are apart -- which is the comparison that panel is
+for -- and a symbol and the segment's own number carry the rest.
+
+``validate_plot_colours.py`` checks what is written here, with two
+different measurements. CIE Lab distance, simulated under normal vision
+and the three dichromacies, asks whether two MARKS can be told apart.
+WCAG contrast asks whether TEXT can be read, which is the harder bar and
+the reason ``verdict`` takes a background: on white the colours these
+panels use reach 2.3:1 for a warning against the 4.5:1 a sentence needs.
 
 Dark and light
 --------------
@@ -57,7 +66,7 @@ plot.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import pyqtgraph as pg
 
@@ -169,6 +178,28 @@ def marked(kind: str, text: str) -> str:
     return MARKS[kind] + text
 
 
+# The same four verdicts for text on the application's OWN white chrome:
+# the tables of the MPS and rings windows, the dialogs. Same hues, each
+# darkened until it reaches the contrast a reader needs to READ it,
+# which is a higher bar than a mark in a plot has to clear. Measured on
+# white, the panel's orange reaches 2.3:1 against the 4.5:1 that body
+# text needs, and its green 3.4:1; all four of these are above 5.
+_VERDICT_ON_LIGHT: Dict[str, str] = {
+    "good": "#006b52",
+    "warn": "#8a5f00",
+    "bad": "#a04000",
+    "dim": "#6a6a6a",
+}
+
+
+def verdict(kind: str, dark: bool = True) -> str:
+    """The colour of a verdict of this kind, for the background it is
+    read on. Darkening compresses the hues towards each other -- a
+    warning and a failure come out 2 apart for a deuteranope -- which is
+    why the mark from ``marked`` is what actually separates them."""
+    return ROLES[kind] if dark else _VERDICT_ON_LIGHT[kind]
+
+
 # Backgrounds, and the colour of everything structural on them: the
 # contour of the axon, the outline of a marker, an axis. It is the one
 # thing that has to change with the background, so it is asked for.
@@ -183,9 +214,87 @@ TITLE_FG = "#e0e0e0"
 AXIS_FG_LIGHT = "#333333"
 TITLE_FG_LIGHT = "#000000"
 # Explanatory prose in a panel: quieter than a title, still readable.
+# On a panel's dark grey, and on the application's own white chrome --
+# tables, a list of warnings -- where the first would be unreadable.
 TEXT_DIM = "#9a9a9a"
-# What a panel's own window is painted, behind the plots.
+TEXT_DIM_LIGHT = "#6a6a6a"
+# What a panel's own window is painted, behind the plots, and the
+# furniture on it: the tab bar of the quality, DNA-PAINT and Two
+# channels panels, which was the same four lines written out in each.
+# None of it carries information -- nobody has to tell two tabs apart by
+# colour -- but it is one look, so it is written once, and the validator
+# still checks that the text on it can be read.
 PANEL_BG = "#1a1a1a"
+PANEL_BORDER = "#383838"
+PANEL_TAB_BG = "#262626"
+PANEL_TAB_BG_SELECTED = "#3a3a3a"
+
+
+# --------------------------------------------------------------------------
+# Segments of one axon, which are ordered and can outnumber the palette
+# --------------------------------------------------------------------------
+# An axon is cut into axial segments and the rings panel draws several at
+# once. This is the one place where the palette runs out: measured, the
+# largest set of the eight that stays mutually apart under all three
+# dichromacies is THREE -- sky blue, yellow and vermillion -- and yellow
+# is not a role. Five segments cannot be told apart by hue, and no
+# ordering of them fixes that.
+#
+# What an ordering does fix is the comparison the panel exists for, which
+# is a segment against the one next to it. In this order every
+# consecutive pair stays 52 apart or more; only the wrap, a fifth segment
+# back round to the first, is close, and those two are the ends of the
+# axon. The order the panel used before had three consecutive pairs
+# collapsed, including green against purple at 18.
+#
+# The rest is carried by SEGMENT_SYMBOLS, and by the segment's number,
+# which the panel draws in the table, on every stacked track, on every
+# subplot title and on the band in the z distribution.
+SEGMENT_CYCLE: Tuple[str, ...] = (
+    OKABE_ITO["blue"],
+    OKABE_ITO["vermillion"],
+    OKABE_ITO["sky_blue"],
+    OKABE_ITO["orange"],
+    OKABE_ITO["bluish_green"],
+)
+SEGMENT_SYMBOLS: Tuple[str, ...] = ("o", "s", "t", "d", "+")
+# The same symbols as characters, for a table cell, which cannot draw a
+# pyqtgraph marker. They are in the same order on purpose: the two drift
+# apart the moment one is edited without the other, and the validator
+# checks that there are as many of each.
+SEGMENT_GLYPHS: Tuple[str, ...] = ("\u25cf", "\u25a0", "\u25bc",
+                                   "\u25c6", "+")
+
+
+def segment_colour(index: int) -> str:
+    """The colour of segment ``index``, cycling when there are more
+    segments than colours."""
+    return SEGMENT_CYCLE[index % len(SEGMENT_CYCLE)]
+
+
+def segment_symbol(index: int) -> str:
+    """Its symbol, for the plot that draws every segment at once."""
+    return SEGMENT_SYMBOLS[index % len(SEGMENT_SYMBOLS)]
+
+
+def segment_glyph(index: int) -> str:
+    """The same symbol as a character, for a table cell.
+
+    The cell prints it beside the segment's number, in the window's own
+    black: a segment's colour is 2.3 to 3.9 against white and a number
+    is something a reader has to read, not merely distinguish. The
+    colour stays where it is legible, which is the plots.
+    """
+    return SEGMENT_GLYPHS[index % len(SEGMENT_GLYPHS)]
+
+
+TAB_STYLE = (
+    f"QTabWidget::pane {{ border: 1px solid {PANEL_BORDER}; }} "
+    f"QTabBar::tab {{ background: {PANEL_TAB_BG}; color: {AXIS_FG}; "
+    f"padding: 6px 14px; }} "
+    f"QTabBar::tab:selected {{ background: {PANEL_TAB_BG_SELECTED}; "
+    f"color: {TITLE_FG}; }}"
+)
 
 
 def neutral(dark: bool = True) -> str:

@@ -77,6 +77,10 @@ _KEPT_CONTOUR = role("contour_kept")
 _CENTRE = neutral(dark=True)
 # Localizations in no cluster, or not placed yet: light, and small.
 _NO_CLUSTER = neutral(dark=True)
+# The ring around a cluster neither image decided about. Structural, like
+# the centre and the unplaced localizations, and told apart from them by
+# being a ring of 9 pixels rather than a cross or a 2 pixel dot.
+_NO_DECISION = neutral(dark=True)
 def _cased_edge(edge: "np.ndarray", colour: tuple) -> "np.ndarray":
     """
     An edge image with a dark casing, so it is legible wherever on the
@@ -375,7 +379,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         The groups do not overlap: together they are every cluster.
         """
         self.cluster_item = pg.ScatterPlotItem(
-            pen=pg.mkPen("w"), brush=None, size=9)
+            pen=pg.mkPen(_NO_DECISION), brush=None, size=9)
         # Circles for one image, squares for the other: on a grey
         # photograph the two hues are close for a deuteranope, and the
         # shape is what a reader can always separate.
@@ -401,7 +405,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
              "more than the margin inside the axon. The tubulin mask does not\n"
              "agree, so they are kept. Purple, like the edge of the\n"
              "spectrin interior."),
-            ("neither", self.cluster_item, "#ffffff", "ring",
+            ("neither", self.cluster_item, _NO_DECISION, "ring",
              "Clusters neither image puts more than the margin inside the\n"
              "axon: on the membrane, or off the region an image was analysed\n"
              "in. They are kept."),

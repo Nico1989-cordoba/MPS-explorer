@@ -19,14 +19,18 @@ from typing import Dict, Optional, Tuple
 
 from PyQt5 import QtWidgets
 
+from tools.mps_plot_style import marked, verdict
 from tools.mps_identity import (
     DEFAULT_PATTERNS, FIELD_HINTS, FIELD_LABELS, FIELDS, AxonIdentity,
     Proposal, check_patterns, propose,
 )
 
-HINT_STYLE = "color: #666666; font-size: 11px;"
-WARN_STYLE = "color: #a04000;"
-ERROR_STYLE = "color: #b00020;"
+# Read on the application's white, so the darker set of the verdict
+# colours, and each message carries the mark for its kind: darkening
+# brings a warning and a failure to 2 apart for a deuteranope.
+HINT_STYLE = f"color: {verdict('dim', dark=False)}; font-size: 11px;"
+WARN_STYLE = f"color: {verdict('warn', dark=False)};"
+ERROR_STYLE = f"color: {verdict('bad', dark=False)};"
 
 
 class PatternsDialog(QtWidgets.QDialog):
@@ -104,8 +108,8 @@ class PatternsDialog(QtWidgets.QDialog):
         for name in FIELDS:
             if name in broken:
                 self.previews[name].setStyleSheet(ERROR_STYLE)
-                self.previews[name].setText(f"not a valid pattern: "
-                                            f"{broken[name]}")
+                self.previews[name].setText(marked(
+                    "bad", f"not a valid pattern: {broken[name]}"))
                 continue
             self.previews[name].setStyleSheet(HINT_STYLE)
             if result is None:
@@ -238,10 +242,11 @@ class IdentityDialog(QtWidgets.QDialog):
             self.warning.setText("")
             return
         names = ", ".join(FIELD_LABELS[n].lower() for n in missing)
-        self.warning.setText(
+        self.warning.setText(marked(
+            "warn",
             f"Left empty: {names}. The rows are written all the same, with "
             f"those cells empty, and a comparison between groups cannot use "
-            f"them.")
+            f"them."))
 
     def _edit_patterns(self) -> None:
         dialog = PatternsDialog(self._patterns, self._path, self)

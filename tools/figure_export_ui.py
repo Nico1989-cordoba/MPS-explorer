@@ -13,12 +13,14 @@ from typing import Optional, Sequence
 
 from PyQt5 import QtWidgets
 
+from tools.mps_plot_style import verdict
 from tools.figure_export import (
     COLUMN_WIDTHS_MM, DEFAULT_DPI, DEFAULT_WIDTH_MM, DPI_CHOICES,
     FigureRequest, pixels_for,
 )
 
-HINT_STYLE = "color: #666666; font-size: 11px;"
+# Read on the application's white: the darker of the two dim greys.
+HINT_STYLE = f"color: {verdict('dim', dark=False)}; font-size: 11px;"
 
 
 class ExportFigureDialog(QtWidgets.QDialog):

@@ -19,9 +19,13 @@ from PyQt5 import QtWidgets
 
 from tools.axon_export import table_paths
 from tools.mps_identity import AxonIdentity
+from tools.mps_plot_style import marked, verdict
 
-HINT_STYLE = "color: #666666; font-size: 11px;"
-WARN_STYLE = "color: #a04000;"
+# Read on the application's white, so the darker set of the verdict
+# colours: the panels' own orange comes out at 2.3:1 against white,
+# where text needs 4.5:1.
+HINT_STYLE = f"color: {verdict('dim', dark=False)}; font-size: 11px;"
+WARN_STYLE = f"color: {verdict('warn', dark=False)};"
 
 
 class ExportAxonDialog(QtWidgets.QDialog):
@@ -184,7 +188,8 @@ class ExportAxonDialog(QtWidgets.QDialog):
         lines = list(self._warnings)
         if identity is not None:
             lines = identity.warnings() + lines
-        self.label_warnings.setText("\n".join(lines))
+        self.label_warnings.setText(
+            "\n".join(marked("warn", line) for line in lines))
         if self._ok is not None:
             self._ok.setEnabled(bool(path))
 

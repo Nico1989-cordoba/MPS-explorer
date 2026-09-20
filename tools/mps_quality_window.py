@@ -24,8 +24,8 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtWidgets
 
 from tools.mps_plot_style import (
-    AXIS_FG, MARKS, PANEL_BG, TEXT_DIM, TITLE_FG, marked, neutral, role,
-    set_title, style_dark,
+    AXIS_FG, MARKS, PANEL_BG, PANEL_BORDER, PANEL_TAB_BG, TAB_STYLE,
+    TEXT_DIM, TITLE_FG, marked, neutral, role, set_title, style_dark,
 )
 from tools.mps_quality import QualityReport, quality_report
 
@@ -92,12 +92,7 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
         root.addWidget(self._build_header())
         root.addWidget(self._build_findings())
         self.tabs = QtWidgets.QTabWidget()
-        self.tabs.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid #333; }} "
-            f"QTabBar::tab {{ background: #262626; color: {AXIS_FG}; "
-            f"padding: 6px 14px; }} "
-            f"QTabBar::tab:selected {{ background: #3a3a3a; color: #fff; }}"
-        )
+        self.tabs.setStyleSheet(TAB_STYLE)
         root.addWidget(self.tabs, stretch=1)
         self._build_precision_tab()
         self._build_box_tab()
@@ -128,7 +123,8 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
     def _build_findings(self) -> QtWidgets.QWidget:
         box = QtWidgets.QGroupBox("Findings")
         box.setStyleSheet(
-            f"QGroupBox {{ color: {TITLE_FG}; border: 1px solid #383838; "
+            f"QGroupBox {{ color: {TITLE_FG}; "
+            f"border: 1px solid {PANEL_BORDER}; "
             f"margin-top: 8px; }} "
             f"QGroupBox::title {{ subcontrol-origin: margin; left: 8px; }}"
         )
@@ -307,9 +303,9 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
             ["mean z [nm]", "sigma [nm]", "lpz [nm]", "sigma/lpz",
              "structural [nm]", "verdict"])
         table.setStyleSheet(
-            f"QTableWidget {{ background: #202020; color: {TITLE_FG}; "
-            f"gridline-color: #383838; }} "
-            f"QHeaderView::section {{ background: #2a2a2a; "
+            f"QTableWidget {{ background: {PANEL_BG}; color: {TITLE_FG}; "
+            f"gridline-color: {PANEL_BORDER}; }} "
+            f"QHeaderView::section {{ background: {PANEL_TAB_BG}; "
             f"color: {AXIS_FG}; border: 0; padding: 4px; }}")
         for row, component in enumerate(check.components):
             verdict, kind = _axial_verdict(component)

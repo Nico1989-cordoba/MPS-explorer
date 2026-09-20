@@ -47,8 +47,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from tools.cluster_quality import good_cluster_labels
 from tools.mps_analysis import AxonAnalysis, DiscardComparison
 from tools.mps_plot_style import (
-    AXIS_FG, neutral, rgba, role, set_title, style_dark,
-    style_light)
+    AXIS_FG, AXIS_FG_LIGHT, neutral, rgba, role, set_title, style_dark,
+    style_light, verdict)
 from tools.mps_settings import DEFAULT_MAHALANOBIS_THRESHOLD
 
 
@@ -62,10 +62,11 @@ from tools.mps_settings import DEFAULT_MAHALANOBIS_THRESHOLD
 # figure for a journal.
 # Text on the window's own white chrome (tables, the warning list), where
 # the neutral for a dark plot would be invisible.
-_C_TEXT_WARN = role("paper")
-# A cell the program cannot fill in: grey enough to recede on white, dark
-# enough to be read.
-_C_TEXT_DIM = "#6a6a6a"
+_C_TEXT_WARN = verdict("warn", dark=False)
+# A cell the program cannot fill in: grey enough to recede on white,
+# dark enough to be read. The panel's prose grey would vanish there,
+# which is why the palette carries one of each.
+_C_TEXT_DIM = verdict("dim", dark=False)
 
 # The contour plot's title, which gains what it is drawing when there is
 # more than one thing it could be drawing.
@@ -663,7 +664,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                "override": "given explicitly",
                "manual": "entered manually",
                "unknown": "UNKNOWN"}.get(a.pixel_size_source, a.pixel_size_source)
-        colour = ("#333333" if a.pixel_size_source in ("yaml", "hdf5", "yaml_scan")
+        colour = (AXIS_FG_LIGHT
+                  if a.pixel_size_source in ("yaml", "hdf5", "yaml_scan")
                   else _C_TEXT_WARN)
         self.lbl_provenance.setText(
             f"<b>{os.path.basename(a.source_name) or '(unnamed ROI)'}</b><br>"

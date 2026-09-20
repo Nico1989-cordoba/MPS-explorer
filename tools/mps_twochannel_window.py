@@ -317,7 +317,7 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
             + " + " + os.path.basename(str(inputs.loc_b.path)))
         self.resize(1200, 880)
         self.setStyleSheet(
-            "QMainWindow { background: #1a1a1a; } "
+            f"QMainWindow {{ background: {plot_style.PANEL_BG}; }} "
             f"QLabel, QCheckBox {{ color: {TITLE_FG}; }}")
 
         central = QtWidgets.QWidget()
@@ -329,7 +329,8 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         self.findings = QtWidgets.QVBoxLayout()
         holder = QtWidgets.QWidget()
         holder.setObjectName("findings")
-        holder.setStyleSheet("#findings { background: #1a1a1a; }")
+        holder.setStyleSheet(
+            f"#findings {{ background: {plot_style.PANEL_BG}; }}")
         holder.setLayout(self.findings)
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
@@ -339,11 +340,7 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         root.addWidget(scroll)
 
         self.tabs = QtWidgets.QTabWidget()
-        self.tabs.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid #333; }} "
-            f"QTabBar::tab {{ background: #262626; color: {AXIS_FG}; "
-            f"padding: 6px 14px; }} "
-            f"QTabBar::tab:selected {{ background: #3a3a3a; color: #fff; }}")
+        self.tabs.setStyleSheet(plot_style.TAB_STYLE)
         root.addWidget(self.tabs, stretch=1)
         self.layout_registration = self._add_tab("Registration")
         self.layout_axial = self._add_tab("Axial phase")

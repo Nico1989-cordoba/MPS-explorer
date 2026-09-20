@@ -38,8 +38,8 @@ from tools.mps_paint import (
     qpaint,
 )
 from tools.mps_plot_style import (
-    AXIS_FG, PANEL_BG, TEXT_DIM, TITLE_FG, marked, neutral, role, set_title,
-    style_dark,
+    AXIS_FG, PANEL_BG, TAB_STYLE, TEXT_DIM, TITLE_FG, marked, neutral,
+    role, set_title, style_dark,
 )
 
 # The verdicts, by role (tools.mps_plot_style), the same three as in the
@@ -95,12 +95,7 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         root.addWidget(holder)
 
         self.tabs = QtWidgets.QTabWidget()
-        self.tabs.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid #333; }} "
-            f"QTabBar::tab {{ background: #262626; color: {AXIS_FG}; "
-            f"padding: 6px 14px; }} "
-            f"QTabBar::tab:selected {{ background: #3a3a3a; color: #fff; }}"
-        )
+        self.tabs.setStyleSheet(TAB_STYLE)
         root.addWidget(self.tabs, stretch=1)
         self.page_events = QtWidgets.QWidget()
         self.page_kinetics = QtWidgets.QWidget()

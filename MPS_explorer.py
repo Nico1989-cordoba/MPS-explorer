@@ -3091,7 +3091,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.ui.scatterlayout.removeWidget(self.polygon_drawing_label)
             self.polygon_drawing_label.deleteLater()
 
-        # Create new label with styling
+        # Create new label with styling.
+        #
+        # The pale yellow is the one in the program, and it is deliberate:
+        # this is a sticky note telling the user what to do next, not a
+        # category to be told apart from another colour, and its text is
+        # black on it. Yellow is kept out of the PLOT roles
+        # (tools.mps_plot_style) for a different reason -- there it would
+        # be the brightest mark on black and the weakest on white.
         self.polygon_drawing_label = QtWidgets.QLabel(message)
         self.polygon_drawing_label.setStyleSheet(
             "QLabel { background-color: #ffffcc; padding: 10px; "
