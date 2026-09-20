@@ -64,6 +64,9 @@ jobs:
             tools/export_ui.py \
             tools/results_table.py \
             tools/mps_settings.py \
+            tools/mps_plot_style.py \
+            tools/figure_export.py \
+            tools/figure_export_ui.py \
             tools/clustering.py \
             tools/clustering_strategies.py \
             tools/parallel_clustering.py \
