@@ -25,9 +25,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from tools.mps_identity import check_patterns
 
 logger = logging.getLogger("MPS_explorer.mps_settings")
 
@@ -73,6 +75,15 @@ class MPSSettings:
     last_open_dir: str = ""
     # Empty means "search the PATH and the usual install folders".
     picasso_path: str = ""
+    # How the genotype, the protein, the slide, the ROI and the axon are
+    # read off a path. The user writes them once for their own folders;
+    # see tools.mps_identity, which never invents what they do not match.
+    identity_patterns: Dict[str, str] = field(default_factory=dict)
+    # The identity confirmed for the previous axon, and the folder it was
+    # confirmed in, so the six or more axons of one measurement are not
+    # retyped one by one. Carried over only within the same slide.
+    identity_last: Dict[str, str] = field(default_factory=dict)
+    identity_last_folder: str = ""
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -106,9 +117,26 @@ class MPSSettings:
             self.mahalanobis_threshold = DEFAULT_MAHALANOBIS_THRESHOLD
         if not isinstance(self.picasso_path, str):
             self.picasso_path = ""
-        for name in ("last_open_dir", "last_export_dir"):
+        for name in ("last_open_dir", "last_export_dir",
+                     "identity_last_folder"):
             if not isinstance(getattr(self, name), str):
                 setattr(self, name, "")
+        for name in ("identity_patterns", "identity_last"):
+            value = getattr(self, name)
+            if not isinstance(value, dict):
+                setattr(self, name, {})
+                continue
+            setattr(self, name, {str(k): str(v) for k, v in value.items()
+                                 if isinstance(v, str)})
+        # A stored pattern that no longer compiles would raise at the next
+        # export, in the middle of writing tables; drop it here instead and
+        # fall back to the default for that field.
+        broken = check_patterns(self.identity_patterns)
+        for field_name, reason in broken.items():
+            logger.warning(
+                "Stored identity pattern for %s is not a valid regular "
+                "expression (%s); using the default", field_name, reason)
+            self.identity_patterns.pop(field_name, None)
         return self
 
 
