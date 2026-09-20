@@ -314,22 +314,22 @@ def check_patterns(patterns: Dict[str, str]) -> Dict[str, str]:
     return broken
 
 
-def axon_id(identity: Optional[AxonIdentity], source_name: str = "",
-            roi: str = "") -> str:
+def axon_id(source_name: str = "", roi: str = "") -> str:
     """
-    A short stable name for this axon, to join the per-axon row with the
-    tables of its clusters and its localizations.
+    A short stable name for this axon: which file it was picked from and
+    which selection of it.
 
-    It is a fingerprint of the identity together with the file and the ROI
-    the localizations were taken from, so re-exporting the same axon yields
-    the same value and two ROIs of one whole-field file yield two. It is
-    not a number to be read: the columns beside it say who the axon is.
+    It is what joins the per-axon row to the tables of its clusters and its
+    localizations, so it must not move when something about the axon is
+    learned later: filling in the genotype names the axon better, it does
+    not make it another axon. The experiment's own names travel in the
+    identity columns beside it, and only in the per-axon table.
+
+    Two ROIs drawn on one whole-field file give two values, and the same
+    file copied to another folder gives the same one.
     """
-    ident = identity or AxonIdentity()
-    parts = [getattr(ident, n) for n in FIELDS]
-    parts.append(os.path.basename(str(source_name or "")))
-    parts.append(str(roi or ""))
-    digest = hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()
+    parts = [os.path.basename(str(source_name or "")), str(roi or "")]
+    digest = hashlib.sha1("".join(parts).encode("utf-8")).hexdigest()
     return digest[:10]
 
 

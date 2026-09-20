@@ -232,50 +232,44 @@ def test_carry_over() -> None:
 def test_axon_id() -> None:
     print("\n--- axon_id ---")
 
-    ident = propose(REAL).identity
-
     def the_same_axon_gives_the_same_name():
-        first = axon_id(ident, REAL, "circle centred at (26258, 6055) nm")
-        again = axon_id(propose(REAL).identity, REAL,
-                        "circle centred at (26258, 6055) nm")
+        first = axon_id(REAL, "circle centred at (26258, 6055) nm")
+        again = axon_id(REAL, "circle centred at (26258, 6055) nm")
         assert first == again, (first, again)
         return first
 
     def two_rois_of_one_file_differ():
-        a = axon_id(ident, REAL, "circle centred at (26258, 6055) nm")
-        b = axon_id(ident, REAL, "circle centred at (31000, 9000) nm")
+        a = axon_id(REAL, "circle centred at (26258, 6055) nm")
+        b = axon_id(REAL, "circle centred at (31000, 9000) nm")
         assert a != b, a
         return f"{a} vs {b}"
 
-    def two_axons_differ():
-        other = AxonIdentity(**{**identity_to_dict(ident),
-                                "axon_name": "Axon 8"})
-        a = axon_id(ident, REAL, "roi")
-        b = axon_id(other, REAL, "roi")
+    def two_files_differ():
+        a = axon_id(REAL, "roi")
+        b = axon_id(REAL.replace("axon7", "axon8"), "roi")
         assert a != b, a
         return f"{a} vs {b}"
 
-    def the_genotype_is_part_of_it():
-        # Filling the genotype in changes the name, so a row exported
-        # before it was known cannot be silently joined to one after.
-        a = axon_id(ident, REAL, "roi")
-        b = axon_id(AxonIdentity(**{**identity_to_dict(ident),
-                                    "genotype": "KO"}), REAL, "roi")
-        assert a != b, a
-        return f"{a} vs {b}"
-
-    def without_an_identity_it_still_works():
-        a = axon_id(None, REAL, "roi")
-        assert len(a) == 10 and a.isalnum(), a
+    def filling_the_identity_in_does_not_move_it():
+        # The name is the file and the selection, so the tables of one axon
+        # still join after its genotype is typed in: learning who an axon is
+        # does not make it another axon.
+        a = axon_id(REAL, "roi")
+        assert a == axon_id(REAL, "roi"), a
         return a
+
+    def the_folder_it_sits_in_does_not_move_it():
+        moved = REAL.replace("/Abril/", "/copies/Abril/")
+        assert axon_id(REAL, "roi") == axon_id(moved, "roi")
+        return "the same file copied elsewhere is the same axon"
 
     check("the same axon gives the same name", the_same_axon_gives_the_same_name)
     check("two ROIs of one file give two names", two_rois_of_one_file_differ)
-    check("two axons give two names", two_axons_differ)
-    check("filling the genotype in changes the name",
-          the_genotype_is_part_of_it)
-    check("an axon with no identity still gets a name",
-          without_an_identity_it_still_works)
+    check("two files give two names", two_files_differ)
+    check("filling the identity in does not move the name",
+          filling_the_identity_in_does_not_move_it)
+    check("moving the file does not move the name",
+          the_folder_it_sits_in_does_not_move_it)
 
 
 # ===========================================================================
