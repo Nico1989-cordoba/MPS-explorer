@@ -46,27 +46,30 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools.cluster_quality import good_cluster_labels
 from tools.mps_analysis import AxonAnalysis, DiscardComparison
-from tools.mps_plot_style import AXIS_FG, set_title, style_dark
+from tools.mps_plot_style import (
+    AXIS_FG, neutral, rgba, role, set_title, style_dark,
+    style_light)
 from tools.mps_settings import DEFAULT_MAHALANOBIS_THRESHOLD
 
 
-# Colour-blind-safe palette, matching the one already used in MPS_explorer.
-_C_ORANGE = "#d55e00"
-_C_GREEN = "#009e73"
-_C_BLUE = "#0072b2"
-_C_GREY = "#888888"
-# Outline for filled markers. Was black, to make them crisp against the
-# white background these plots used to have.
-_C_DARK_OUTLINE = "#e0e0e0"
-# The clusters the discard left out, as the axoplasm panel draws them.
-_C_DISCARDED = "#ff4040"
+# Every colour comes from tools.mps_plot_style, by the role it plays.
+# Which roles may share a plot, and which pairs have to be told apart by
+# a symbol as well, is checked by validate_plot_colours.py.
+#
+# The one colour that depends on the background -- the contour, the
+# outline of a marker -- is asked for through self._neutral(), because
+# this window draws on black on screen and on white when it exports a
+# figure for a journal.
+# Text on the window's own white chrome (tables, the warning list), where
+# the neutral for a dark plot would be invisible.
+_C_TEXT_WARN = role("paper")
+# A cell the program cannot fill in: grey enough to recede on white, dark
+# enough to be read.
+_C_TEXT_DIM = "#6a6a6a"
 
 # The contour plot's title, which gains what it is drawing when there is
 # more than one thing it could be drawing.
 CONTOUR_TITLE = "Clusters, reconstructed perimeter and its centre (+)"
-# The centre of the contour shown (Okabe-Ito reddish purple, as in the
-# axoplasm panel, whose yellow is already the spectrin interior).
-_C_CENTRE = "#cc79a7"
 
 # Columns of the parameter table.
 (_COL_NAME, _COL_MEASURED, _COL_EVERY, _COL_DISCARD, _COL_PAPER,
@@ -113,6 +116,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.discard_callback = discard_callback
         self.export_callback = export_callback
         self.comparison: Optional[DiscardComparison] = None
+        # Black on screen; white while a figure is being written.
+        self.dark = True
 
         self.setWindowTitle("MPS analysis - per-axon parameters")
         self.resize(1250, 860)
@@ -253,6 +258,14 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_export.setEnabled(self.export_callback is not None)
         lay.addWidget(self.btn_export)
 
+        self.btn_image = QtWidgets.QPushButton("Export image...")
+        self.btn_image.setToolTip(
+            "Write one of these plots as a figure: at the width a journal\n"
+            "asks for, at 300 to 1200 dpi or as an SVG of curves, and drawn\n"
+            "on white rather than on the screen's black.")
+        self.btn_image.clicked.connect(self._on_export_image)
+        lay.addWidget(self.btn_image)
+
         enabled = self.rerun_callback is not None
         for w in (self.combo_peak, self.spin_half, self.spin_eps,
                   self.spin_min, self.spin_dbcv, self.spin_maha,
@@ -297,7 +310,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 "is showing.\n\n"
                 "'Discard applied' leaves out the clusters both widefield "
                 "images place inside the axon (axoplasm panel,\n"
-                "section 5); they are drawn in red, and the contour with "
+                "section 5); they are drawn as orange diamonds, and the "
+                "contour with "
                 "every cluster stays as a grey dashed line.")
         self.radio_measured.setChecked(True)
         self._shown_group = QtWidgets.QButtonGroup(self)
@@ -361,7 +375,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         self.plot_contour = pg.PlotWidget()
         style_dark(self.plot_contour)
-        set_title(self.plot_contour, CONTOUR_TITLE)
+        set_title(self.plot_contour, CONTOUR_TITLE, dark=self.dark)
         self.plot_contour.setAspectLocked(True)
         self.plot_contour.setLabels(bottom="x [nm]", left="y [nm]")
         grid.addWidget(self.plot_contour, 0, 0, 2, 1)
@@ -434,6 +448,66 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             return None
         return found
 
+    def _neutral(self) -> str:
+        """The contour and outline colour for the background in use."""
+        return neutral(dark=self.dark)
+
+    def _plots(self) -> "dict":
+        """Every plot of this window, by the name the export shows."""
+        return {"Contour and centre": self.plot_contour,
+                "Axial distribution": self.plot_z,
+                "Cluster area": self.plot_area,
+                "1NN distance": self.plot_nn,
+                "1NN CDF": self.plot_cdf}
+
+    def _apply_background(self) -> None:
+        """Style every plot for the background in use, and redraw."""
+        for plot in self._plots().values():
+            (style_dark if self.dark else style_light)(plot)
+        for plot, title in ((self.plot_z,
+                             "Axial (z) distribution, GMM fit and slab"),
+                            (self.plot_area, "Cluster area"),
+                            (self.plot_nn,
+                             "1NN distance between cluster centres"),
+                            (self.plot_cdf,
+                             "1NN CDF: observed vs randomized")):
+            set_title(plot, title, dark=self.dark)
+        self._draw_plots()
+
+    def _on_export_image(self) -> None:
+        """Write one plot as a figure."""
+        from tools import figure_export
+        from tools.figure_export_ui import ask
+
+        plots = self._plots()
+        suggested = figure_export.suggested_name(
+            self.analysis.source_name, next(iter(plots)))
+        request = ask(list(plots), suggested, parent=self)
+        if request is None:
+            return
+        plot = plots.get(request.plot)
+        if plot is None:
+            return
+        was_dark = self.dark
+        try:
+            if request.white and was_dark:
+                self.dark = False
+                self._apply_background()
+                QtWidgets.QApplication.processEvents()
+            written = figure_export.write(plot.getPlotItem(), request)
+        except Exception as error:                        # noqa: BLE001
+            QtWidgets.QMessageBox.critical(
+                self, "Export failed",
+                f"Could not write the image:\n\n{error}")
+            return
+        finally:
+            if self.dark != was_dark:
+                self.dark = was_dark
+                self._apply_background()
+        QtWidgets.QMessageBox.information(
+            self, "Image written",
+            f"{figure_export.describe(request)}\n\n{written}")
+
     def _title_contour(self, shown: AxonAnalysis) -> None:
         """
         Say in the plot's own title which clusters it is drawing.
@@ -455,7 +529,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                          f"discarded")
             else:
                 title = f"Contour and centre (+): all {total} clusters"
-        set_title(self.plot_contour, title)
+        set_title(self.plot_contour, title, dark=self.dark)
 
     def _shown(self) -> AxonAnalysis:
         """The analysis the plots show."""
@@ -590,7 +664,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                "manual": "entered manually",
                "unknown": "UNKNOWN"}.get(a.pixel_size_source, a.pixel_size_source)
         colour = ("#333333" if a.pixel_size_source in ("yaml", "hdf5", "yaml_scan")
-                  else _C_ORANGE)
+                  else _C_TEXT_WARN)
         self.lbl_provenance.setText(
             f"<b>{os.path.basename(a.source_name) or '(unnamed ROI)'}</b><br>"
             f"Pixel size: <span style='color:{colour}'><b>{px}</b> ({src})</span>"
@@ -618,7 +692,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 item = QtWidgets.QTableWidgetItem(str(text))
                 if col in (_COL_MEASURED, _COL_EVERY, _COL_DISCARD) and \
                         "not implemented" in str(text):
-                    item.setForeground(QtGui.QBrush(QtGui.QColor(_C_GREY)))
+                    item.setForeground(QtGui.QBrush(QtGui.QColor(_C_TEXT_DIM)))
                     item.setFont(self._italic())
                 own = {_COL_EVERY: ev, _COL_DISCARD: ap}.get(col)
                 if own is not None:
@@ -654,7 +728,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 seen.update(other.warnings)
         for w in messages:
             item = QtWidgets.QListWidgetItem(w)
-            item.setForeground(QtGui.QBrush(QtGui.QColor(_C_ORANGE)))
+            item.setForeground(QtGui.QBrush(QtGui.QColor(_C_TEXT_WARN)))
             item.setToolTip(w)
             self.list_warnings.addItem(item)
         if not messages:
@@ -677,26 +751,29 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if np.any(noise):
             self.plot_contour.addItem(pg.ScatterPlotItem(
                 a.x_slab[noise], a.y_slab[noise], size=2, pen=None,
-                brush=pg.mkBrush(200, 200, 200, 120), name="noise"))
+                brush=pg.mkBrush(*rgba("noise", 90)), name="noise"))
 
         bad_mask = np.isin(a.labels, list(bad)) if bad else np.zeros_like(noise)
         if np.any(bad_mask):
+            # An x, not a dot: what the curation removed and what DBSCAN
+            # never clustered are drawn in the same grey -- both mean "not
+            # in the analysis" -- and the symbol says which of the two.
             self.plot_contour.addItem(pg.ScatterPlotItem(
-                a.x_slab[bad_mask], a.y_slab[bad_mask], size=3, pen=None,
-                brush=pg.mkBrush(213, 94, 0, 90)))
+                a.x_slab[bad_mask], a.y_slab[bad_mask], size=5, symbol="x",
+                pen=pg.mkPen(*rgba("curated", 160)), brush=None))
 
         gone = (np.isin(a.labels, list(a.discarded_labels))
                 if a.discarded_labels else np.zeros_like(noise))
         if np.any(gone):
             self.plot_contour.addItem(pg.ScatterPlotItem(
-                a.x_slab[gone], a.y_slab[gone], size=3, pen=None,
-                brush=pg.mkBrush(_C_DISCARDED)))
+                a.x_slab[gone], a.y_slab[gone], size=4, symbol="d",
+                pen=None, brush=pg.mkBrush(role("discarded"))))
 
         good_mask = (~noise) & (~bad_mask) & (~gone)
         if np.any(good_mask):
             self.plot_contour.addItem(pg.ScatterPlotItem(
                 a.x_slab[good_mask], a.y_slab[good_mask], size=3, pen=None,
-                brush=pg.mkBrush(0, 114, 178, 110)))
+                brush=pg.mkBrush(*rgba("locs", 200))))
 
         if a.discard_applied and self.comparison is not None:
             # The contour with every cluster, and its centre, for what the
@@ -706,28 +783,29 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 closed = np.vstack([every.contour, every.contour[:1]])
                 self.plot_contour.addItem(pg.PlotDataItem(
                     closed[:, 0], closed[:, 1],
-                    pen=pg.mkPen(_C_GREY, width=1,
+                    pen=pg.mkPen(self._neutral(), width=1,
                                  style=QtCore.Qt.PenStyle.DashLine)))
                 if every.centre is not None:
                     self.plot_contour.addItem(pg.ScatterPlotItem(
                         [every.centre.x_nm], [every.centre.y_nm], size=14,
-                        symbol="+", pen=pg.mkPen(_C_GREY),
-                        brush=pg.mkBrush(_C_GREY)))
+                        symbol="+", pen=pg.mkPen(self._neutral()),
+                        brush=pg.mkBrush(self._neutral())))
             labels = good_cluster_labels(self.analysis.labels,
                                          self.analysis.bad_report.bad_labels)
             out = np.isin(labels, list(a.discarded_labels))
             if np.any(out):
                 c = np.asarray(self.analysis.centroids)[out]
                 self.plot_contour.addItem(pg.ScatterPlotItem(
-                    c[:, 0], c[:, 1], size=9, pen=pg.mkPen(_C_DARK_OUTLINE),
-                    brush=pg.mkBrush(_C_DISCARDED)))
+                    c[:, 0], c[:, 1], size=9, symbol="d",
+                    pen=pg.mkPen(self._neutral()),
+                    brush=pg.mkBrush(role("discarded"))))
 
         if a.perimeter is not None:
             c = a.perimeter.contour
             closed = np.vstack([c, c[:1]])
             self.plot_contour.addItem(pg.PlotDataItem(
                 closed[:, 0], closed[:, 1],
-                pen=pg.mkPen(_C_GREY, width=1)))
+                pen=pg.mkPen(self._neutral(), width=1.5)))
 
         # Occupied stretches drawn on top of the contour: this is what makes
         # the occupancy percentage legible -- the paper's central claim is
@@ -749,18 +827,20 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                     if len(run) >= 2:
                         self.plot_contour.addItem(pg.PlotDataItem(
                             run[:, 0], run[:, 1],
-                            pen=pg.mkPen(_C_GREEN, width=4)))
+                            pen=pg.mkPen(role("occupied"), width=4)))
 
         if a.centroids.size:
             self.plot_contour.addItem(pg.ScatterPlotItem(
                 a.centroids[:, 0], a.centroids[:, 1], size=7,
-                pen=pg.mkPen(_C_DARK_OUTLINE), brush=pg.mkBrush(_C_GREEN)))
+                pen=pg.mkPen(self._neutral()),
+                brush=pg.mkBrush(role("centroid"))))
 
         # The centre of the contour drawn: its area centroid.
         if a.centre is not None:
             self.plot_contour.addItem(pg.ScatterPlotItem(
                 [a.centre.x_nm], [a.centre.y_nm], size=18, symbol="+",
-                pen=pg.mkPen("#000000"), brush=pg.mkBrush(_C_CENTRE)))
+                pen=pg.mkPen(role("centre"), width=2),
+                brush=pg.mkBrush(role("centre"))))
 
     def _draw_z(self) -> None:
         a = self._shown()
@@ -775,7 +855,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             width = float(np.mean(np.diff(edges)))
             self.plot_z.addItem(pg.BarGraphItem(
                 x=centres, height=counts, width=width,
-                brush=pg.mkBrush(0, 114, 178, 90), pen=None))
+                brush=pg.mkBrush(*rgba("locs", 170)), pen=None))
 
         lo, hi = a.slab_zmin_nm, a.slab_zmax_nm
         span = max(hi - lo, 1.0)
@@ -786,14 +866,15 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             dens = wgt * np.exp(-0.5 * ((grid - m) / s) ** 2) / (
                 s * np.sqrt(2 * np.pi))
             self.plot_z.addItem(pg.PlotDataItem(
-                grid, dens, pen=pg.mkPen(_C_ORANGE, width=2,
+                grid, dens, pen=pg.mkPen(role("fit"), width=2,
                                          style=QtCore.Qt.DashLine)))
             self.plot_z.addItem(pg.InfiniteLine(
                 pos=float(m), angle=90,
-                pen=pg.mkPen(_C_ORANGE, width=1, style=QtCore.Qt.DotLine)))
+                pen=pg.mkPen(role("fit"), width=1,
+                             style=QtCore.Qt.DotLine)))
 
         region = pg.LinearRegionItem(values=(lo, hi), movable=False)
-        region.setBrush(pg.mkBrush(0, 158, 115, 45))
+        region.setBrush(pg.mkBrush(*rgba("slab", 60)))
         region.setZValue(-10)
         self.plot_z.addItem(region)
 
@@ -808,19 +889,19 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         width = float(np.mean(np.diff(edges)))
         self.plot_area.addItem(pg.BarGraphItem(
             x=centres, height=counts, width=width,
-            brush=pg.mkBrush(0, 114, 178, 160), pen=None))
+            brush=pg.mkBrush(*rgba("locs", 190)), pen=None))
         med = a.areas.median_area_nm2
         if med is not None:
             self.plot_area.addItem(pg.InfiniteLine(
                 pos=med, angle=90,
-                pen=pg.mkPen(_C_BLUE, width=2),
+                pen=pg.mkPen(role("summary"), width=2),
                 label=f"median {med:,.0f}",
-                labelOpts={"position": 0.9, "color": _C_BLUE}))
+                labelOpts={"position": 0.9, "color": role("summary")}))
         self.plot_area.addItem(pg.InfiniteLine(
             pos=1965.0, angle=90,
-            pen=pg.mkPen(_C_ORANGE, width=2, style=QtCore.Qt.DashLine),
+            pen=pg.mkPen(role("paper"), width=2, style=QtCore.Qt.DashLine),
             label="paper 1,965",
-            labelOpts={"position": 0.75, "color": _C_ORANGE}))
+            labelOpts={"position": 0.75, "color": role("paper")}))
 
     def _draw_nn(self) -> None:
         a = self._shown()
@@ -833,18 +914,18 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         width = float(np.mean(np.diff(edges)))
         self.plot_nn.addItem(pg.BarGraphItem(
             x=centres, height=counts, width=width,
-            brush=pg.mkBrush(0, 158, 115, 160), pen=None))
+            brush=pg.mkBrush(*rgba("locs", 190)), pen=None))
         med = a.nn.median_1nn_nm
         if med is not None:
             self.plot_nn.addItem(pg.InfiniteLine(
-                pos=med, angle=90, pen=pg.mkPen(_C_GREEN, width=2),
+                pos=med, angle=90, pen=pg.mkPen(role("summary"), width=2),
                 label=f"median {med:,.0f} nm",
-                labelOpts={"position": 0.9, "color": _C_GREEN}))
+                labelOpts={"position": 0.9, "color": role("summary")}))
         self.plot_nn.addItem(pg.InfiniteLine(
             pos=260.0, angle=90,
-            pen=pg.mkPen(_C_ORANGE, width=2, style=QtCore.Qt.DashLine),
+            pen=pg.mkPen(role("paper"), width=2, style=QtCore.Qt.DashLine),
             label="paper 260 nm",
-            labelOpts={"position": 0.75, "color": _C_ORANGE}))
+            labelOpts={"position": 0.75, "color": role("paper")}))
 
     def _draw_cdf(self) -> None:
         """Observed vs randomized 1NN cumulative distributions (Fig. 4E)."""
@@ -861,16 +942,19 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         xe, ye = cdf(r.experimental_1nn_nm)
         xr, yr = cdf(r.randomized_1nn_nm)
         self.plot_cdf.addItem(pg.PlotDataItem(
-            xr, yr, pen=pg.mkPen(_C_GREY, width=2), name="randomized"))
+            xr, yr, pen=pg.mkPen(role("randomized"), width=2),
+            name="randomized"))
         self.plot_cdf.addItem(pg.PlotDataItem(
-            xe, ye, pen=pg.mkPen(_C_BLUE, width=2), name="observed"))
+            xe, ye, pen=pg.mkPen(role("observed"), width=2),
+            name="observed"))
 
         if r.cdf_crossing is not None:
             line = pg.InfiniteLine(
                 pos=r.cdf_crossing, angle=0,
-                pen=pg.mkPen(_C_ORANGE, width=1, style=QtCore.Qt.DashLine),
+                pen=pg.mkPen(role("paper"), width=1,
+                             style=QtCore.Qt.DashLine),
                 label=f"crossing {r.cdf_crossing:.2f}",
-                labelOpts={"position": 0.05, "color": _C_ORANGE})
+                labelOpts={"position": 0.05, "color": role("paper")})
             self.plot_cdf.addItem(line)
 
     # ------------------------------------------------------------------

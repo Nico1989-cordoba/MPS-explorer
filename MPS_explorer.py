@@ -50,6 +50,7 @@ from tools.mps_analysis import analyze_axon
 from tools.mps_periodicity import fit_z_periodicity
 from tools import mps_file_drop, mps_io
 from tools.mps_picasso_tools import PicassoTools
+from tools import mps_plot_style as plot_style
 from tools.mps_settings import load_settings, save_settings
 
 # Import logging configuration
@@ -229,14 +230,21 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.lmax = MAX_LATERAL_DISTANCE_NM
         self.bins = DEFAULT_KNN_BINS
         
-        # Colors
-        self.brush1 = pg.mkBrush("#d55e00")
-        self.brush2 = pg.mkBrush("#009e73")
-        self.brush3 = pg.mkBrush("#0072b2")
-        
-        self.pen1 = pg.mkPen("#d55e00")
-        self.pen2 = pg.mkPen("#009e73")
-        self.pen3 = pg.mkPen("#0072b2")
+        # Colours, by the role they play (tools.mps_plot_style). These
+        # plots are on the application's white background, so the neutral
+        # they outline markers with is the dark one.
+        self.brush1 = pg.mkBrush(plot_style.role("channel_b"))
+        self.brush2 = pg.mkBrush(plot_style.role("centroid"))
+        self.brush3 = pg.mkBrush(plot_style.role("centre"))
+        # What DBSCAN left out: grey and an x in every window of this
+        # program, so it is never taken for data.
+        self.brush_noise = pg.mkBrush(plot_style.role("noise"))
+        self.pen_noise = pg.mkPen(plot_style.role("noise"))
+        self.pen_outline = pg.mkPen(plot_style.neutral(dark=False))
+
+        self.pen1 = pg.mkPen(plot_style.role("channel_b"))
+        self.pen2 = pg.mkPen(plot_style.role("centroid"))
+        self.pen3 = pg.mkPen(plot_style.role("centre"))
         
         # ROI Shape Radio Buttons
         self.radioButton_circROI = self.ui.radioButton_circROI
@@ -3664,9 +3672,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         for label in unique_labels:
             if label == -1:  # Noise points
                 noise_points = roi_points[cluster_assignments == -1]
+                # Grey, not the channel's colour: noise is not data, and
+                # drawing it in the same hue as the clustered points made
+                # the two read as one cloud.
                 noise_plot = pg.ScatterPlotItem(
                     noise_points[:, 0], noise_points[:, 1],
-                    pen=roi_pen, brush=None, size=NOISE_POINT_SIZE, symbol='x'  # Cross symbol for noise
+                    pen=self.pen_noise, brush=None,
+                    size=NOISE_POINT_SIZE, symbol='x'
                 )
                 plotclusters.addItem(noise_plot)
             else:  # Cluster points
@@ -3680,7 +3692,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Plot cluster centers
         self.selectedcluscm = pg.ScatterPlotItem(
             centroids[:, 0], centroids[:, 1],
-            size=CLUSTER_CENTROID_POINT_SIZE, pen=pg.mkPen('k'), brush=roi_brush  # Filled circles for centers
+            size=CLUSTER_CENTROID_POINT_SIZE + 2, pen=self.pen_outline,
+            brush=roi_brush  # Filled circles for centers
         )
         plotclusters.addItem(self.selectedcluscm)
 

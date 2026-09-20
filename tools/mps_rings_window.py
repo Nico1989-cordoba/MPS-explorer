@@ -38,7 +38,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from tools import export_ui
 from tools.mps_gaps import RingAnalysis, analyze_rings
 from tools.mps_identity import AxonIdentity, axon_id
-from tools.mps_plot_style import PLOT_BG, set_title, style_dark
+from tools.mps_plot_style import (
+    PLOT_BG, neutral, set_title, style_dark)
 from tools.results_table import (
     append_rows, cell_text, check_appendable, refuse_other_analysis,
     replace_rows)
@@ -59,6 +60,11 @@ _C_PURPLE = "#cc79a7"
 # is the same colour in the table, the tracks, the scatter and the
 # histograms.
 _SEGMENT_COLOURS = (_C_BLUE, _C_ORANGE, _C_GREEN, _C_PURPLE, "#56b4e9")
+# Everything that is an annotation rather than a segment: the fitted
+# mixture, a valley, the null lines of the correlation. Five of the eight
+# colours of the palette are spoken for by the segments, so the rest of
+# this panel says what it means with shape and with neutral lines.
+_C_NEUTRAL = neutral(dark=True)
 
 
 def _seg_colour(i: int) -> str:
@@ -471,7 +477,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             dens = zr.mixture_density(grid)
             if np.any(dens > 0):
                 self.plot_z.addItem(pg.PlotDataItem(
-                    grid, dens, pen=pg.mkPen(_C_GREY, width=2)))
+                    grid, dens, pen=pg.mkPen(_C_NEUTRAL, width=2)))
 
         for k, seg in enumerate(ms.segments):
             region = pg.LinearRegionItem(
@@ -492,13 +498,16 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
                                         ms.valleys.relative_depth):
                 self.plot_z.addItem(pg.InfiniteLine(
                     pos=float(pos), angle=90,
+                    # Neutral, solid for a real valley and dashed for
+                    # one that is not: the five segment colours are five
+                    # of the eight the palette has, so an annotation that
+                    # took a sixth would be read as a sixth segment.
                     pen=pg.mkPen(
-                        _C_GREEN if real else _C_ORANGE, width=2,
+                        _C_NEUTRAL, width=2,
                         style=QtCore.Qt.SolidLine if real
                         else QtCore.Qt.DashLine),
                     label=(f"valley {depth:.2f}" if real else "no valley"),
-                    labelOpts={"position": 0.08,
-                               "color": _C_GREEN if real else _C_ORANGE}))
+                    labelOpts={"position": 0.08, "color": _C_NEUTRAL}))
 
     def _draw_profiles(self) -> None:
         """One filled track per segment, stacked.

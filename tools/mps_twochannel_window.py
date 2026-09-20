@@ -44,6 +44,7 @@ from tools.mps_crosschannel import (
     cross_channel_transverse,
     export_cross_channel,
 )
+from tools import mps_plot_style as plot_style
 from tools.mps_plot_style import AXIS_FG, TITLE_FG, set_title, style_dark
 from tools.mps_registration import (
     NO_REGISTRATION,
@@ -60,12 +61,18 @@ from tools.results_table import append_rows, cell_text, replace_rows
 # What says two rows describe the same comparison: both files and the ROI.
 PAIR_KEY = ("source_channel_a", "source_channel_b", "roi")
 
-_OK = "#5fd75f"
-_WARN = "#ffaf5f"
-_BAD = "#ff6b6b"
+# Findings text. Sky blue for what is in order rather than green: green
+# against orange is the pair a deuteranope cannot separate, and these two
+# are read side by side in the same list.
+_OK = plot_style.role("locs")
+_WARN = plot_style.role("occupied")
+_BAD = plot_style.role("discarded")
 _DIM = "#9a9a9a"
-_COLOUR_A = "#6fa8ff"
-_COLOUR_B = "#ff9f43"
+# The two channels, by role: sky blue against vermillion is the pair that
+# survives every dichromacy, and comparing the two channels is what this
+# panel is for.
+_COLOUR_A = plot_style.role("locs")
+_COLOUR_B = plot_style.role("channel_b")
 
 # Below this many localizations in the ROI a channel is not analysed.
 MIN_ROI_LOCALIZATIONS = 50
@@ -779,14 +786,17 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         plot.setAspectLocked(True)
         plot.setLabel("bottom", "x [nm]", color=AXIS_FG)
         plot.setLabel("left", "y [nm]", color=AXIS_FG)
-        for analysis, colour in ((t.analysis_a, _COLOUR_A),
-                                 (t.analysis_b, _COLOUR_B)):
+        for analysis, colour, symbol in ((t.analysis_a, _COLOUR_A, "o"),
+                                         (t.analysis_b, _COLOUR_B, "t")):
             if analysis is None or not len(analysis.centroids):
                 continue
             c = np.asarray(analysis.centroids)
+            # A shape per channel as well as a colour: a figure printed in
+            # grey, or read by someone who cannot separate the two hues,
+            # still says which channel is which.
             plot.addItem(pg.ScatterPlotItem(
                 c[:, 0], c[:, 1], size=10, brush=pg.mkBrush(colour),
-                pen=pg.mkPen(None)))
+                symbol=symbol, pen=pg.mkPen(None)))
         lay.addWidget(plot, stretch=1)
 
     # ------------------------------------------------------------ export
