@@ -1083,6 +1083,26 @@ def test_schema_and_excel() -> None:
         finally:
             shutil.rmtree(folder, ignore_errors=True)
 
+    def a_number_is_kept_to_what_its_name_says():
+        # Lengths in um to 0.001, in nm to 0.1, areas in nm2 to 0.1 and in
+        # um2 to 0.0001, percentages to 0.01. A perimeter written to 15
+        # digits beside a hull written to 3 invites the reader to believe
+        # the first one.
+        for name, digits in (("perimeter_um", 3), ("contour_hull_um", 3),
+                             ("median_1nn_nm", 1), ("median_area_nm2", 1),
+                             ("contour_area_um2", 4),
+                             ("occupancy_percent", 2), ("ks_statistic", 4)):
+            for column in (name, name + DISCARD_SUFFIX):
+                value = row[column]
+                if isinstance(value, float):
+                    assert value == round(value, digits), (column, value)
+        # The settings are not measurements: they are written exactly as
+        # the analysis was given them.
+        assert row["mahalanobis_threshold"] == 3.0, row["mahalanobis_threshold"]
+        assert row["pixel_size_nm"] == 113.0, row["pixel_size_nm"]
+        return (f"{row['perimeter_um']} um, {row['median_1nn_nm']} nm, "
+                f"{row['occupancy_percent']} %")
+
     def no_cell_holds_the_separator():
         for name, value in row.items():
             assert ";" not in str(value or ""), (name, value)
@@ -1092,6 +1112,8 @@ def test_schema_and_excel() -> None:
           the_columns_are_the_layout_and_in_order)
     check("a row of another layout is refused, not appended",
           a_row_of_another_layout_is_refused)
+    check("a number is kept to the precision its name says",
+          a_number_is_kept_to_what_its_name_says)
     check("the copy for Excel keeps the numbers", excel_reads_the_copy)
     check("no cell holds the separator that copy uses",
           no_cell_holds_the_separator)

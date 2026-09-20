@@ -36,6 +36,7 @@ that is wrong in a way no reader could detect.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -123,6 +124,42 @@ _AXOPLASM_DROPPED: Tuple[str, ...] = (
 # Prefixed, so "n_warnings" of the panel and "n_warnings" of the analysis
 # cannot be confused for one another in a wide row.
 AXOPLASM_PREFIX = "axoplasm_"
+
+
+# How much of a number is kept, by what the number is. One length in a row
+# written to 15 digits beside another written to 3 invites the reader to
+# believe the first one: nothing here is measured to a femtometre.
+ROUNDING: Tuple[Tuple[str, int], ...] = (
+    ("_nm2", 1), ("_um2", 4), ("_nm", 1), ("_um", 3), ("_percent", 2),
+)
+# Fractions and the statistics that behave like one.
+_FOUR_DECIMALS = frozenset({"ks_statistic", "contour_tour_over_hull",
+                            "contour_length_in_long_edges"})
+# Not measurements: what the analysis was RUN with is written exactly as
+# it was given, however many digits that takes.
+_SETTINGS: frozenset = frozenset({
+    "pixel_size_nm", "eps_nm", "min_samples", "dbcv_threshold",
+    "mahalanobis_threshold", "slab_half_width_nm", "discard_margin_nm",
+    "random_seed", "randomization_requested", "randomization_min_sep_nm",
+})
+
+
+def _rounded(name: str, value: Any) -> Any:
+    """``value`` kept to the precision its name says it has."""
+    if isinstance(value, bool) or not isinstance(value, float):
+        return value
+    if not math.isfinite(value):
+        return value
+    base = (name[:-len(DISCARD_SUFFIX)] if name.endswith(DISCARD_SUFFIX)
+            else name)
+    if base in _SETTINGS or base.endswith("pvalue"):
+        return value
+    if base in _FOUR_DECIMALS or base.startswith("fraction_"):
+        return round(value, 4)
+    for suffix, digits in ROUNDING:
+        if base.endswith(suffix):
+            return round(value, digits)
+    return value
 
 
 class ExportConflict(ValueError):
@@ -296,13 +333,13 @@ def axon_row(
 
     # --- the analysis ---------------------------------------------------
     for name in SHARED_COLUMNS:
-        row[name] = record[name]
+        row[name] = _rounded(name, record[name])
     for name in MEASURED_COLUMNS:
-        row[name] = record[name]
+        row[name] = _rounded(name, record[name])
     second = discard.export_dict() if discard is not None else None
     for name in MEASURED_COLUMNS:
-        row[name + DISCARD_SUFFIX] = (None if second is None
-                                      else second[name])
+        row[name + DISCARD_SUFFIX] = (
+            None if second is None else _rounded(name, second[name]))
 
     # --- the panel ------------------------------------------------------
     for name, value in (axoplasm or {}).items():
