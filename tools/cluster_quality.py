@@ -79,6 +79,45 @@ class PolygonROI:
 ROIShape = Union[CircularROI, SquareROI, PolygonROI]
 
 
+def describe_roi(roi: Optional[ROIShape]) -> str:
+    """
+    One line naming an ROI shape, for a panel header and for the exported
+    ``roi`` column.
+
+    The text has to tell two axons of one field of view apart: rows of the
+    same localization file are identical in every other column, so the ROI
+    is what says which axon a row describes. A polygon is therefore named
+    by where it is and how much it encloses, not only by how many vertices
+    it has -- two disjoint hand-drawn polygons with four corners each used
+    to come out as the same text.
+    """
+    if isinstance(roi, CircularROI):
+        return (f"circle centred at ({roi.center_x:.0f}, {roi.center_y:.0f}) "
+                f"nm, radius {roi.radius:.0f} nm")
+    if isinstance(roi, SquareROI):
+        return (f"square x {roi.xmin:.0f}..{roi.xmax:.0f}, "
+                f"y {roi.ymin:.0f}..{roi.ymax:.0f} nm")
+    if isinstance(roi, PolygonROI):
+        v = np.asarray(roi.vertices, dtype=float).reshape(-1, 2)
+        if len(v) > 1 and np.allclose(v[0], v[-1]):
+            v = v[:-1]
+        if len(v) == 0:
+            return "polygon of 0 vertices"
+        # Shoelace area and the centroid of that area; a polygon drawn as a
+        # sliver (area 0) still has to be named, so fall back to the mean.
+        x, y = v[:, 0], v[:, 1]
+        cross = x * np.roll(y, -1) - np.roll(x, -1) * y
+        twice_area = float(cross.sum())
+        if abs(twice_area) > 0:
+            cx = float(((x + np.roll(x, -1)) * cross).sum() / (3.0 * twice_area))
+            cy = float(((y + np.roll(y, -1)) * cross).sum() / (3.0 * twice_area))
+        else:
+            cx, cy = float(x.mean()), float(y.mean())
+        return (f"polygon of {len(v)} vertices centred at ({cx:.0f}, "
+                f"{cy:.0f}) nm, {abs(twice_area) / 2e6:.3f} um^2")
+    return "none"
+
+
 def _distance_to_boundary_circle(
     x: NDArray[np.float64], y: NDArray[np.float64], roi: CircularROI
 ) -> NDArray[np.float64]:

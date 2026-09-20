@@ -658,7 +658,57 @@ class MPS_explorer(QtWidgets.QMainWindow):
         picasso_button.setMenu(picasso_menu)
         picasso_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         toolbar.addWidget(picasso_button)
+
+        self.action_excel = QtWidgets.QAction("Copy a table for Excel", self)
+        self.action_excel.setToolTip(
+            "Write a copy of an exported table that Excel opens correctly\n"
+            "where the decimal mark is a comma: fields separated by ';',\n"
+            "decimals with ',', and the accents readable. The table itself\n"
+            "is not touched, and keeps the commas and points that pandas,\n"
+            "R and Prism expect."
+        )
+        self.action_excel.triggered.connect(self._on_copy_for_excel)
+        toolbar.addAction(self.action_excel)
         self.analysis_toolbar = toolbar
+
+    def _on_copy_for_excel(self) -> None:
+        # Not the method itself: a triggered slot returns nothing, and it
+        # would also be handed the action's checked flag.
+        self.copy_table_for_excel()
+
+    def copy_table_for_excel(self) -> Optional[str]:
+        """
+        Write a copy of an exported table for Excel, and say where.
+
+        The tables this program writes are comma-separated with decimal
+        points, which is what pandas, R and Prism read. Excel under this
+        machine's locale reads them wrong rather than badly: a value of
+        11.999 imported as 11999 looks like a measurement.
+        """
+        from tools.results_table import excel_copy
+
+        start = self.mps_settings.last_export_dir or self.mps_settings.last_open_dir
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Table to copy for Excel", start, "CSV Files (*.csv)")
+        if not path:
+            return None
+        try:
+            written = excel_copy(path)
+        except Exception as error:                        # noqa: BLE001
+            self.logger.error(f"Could not copy {path} for Excel: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Copy failed",
+                f"Could not write the copy:\n\n{error}")
+            return None
+        self.mps_settings.last_export_dir = os.path.dirname(written)
+        save_settings(self.mps_settings)
+        self.logger.info(f"Wrote an Excel copy of {path} to {written}")
+        QtWidgets.QMessageBox.information(
+            self, "Copied for Excel",
+            f"Wrote {written}\n\nThe table itself was not changed. Open the "
+            f"copy in Excel; keep using the table for the statistics.")
+        return written
 
     def _roi_localizations(self) -> Optional[Any]:
         """
@@ -839,6 +889,21 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return np.asarray(analysis.centroids, dtype=float)
 
+    def _current_cluster_labels(self) -> Optional[NDArray[np.int64]]:
+        """
+        The DBSCAN label of each kept cluster, in the order of
+        _current_cluster_centroids: what every table of this program calls
+        a cluster by, so that the axoplasm panel's rows and this window's
+        per-localization export name the same cluster the same way.
+        """
+        if self._current_cluster_centroids() is None:
+            return None
+        from tools.cluster_quality import good_cluster_labels
+
+        analysis = self.mps_analysis
+        return good_cluster_labels(np.asarray(analysis.labels),
+                                   analysis.bad_report.bad_labels)
+
     def _current_perimeter(self) -> Optional[Any]:
         """
         The contour the MPS analysis built from those clusters, when the
@@ -855,9 +920,18 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         from tools.mps_axoplasm_window import AxoplasmInputs
 
+        # The axial cut this selection went through, which the panel
+        # cannot recompute but every count it exports depends on.
+        z_range = (None if self.zmin is None or self.zmax is None
+                   else (float(self.zmin), float(self.zmax)))
+        z_source = ("none" if z_range is None
+                    else "typed" if self._z_range_user_edited
+                    else "axial peak")
         return AxoplasmInputs(
             loc=self.locs1.subset(self.roi_indices), movie=self.locs1,
             roi=self._applied_roi_shape,
+            z_range=z_range, z_range_source=z_source,
+            cluster_labels=self._current_cluster_labels,
             clusters=self._current_cluster_centroids,
             selection_key=self.roi_indices,
             contour=self._current_perimeter,
@@ -936,11 +1010,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if held is not None and held.key == key:
                 comparison = held.comparison
                 applied = comparison.discard_applied
-                if applied.discard_margin_nm != found.margin_nm:
+                if (applied.discard_margin_nm != found.margin_nm
+                        or applied.discard_registration != found.registration):
                     comparison = DiscardComparison(
                         all_clusters=comparison.all_clusters,
                         discard_applied=with_discard_margin(
-                            applied, found.margin_nm))
+                            applied, found.margin_nm,
+                            registration=found.registration))
             else:
                 QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
                 try:
@@ -948,6 +1024,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                         analysis, found.discarded, margin_nm=found.margin_nm,
                         contour_all=found.contour_all_starts,
                         contour_kept=found.contour_anchored,
+                        registration=found.registration,
                         all_clusters=(None if held is None
                                       else held.comparison.all_clusters))
                 except Exception as error:     # noqa: BLE001 - logged
@@ -1267,6 +1344,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 overrides.pop("slab_half_width_nm", s.slab_half_width_nm)),
             dbcv_threshold=float(
                 overrides.pop("dbcv_threshold", s.dbcv_threshold)),
+            # The occupancy threshold is a paper parameter, not a spin-box
+            # default: it comes from the stored settings unless the results
+            # window sends another one.
+            mahalanobis_threshold=float(
+                overrides.pop("mahalanobis_threshold",
+                              s.mahalanobis_threshold)),
             # The ROI the selection was made with: the widget may since
             # have been redrawn at its default place.
             roi=self._applied_roi_shape,
@@ -1324,6 +1407,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # plots and exports reflect the same automatically curated set.
         self.bad_cluster_indices = sorted(analysis.bad_report.bad_labels)
         self.good_cluster_centroids = analysis.centroids
+        # The nearest-neighbour distances were measured between the
+        # PREVIOUS centroids. Keeping them let "save dist data" write 94
+        # rows for an analysis with 55 clusters, with no header and no
+        # provenance to notice it by, while the centres panel already
+        # showed the new ones.
+        self.distances = None
+        self.Nneighbor = None
+        self.empty_layout(self.ui.zhistlayout_cmdist)
         self._render_good_clusters_panel(analysis.centroids)
         # The axoplasm panel finds the discarded clusters of THIS analysis,
         # and with them the results window's discard column: bring it up
@@ -2740,8 +2831,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         Exports the (x, y, z) coordinates of all localizations within the selected
         Region of Interest (ROI) to a CSV file compatible with ThunderSTORM and other
-        analysis software. The output includes columns for x [nm], y [nm], z [nm],
-        and optionally cluster labels if clustering has been performed.
+        analysis software. The columns are x [nm], y [nm], z [nm], and nothing
+        else: the cluster of each localization is in "save all cluster data",
+        which writes the analysis' own slab and its labels. This file and that
+        one are not the same set of localizations (this one is cut by the Z
+        range of the main window, that one by the analysis' axial slab).
 
         Parameters
         ----------
@@ -2766,7 +2860,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
             x_roi = self.xroi
             y_roi = self.yroi
             z_roi = self.zroi
-            labels = self.dblabels if hasattr(self, 'dblabels') else None
             suffix = f"_ch{channel}_roi"
             if x_roi is None:
                 QtWidgets.QMessageBox.warning(
@@ -2776,7 +2869,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
             x_roi = self.xroi2
             y_roi = self.yroi2
             z_roi = self.zroi2
-            labels = self.dblabels2 if hasattr(self, 'dblabels2') else None
             suffix = f"_ch{channel}_roi"
             if x_roi is None:
                 QtWidgets.QMessageBox.warning(
@@ -2793,18 +2885,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             'y [nm]': y_roi,
             'z [nm]': z_roi,
         }
-        
-        # Add cluster labels if available
-        if labels is not None:
-            data['cluster_id'] = labels
-        
+
         df = pd.DataFrame(data)
         
         # Open file dialog with suggested filename
         file_dialog = QFileDialog()
         default_filename = f"{root_name}{suffix}.csv"
         filename, _ = file_dialog.getSaveFileName(
-            caption="Save ROI Data with Clusters",
+            caption="Save the ROI selection (x, y, z)",
             directory=default_filename,  # Suggest the default filename
             filter="CSV Files (*.csv)"
         )
@@ -2865,8 +2953,27 @@ class MPS_explorer(QtWidgets.QMainWindow):
             "CSV Files (*.csv)"
         )
         
-        if filename:
-            np.savetxt(filename, dist, delimiter=",", fmt="%.2f")
+        if not filename:
+            return
+        data = {}
+        labels = self._current_cluster_labels()
+        if labels is not None and len(labels) == len(dist):
+            data["cluster_label"] = np.asarray(labels, dtype=int)
+        for k in range(dist.shape[1]):
+            data[f"nn{k + 1}_nm"] = dist[:, k]
+        try:
+            pd.DataFrame(data).to_csv(filename, index=False,
+                                      float_format="%.2f")
+        except Exception as error:                     # noqa: BLE001
+            self.logger.error(f"Could not save the distances: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Save Error",
+                f"Failed to save the distances:\n\n{error}")
+            return
+        self.logger.info(f"Saved {dist.shape[0]} row(s) of "
+                         f"{dist.shape[1]} neighbour distance(s) to "
+                         f"{filename}")
 
     def on_algorithm_changed(self, algorithm: str) -> None:
         """Handle algorithm selection change to show/hide algorithm-specific parameters.
@@ -3522,8 +3629,30 @@ class MPS_explorer(QtWidgets.QMainWindow):
             "CSV Files (*.csv)"
         )
         
-        if filename:
-            np.savetxt(filename, cluster_centers_xy, delimiter=",", fmt="%.2f", comments="")
+        if not filename:
+            return
+        # With a header and the cluster's own label, so the file says what
+        # it holds and can be joined to the other tables. It had neither,
+        # and a failure to write it was swallowed by pyqtgraph's exception
+        # hook: the user saw nothing at all.
+        data = {}
+        labels = self._current_cluster_labels()
+        if labels is not None and len(labels) == len(cluster_centers_xy):
+            data["cluster_label"] = np.asarray(labels, dtype=int)
+        data["x [nm]"] = cluster_centers_xy[:, 0]
+        data["y [nm]"] = cluster_centers_xy[:, 1]
+        try:
+            pd.DataFrame(data).to_csv(filename, index=False,
+                                      float_format="%.2f")
+        except Exception as error:                     # noqa: BLE001
+            self.logger.error(f"Could not save the cluster centres: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Save Error",
+                f"Failed to save the cluster centres:\n\n{error}")
+            return
+        self.logger.info(
+            f"Saved {len(cluster_centers_xy)} cluster centres to {filename}")
     
     
     
@@ -3622,7 +3751,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         analysis's clusters, without the ones it rejected (see
         _clusters_to_export). Noise points (cluster = -1) are preserved.
 
-        Output columns: x [nm], y [nm], z [nm], cluster_id
+        Output columns: x [nm], y [nm], z [nm], cluster_label
 
         This export format is suitable for custom post-processing pipelines or when
         standard software packages are not available.
@@ -3665,7 +3794,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 'x [nm]': x_data,
                 'y [nm]': y_data,
                 'z [nm]': z_data,
-                'cluster_id': labels
+                # The DBSCAN label, which is what the axoplasm panel's
+                # tables call cluster_label too. It used to be written
+                # here under another name beside another numbering.
+                'cluster_label': labels
             }
             
             # Set default filename

@@ -39,8 +39,9 @@ from tools import mps_axoplasm as ax
 from tools import mps_file_drop
 from tools.mps_io import load_localizations
 from tools.mps_plot_style import AXIS_FG, TITLE_FG, set_title, style_dark
-from tools.mps_twochannel_window import describe_roi
-from tools.results_table import append_rows, check_appendable
+from tools import export_ui
+from tools.cluster_quality import describe_roi
+from tools.results_table import append_rows, check_appendable, replace_rows
 
 _OK = "#5fd75f"
 _WARN = "#ffaf5f"
@@ -158,6 +159,19 @@ class AxoplasmInputs:
     cluster_of: Callable[[np.ndarray, np.ndarray, np.ndarray],
                          Optional[np.ndarray]] = field(
         default=lambda x, y, z: None)
+    # The axial cut the main window applied to this selection, and where
+    # it came from ("typed", "axial peak" or "none"). Every count in this
+    # panel is a count of the localizations that survived it: clearing the
+    # Z fields on axon 7 took the selection from 10,034 to 23,743 and
+    # fraction_inside from 0.0141 to 0.0060, with nothing in the table to
+    # say why.
+    z_range: Optional[Tuple[float, float]] = None
+    z_range_source: str = "none"
+    # The DBSCAN label of each kept cluster, in the order of ``clusters``,
+    # or None when the selection has not been analysed. Every table names
+    # a cluster by that label, the main window's own export included.
+    cluster_labels: Callable[[], Optional[np.ndarray]] = field(
+        default=lambda: None)
 
 
 @dataclass
@@ -903,10 +917,34 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         # analysis without the discarded clusters.
         self.inputs.anchored_changed(self.anchored, self.anchored_centroids)
 
+    def _registration_state(self) -> str:
+        """How the widefield images are placed right now, in one phrase."""
+        reg = self.registration()
+        words = {"none": "no shift", "manual": "set by hand",
+                 "measured": "measured",
+                 "adjusted": "measured, then adjusted by hand"}
+        state = words.get(reg.source, reg.source)
+        if reg.score is not None:
+            state += f", score {reg.score:.1f}"
+            if reg.score < ax.MIN_REGISTRATION_SCORE:
+                state += " (low)"
+        return state
+
     def _find_anchored(self, centroids: np.ndarray, margin: float) -> None:
         """The clusters both images put inside, and the contour without."""
         if self.reference is None or self.axoplasm is None \
                 or len(centroids) < 3:
+            return
+        # Which clusters are inside depends entirely on where the images
+        # sit: with no shift, axon 7 gave 4 discarded and a 19.65 um
+        # contour against 5 and 18.48 um once the shift was measured.
+        # Sorting them before anything is placed would hand the results
+        # window, and the tables, a discard measured on an unplaced image.
+        if self.registration().source == "none":
+            self.anchored_notes = [
+                "The widefield images are not placed on the localizations "
+                "yet: measure the shift in section 2 (or set one by hand) "
+                "before the clusters can be sorted."]
             return
         offset = self.reference_offset
         col, row = self._coordinates_in(offset, self.inputs.loc.x_nm,
@@ -929,7 +967,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.anchored = ax.anchored_clusters(
             centroids, self.axoplasm, tcol, trow, interior, scol, srow,
             margin, contour_all=self.inputs.contour(),
-            contour_cache=self._contour_cache)
+            contour_cache=self._contour_cache,
+            registration=self._registration_state())
 
     def _sync_threshold(self) -> None:
         mask = self.axoplasm
@@ -1023,7 +1062,11 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                     "both put it inside the axon.")
         found = self.anchored
         if found is None:
-            if self.anchored_notes or self.axoplasm is None:
+            # Why there is nothing to show, when there is a reason: an
+            # empty section 5 left "measure the shift first" unsaid.
+            if self.anchored_notes:
+                return self.anchored_notes[0]
+            if self.axoplasm is None:
                 return ""
             if self.inputs.clusters() is None:
                 return ("Run 'cluster Ch1' on this selection: the clusters "
@@ -1318,7 +1361,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             mask=self.axoplasm, result=self.result,
             spectrin=self.spectrin_interior, anchored=self.anchored,
             spectrin_image=self._interior_image(), located=self.located,
-            n_clusters=self._n_clusters())
+            n_clusters=self._n_clusters(),
+            z_range=self.inputs.z_range,
+            z_range_source=self.inputs.z_range_source,
+            warnings=self.warnings())
 
     def _n_clusters(self) -> Optional[int]:
         """How many clusters the MPS analysis kept here; None before."""
@@ -1338,7 +1384,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             localizations=str(self.inputs.movie.path),
             roi=describe_roi(self.inputs.roi),
             centroids_nm=self.anchored_centroids, anchored=self.anchored,
-            spectrin_image=self._interior_image())
+            spectrin_image=self._interior_image(),
+            labels=self.inputs.cluster_labels())
 
     def localization_rows(self) -> List[Dict[str, Any]]:
         assert self.result is not None
@@ -1351,15 +1398,23 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         placed = self.located is not None and self.loc_cluster is not None
         cluster = (self.loc_cluster if placed
                    else np.full(loc.n, -1, dtype=np.intp))
+        # The label the rest of the program calls this cluster by, not its
+        # position among the kept ones: the two differ as soon as the
+        # automatic curation removes a cluster.
+        names = self.inputs.cluster_labels()
         where = (self.located if placed
                  else np.full(loc.n, "", dtype=object))
         return [
             {"source_localizations": source, "roi": roi,
              "x_nm": round(float(x), 2), "y_nm": round(float(y), 2),
              "z_nm": round(float(z), 2),
+             # Empty where there is no distance: off the analysed region,
+             # or no mask at all. Written as "nan" and "-inf", both were
+             # read back as numbers.
              "distance_to_tubulin_edge_nm": (
-                 round(float(d), 1) if np.isfinite(d) else float(d)),
-             "cluster": "" if c < 0 else int(c),
+                 round(float(d), 1) if np.isfinite(d) else None),
+             "cluster_label": ("" if c < 0 else int(c) if names is None
+                               else int(names[c])),
              "label": str(label)}
             for x, y, z, d, c, label in zip(loc.x_nm, loc.y_nm, loc.z_nm,
                                             self.result.distance_nm,
@@ -1403,10 +1458,22 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             # after fixing the file would add this axon to them twice.
             for target, rows in tables:
                 check_appendable(target, rows)
+            # Asked once for the three tables, so that replacing replaces
+            # this axon everywhere or nowhere.
+            decision = export_ui.resolve_duplicates(
+                self, [(target, rows, ax.AXON_KEY_COLUMNS)
+                       for target, rows in tables])
+            if decision == export_ui.CANCEL:
+                return None
             for target, rows in tables:
-                appended = append_rows(target, rows)
-                lines.append(f"{'Appended to' if appended else 'Wrote'} "
-                             f"{target}")
+                if decision == export_ui.REPLACE:
+                    replaced = replace_rows(target, rows,
+                                            ax.AXON_KEY_COLUMNS)
+                    lines.append(f"Replaced {replaced} row(s) in {target}")
+                else:
+                    appended = append_rows(target, rows)
+                    lines.append(f"{'Appended to' if appended else 'Wrote'} "
+                                 f"{target}")
         except (OSError, ValueError, csv.Error) as error:
             QtWidgets.QMessageBox.critical(
                 self, "Export failed", f"Could not write:\n\n{error}")

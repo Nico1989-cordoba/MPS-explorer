@@ -17,6 +17,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
@@ -136,6 +137,134 @@ def check_appendable(path: str, rows: Sequence[Dict[str, Any]],
     header, _ = _existing(path)
     if header is not None and header != fields:
         raise TableMismatch(_mismatch(path, header, fields))
+
+
+def cell_text(text: str) -> str:
+    """
+    Free text for a CSV cell.
+
+    The canonical table is comma-separated, and ";" is what Excel splits a
+    row on where the decimal mark is a comma -- this user's case -- so a
+    ";" inside a cell turns one row into several columns there. Sentences
+    read the same with a comma.
+    """
+    return str(text).replace(";", ",")
+
+
+def _text(value: Any) -> str:
+    """A cell as the CSV writer will write it, for comparing keys."""
+    return "" if value is None else str(value)
+
+
+# A cell this program wrote as a number: plain or in scientific notation.
+_NUMBER = re.compile(r"^-?\d+(\.\d+)?([eE][+-]?\d+)?$")
+
+
+def excel_copy(path: str, out: Optional[str] = None) -> str:
+    """
+    A copy of the table at ``path`` that Excel reads correctly where the
+    decimal mark is a comma, and the path it was written to.
+
+    The tables are written the way every statistics program expects them:
+    fields separated by commas, decimals with a point, UTF-8. Opened in
+    Excel under a Spanish (Argentina) or comparable locale, that file is
+    not merely ugly -- it is wrong. Measured on this machine with Excel
+    16.0: imported with the comma as the separator, contour_hull_um
+    11.999 becomes 11999, contour_area_um2 7.0451 becomes 70451, and a
+    p-value of 2.138e-07 becomes 213,819,615; values with one or two
+    decimals stay text, so a column can hold both. Opened by double click,
+    the whole row lands in one cell.
+
+    This copy uses what that Excel expects -- ';' between fields, ',' for
+    decimals, and a byte order mark so the accented paths are readable --
+    and leaves the original untouched. It is a copy to read, not a table
+    to add rows to: the exports refuse to append to it, as they refuse any
+    file with other columns.
+    """
+    header, _ = _existing(path)
+    if header is None:
+        raise ValueError(f"{os.path.basename(path)} is not a table.")
+    out = out or f"{os.path.splitext(path)[0]}_for_excel.csv"
+    if os.path.abspath(out) == os.path.abspath(path):
+        raise ValueError("The copy would overwrite the table itself.")
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.reader(handle))
+    with open(out, "w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle, delimiter=";")
+        for row in rows:
+            writer.writerow([cell.replace(".", ",") if _NUMBER.match(cell)
+                             else cell for cell in row])
+    return out
+
+
+def duplicate_rows(path: str, rows: Sequence[Dict[str, Any]],
+                   key_columns: Sequence[str]) -> List[int]:
+    """
+    The line numbers at ``path`` (1 = the first row under the header) that
+    already describe what ``rows`` describe: same file, same ROI, same
+    analysis.
+
+    Appending is what makes a table of axons grow, so nothing here refuses
+    anything; but a second copy of one axon weights it twice in every
+    statistic over the table, and an export that only ever appends cannot
+    tell the user it is about to do that. The user's own table of axon 7
+    (2026-09-17) holds that axon twice, with identical rows.
+    """
+    if not key_columns:
+        return []
+    header, _ = _existing(path)
+    if header is None:
+        return []
+    missing = [c for c in key_columns if c not in header]
+    if missing:
+        raise ValueError(
+            f"{os.path.basename(path)} has no column(s) "
+            f"{', '.join(missing)} to recognise a repeated row by.")
+    keys = {tuple(_text(row.get(c)) for c in key_columns) for row in rows}
+    found: List[int] = []
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        for number, existing in enumerate(csv.DictReader(handle), start=1):
+            if tuple(existing.get(c) or "" for c in key_columns) in keys:
+                found.append(number)
+    return found
+
+
+def replace_rows(path: str, rows: Sequence[Dict[str, Any]],
+                 key_columns: Sequence[str],
+                 fieldnames: Optional[Sequence[str]] = None) -> int:
+    """
+    Put ``rows`` at ``path`` in place of the rows that describe the same
+    thing, and return how many were replaced.
+
+    The rest of the table keeps its order; the new rows go at the end. The
+    file is rewritten through a temporary file in the same folder and
+    moved over the original, so an interrupted export leaves either the
+    old table or the new one, never half of either.
+    """
+    fields = _fields(rows, fieldnames)
+    header, _ = _existing(path)
+    if header is None:
+        append_rows(path, rows, fields)
+        return 0
+    if header != fields:
+        raise TableMismatch(_mismatch(path, header, fields))
+    numbers = duplicate_rows(path, rows, key_columns)
+    if not numbers:
+        append_rows(path, rows, fields)
+        return 0
+    drop = set(numbers)
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        kept = [row for number, row in enumerate(csv.DictReader(handle),
+                                                 start=1)
+                if number not in drop]
+    temporary = path + ".replacing"
+    with open(temporary, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(kept)
+        writer.writerows(rows)
+    os.replace(temporary, path)
+    return len(drop)
 
 
 def append_rows(path: str, rows: Sequence[Dict[str, Any]],

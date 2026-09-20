@@ -33,13 +33,8 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtWidgets
 
-from tools import mps_file_drop, mps_io
-from tools.cluster_quality import (
-    CircularROI,
-    PolygonROI,
-    SquareROI,
-    points_in_roi,
-)
+from tools import export_ui, mps_file_drop, mps_io
+from tools.cluster_quality import describe_roi, points_in_roi
 from tools.mps_analysis import DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES
 from tools.mps_crosschannel import (
     AxialPhaseResult,
@@ -59,7 +54,10 @@ from tools.mps_registration import (
     register_localizations,
     same_pixel_size,
 )
-from tools.results_table import append_rows
+from tools.results_table import append_rows, cell_text, replace_rows
+
+# What says two rows describe the same comparison: both files and the ROI.
+PAIR_KEY = ("source_channel_a", "source_channel_b", "roi")
 
 _OK = "#5fd75f"
 _WARN = "#ffaf5f"
@@ -86,17 +84,10 @@ def _label(text: str, colour: str = TITLE_FG,
     return widget
 
 
-def describe_roi(roi: Optional[Any]) -> str:
-    """One line naming an ROI shape, for the header and the export."""
-    if isinstance(roi, CircularROI):
-        return (f"circle centred at ({roi.center_x:.0f}, {roi.center_y:.0f}) "
-                f"nm, radius {roi.radius:.0f} nm")
-    if isinstance(roi, SquareROI):
-        return (f"square x {roi.xmin:.0f}..{roi.xmax:.0f}, "
-                f"y {roi.ymin:.0f}..{roi.ymax:.0f} nm")
-    if isinstance(roi, PolygonROI):
-        return f"polygon of {len(roi.vertices)} vertices"
-    return "none"
+# describe_roi lives beside the ROI shapes themselves (the exported "roi"
+# column has to name them the same way everywhere); re-exported here for
+# the panels that have always imported it from this module.
+__all__ = ["describe_roi"]
 
 
 def clustering_parameters(inputs: "TwoChannelInputs"
@@ -613,17 +604,30 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         QtWidgets.QApplication.processEvents()
 
     # ---------------------------------------------------------- results
+    def findings_shown(self) -> List[str]:
+        """Every finding listed in the panel, in the order shown.
+
+        The exported row used to count the transverse warnings only (2 of
+        the 3 shown for a pair whose pixel sizes disagree), and never
+        carried their text, so a pooled table could not be filtered on
+        them.
+        """
+        outcome = self.outcome
+        if outcome is None:
+            return []
+        out = list(outcome.notes) + list(outcome.registration.warnings)
+        if outcome.axial is not None:
+            out += list(outcome.axial.warnings)
+        if outcome.transverse is not None:
+            out += list(outcome.transverse.warnings)
+        return out
+
     def _refresh(self) -> None:
         outcome = self.outcome
         assert outcome is not None
         self._clear(self.findings)
-        messages: List[Tuple[str, str]] = []
-        messages += [(n, _WARN) for n in outcome.notes]
-        messages += [(w, _WARN) for w in outcome.registration.warnings]
-        if outcome.axial is not None:
-            messages += [(w, _WARN) for w in outcome.axial.warnings]
-        if outcome.transverse is not None:
-            messages += [(w, _WARN) for w in outcome.transverse.warnings]
+        messages: List[Tuple[str, str]] = [(w, _WARN)
+                                           for w in self.findings_shown()]
         if not messages:
             messages = [("No warnings.", _OK)]
         for text, colour in messages:
@@ -789,6 +793,17 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         row["slab_mode"] = "manual" if self.inputs.slab else "automatic"
         row["n_locs_a"] = self.outcome.n_a
         row["n_locs_b"] = self.outcome.n_b
+        # Both scales, and where each came from. A disagreement between
+        # them rescales every distance in this row (the 2023 data records
+        # 133 nm against the 135 nm it is analysed with); it was reported
+        # in the panel's notes only, which no column carried.
+        for tag, channel in (("a", self.inputs.loc_a),
+                             ("b", self.inputs.loc_b)):
+            row[f"pixel_size_{tag}_nm"] = channel.pixel_size_nm
+            row[f"pixel_size_{tag}_source"] = channel.pixel_size_source
+        shown = self.findings_shown()
+        row["n_warnings"] = len(shown)
+        row["warnings"] = " | ".join(cell_text(w) for w in shown)
         for tag, params in (("a", self.outcome.parameters_a),
                             ("b", self.outcome.parameters_b)):
             row[f"eps_{tag}_nm"] = params.get("eps_nm")
@@ -815,15 +830,20 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
                 return None
         row = self.export_row()
         try:
-            # Axons accumulate into one table, as in the other exports.
-            append = append_rows(path, [row])
+            # Axons accumulate into one table, as in the other exports, and
+            # as there the same pair added twice would count twice.
+            decision = export_ui.resolve_duplicates(self, [(path, [row], PAIR_KEY)])
+            if decision == export_ui.CANCEL:
+                return None
+            if decision == export_ui.REPLACE:
+                done = f"Replaced {replace_rows(path, [row], PAIR_KEY)} row(s) in"
+            else:
+                done = "Appended to" if append_rows(path, [row]) else "Wrote"
         except (OSError, ValueError, csv.Error) as error:
             QtWidgets.QMessageBox.critical(
                 self, "Export failed", f"Could not write {path}:\n\n{error}")
             return None
-        QtWidgets.QMessageBox.information(
-            self, "Exported",
-            f"{'Appended to' if append else 'Wrote'} {path}")
+        QtWidgets.QMessageBox.information(self, "Exported", f"{done} {path}")
         return path
 
 

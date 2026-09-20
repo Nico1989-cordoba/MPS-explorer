@@ -553,7 +553,7 @@ def load_localizations(
 # Suffixes of the files MPS Explorer itself writes next to the data. They
 # are DERIVED -- already clustered, filtered or reduced -- and some carry
 # the same "x [nm],y [nm],z [nm]" header as a real ThunderSTORM export
-# (``_all_clusters.csv`` is exactly that plus a cluster_id column). Content
+# (``_all_clusters.csv`` is exactly that plus a cluster_label column). Content
 # sniffing therefore cannot tell them apart from input data, and analysing
 # one as raw localizations would silently re-process processed data into
 # plausible-looking numbers. Excluding them by name is the only defence.
@@ -563,6 +563,17 @@ DERIVED_SUFFIXES: Tuple[str, ...] = (
     "neighbor_distances",
     "_filtered_clusters_thunderstorm",
     "_two_channels",
+    # The tables the panels write beside the data. A batch over the folder
+    # of the April axon 7 took two of them for axons and reported them as
+    # files that failed to load.
+    "_axoplasm",
+    "_axoplasm_localizations",
+    "_axoplasm_clusters",
+    "_mps_parameters",
+    "_mps_parameters_discard",
+    "_mps_parameters_every_start",
+    "_mps_rings",
+    "_mps_rings_pairs",
 )
 
 # Also written by the Picasso tools menu, but a drift-corrected copy IS a

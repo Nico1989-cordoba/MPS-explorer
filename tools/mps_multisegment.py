@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
+from tools.cluster_quality import describe_roi
 from tools.mps_analysis import (
     DEFAULT_EPS_NM,
     DEFAULT_MIN_SAMPLES,
@@ -516,6 +517,11 @@ class MultiSegmentAnalysis:
     pairs: List[SegmentPairComparison]
     valleys: Optional[ValleyResult] = None
     warnings: List[str] = field(default_factory=list)
+    # Which selection, and the guard band the segments were cut with.
+    # Both tables carry them: a pairs table accumulated over axons had
+    # neither, so two guard bands of one axon were indistinguishable.
+    roi: str = ""
+    guard_nm: float = 0.0
 
     @property
     def n_segments(self) -> int:
@@ -533,6 +539,7 @@ class MultiSegmentAnalysis:
                 continue
             row = an.export_dict()
             row.update({
+                "guard_nm": self.guard_nm,
                 "segment_index": seg.index,
                 "segment_center_nm": round(seg.center_nm, 2),
                 "segment_weight": round(seg.weight, 4),
@@ -550,6 +557,9 @@ class MultiSegmentAnalysis:
         for p in self.pairs:
             out.append({
                 "source": self.source_name,
+                "roi": self.roi,
+                "segment_mode": self.mode,
+                "guard_nm": self.guard_nm,
                 "segment_a": p.index_a, "segment_b": p.index_b,
                 "delta_z_nm": round(p.delta_z_nm, 2),
                 "axial_overlap_nm": round(p.axial_overlap_nm, 2),
@@ -669,5 +679,6 @@ def analyze_all_segments(
         source_name=source_name, mode=mode,
         segments=segments, analyses=analyses, z_result=z_result,
         axon_center=center, pairs=pairs, valleys=valleys,
-        warnings=warnings_,
+        warnings=warnings_, guard_nm=float(guard_nm),
+        roi=describe_roi(analyze_kwargs.get("roi")),
     )
