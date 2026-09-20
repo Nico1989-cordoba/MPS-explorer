@@ -17,19 +17,47 @@ whose warnings are below the fold is a quality panel nobody reads.
 from __future__ import annotations
 
 import os
-from typing import Any, List, Optional, Sequence, Union
+from typing import Any, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtWidgets
 
-from tools.mps_plot_style import AXIS_FG, TITLE_FG, set_title, style_dark
+from tools.mps_plot_style import (
+    AXIS_FG, MARKS, PANEL_BG, PANEL_BORDER, PANEL_TAB_BG, TAB_STYLE,
+    TEXT_DIM, TITLE_FG, marked, neutral, role, set_title, style_dark,
+)
 from tools.mps_quality import QualityReport, quality_report
 
-_OK = "#5fd75f"
-_WARN = "#ffaf5f"
-_BAD = "#ff6b6b"
-_DIM = "#9a9a9a"
+# The verdicts are roles now (tools.mps_plot_style): green for a check
+# that passed, orange for one that needs attention, vermillion for one
+# that failed. Green stays 52 and 37 apart from the other two under
+# every dichromacy; orange and vermillion are only 18 apart for a
+# deuteranope, so every finding also carries the mark for its kind
+# through ``marked``, and the colour is never the only thing saying it.
+# Only the two used more than once have a name here; the third is asked
+# for as role("bad") beside the kind it goes with.
+_OK = role("good")
+_WARN = role("warn")
+_DIM = TEXT_DIM
+
+
+def _axial_verdict(component: Any) -> Tuple[str, str]:
+    """What one axial component's width says, and which kind of finding
+    that is.
+
+    The table and the plot below it ask this same question. They used to
+    answer it apart -- the table had three outcomes, the plot two -- so a
+    component the table called impossible was drawn in the colour of one
+    that had passed. Now that the colour means something, they ask here.
+    """
+    if component.ratio < 0.7:
+        return "narrower than lpz - impossible", "bad"
+    if component.is_resolved:
+        return "precision-limited", "good"
+    if component.ratio > 2.0:
+        return "broad - may be two rings", "bad"
+    return "slightly broad", "warn"
 
 
 def _label(text: str, colour: str = TITLE_FG, bold: bool = False) -> QtWidgets.QLabel:
@@ -55,7 +83,8 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Data quality - " + os.path.basename(report.source))
         self.resize(1180, 820)
-        self.setStyleSheet("QMainWindow { background: #1a1a1a; }")
+        self.setStyleSheet(
+            f"QMainWindow {{ background: {PANEL_BG}; }}")
 
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
@@ -63,12 +92,7 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
         root.addWidget(self._build_header())
         root.addWidget(self._build_findings())
         self.tabs = QtWidgets.QTabWidget()
-        self.tabs.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid #333; }} "
-            f"QTabBar::tab {{ background: #262626; color: {AXIS_FG}; "
-            f"padding: 6px 14px; }} "
-            f"QTabBar::tab:selected {{ background: #3a3a3a; color: #fff; }}"
-        )
+        self.tabs.setStyleSheet(TAB_STYLE)
         root.addWidget(self.tabs, stretch=1)
         self._build_precision_tab()
         self._build_box_tab()
@@ -99,27 +123,27 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
     def _build_findings(self) -> QtWidgets.QWidget:
         box = QtWidgets.QGroupBox("Findings")
         box.setStyleSheet(
-            f"QGroupBox {{ color: {TITLE_FG}; border: 1px solid #383838; "
+            f"QGroupBox {{ color: {TITLE_FG}; "
+            f"border: 1px solid {PANEL_BORDER}; "
             f"margin-top: 8px; }} "
             f"QGroupBox::title {{ subcontrol-origin: margin; left: 8px; }}"
         )
         lay = QtWidgets.QVBoxLayout(box)
         warnings = self.report.warnings
         if not warnings:
-            lay.addWidget(
-                _label("Every check that could run, ran clean.", _OK)
-            )
+            lay.addWidget(_label(
+                marked("good", "Every check that could run, ran clean."),
+                _OK))
         for text in warnings:
-            lay.addWidget(_label("!  " + text, _WARN))
+            lay.addWidget(_label(marked("warn", text), _WARN))
         for text in self.report.missing:
-            lay.addWidget(
-                _label("-  not checked: " + text, _DIM)
-            )
+            lay.addWidget(_label(
+                marked("dim", "not checked: " + text), _DIM))
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(box)
         scroll.setMaximumHeight(180)
-        scroll.setStyleSheet("background: #1a1a1a; border: none;")
+        scroll.setStyleSheet(f"background: {PANEL_BG}; border: none;")
         return scroll
 
     # --------------------------------------------------------- precision
@@ -132,8 +156,8 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
             self.tabs.addTab(page, "Precision")
             return
 
-        colour = _OK if check.ratio < 1.3 else (
-            _WARN if check.ratio < 2.0 else _BAD
+        kind = "good" if check.ratio < 1.3 else (
+            "warn" if check.ratio < 2.0 else "bad"
         )
         rows = [
             ("NeNA (experimental)", f"{check.nena_nm:.2f} nm"),
@@ -151,7 +175,8 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
             grid.addWidget(_label(value, TITLE_FG, bold=True), row, 1)
         grid.setColumnStretch(2, 1)
         lay.addLayout(grid)
-        lay.addWidget(_label(check.verdict, colour, bold=True))
+        lay.addWidget(_label(marked(kind, check.verdict), role(kind),
+                             bold=True))
         lay.addWidget(_label(
             "NeNA measures the precision from the data itself: the same "
             "molecule seen in two consecutive frames appears twice, and the "
@@ -172,16 +197,18 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
         )
         if detail.histogram.size:
             plot.plot(detail.distances_nm, detail.histogram,
-                      pen=pg.mkPen("#6fa8ff", width=1))
+                      pen=pg.mkPen(role("locs"), width=1))
+        # The fit and the value read off it are one thing, so they are one
+        # colour: a solid curve and the dashed line at its centre.
         if detail.best_fit.size:
             plot.plot(detail.distances_nm, detail.best_fit,
-                      pen=pg.mkPen("#ff9f43", width=2))
+                      pen=pg.mkPen(role("fit"), width=2))
         if np.isfinite(check.nena_nm):
             plot.addItem(pg.InfiniteLine(
                 pos=check.nena_nm, angle=90,
-                pen=pg.mkPen("#5fd75f", width=2, style=QtCore.Qt.DashLine),
+                pen=pg.mkPen(role("fit"), width=2, style=QtCore.Qt.DashLine),
                 label=f"NeNA {check.nena_nm:.1f} nm",
-                labelOpts={"color": "#5fd75f", "position": 0.9}))
+                labelOpts={"color": role("fit"), "position": 0.9}))
         lay.addWidget(plot, stretch=1)
         self.tabs.addTab(page, "Precision")
 
@@ -201,11 +228,18 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
             f"sy median {check.sy_median_px:.2f} px, p95 {check.sy_p95_px:.2f}",
             TITLE_FG, bold=True))
         if check.box_size_px:
-            lay.addWidget(_label(
+            # The same two thresholds ``tools.mps_quality`` raises its own
+            # warnings at, so this line cannot read "ok" in green while
+            # the findings above it warn about the very same number.
+            kind = ("bad" if check.fraction_over_box_2sigma > 0.05
+                    else "warn" if check.fraction_over_box_3sigma > 0.20
+                    else "good")
+            lay.addWidget(_label(marked(
+                kind,
                 f"Spots wider than the box: "
                 f"{100 * check.fraction_over_box_2sigma:.1f} % at +-2 sigma, "
-                f"{100 * check.fraction_over_box_3sigma:.1f} % at +-3 sigma.",
-                _WARN if check.fraction_over_box_2sigma > 0.05 else _OK))
+                f"{100 * check.fraction_over_box_3sigma:.1f} % at +-3 sigma."),
+                role(kind)))
         lay.addWidget(_label(
             "An astigmatic PSF is widest at the ends of the z range. A spot "
             "wider than its fitting box is fitted on a truncated image, so "
@@ -217,7 +251,11 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
         set_title(plot, "PSF width against the fitting box")
         plot.setLabel("bottom", "PSF sigma [camera pixels]", color=AXIS_FG)
         plot.setLabel("left", "count", color=AXIS_FG)
-        for name, colour in (("sx", "#6fa8ff"), ("sy", "#ff9f43")):
+        # sx and sy differ by design -- that is how z is encoded -- so
+        # they get the strongest pair in the palette, 89 apart under every
+        # dichromacy and 20 apart in lightness, and the legend names them.
+        plot.addLegend(labelTextColor=AXIS_FG)
+        for name, colour in (("sx", role("locs")), ("sy", role("paired"))):
             values = self.loc.column(name)
             if values is None:
                 continue
@@ -231,11 +269,15 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
                 (4.0, QtCore.Qt.DashLine, "box / 4  (+-2 sigma limit)"),
                 (6.0, QtCore.Qt.DotLine, "box / 6  (+-3 sigma limit)"),
             ):
+                # A limit is not a third measurement: it is drawn in the
+                # neutral everything structural uses, which also keeps it
+                # off both curves for every kind of vision.
+                edge = neutral(dark=True)
                 plot.addItem(pg.InfiniteLine(
                     pos=check.box_size_px / divisor, angle=90,
-                    pen=pg.mkPen(_BAD, width=2, style=style),
+                    pen=pg.mkPen(edge, width=2, style=style),
                     label=text,
-                    labelOpts={"color": _BAD, "position": 0.85}))
+                    labelOpts={"color": edge, "position": 0.85}))
         lay.addWidget(plot, stretch=1)
         self.tabs.addTab(page, "Fitting box")
 
@@ -261,31 +303,24 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
             ["mean z [nm]", "sigma [nm]", "lpz [nm]", "sigma/lpz",
              "structural [nm]", "verdict"])
         table.setStyleSheet(
-            f"QTableWidget {{ background: #202020; color: {TITLE_FG}; "
-            f"gridline-color: #383838; }} "
-            f"QHeaderView::section {{ background: #2a2a2a; "
+            f"QTableWidget {{ background: {PANEL_BG}; color: {TITLE_FG}; "
+            f"gridline-color: {PANEL_BORDER}; }} "
+            f"QHeaderView::section {{ background: {PANEL_TAB_BG}; "
             f"color: {AXIS_FG}; border: 0; padding: 4px; }}")
         for row, component in enumerate(check.components):
-            if component.ratio < 0.7:
-                verdict, colour = "narrower than lpz - impossible", _BAD
-            elif component.is_resolved:
-                verdict, colour = "precision-limited", _OK
-            elif component.ratio > 2.0:
-                verdict, colour = "broad - may be two rings", _BAD
-            else:
-                verdict, colour = "slightly broad", _WARN
+            verdict, kind = _axial_verdict(component)
             values = [
                 f"{component.mean_nm:.1f}",
                 f"{component.sigma_nm:.1f}",
                 f"{component.lpz_nm:.1f}",
                 f"{component.ratio:.2f}",
                 f"{component.structural_width_nm:.1f}",
-                verdict,
+                marked(kind, verdict),
             ]
             for column, text in enumerate(values):
                 item = QtWidgets.QTableWidgetItem(text)
                 if column == 5:
-                    item.setForeground(pg.mkColor(colour))
+                    item.setForeground(pg.mkColor(role(kind)))
                 table.setItem(row, column, item)
         table.resizeColumnsToContents()
         table.horizontalHeader().setStretchLastSection(True)
@@ -300,29 +335,45 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
         plot.setLabel("left", "count", color=AXIS_FG)
         counts, edges = np.histogram(self.loc.z_nm, bins=120)
         centres = 0.5 * (edges[:-1] + edges[1:])
-        plot.plot(centres, counts, pen=pg.mkPen("#6fa8ff", width=1))
+        plot.plot(centres, counts, pen=pg.mkPen(role("locs"), width=1))
         peak = float(counts.max()) if counts.size else 1.0
-        for component in check.components:
-            colour = _OK if component.is_resolved else _WARN
+        # Each component gets a row of its own. They used to share two
+        # heights, and since the +-lpz spans of neighbouring components
+        # overlap, the reference bars ran into one another and read as a
+        # single line drawn across the whole plot.
+        span = 0.30 / max(1, len(check.components))
+        for index, component in enumerate(check.components):
+            _text, kind = _axial_verdict(component)
+            colour = role(kind)
+            # The mark, so the line says which component it is and what
+            # the table said about it. Orange and vermillion are 18 apart
+            # for a deuteranope; a ! against an x is not.
             plot.addItem(pg.InfiniteLine(
                 pos=component.mean_nm, angle=90,
-                pen=pg.mkPen(colour, width=2, style=QtCore.Qt.DashLine)))
-            # The bar spans +-sigma; the tick marks +-lpz for comparison.
+                pen=pg.mkPen(colour, width=2, style=QtCore.Qt.DashLine),
+                label=f"#{index}  {MARKS[kind].strip()}",
+                labelOpts={"color": colour, "position": 0.04}))
+            # The bar spans +-sigma; the one under it +-lpz, to compare.
+            high = peak * (0.97 - span * index)
             bar = pg.PlotDataItem(
                 [component.mean_nm - component.sigma_nm,
                  component.mean_nm + component.sigma_nm],
-                [peak * 0.94, peak * 0.94],
+                [high, high],
                 pen=pg.mkPen(colour, width=6))
             plot.addItem(bar)
+            # What the microscope alone would give: a reference, so the
+            # neutral rather than a fourth colour.
+            low = high - peak * span * 0.45
             plot.addItem(pg.PlotDataItem(
                 [component.mean_nm - component.lpz_nm,
                  component.mean_nm + component.lpz_nm],
-                [peak * 0.88, peak * 0.88],
-                pen=pg.mkPen(_DIM, width=3)))
+                [low, low],
+                pen=pg.mkPen(neutral(dark=True), width=3)))
         lay.addWidget(plot, stretch=1)
         lay.addWidget(_label(
-            "Thick bar: the fitted component width (+-sigma). Thin grey bar "
-            "below it: the axial precision (+-lpz) of the localizations "
+            "One row per component, in the order of the table above. "
+            "Thick bar: the fitted component width (+-sigma). Thin pale "
+            "bar below it: the axial precision (+-lpz) of the localizations "
             "there. When the two are the same length, the component is as "
             "thin as this data can resolve.", _DIM))
         self.tabs.addTab(page, "Axial resolvedness")
@@ -339,16 +390,17 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
             return
 
         for axis in check.axes:
-            colour = _BAD if axis.is_coherent else _OK
+            kind = "bad" if axis.is_coherent else "good"
             verdict = (
                 "a smooth drift" if axis.is_coherent
                 else "no coherent drift (consistent with counting noise)"
             )
-            lay.addWidget(_label(
+            lay.addWidget(_label(marked(
+                kind,
                 f"{axis.axis}:  profile moves over a range of "
                 f"{axis.shift_range_nm:.0f} nm;  lag-1 autocorrelation "
                 f"{axis.lag1_autocorrelation:+.2f},  permutation p = "
-                f"{axis.p_permutation:.3f}   ->   {verdict}", colour))
+                f"{axis.p_permutation:.3f}   ->   {verdict}"), role(kind)))
         lay.addWidget(_label(
             "Real drift is smooth: consecutive time segments move by similar "
             "amounts. Counting noise is not. Note that Picasso's RCC "

@@ -578,6 +578,30 @@ def test_classification() -> None:
                        for c in without), list(without)
         return f"{len(without)} columns, the same with or without clusters"
 
+    def every_column_reaches_the_axon_table_described():
+        # This row is merged into the axon's own row under the axoplasm_
+        # prefix. A column of it that the dictionary does not describe
+        # would reach the user as a name and nothing else.
+        from tools.axon_export import _AXOPLASM_DROPPED
+        from tools.column_dictionary import describe
+
+        cols = centre[0] + np.array([2.0, 14.0])
+        rows = np.full(cols.shape, centre[1])
+        row = ax.summary_row(
+            localizations="a.hdf5", tubulin="t.tif", reference="",
+            registration_file="", roi="none", pixel_size_nm=PIXEL_NM,
+            offset_px=(0.0, 0.0),
+            registration=ax.ImageRegistration(shift_px=(1.0, -2.0),
+                                              source="manual"),
+            mask=mask, result=ax.classify(mask, cols, rows, 0.0))
+        undescribed = [name for name in row
+                       if name not in _AXOPLASM_DROPPED
+                       and not describe("axoplasm_" + name)]
+        assert not undescribed, undescribed
+        dropped = [name for name in _AXOPLASM_DROPPED if name in row]
+        return (f"{len(row) - len(dropped)} columns described, "
+                f"{len(dropped)} written once by the axon row instead")
+
     def a_failure_is_not_a_measurement():
         # A threshold above everything leaves no axoplasm. That used to
         # export mask_area_um2 0.0, 0 discarded and 0 % inside -- a
@@ -676,6 +700,8 @@ def test_classification() -> None:
     check("the margin", margin)
     check("a spectrin ring on a blurred edge", ring_on_the_edge)
     check("the summary row", summary)
+    check("every column of it reaches the axon table described",
+          every_column_reaches_the_axon_table_described)
     check("the warnings exported are the ones shown",
           the_warnings_are_the_ones_shown)
     check("a failure is exported as a failure, not as zeros",

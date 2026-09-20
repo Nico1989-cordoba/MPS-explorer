@@ -205,6 +205,12 @@ class AxonAnalysis:
     # happened, so without this column a slab picked by hand -- another
     # ring of the same axon -- cannot be told from the automatic one.
     slab_source: str = "automatic"
+    # Where each localization of the slab sits in the ones the analysis was
+    # given, so a per-localization table can be joined back to the file, and
+    # so that a localization left out of the slab can be told from one the
+    # clustering called noise. Empty when the caller did not record it.
+    slab_index: NDArray[np.intp] = field(
+        default_factory=lambda: np.empty(0, dtype=np.intp))
 
     # --- set by without_clusters -----------------------------------------
     # The margin the axoplasm panel discarded clusters with (None: nothing
@@ -690,6 +696,7 @@ def analyze_axon(
         n_locs_total=int(x_nm.size),
         n_locs_slab=int(xs.size),
         x_slab=xs, y_slab=ys, z_slab=zs,
+        slab_index=np.flatnonzero(slab_mask).astype(np.intp),
         roi=roi,
         slab_source=slab_source,
     )

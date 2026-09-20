@@ -36,6 +36,7 @@ from PyQt5 import QtCore, QtWidgets
 from tools import export_ui, mps_file_drop, mps_io
 from tools.cluster_quality import describe_roi, points_in_roi
 from tools.mps_analysis import DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES
+from tools.mps_identity import AxonIdentity, axon_id
 from tools.mps_crosschannel import (
     AxialPhaseResult,
     CrossChannelResult,
@@ -43,6 +44,7 @@ from tools.mps_crosschannel import (
     cross_channel_transverse,
     export_cross_channel,
 )
+from tools import mps_plot_style as plot_style
 from tools.mps_plot_style import AXIS_FG, TITLE_FG, set_title, style_dark
 from tools.mps_registration import (
     NO_REGISTRATION,
@@ -59,12 +61,21 @@ from tools.results_table import append_rows, cell_text, replace_rows
 # What says two rows describe the same comparison: both files and the ROI.
 PAIR_KEY = ("source_channel_a", "source_channel_b", "roi")
 
-_OK = "#5fd75f"
-_WARN = "#ffaf5f"
-_BAD = "#ff6b6b"
-_DIM = "#9a9a9a"
-_COLOUR_A = "#6fa8ff"
-_COLOUR_B = "#ff9f43"
+# Findings text, by role: the same three as in the data-quality and
+# DNA-PAINT panels, so a warning looks the same wherever it is read.
+# This used to avoid green for what is in order, on the belief that
+# green against orange is the pair a deuteranope cannot separate.
+# Measured, Okabe-Ito green against Okabe-Ito orange is 52 apart under
+# every dichromacy; the pair that does collapse is orange against
+# vermillion, at 18, and that one is separated by its mark.
+_WARN = plot_style.role("warn")
+_BAD = plot_style.role("bad")
+_DIM = plot_style.TEXT_DIM
+# The two channels, by role: sky blue against vermillion is the pair that
+# survives every dichromacy, and comparing the two channels is what this
+# panel is for.
+_COLOUR_A = plot_style.role("locs")
+_COLOUR_B = plot_style.role("channel_b")
 
 # Below this many localizations in the ROI a channel is not analysed.
 MIN_ROI_LOCALIZATIONS = 50
@@ -278,9 +289,15 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
                  parent: Optional[QtWidgets.QWidget] = None,
                  parameters: Optional[Callable[
                      [], Tuple[Dict[str, Any], Dict[str, Any]]]] = None,
+                 identity_callback: Optional[
+                     Callable[[], Optional[Any]]] = None,
                  ) -> None:
         super().__init__(parent)
         self.inputs = inputs
+        # Which axon this pair of channels is of, in the experiment's own
+        # terms. This table is exported on its own, so it carries the
+        # identity and not only a key into a table that may not exist.
+        self.identity_callback = identity_callback
         # Reads the clustering parameters typed in the main window, so a
         # run uses the values shown there when it starts.
         self._parameters = parameters
@@ -300,7 +317,7 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
             + " + " + os.path.basename(str(inputs.loc_b.path)))
         self.resize(1200, 880)
         self.setStyleSheet(
-            "QMainWindow { background: #1a1a1a; } "
+            f"QMainWindow {{ background: {plot_style.PANEL_BG}; }} "
             f"QLabel, QCheckBox {{ color: {TITLE_FG}; }}")
 
         central = QtWidgets.QWidget()
@@ -312,7 +329,8 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         self.findings = QtWidgets.QVBoxLayout()
         holder = QtWidgets.QWidget()
         holder.setObjectName("findings")
-        holder.setStyleSheet("#findings { background: #1a1a1a; }")
+        holder.setStyleSheet(
+            f"#findings {{ background: {plot_style.PANEL_BG}; }}")
         holder.setLayout(self.findings)
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
@@ -322,11 +340,7 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         root.addWidget(scroll)
 
         self.tabs = QtWidgets.QTabWidget()
-        self.tabs.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid #333; }} "
-            f"QTabBar::tab {{ background: #262626; color: {AXIS_FG}; "
-            f"padding: 6px 14px; }} "
-            f"QTabBar::tab:selected {{ background: #3a3a3a; color: #fff; }}")
+        self.tabs.setStyleSheet(plot_style.TAB_STYLE)
         root.addWidget(self.tabs, stretch=1)
         self.layout_registration = self._add_tab("Registration")
         self.layout_axial = self._add_tab("Axial phase")
@@ -626,12 +640,16 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         outcome = self.outcome
         assert outcome is not None
         self._clear(self.findings)
-        messages: List[Tuple[str, str]] = [(w, _WARN)
+        # Each finding carries the mark for its kind, so "no warnings"
+        # does not arrive under an exclamation mark and a reader who
+        # cannot separate orange from vermillion still can.
+        messages: List[Tuple[str, str]] = [("warn", w)
                                            for w in self.findings_shown()]
         if not messages:
-            messages = [("No warnings.", _OK)]
-        for text, colour in messages:
-            self.findings.addWidget(_label("!  " + text, colour))
+            messages = [("good", "No warnings.")]
+        for kind, text in messages:
+            self.findings.addWidget(_label(plot_style.marked(kind, text),
+                                           plot_style.role(kind)))
         self._fill_registration()
         self._fill_axial()
         self._fill_transverse()
@@ -772,14 +790,17 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         plot.setAspectLocked(True)
         plot.setLabel("bottom", "x [nm]", color=AXIS_FG)
         plot.setLabel("left", "y [nm]", color=AXIS_FG)
-        for analysis, colour in ((t.analysis_a, _COLOUR_A),
-                                 (t.analysis_b, _COLOUR_B)):
+        for analysis, colour, symbol in ((t.analysis_a, _COLOUR_A, "o"),
+                                         (t.analysis_b, _COLOUR_B, "t")):
             if analysis is None or not len(analysis.centroids):
                 continue
             c = np.asarray(analysis.centroids)
+            # A shape per channel as well as a colour: a figure printed in
+            # grey, or read by someone who cannot separate the two hues,
+            # still says which channel is which.
             plot.addItem(pg.ScatterPlotItem(
                 c[:, 0], c[:, 1], size=10, brush=pg.mkBrush(colour),
-                pen=pg.mkPen(None)))
+                symbol=symbol, pen=pg.mkPen(None)))
         lay.addWidget(plot, stretch=1)
 
     # ------------------------------------------------------------ export
@@ -790,6 +811,13 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
             source_a=str(self.inputs.loc_a.path),
             source_b=str(self.inputs.loc_b.path))
         row["roi"] = describe_roi(self.inputs.roi)
+        # Who this axon is, with the same axon_id as its own row in the
+        # axon table: channel 1 is the betaII-spectrin the rest of the
+        # program analyses, so the two describe one axon.
+        identity = (self.identity_callback() if self.identity_callback
+                    else None)
+        row["axon_id"] = axon_id(str(self.inputs.loc_a.path), row["roi"])
+        row.update((identity or AxonIdentity()).columns())
         row["slab_mode"] = "manual" if self.inputs.slab else "automatic"
         row["n_locs_a"] = self.outcome.n_a
         row["n_locs_b"] = self.outcome.n_b
@@ -852,9 +880,11 @@ def show_two_channel_window(
     parent: Optional[QtWidgets.QWidget] = None,
     parameters: Optional[Callable[
         [], Tuple[Dict[str, Any], Dict[str, Any]]]] = None,
+    identity_callback: Optional[Callable[[], Optional[Any]]] = None,
 ) -> TwoChannelWindow:
     """Open the two-channel panel."""
-    window = TwoChannelWindow(inputs, parent=parent, parameters=parameters)
+    window = TwoChannelWindow(inputs, parent=parent, parameters=parameters,
+                              identity_callback=identity_callback)
     window.show()
     window.raise_()
     window.activateWindow()

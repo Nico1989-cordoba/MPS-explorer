@@ -50,6 +50,7 @@ from tools.mps_analysis import analyze_axon
 from tools.mps_periodicity import fit_z_periodicity
 from tools import mps_file_drop, mps_io
 from tools.mps_picasso_tools import PicassoTools
+from tools import mps_plot_style as plot_style
 from tools.mps_settings import load_settings, save_settings
 
 # Import logging configuration
@@ -212,6 +213,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui.pushButton_Distances.clicked.connect(self.KNdist_hist)
         self.ui.pushButton_saveAllClusterData.clicked.connect(lambda: self.save_all_clustered_data(1))
         self.ui.pushButton_saveAllClusterDataThunderStorm.clicked.connect(lambda: self.save_all_clustered_data_thunderstorm(1))
+        self._explain_save_buttons()
         
         # Z range: remember when the user overrides the automatic value.
         # textEdited (unlike textChanged) fires only on real keystrokes, so
@@ -228,14 +230,28 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.lmax = MAX_LATERAL_DISTANCE_NM
         self.bins = DEFAULT_KNN_BINS
         
-        # Colors
-        self.brush1 = pg.mkBrush("#d55e00")
-        self.brush2 = pg.mkBrush("#009e73")
-        self.brush3 = pg.mkBrush("#0072b2")
-        
-        self.pen1 = pg.mkPen("#d55e00")
-        self.pen2 = pg.mkPen("#009e73")
-        self.pen3 = pg.mkPen("#0072b2")
+        # Colours, by the role they play (tools.mps_plot_style). These
+        # plots are on the application's white background, so the neutral
+        # they outline markers with is the dark one.
+        #
+        # Channel 1 is the sky blue of a localization and channel 2 the
+        # vermillion of the partner protein, which is what the Two
+        # channels panel already drew them as: the same protein is the
+        # same colour wherever it is plotted. The pair is 89 apart under
+        # every dichromacy, which no other pair in the palette beats.
+        self.brush1 = pg.mkBrush(plot_style.role("locs"))
+        self.brush2 = pg.mkBrush(plot_style.role("channel_b"))
+        # A cluster's centre of mass, here and in the MPS analysis window.
+        self.brush3 = pg.mkBrush(plot_style.role("centroid"))
+        # What DBSCAN left out: grey and an x in every window of this
+        # program, so it is never taken for data.
+        self.brush_noise = pg.mkBrush(plot_style.role("noise"))
+        self.pen_noise = pg.mkPen(plot_style.role("noise"))
+        self.pen_outline = pg.mkPen(plot_style.neutral(dark=False))
+
+        self.pen1 = pg.mkPen(plot_style.role("locs"))
+        self.pen2 = pg.mkPen(plot_style.role("channel_b"))
+        self.pen3 = pg.mkPen(plot_style.role("centroid"))
         
         # ROI Shape Radio Buttons
         self.radioButton_circROI = self.ui.radioButton_circROI
@@ -384,6 +400,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.mps_discard: Optional[Any] = None
         self.mps_window: Optional[Any] = None        # results window (kept alive)
         self.rings_window: Optional[Any] = None      # multi-segment panel
+        # Which axon the loaded file is, in the experiment's own terms, and
+        # the file it was confirmed for. Proposed from the path and
+        # confirmed by the user before the first export (tools.mps_identity).
+        self.identity: Optional[Any] = None
+        self.identity_path: str = ""
         self.mps_settings = load_settings()          # persisted across sessions
         self._apply_mps_settings()
 
@@ -659,6 +680,25 @@ class MPS_explorer(QtWidgets.QMainWindow):
         picasso_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         toolbar.addWidget(picasso_button)
 
+        self.action_export_axon = QtWidgets.QAction("Export axon", self)
+        self.action_export_axon.setToolTip(
+            "Write this axon to the tables: one row with the measured\n"
+            "parameters and the ones with the discard applied, and, if you\n"
+            "ask for them, one row per cluster and one per localization.\n"
+            "Everything is written from the state on screen, in one go."
+        )
+        self.action_export_axon.triggered.connect(self._on_export_axon)
+        toolbar.addAction(self.action_export_axon)
+
+        self.action_identity = QtWidgets.QAction("Axon identity", self)
+        self.action_identity.setToolTip(
+            "Which genotype, protein, slide, ROI and axon the exported rows\n"
+            "say this is. Proposed from the path; what the path does not\n"
+            "say stays empty until you type it."
+        )
+        self.action_identity.triggered.connect(self._on_edit_identity)
+        toolbar.addAction(self.action_identity)
+
         self.action_excel = QtWidgets.QAction("Copy a table for Excel", self)
         self.action_excel.setToolTip(
             "Write a copy of an exported table that Excel opens correctly\n"
@@ -675,6 +715,313 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Not the method itself: a triggered slot returns nothing, and it
         # would also be handed the action's checked flag.
         self.copy_table_for_excel()
+
+    def _explain_save_buttons(self) -> None:
+        """
+        Hide the save buttons whose file is now a subset of what "Export
+        axon" writes, and say on the rest what they are for.
+
+        Hidden, not removed: the methods stay, and so do the files they
+        write, so bringing a button back is deleting one line here. Three
+        of the five are hidden because every column they wrote is in the
+        new tables, under a name that says what it is:
+
+          save ROI Ch1          -> the localizations table: x_nm, y_nm,
+                                   z_nm of the same selection, plus which
+                                   of them the analysed slab holds.
+          save clusters centers -> the clusters table: centroid_x_nm,
+                                   centroid_y_nm beside cluster_label.
+          save all cluster data -> the localizations table: the same
+                                   points and the same cluster_label,
+                                   plus cluster_kept and in_slab.
+
+        "save dist data" is NOT hidden. It writes one column per neighbour
+        (nn1_nm, nn2_nm, ...) for however many the histogram was asked
+        for, and the clusters table holds the first one only. The 2nd and
+        further neighbours are nowhere else.
+
+        "save ROI Ch2" is not hidden either: channel 2 has no table of its
+        own. Nor is the ThunderSTORM one, which writes for another
+        program.
+        """
+        covered = ("This file is a subset of what 'Export axon' writes; it "
+                   "is kept for other programs.\n\n")
+        superseded = (
+            (self.ui.pushButton_savexyzROI,
+             "Save the channel-1 selection (x, y, z) as plain text.\n\n"
+             + covered + "The localizations table holds the same points, "
+             "with the cluster each one is in and whether the analysed "
+             "slab holds it."),
+            (self.ui.pushButton_savecluscenters,
+             "Save the cluster centres of mass.\n\n" + covered
+             + "The clusters table holds them as centroid_x_nm and "
+             "centroid_y_nm, with the area, the 1NN and the place on the "
+             "contour of each cluster."),
+            (self.ui.pushButton_saveAllClusterData,
+             "Save every clustered localization with its cluster.\n\n"
+             + covered + "The localizations table holds the same, plus "
+             "whether the axial slab holds each point."),
+        )
+        kept = (
+            (self.ui.pushButton_savexyzROI_2,
+             "Save the channel-2 selection (x, y, z) as plain text.\n\n"
+             "Channel 2 has no table of its own: this is the only way to "
+             "write it out."),
+            (self.ui.pushButton_savedistdata,
+             "Save the nearest-neighbour distances behind the histogram: "
+             "one column per neighbour asked for.\n\n"
+             "'Export axon' writes the first neighbour of every cluster "
+             "(nn_1_nm, and which cluster it is to). The second and "
+             "further neighbours are only here."),
+            (self.ui.pushButton_saveAllClusterDataThunderStorm,
+             "Save the clustered localizations in the columns ThunderSTORM "
+             "reads.\n\nThis one is for another program, so it stays as it "
+             "is."),
+        )
+        for button, tip in superseded:
+            button.setToolTip(tip)
+            button.setVisible(False)
+        for button, tip in kept:
+            button.setToolTip(tip)
+
+    def _on_edit_identity(self) -> None:
+        self.edit_identity()
+
+    def _on_export_axon(self) -> None:
+        self.export_axon()
+
+    # ------------------------------------------------------------------
+    # Which axon this is
+    # ------------------------------------------------------------------
+
+    def _identity_source(self) -> str:
+        """The path the identity is read off: the loaded channel-1 file."""
+        if self.locs1 is not None and getattr(self.locs1, "path", None):
+            return str(self.locs1.path)
+        return str(self.ui.lineEdit_filename.text())
+
+    def edit_identity(self) -> Optional[Any]:
+        """
+        Show the identity panel for the loaded file and keep the answer.
+
+        Returns the identity, or None if the user cancelled. The patterns
+        and the values are stored, so the next axon of the same slide
+        starts from them instead of being typed again.
+        """
+        from tools.identity_ui import ask_identity
+        from tools.mps_identity import identity_from_dict, identity_to_dict
+
+        path = self._identity_source()
+        if not path:
+            QtWidgets.QMessageBox.information(
+                self, "Axon identity",
+                "Load a file in channel 1 first: the fields are read off "
+                "its path.")
+            return None
+        remembered = identity_from_dict(self.mps_settings.identity_last)
+        answer = ask_identity(
+            self, path, patterns=self.mps_settings.identity_patterns,
+            remembered=remembered,
+            remembered_folder=self.mps_settings.identity_last_folder)
+        if answer is None:
+            return None
+        identity, patterns = answer
+        self.identity = identity
+        self.identity_path = path
+        self.mps_settings.identity_patterns = dict(patterns)
+        self.mps_settings.identity_last = identity_to_dict(identity)
+        self.mps_settings.identity_last_folder = os.path.dirname(path)
+        save_settings(self.mps_settings)
+        self.logger.info(f"Axon identity set: {identity.describe()}")
+        return identity
+
+    def current_identity(self, ask: bool = True) -> Optional[Any]:
+        """
+        The identity confirmed for the loaded file.
+
+        Asks for it the first time an export needs it, rather than writing
+        rows with empty columns the user never saw: a genotype that is
+        missing is noticed at the export and not at the statistics.
+        """
+        path = self._identity_source()
+        if self.identity is not None and self.identity_path == path:
+            return self.identity
+        if not ask:
+            return None
+        return self.edit_identity()
+
+    # ------------------------------------------------------------------
+    # The one export
+    # ------------------------------------------------------------------
+
+    def _axoplasm_export_state(self) -> Dict[str, Any]:
+        """What the axoplasm panel has to add to this axon's tables."""
+        window = self.axoplasm_window
+        if window is None or window.result is None:
+            return {}
+        if window.inputs.selection_key is not self.roi_indices:
+            # The panel is showing another selection of this file; its
+            # numbers describe that one, not the analysis being exported.
+            return {}
+        return {"axoplasm": window.summary_row(),
+                "axoplasm_clusters": (window.cluster_rows()
+                                      if window.anchored is not None else None),
+                "axoplasm_localizations": window.localization_rows()}
+
+    def export_axon(self) -> Optional[str]:
+        """
+        Write this axon to the tables: its row, and the per-cluster and
+        per-localization tables when they are asked for.
+
+        Everything comes from the state on screen and is written in one
+        act, so the rows of one axon cannot describe two states of it.
+        """
+        import csv
+
+        from tools import axon_export, export_ui
+        from tools.axon_export_ui import (
+            ExportAxonDialog, describe_state, suggested_path, written)
+        from tools.results_table import (
+            append_rows, check_appendable, replace_rows,
+        )
+
+        analysis = self.mps_analysis
+        if analysis is None:
+            QtWidgets.QMessageBox.information(
+                self, "Export axon",
+                "Run the analysis first: select one axon with an ROI and "
+                "cluster it.")
+            return None
+        identity = self.current_identity(ask=True)
+        if identity is None:
+            return None
+
+        comparison = self._discard_for(analysis)
+        measured = (comparison.all_clusters if comparison is not None
+                    else analysis)
+        discard = (comparison.discard_applied if comparison is not None
+                   else None)
+        panel = self._axoplasm_export_state()
+
+        start = (self.mps_settings.last_export_dir
+                 or os.path.dirname(self._identity_source()))
+        dialog = ExportAxonDialog(
+            suggested_path(self._identity_source(), start), identity,
+            state=describe_state(measured, discard, bool(panel)),
+            n_clusters=measured.n_clusters_kept,
+            n_localizations=measured.n_locs_total,
+            on_edit_identity=self.edit_identity, parent=self)
+        if dialog.exec_() != QtWidgets.QDialog.Accepted:
+            return None
+        identity = dialog.identity() or identity
+        path = dialog.path()
+        if not path:
+            return None
+
+        x_in = y_in = z_in = None
+        stale_selection = False
+        if dialog.wants_localizations():
+            x_in, y_in, z_in = self._analysed_selection()
+            stale_selection = x_in is None
+
+        try:
+            tables = axon_export.build_tables(
+                measured, identity=identity, discard=discard,
+                with_clusters=dialog.wants_clusters(),
+                with_localizations=dialog.wants_localizations(),
+                x_nm=x_in, y_nm=y_in, z_nm=z_in, **panel)
+        except axon_export.ExportConflict as error:
+            QtWidgets.QMessageBox.warning(self, "Export refused", str(error))
+            return None
+        except (ValueError, KeyError) as error:            # noqa: BLE001
+            self.logger.error(f"Could not build the tables: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Export failed",
+                f"Could not build this axon's tables:\n\n{error}")
+            return None
+
+        if stale_selection:
+            tables.warnings.append(
+                "The selection this analysis ran on is not the one on "
+                "screen any more, so only the localizations of the axial "
+                "slab are written, and not the ones it left out.")
+
+        paths = axon_export.table_paths(path)
+        # Each table carries which one it is: with only the localizations
+        # asked for, a list of (path, rows) alone would report them under
+        # the clusters table's name.
+        targets = [("axon", paths["axon"], [tables.axon],
+                    axon_export.AXON_KEY_COLUMNS)]
+        if tables.clusters:
+            targets.append(("clusters", paths["clusters"], tables.clusters,
+                            axon_export.CLUSTER_KEY_COLUMNS))
+        if tables.localizations:
+            targets.append(("localizations", paths["localizations"],
+                            tables.localizations,
+                            axon_export.LOCALIZATION_KEY_COLUMNS))
+        try:
+            # Every table is checked before any is written: a refusal half
+            # way through would leave this axon in one table and not the
+            # others, and exporting again would then double it.
+            for _key, target, rows, _keys in targets:
+                check_appendable(target, rows)
+            decision = export_ui.resolve_duplicates(
+                self, [(t[1], t[2], t[3]) for t in targets])
+            if decision == export_ui.CANCEL:
+                return None
+            counts: Dict[str, int] = {}
+            for key, target, rows, keys in targets:
+                if decision == export_ui.REPLACE:
+                    counts[key] = replace_rows(target, rows, keys)
+                else:
+                    append_rows(target, rows)
+                    counts[key] = len(rows)
+        except (OSError, ValueError, csv.Error) as error:
+            self.logger.error(f"Export failed: {error}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Export failed", f"Could not write:\n\n{error}")
+            return None
+
+        self.mps_settings.last_export_dir = os.path.dirname(paths["axon"])
+        save_settings(self.mps_settings)
+        note = written(paths, counts, decision == export_ui.REPLACE)
+        # What every column means, beside the tables: a table of 159
+        # columns is otherwise readable only by whoever exported it, and
+        # only while they remember.
+        try:
+            from tools.column_dictionary import write_dictionary
+
+            listing = {"axon": list(tables.axon)}
+            if tables.clusters:
+                listing["clusters"] = list(tables.clusters[0])
+            if tables.localizations:
+                listing["localizations"] = list(tables.localizations[0])
+            note += f"\n\nWhat the columns mean: " \
+                    f"{write_dictionary(paths['axon'], listing)}"
+        except (OSError, ValueError) as error:             # noqa: BLE001
+            self.logger.warning(f"Could not write the column dictionary: "
+                                f"{error}")
+        if tables.warnings:
+            note += "\n\n" + "\n".join(tables.warnings)
+        self.logger.info(f"Exported the axon to {paths['axon']}")
+        QtWidgets.QMessageBox.information(self, "Exported", note)
+        return paths["axon"]
+
+    def _analysed_selection(self):
+        """The localizations the analysis was given, all of them.
+
+        None when the selection has moved since: writing the coordinates
+        of one selection beside the labels of another would be silent.
+        """
+        if self._analysed_x is None or self.mps_analysis is None:
+            return None, None, None
+        for x, y, z in ((self.xroi_unfiltered, self.yroi_unfiltered,
+                         self.zroi_unfiltered),
+                        (self.xroi, self.yroi, self.zroi)):
+            if x is self._analysed_x and y is not None and z is not None:
+                return x, y, z
+        return None, None, None
 
     def copy_table_for_excel(self) -> Optional[str]:
         """
@@ -864,7 +1211,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     loc_a=self.locs1, loc_b=self.locs2, roi=roi, slab=slab,
                     slab_half_width_nm=float(s.slab_half_width_nm),
                     kwargs_a=kwargs_a, kwargs_b=kwargs_b),
-                parent=self, parameters=self._clustering_parameters)
+                parent=self, parameters=self._clustering_parameters,
+                identity_callback=self.current_identity)
             self.logger.info(
                 f"Two-channel panel opened for "
                 f"{os.path.basename(self.locs1.path)} and "
@@ -1096,8 +1444,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     window.close()
                     window.deleteLater()
                 self.axoplasm_window = None
-                self.axoplasm_window = show_axoplasm_window(inputs,
-                                                            parent=self)
+                self.axoplasm_window = show_axoplasm_window(
+                    inputs, parent=self,
+                    export_callback=self.export_axon)
             self.logger.info(
                 f"Axoplasm panel opened for "
                 f"{os.path.basename(self.locs1.path)} "
@@ -1278,7 +1627,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
     ) -> None:
         """
         Render curated cluster centroids into the main window's own "good
-        clusters" panel (blue, brush3).
+        clusters" panel (green, brush3: a centre of mass, the same colour
+        as in the MPS analysis window).
 
         This panel used to populate only after manual curation (clicking
         each bad centroid via rx(), then dist_cm_good_clus()). Once bad-
@@ -1449,7 +1799,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.mps_window = MPSResultsWindow(
                 analysis, rerun_callback=rerun, parent=self,
                 rings_callback=self.run_ring_analysis,
-                discard_callback=self._discard_for)
+                discard_callback=self._discard_for,
+                export_callback=self.export_axon)
         else:
             self.mps_window.analysis = analysis
             self.mps_window.refresh()
@@ -1549,7 +1900,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         if self.rings_window is None:
             self.rings_window = MPSRingsWindow(
-                ms, rerun_callback=rerun, parent=self)
+                ms, rerun_callback=rerun, parent=self,
+                identity_callback=self.current_identity)
         else:
             self.rings_window.ms = ms
             self.rings_window.rings = analyze_rings(ms)
@@ -2072,7 +2424,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         npixels = np.size(self.x)
         ROIpos = (int(min(self.x)), int(min(self.y)))
         ROIextent = int(npixels / ROI_EXTENT_DIVISOR)
-        ROIpen = pg.mkPen(color='r')
+        # The ROI is a tool, not a measurement: it is drawn in the
+        # neutral everything structural uses rather than in a hue of its
+        # own, so it never reads as a category beside the data. Red over
+        # the vermillion of channel 2 was the same colour twice.
+        ROIpen = pg.mkPen(plot_style.neutral(dark=False), width=2)
 
         if self.ui.radioButton_circROI.isChecked():
             # Create circular ROI
@@ -2735,7 +3091,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.ui.scatterlayout.removeWidget(self.polygon_drawing_label)
             self.polygon_drawing_label.deleteLater()
 
-        # Create new label with styling
+        # Create new label with styling.
+        #
+        # The pale yellow is the one in the program, and it is deliberate:
+        # this is a sticky note telling the user what to do next, not a
+        # category to be told apart from another colour, and its text is
+        # black on it. Yellow is kept out of the PLOT roles
+        # (tools.mps_plot_style) for a different reason -- there it would
+        # be the brightest mark on black and the weakest on white.
         self.polygon_drawing_label = QtWidgets.QLabel(message)
         self.polygon_drawing_label.setStyleSheet(
             "QLabel { background-color: #ffffcc; padding: 10px; "
@@ -3328,9 +3691,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         for label in unique_labels:
             if label == -1:  # Noise points
                 noise_points = roi_points[cluster_assignments == -1]
+                # Grey, not the channel's colour: noise is not data, and
+                # drawing it in the same hue as the clustered points made
+                # the two read as one cloud.
                 noise_plot = pg.ScatterPlotItem(
                     noise_points[:, 0], noise_points[:, 1],
-                    pen=roi_pen, brush=None, size=NOISE_POINT_SIZE, symbol='x'  # Cross symbol for noise
+                    pen=self.pen_noise, brush=None,
+                    size=NOISE_POINT_SIZE, symbol='x'
                 )
                 plotclusters.addItem(noise_plot)
             else:  # Cluster points
@@ -3344,7 +3711,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Plot cluster centers
         self.selectedcluscm = pg.ScatterPlotItem(
             centroids[:, 0], centroids[:, 1],
-            size=CLUSTER_CENTROID_POINT_SIZE, pen=pg.mkPen('k'), brush=roi_brush  # Filled circles for centers
+            size=CLUSTER_CENTROID_POINT_SIZE + 2, pen=self.pen_outline,
+            brush=roi_brush  # Filled circles for centers
         )
         plotclusters.addItem(self.selectedcluscm)
 
@@ -3546,7 +3914,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if len(self.good_cluster_centroids) > 0:
                 cm_plot = pg.ScatterPlotItem(
                     self.good_cluster_centroids[:, 0], self.good_cluster_centroids[:, 1], 
-                    size=CLUSTER_CENTROID_POINT_SIZE, pen=pg.mkPen('k'), brush=self.brush3
+                    size=CLUSTER_CENTROID_POINT_SIZE,
+                    pen=self.pen_outline, brush=self.brush3
                 )
                 good_clusters_plot.addItem(cm_plot)
             
@@ -3579,7 +3948,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         Notes
         -----
         - Uses pyqtgraph for interactive visualization
-        - Cluster centers are displayed with size=10 pixels in blue color (brush3)
+        - Cluster centers are displayed with size=10 pixels in green (brush3)
         - X/Y range is set to match the ROI boundaries
         """
         if len(self.good_cluster_centroids) == 0:

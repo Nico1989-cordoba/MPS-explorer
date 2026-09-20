@@ -55,6 +55,9 @@ class NNResult:
     k: int
     n_clusters: int
     warnings: List[str] = field(default_factory=list)
+    # (K, k) rows of the centroid array those distances are to, so a table
+    # can name the neighbour and not only say how far it is.
+    neighbour_index: Optional[NDArray[np.intp]] = None
 
     @property
     def first_nn_nm(self) -> NDArray[np.float64]:
@@ -111,7 +114,8 @@ def compute_nn_distances(
         warnings_.append(
             f"Only {n} cluster(s): nearest-neighbour distances are undefined."
         )
-        return NNResult(np.empty((0, k)), k, n, warnings_)
+        return NNResult(np.empty((0, k)), k, n, warnings_,
+                        neighbour_index=np.empty((0, k), dtype=np.intp))
 
     k_eff = min(k, n - 1)
     if k_eff < k:
@@ -137,9 +141,15 @@ def compute_nn_distances(
     first_self[has_self, np.argmax(is_self[has_self], axis=1)] = True
 
     kept = np.empty((n, k_eff), dtype=float)
+    # Which cluster each of those distances is to. The per-cluster table
+    # exports it beside the distance: a 1NN of 130 nm says nothing about
+    # which neighbour, and a reader cannot recover it from the centroids
+    # without repeating this query.
+    kept_index = np.empty((n, k_eff), dtype=np.intp)
     for i in range(n):
-        row = dist[i][~first_self[i]] if has_self[i] else dist[i][:k_eff]
-        kept[i] = row[:k_eff]
+        keep = ~first_self[i] if has_self[i] else np.ones(len(dist[i]), bool)
+        kept[i] = dist[i][keep][:k_eff]
+        kept_index[i] = idx[i][keep][:k_eff]
 
     n_dup = int(np.count_nonzero(kept[:, 0] == 0.0))
     if n_dup:
@@ -150,7 +160,7 @@ def compute_nn_distances(
             f"randomization control."
         )
 
-    return NNResult(kept, k_eff, n, warnings_)
+    return NNResult(kept, k_eff, n, warnings_, neighbour_index=kept_index)
 
 
 def compute_nn_geodesic(

@@ -37,7 +37,10 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools import export_ui
 from tools.mps_gaps import RingAnalysis, analyze_rings
-from tools.mps_plot_style import PLOT_BG, set_title, style_dark
+from tools.mps_identity import AxonIdentity, axon_id
+from tools.mps_plot_style import (
+    AXIS_FG, PLOT_BG, marked, neutral, rgba, role, segment_colour,
+    segment_glyph, segment_symbol, set_title, style_dark, verdict)
 from tools.results_table import (
     append_rows, cell_text, check_appendable, refuse_other_analysis,
     replace_rows)
@@ -48,20 +51,24 @@ from tools.results_table import (
 RING_KEY = ("source", "roi")
 RING_COLUMNS = ("segment_mode", "guard_nm")
 
-_C_ORANGE = "#d55e00"
-_C_GREEN = "#009e73"
-_C_BLUE = "#0072b2"
-_C_GREY = "#888888"
-_C_PURPLE = "#cc79a7"
+# The verdicts in the tables and the warnings list, which are READ on
+# the application's own white chrome rather than seen in a plot: the
+# darker set, which is what reaches the contrast text needs.
+_C_GOOD = verdict("good", dark=False)
+_C_WARN = verdict("warn", dark=False)
+_C_DIM = verdict("dim", dark=False)
 
-# One colour per segment, reused by every plot in the panel so a segment
-# is the same colour in the table, the tracks, the scatter and the
-# histograms.
-_SEGMENT_COLOURS = (_C_BLUE, _C_ORANGE, _C_GREEN, _C_PURPLE, "#56b4e9")
-
-
-def _seg_colour(i: int) -> str:
-    return _SEGMENT_COLOURS[i % len(_SEGMENT_COLOURS)]
+# One colour and one symbol per segment, from tools.mps_plot_style, so a
+# segment is the same in the table, the tracks, the scatter and the
+# histograms. The order there keeps consecutive segments apart under
+# every dichromacy -- which is the comparison this panel is for -- and
+# the symbol and the segment's own number carry the rest, because no
+# five hues in the palette stay apart at once.
+#
+# Everything that is an annotation rather than a segment -- the fitted
+# mixture, a valley, the null of the correlation -- is neutral or grey,
+# so it is never read as one more segment.
+_C_NEUTRAL = neutral(dark=True)
 
 
 class MPSRingsWindow(QtWidgets.QMainWindow):
@@ -74,6 +81,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         rings: Optional[RingAnalysis] = None,
         rerun_callback: Optional[Callable[..., Any]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
+        identity_callback: Optional[Callable[[], Optional[Any]]] = None,
     ):
         """
         Parameters
@@ -83,11 +91,15 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         rerun_callback : called with (mode=..., guard_nm=...) when the user
             edits a control, and must return a fresh MultiSegmentAnalysis.
             None leaves the controls disabled and the panel read-only.
+        identity_callback : which axon this is, in the experiment's own
+            terms (tools.mps_identity). Its columns go into both tables,
+            since a ring is an observation of an axon of a genotype.
         """
         super().__init__(parent)
         self.ms = ms
         self.rings = rings if rings is not None else analyze_rings(ms)
         self.rerun_callback = rerun_callback
+        self.identity_callback = identity_callback
         # Target (x, y) range shared by the overlay and the small multiples,
         # re-applied whenever one of them is resized. See _build_spatial_tab.
         self._spatial_range: Optional[Tuple[Tuple[float, float],
@@ -279,6 +291,11 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
         self.plot_overlay = pg.PlotWidget()
         style_dark(self.plot_overlay)
+        # Built once: a legend added on every redraw would stack up. It
+        # is what names the segments in the one plot that draws them all
+        # together, where neither a title nor an axis tick can.
+        self.overlay_legend = self.plot_overlay.addLegend(
+            labelTextColor=AXIS_FG, offset=(-10, 10))
         set_title(self.plot_overlay,
                    "Every segment's localizations, superimposed")
         self.plot_overlay.setAspectLocked(True)
@@ -378,7 +395,10 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
                     item.setForeground(QtGui.QColor(colour))
                 t.setItem(row, col, item)
 
-            put(0, str(seg.index), _seg_colour(k))
+            # The symbol the plots draw this segment with, and its
+            # number, in the table's own black: the segment's colour is
+            # a plot colour and comes out at 2.3 against white.
+            put(0, f"{segment_glyph(k)} {seg.index}")
             put(1, f"{seg.center_nm:,.0f}")
             put(2, f"{seg.zmin_nm:,.0f} .. {seg.zmax_nm:,.0f}")
             put(3, f"{seg.n_locs:,}")
@@ -411,12 +431,12 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
             depth = pair.boundary_relative_depth
             if depth is None:
-                boundary, colour, italic = "no shared boundary", _C_GREY, True
+                boundary, colour, italic = "no shared boundary", _C_DIM, True
             elif not pair.boundary_is_true_valley:
-                boundary, colour, italic = "unresolved", _C_ORANGE, True
+                boundary, colour, italic = "unresolved", _C_WARN, True
             else:
                 boundary = f"valley, depth {depth:.2f}"
-                colour = _C_GREEN if depth >= 0.10 else _C_ORANGE
+                colour = _C_GOOD if depth >= 0.10 else _C_WARN
                 italic = depth < 0.10
 
             put(0, f"{pair.index_a}-{pair.index_b}")
@@ -424,7 +444,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             put(2, boundary, colour, italic)
             put(3, f"{c.r_at_zero:+.3f}")
             put(4, f"{c.p_rotation:.4f}",
-                _C_GREEN if c.p_rotation < 0.05 else None)
+                _C_GOOD if c.p_rotation < 0.05 else None)
             put(5, "n/a" if c.z_vs_null is None else f"{c.z_vs_null:+.2f}")
 
         if t.rowCount():
@@ -434,13 +454,13 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.list_warnings.clear()
         msgs: List[str] = list(self.ms.warnings) + list(self.rings.warnings)
         if not msgs:
-            item = QtWidgets.QListWidgetItem("No warnings.")
-            item.setForeground(QtGui.QColor(_C_GREY))
+            item = QtWidgets.QListWidgetItem(marked("good", "No warnings."))
+            item.setForeground(QtGui.QColor(_C_GOOD))
             self.list_warnings.addItem(item)
             return
         for m in msgs:
-            item = QtWidgets.QListWidgetItem(m)
-            item.setForeground(QtGui.QColor(_C_ORANGE))
+            item = QtWidgets.QListWidgetItem(marked("warn", m))
+            item.setForeground(QtGui.QColor(_C_WARN))
             self.list_warnings.addItem(item)
 
     # ------------------------------------------------------------------
@@ -457,28 +477,35 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             allz = np.concatenate(zs)
             counts, edges = np.histogram(allz, bins=80, density=True)
             centres = (edges[:-1] + edges[1:]) / 2
+            # Every segment pooled, as context behind them: grey, so it
+            # is not read as one more segment.
             self.plot_z.addItem(pg.BarGraphItem(
                 x=centres, height=counts, width=float(np.mean(np.diff(edges))),
-                brush=pg.mkBrush(136, 136, 136, 80), pen=None))
+                brush=pg.mkBrush(*rgba("dim", 80)), pen=None))
 
             grid = np.linspace(allz.min(), allz.max(), 1024)
             dens = zr.mixture_density(grid)
             if np.any(dens > 0):
                 self.plot_z.addItem(pg.PlotDataItem(
-                    grid, dens, pen=pg.mkPen(_C_GREY, width=2)))
+                    grid, dens, pen=pg.mkPen(_C_NEUTRAL, width=2)))
 
         for k, seg in enumerate(ms.segments):
             region = pg.LinearRegionItem(
                 values=(seg.zmin_nm, seg.zmax_nm), movable=False)
-            col = QtGui.QColor(_seg_colour(k))
+            col = QtGui.QColor(segment_colour(k))
             col.setAlpha(55)
             region.setBrush(pg.mkBrush(col))
             region.setZValue(-10)
             self.plot_z.addItem(region)
+            # The number on the line, because this is the one plot where
+            # the bands were told apart by their colour alone.
             self.plot_z.addItem(pg.InfiniteLine(
                 pos=seg.center_nm, angle=90,
-                pen=pg.mkPen(_seg_colour(k), width=2,
-                             style=QtCore.Qt.DotLine)))
+                pen=pg.mkPen(segment_colour(k), width=2,
+                             style=QtCore.Qt.DotLine),
+                label=f"seg {seg.index}",
+                labelOpts={"position": 0.95,
+                           "color": segment_colour(k)}))
 
         if ms.valleys is not None:
             for pos, real, depth in zip(ms.valleys.positions_nm,
@@ -486,13 +513,16 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
                                         ms.valleys.relative_depth):
                 self.plot_z.addItem(pg.InfiniteLine(
                     pos=float(pos), angle=90,
+                    # Neutral, solid for a real valley and dashed for
+                    # one that is not: the five segment colours are five
+                    # of the eight the palette has, so an annotation that
+                    # took a sixth would be read as a sixth segment.
                     pen=pg.mkPen(
-                        _C_GREEN if real else _C_ORANGE, width=2,
+                        _C_NEUTRAL, width=2,
                         style=QtCore.Qt.SolidLine if real
                         else QtCore.Qt.DashLine),
                     label=(f"valley {depth:.2f}" if real else "no valley"),
-                    labelOpts={"position": 0.08,
-                               "color": _C_GREEN if real else _C_ORANGE}))
+                    labelOpts={"position": 0.08, "color": _C_NEUTRAL}))
 
     def _draw_profiles(self) -> None:
         """One filled track per segment, stacked.
@@ -510,7 +540,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         for k, prof in enumerate(self.rings.profiles):
             if prof is None:
                 continue
-            colour = QtGui.QColor(_seg_colour(k))
+            colour = QtGui.QColor(segment_colour(k))
             fill = QtGui.QColor(colour)
             fill.setAlpha(170)
             # 0.82 leaves a gap between tracks so a full patch in one
@@ -541,28 +571,37 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         if c.offsets_deg.size == 0:
             return
 
+        # The curve over every rotation IS the null, so it is the grey of
+        # a randomized control, and r(0) -- the one rotation that is the
+        # data -- is the blue of an observed value, exactly as in the
+        # randomization plot of the MPS window.
         self.plot_corr.plot(c.offsets_deg, c.correlation,
-                            pen=pg.mkPen(_C_GREY, width=1))
+                            pen=pg.mkPen(role("randomized"), width=1))
         # The rotation null IS this whole curve, so showing its spread next
-        # to r(0) is what makes the p-value legible.
-        for lvl, col in ((c.null_mean, _C_GREY),
-                         (c.null_mean + 2 * c.null_sd, _C_BLUE),
-                         (c.null_mean - 2 * c.null_sd, _C_BLUE)):
+        # to r(0) is what makes the p-value legible. Its mean and its
+        # +-2 SD are summaries of the grey curve, not a further category:
+        # the structural neutral, dotted for the middle and dashed for the
+        # edges.
+        for lvl, style in ((c.null_mean, QtCore.Qt.DotLine),
+                           (c.null_mean + 2 * c.null_sd, QtCore.Qt.DashLine),
+                           (c.null_mean - 2 * c.null_sd, QtCore.Qt.DashLine)):
             self.plot_corr.addItem(pg.InfiniteLine(
                 pos=float(lvl), angle=0,
-                pen=pg.mkPen(col, width=1, style=QtCore.Qt.DotLine)))
+                pen=pg.mkPen(_C_NEUTRAL, width=1, style=style)))
+        observed = role("observed")
         self.plot_corr.addItem(pg.ScatterPlotItem(
             [0.0], [c.r_at_zero], size=11,
-            brush=pg.mkBrush(_C_ORANGE), pen=None))
+            brush=pg.mkBrush(observed), pen=pg.mkPen(_C_NEUTRAL)))
         self.plot_corr.addItem(pg.InfiniteLine(
             pos=0.0, angle=90,
-            pen=pg.mkPen(_C_ORANGE, width=2),
+            pen=pg.mkPen(observed, width=2),
             label=(f"r(0) = {c.r_at_zero:+.3f},  p = {c.p_rotation:.4f}"),
-            labelOpts={"position": 0.92, "color": _C_ORANGE}))
+            labelOpts={"position": 0.92, "color": observed}))
         set_title(
             self.plot_corr,
             f"Segments {pair.index_a}-{pair.index_b}: cross-correlation over "
-            f"all {c.n_rotations:,} rotations (dotted: null mean +/- 2 SD)")
+            f"all {c.n_rotations:,} rotations (dotted: null mean, dashed: "
+            f"+/- 2 SD)")
 
     def _segments_with_locs(self, field: str) -> List[Any]:
         """(k, segment, analysis) for every segment whose ``field`` (a
@@ -584,6 +623,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
     def _draw_spatial(self) -> None:
         self.plot_overlay.clear()
+        self.overlay_legend.clear()
         self.spatial_grid.clear()
         self._spatial_range = None
         self._spatial_viewboxes = []
@@ -608,9 +648,13 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self._spatial_viewboxes = [self.plot_overlay.getViewBox()]
 
         for k, seg, an in rows:
+            # A symbol as well as a colour: five segments is more than the
+            # palette can keep apart by hue, and this is the only plot
+            # where they are superimposed rather than side by side.
             self.plot_overlay.addItem(pg.ScatterPlotItem(
-                an.x_slab, an.y_slab, pen=pg.mkPen(_seg_colour(k), width=1),
-                brush=None, size=4))
+                an.x_slab, an.y_slab, pen=pg.mkPen(segment_colour(k), width=1),
+                brush=None, size=5, symbol=segment_symbol(k),
+                name=f"segment {seg.index}"))
 
         # setXLink/setYLink only sync FUTURE range changes (they fire off
         # the linked view's sigRangeChanged), not the range already in
@@ -631,9 +675,12 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             style_dark(p)
             set_title(p, f"segment {seg.index}")
             p.setAspectLocked(True)
+            # The same symbol as in the overlay above, so the eye keeps
+            # the mapping between the two: segments 0 and 2 are two
+            # blues, which is the closest the palette can do for three.
             p.addItem(pg.ScatterPlotItem(
-                an.x_slab, an.y_slab, pen=pg.mkPen(_seg_colour(k), width=1),
-                brush=None, size=3))
+                an.x_slab, an.y_slab, pen=pg.mkPen(segment_colour(k), width=1),
+                brush=None, size=3, symbol=segment_symbol(k)))
             p.setLabels(bottom="x [nm]")
             self._spatial_viewboxes.append(p.vb)
             # These view boxes are rebuilt on every redraw, so connecting
@@ -665,7 +712,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
         first: Optional[Any] = None
         for i, (k, seg, an) in enumerate(rows):
-            colour = _seg_colour(k)
+            colour = segment_colour(k)
             p = self.zhist_grid.addPlot(row=0, col=i)
             style_dark(p)
             set_title(p, f"segment {seg.index}")
@@ -713,6 +760,22 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.rings = analyze_rings(ms)
         self.refresh()
 
+    def _identity_columns(self) -> Dict[str, Any]:
+        """Which axon these rings are of: the same columns as the axon
+        table, and the same axon_id, so the two join.
+
+        A ring is an observation of an axon, and this table is exported on
+        its own, so it carries the identity rather than only a key into a
+        table that may not have been written.
+        """
+        identity = None
+        if self.identity_callback is not None:
+            identity = self.identity_callback()
+        columns: Dict[str, Any] = {
+            "axon_id": axon_id(self.ms.source_name, str(self.ms.roi or ""))}
+        columns.update((identity or AxonIdentity()).columns())
+        return columns
+
     def _on_export(self) -> None:
         """Write one row per segment and one row per segment pair."""
         base = os.path.splitext(os.path.basename(
@@ -723,6 +786,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         if not path:
             return
 
+        identity = self._identity_columns()
         shown = list(self.ms.warnings) + list(self.rings.warnings)
         notes = " | ".join(cell_text(w) for w in shown)
 
@@ -734,7 +798,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         runs = {seg.index: run
                 for seg, run in zip(self.ms.segments, self.rings.runs)
                 if run is not None}
-        seg_rows = self.ms.export_rows()
+        seg_rows = [{**identity, **row} for row in self.ms.export_rows()]
         for row in seg_rows:
             run = runs.get(row["segment_index"])
             if run is not None:
@@ -745,7 +809,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         # by; the coverage correlation is added to them by segment pair.
         coverage = {(p.index_a, p.index_b): p.export_dict()
                     for p in self.rings.pairs}
-        pair_rows = self.ms.pair_rows()
+        pair_rows = [{**identity, **row} for row in self.ms.pair_rows()]
         for row in pair_rows:
             row.update(coverage.get((row["segment_a"], row["segment_b"]), {}))
             row["ring_analysis_warnings"] = notes

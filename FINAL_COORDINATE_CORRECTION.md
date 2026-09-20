@@ -57,8 +57,12 @@ Cuando pasas solo `event.pos()`:
 
 Se encontró el patrón correcto comparando con el código existente:
 
-**Archivo**: `tools/viewbox_tools.py` (Clase Crosshair)
-**Línea 202**:
+El patrón estaba en `tools/viewbox_tools.py` (clase `Crosshair`), un
+archivo que venía del repositorio original, que nunca importó nadie y
+que se borró en 2026-09-21 (ver el commit que lo saca; el contenido
+sigue en la historia de git). Lo que decía, copiado acá para que este
+documento no dependa de él:
+
 ```python
 def mouseMoved(self, evt):
     if self.vb.sceneBoundingRect().contains(evt):
@@ -82,7 +86,7 @@ Este es el patrón correcto de PyQtGraph.
 ✅ **Syntax Check**: PASSED
 ✅ **Compilable**: Sí
 ✅ **Lógica**: Ahora correcta
-✅ **Patrón**: Alineado con viewbox_tools.py
+✅ **Patrón**: Alineado con el de `Crosshair`, citado arriba
 
 ## Cómo Probar
 
@@ -140,13 +144,14 @@ def _on_polygon_click(self, event: Any) -> None:
 ## Status
 
 ✅ **CORREGIDO**: Código compilable y verificado
-✅ **PROBADO**: Patrón validado contra viewbox_tools.py
+✅ **PROBADO**: Patrón validado contra el de `Crosshair` (arriba)
 ✅ **LISTO**: Para testing con usuario
 
 ## Referencias
 
 - **PyQtGraph Documentation**: mapSceneToView()
-- **Código Base**: tools/viewbox_tools.py (Clase Crosshair)
+- **Código Base**: el patrón de `Crosshair`, citado arriba; venía de
+  `tools/viewbox_tools.py`, borrado en 2026-09-21
 - **Sesión**: 2026-06-02
 - **Versión**: Final
 
