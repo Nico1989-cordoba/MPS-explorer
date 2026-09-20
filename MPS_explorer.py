@@ -4415,10 +4415,33 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Stop the entire process and close the application
         QApplication.quit()
     
+def application_icon() -> Any:
+    """The icon in assets/, or an empty one if it is not there.
+
+    Drawn by ``tools/make_icon.py``; a missing file is not worth failing
+    over, so the program simply runs without it.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "assets", "mps_explorer.ico")
+    return QtGui.QIcon(path) if os.path.exists(path) else QtGui.QIcon()
+
+
 if __name__ == '__main__':
     
     app = QtWidgets.QApplication([])
-    # app = QtGui.QApplication([])
+    # Windows groups a window under the taskbar button of whatever
+    # launched it unless the process says who it is; without this, the
+    # shortcut's icon is replaced by Python's the moment the window
+    # opens.
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "uncor.immf.mps-explorer")
+        except Exception:      # noqa: BLE001 - cosmetic, never fatal
+            pass
+    app.setWindowIcon(application_icon())
     win = MPS_explorer()
     win.show()
     app.exec_()
