@@ -555,18 +555,57 @@ def test_classification() -> None:
                       registration_file="", roi="none", pixel_size_nm=PIXEL_NM,
                       offset_px=(0.0, 0.0), registration=reg, mask=mask,
                       result=result)
-        without = ax.summary_row(cluster_result=None, **kwargs)
-        with_clusters = ax.summary_row(cluster_result=result, **kwargs)
+        without = ax.summary_row(**kwargs)
+        # The first localization is in a discarded cluster, the second in
+        # a kept one: one inside, one at the membrane, whatever the tubulin
+        # mask alone says of them.
+        located = ax.localization_labels(np.array([0, 1]),
+                                         np.array([True, False]))
+        with_clusters = ax.summary_row(located=located, n_clusters=2,
+                                       **kwargs)
         assert list(without) == list(with_clusters)
         assert without["n_clusters"] is None
-        assert with_clusters["n_clusters_interior"] == 1
+        assert without["n_localizations_inside"] is None
+        assert without["fraction_inside"] is None
+        assert with_clusters["n_clusters"] == 2
+        assert with_clusters["n_localizations_inside"] == 1
+        assert with_clusters["n_localizations_membrane"] == 1
+        assert with_clusters["n_localizations_no_cluster"] == 0
+        assert with_clusters["fraction_inside"] == 0.5
         assert without["shift_x_nm"] == 113.0 and without["shift_y_nm"] == -226.0
-        assert without["n_interior"] == 1 and without["fraction_interior"] == 0.5
+        # No column reports the tubulin mask's own "interior" count.
+        assert not any("interior" in c and "spectrin" not in c
+                       for c in without), list(without)
         return f"{len(without)} columns, the same with or without clusters"
+
+    def localizations_through_their_clusters():
+        # References: three clusters' localizations and some noise; the
+        # selection holds some of them, one shared with no reference.
+        rng = np.random.default_rng(3)
+        ref = rng.normal(0.0, 1000.0, (60, 3))
+        cluster = np.repeat([0, 1, 2, -1], 15)
+        pick = rng.permutation(60)[:45]
+        extra = np.array([[5e5, 5e5, 0.0]])
+        points = np.vstack([ref[pick], extra])
+        of = ax.cluster_of_points(points[:, 0], points[:, 1], points[:, 2],
+                                  ref[:, 0], ref[:, 1], ref[:, 2], cluster)
+        assert np.array_equal(of[:-1], cluster[pick]) and of[-1] == -1
+        labels = ax.localization_labels(of, np.array([False, True, False]))
+        assert all(labels[of == 1] == ax.LOC_INSIDE)
+        assert all(labels[(of == 0) | (of == 2)] == ax.LOC_MEMBRANE)
+        assert all(labels[of == -1] == ax.LOC_NO_CLUSTER)
+        # A cluster index beyond the flags (another analysis) is no cluster.
+        stray = ax.localization_labels(np.array([5]), np.array([True]))
+        assert stray[0] == ax.LOC_NO_CLUSTER
+        return (f"{np.sum(labels == ax.LOC_INSIDE)} inside, "
+                f"{np.sum(labels == ax.LOC_MEMBRANE)} at the membrane, "
+                f"{np.sum(labels == ax.LOC_NO_CLUSTER)} in no cluster")
 
     check("the margin", margin)
     check("a spectrin ring on a blurred edge", ring_on_the_edge)
     check("the summary row", summary)
+    check("a localization is inside only through its cluster",
+          localizations_through_their_clusters)
 
 
 # ============================================================ real data
@@ -759,11 +798,18 @@ def test_anchored() -> None:
         assert np.isnan(found.depth_tubulin_nm[-1]) or \
             found.depth_tubulin_nm[-1] < 0
         assert not found.discarded[-1]
+        # The four groups split the clusters, each once; the far one is in
+        # the group neither image puts inside.
+        groups = np.vstack([found.discarded, found.tubulin_only,
+                            found.spectrin_only, found.inside_neither])
+        assert np.array_equal(groups.sum(axis=0), np.ones(found.n, int))
+        assert found.inside_neither[-1]
         wide = ax.anchored_clusters(nm, tmask, ccol, crow, inner, ccol, crow,
                                     5000.0)
         assert wide.n_discarded == 0
         return (f"discarded exactly the 4 inside; {found.n_tubulin_only} "
-                f"ring clusters inside the shifted tubulin alone were kept")
+                f"ring clusters inside the shifted tubulin alone were kept; "
+                f"the four groups split the {found.n} clusters")
 
     def the_contour_without_them():
         rng = np.random.default_rng(7)
@@ -868,7 +914,7 @@ def test_anchored() -> None:
                       reference="s.tif", registration_file="", roi="-",
                       pixel_size_nm=PIXEL_NM, offset_px=(0.0, 0.0),
                       registration=ax.ImageRegistration(), mask=tmask,
-                      result=result, cluster_result=result)
+                      result=result)
         without = ax.summary_row(**common)
         with_ = ax.summary_row(**common, spectrin=inner, anchored=found,
                                spectrin_image="s2.tif")
@@ -885,8 +931,9 @@ def test_anchored() -> None:
                                spectrin_image="s2.tif")
         assert len(rows) == 30 and not any(r["discarded"] for r in rows)
         assert all(r["spectrin_interior_image"] == "s2.tif" for r in rows)
+        assert [r["cluster"] for r in rows] == list(range(30))
         return (f"{len(with_)} columns either way, with the spectrin image "
-                f"of the interior; one row per cluster")
+                f"of the interior; one row per cluster, numbered")
 
     check("a closed ring: cut at its half maximum", closed_ring)
     check("a brighter neighbour does not open it", brighter_neighbour)

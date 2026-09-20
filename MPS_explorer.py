@@ -861,7 +861,36 @@ class MPS_explorer(QtWidgets.QMainWindow):
             clusters=self._current_cluster_centroids,
             selection_key=self.roi_indices,
             contour=self._current_perimeter,
-            anchored_changed=self._anchored_changed)
+            anchored_changed=self._anchored_changed,
+            cluster_of=self._cluster_of_selection)
+
+    def _cluster_of_selection(self, x_nm: NDArray[np.float64],
+                              y_nm: NDArray[np.float64],
+                              z_nm: NDArray[np.float64]
+                              ) -> Optional[NDArray[np.intp]]:
+        """
+        For localizations of the channel-1 selection, the cluster the MPS
+        analysis kept that each belongs to, numbered as its centroids are
+        (-1: in none), or None when the analysis does not describe the
+        selection. A localization outside the analysed axial slab, or in
+        noise or a curated-away cluster, is in none.
+        """
+        if self._current_cluster_centroids() is None:
+            return None
+        from tools.cluster_quality import good_cluster_labels
+        from tools.mps_axoplasm import cluster_of_points
+
+        analysis = self.mps_analysis
+        labels = np.asarray(analysis.labels)
+        # In the order of the centroids: ascending label.
+        kept = good_cluster_labels(labels, analysis.bad_report.bad_labels)
+        index = np.full(labels.shape, -1, dtype=np.intp)
+        if len(kept):
+            at = np.clip(np.searchsorted(kept, labels), 0, len(kept) - 1)
+            member = kept[at] == labels
+            index[member] = at[member]
+        return cluster_of_points(x_nm, y_nm, z_nm, analysis.x_slab,
+                                 analysis.y_slab, analysis.z_slab, index)
 
     def _anchored_changed(self, found: Optional[Any],
                           centroids: Optional[NDArray[np.float64]]) -> None:
