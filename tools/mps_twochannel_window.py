@@ -61,13 +61,16 @@ from tools.results_table import append_rows, cell_text, replace_rows
 # What says two rows describe the same comparison: both files and the ROI.
 PAIR_KEY = ("source_channel_a", "source_channel_b", "roi")
 
-# Findings text. Sky blue for what is in order rather than green: green
-# against orange is the pair a deuteranope cannot separate, and these two
-# are read side by side in the same list.
-_OK = plot_style.role("locs")
-_WARN = plot_style.role("occupied")
-_BAD = plot_style.role("discarded")
-_DIM = "#9a9a9a"
+# Findings text, by role: the same three as in the data-quality and
+# DNA-PAINT panels, so a warning looks the same wherever it is read.
+# This used to avoid green for what is in order, on the belief that
+# green against orange is the pair a deuteranope cannot separate.
+# Measured, Okabe-Ito green against Okabe-Ito orange is 52 apart under
+# every dichromacy; the pair that does collapse is orange against
+# vermillion, at 18, and that one is separated by its mark.
+_WARN = plot_style.role("warn")
+_BAD = plot_style.role("bad")
+_DIM = plot_style.TEXT_DIM
 # The two channels, by role: sky blue against vermillion is the pair that
 # survives every dichromacy, and comparing the two channels is what this
 # panel is for.
@@ -640,12 +643,16 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         outcome = self.outcome
         assert outcome is not None
         self._clear(self.findings)
-        messages: List[Tuple[str, str]] = [(w, _WARN)
+        # Each finding carries the mark for its kind, so "no warnings"
+        # does not arrive under an exclamation mark and a reader who
+        # cannot separate orange from vermillion still can.
+        messages: List[Tuple[str, str]] = [("warn", w)
                                            for w in self.findings_shown()]
         if not messages:
-            messages = [("No warnings.", _OK)]
-        for text, colour in messages:
-            self.findings.addWidget(_label("!  " + text, colour))
+            messages = [("good", "No warnings.")]
+        for kind, text in messages:
+            self.findings.addWidget(_label(plot_style.marked(kind, text),
+                                           plot_style.role(kind)))
         self._fill_registration()
         self._fill_axial()
         self._fill_transverse()

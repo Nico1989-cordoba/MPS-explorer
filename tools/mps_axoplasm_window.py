@@ -38,7 +38,8 @@ from tools import mps_axoplasm as ax
 from tools import mps_file_drop
 from tools.mps_io import load_localizations
 from tools.mps_plot_style import (
-    AXIS_FG, TITLE_FG, neutral, role, set_title, style_dark)
+    AXIS_FG, PANEL_BG, TEXT_DIM, TITLE_FG, marked, neutral, rgba, role,
+    set_title, style_dark)
 from tools.cluster_quality import describe_roi
 
 # Every colour is a role from tools.mps_plot_style, so a cluster the
@@ -51,24 +52,26 @@ from tools.cluster_quality import describe_roi
 # two contours are the saturated blue and orange rather than the neutral
 # the MPS window uses: a white line is lost over a bright patch of image
 # and a dark one over a dim patch.
-_TEXT_OK = role("locs")
-_WARN = role("occupied")
-_DIM = "#9a9a9a"
+# A finding is text, not a mark on the image: the verdict roles, the
+# same three as in every other panel, each with the mark for its kind.
+_TEXT_OK = role("good")
+_WARN = role("warn")
+_DIM = TEXT_DIM
 # Localizations of the clusters the discard leaves out.
 _INTERIOR = role("discarded")
 # Localizations of the clusters that stay: the data.
 _MEMBRANE = role("locs")
-_OUTLINE = (0, 158, 115, 255)            # role("centroid"), as an image
-_SPECTRIN_OUTLINE = (204, 121, 167, 255)  # reddish purple, as an image
+_OUTLINE = rgba("image_tubulin", 255)      # the same role, as an image
+_SPECTRIN_OUTLINE = rgba("image_spectrin", 255)
 _DISCARDED = role("discarded")
 # Clusters only one image puts inside, in the colour of that image's own
 # edge: green for the tubulin mask, purple for the spectrin interior.
-_TUBULIN_ONLY = role("centroid")
-_SPECTRIN_ONLY = "#cc79a7"
+_TUBULIN_ONLY = role("image_tubulin")
+_SPECTRIN_ONLY = role("image_spectrin")
 # The contour through every cluster: orange, dashed.
-_ALL_CONTOUR = role("occupied")
+_ALL_CONTOUR = role("contour_all")
 # The contour without the discarded clusters.
-_KEPT_CONTOUR = role("centre")
+_KEPT_CONTOUR = role("contour_kept")
 # The centre of that contour: white with a dark rim, so it is legible
 # wherever on the image it falls. Its shape is what names it.
 _CENTRE = neutral(dark=True)
@@ -264,7 +267,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             "Axoplasm - " + os.path.basename(str(inputs.movie.path)))
         self.resize(1320, 900)
         self.setStyleSheet(
-            "QMainWindow { background: #1a1a1a; } "
+            f"QMainWindow {{ background: {PANEL_BG}; }} "
             f"QLabel, QCheckBox {{ color: {TITLE_FG}; }} "
             f"QGroupBox {{ color: {TITLE_FG}; }}")
 
@@ -281,7 +284,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         left = QtWidgets.QVBoxLayout()
         left_box = QtWidgets.QWidget()
         left_box.setObjectName("controls")
-        left_box.setStyleSheet("#controls { background: #1a1a1a; }")
+        left_box.setStyleSheet(f"#controls {{ background: {PANEL_BG}; }}")
         left_box.setLayout(left)
         left_box.setFixedWidth(450)
         left_scroll = QtWidgets.QScrollArea()
@@ -289,7 +292,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         left_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         left_scroll.setHorizontalScrollBarPolicy(
             QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        left_scroll.setStyleSheet("QScrollArea { background: #1a1a1a; }")
+        left_scroll.setStyleSheet(
+            f"QScrollArea {{ background: {PANEL_BG}; }}")
         left_scroll.setWidget(left_box)
         left_scroll.setFixedWidth(
             450 + left_scroll.verticalScrollBar().sizeHint().width() + 4)
@@ -302,7 +306,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.findings = QtWidgets.QVBoxLayout()
         holder = QtWidgets.QWidget()
         holder.setObjectName("findings")
-        holder.setStyleSheet("#findings { background: #1a1a1a; }")
+        holder.setStyleSheet(f"#findings {{ background: {PANEL_BG}; }}")
         holder.setLayout(self.findings)
         left.addWidget(holder)
         left.addStretch(1)
@@ -1096,12 +1100,14 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self._clear(self.findings)
         messages = self.warnings()
         if self.tubulin is None:
-            self.findings.addWidget(_label(
-                "Choose the widefield betaIII-tubulin image.", _DIM))
+            self.findings.addWidget(_label(marked(
+                "dim",
+                "Choose the widefield betaIII-tubulin image."), _DIM))
         elif not messages:
-            self.findings.addWidget(_label("No warnings.", _TEXT_OK))
+            self.findings.addWidget(_label(
+                marked("good", "No warnings."), _TEXT_OK))
         for text in messages:
-            self.findings.addWidget(_label("!  " + text, _WARN))
+            self.findings.addWidget(_label(marked("warn", text), _WARN))
         self.findings.addStretch(1)
         self._write_labels()
         self._draw()
@@ -1390,7 +1396,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                 self.plot_hist.plot(edges, counts, stepMode="center",
                                     pen=pg.mkPen(TITLE_FG, width=1.5))
             self.plot_hist.addItem(pg.InfiniteLine(
-                pos=0, angle=90, pen=pg.mkPen(_DIM, style=QtCore.Qt.DashLine)))
+                pos=0, angle=90,
+                pen=pg.mkPen(neutral(dark=True), style=QtCore.Qt.DashLine)))
             self.plot_hist.addItem(pg.InfiniteLine(
                 pos=result.margin_nm, angle=90, pen=pg.mkPen(_INTERIOR)))
 

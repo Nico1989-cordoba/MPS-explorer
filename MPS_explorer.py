@@ -233,18 +233,25 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Colours, by the role they play (tools.mps_plot_style). These
         # plots are on the application's white background, so the neutral
         # they outline markers with is the dark one.
-        self.brush1 = pg.mkBrush(plot_style.role("channel_b"))
-        self.brush2 = pg.mkBrush(plot_style.role("centroid"))
-        self.brush3 = pg.mkBrush(plot_style.role("centre"))
+        #
+        # Channel 1 is the sky blue of a localization and channel 2 the
+        # vermillion of the partner protein, which is what the Two
+        # channels panel already drew them as: the same protein is the
+        # same colour wherever it is plotted. The pair is 89 apart under
+        # every dichromacy, which no other pair in the palette beats.
+        self.brush1 = pg.mkBrush(plot_style.role("locs"))
+        self.brush2 = pg.mkBrush(plot_style.role("channel_b"))
+        # A cluster's centre of mass, here and in the MPS analysis window.
+        self.brush3 = pg.mkBrush(plot_style.role("centroid"))
         # What DBSCAN left out: grey and an x in every window of this
         # program, so it is never taken for data.
         self.brush_noise = pg.mkBrush(plot_style.role("noise"))
         self.pen_noise = pg.mkPen(plot_style.role("noise"))
         self.pen_outline = pg.mkPen(plot_style.neutral(dark=False))
 
-        self.pen1 = pg.mkPen(plot_style.role("channel_b"))
-        self.pen2 = pg.mkPen(plot_style.role("centroid"))
-        self.pen3 = pg.mkPen(plot_style.role("centre"))
+        self.pen1 = pg.mkPen(plot_style.role("locs"))
+        self.pen2 = pg.mkPen(plot_style.role("channel_b"))
+        self.pen3 = pg.mkPen(plot_style.role("centroid"))
         
         # ROI Shape Radio Buttons
         self.radioButton_circROI = self.ui.radioButton_circROI
@@ -1620,7 +1627,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
     ) -> None:
         """
         Render curated cluster centroids into the main window's own "good
-        clusters" panel (blue, brush3).
+        clusters" panel (green, brush3: a centre of mass, the same colour
+        as in the MPS analysis window).
 
         This panel used to populate only after manual curation (clicking
         each bad centroid via rx(), then dist_cm_good_clus()). Once bad-
@@ -2416,7 +2424,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         npixels = np.size(self.x)
         ROIpos = (int(min(self.x)), int(min(self.y)))
         ROIextent = int(npixels / ROI_EXTENT_DIVISOR)
-        ROIpen = pg.mkPen(color='r')
+        # The ROI is a tool, not a measurement: it is drawn in the
+        # neutral everything structural uses rather than in a hue of its
+        # own, so it never reads as a category beside the data. Red over
+        # the vermillion of channel 2 was the same colour twice.
+        ROIpen = pg.mkPen(plot_style.neutral(dark=False), width=2)
 
         if self.ui.radioButton_circROI.isChecked():
             # Create circular ROI
@@ -3895,7 +3907,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if len(self.good_cluster_centroids) > 0:
                 cm_plot = pg.ScatterPlotItem(
                     self.good_cluster_centroids[:, 0], self.good_cluster_centroids[:, 1], 
-                    size=CLUSTER_CENTROID_POINT_SIZE, pen=pg.mkPen('k'), brush=self.brush3
+                    size=CLUSTER_CENTROID_POINT_SIZE,
+                    pen=self.pen_outline, brush=self.brush3
                 )
                 good_clusters_plot.addItem(cm_plot)
             
@@ -3928,7 +3941,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         Notes
         -----
         - Uses pyqtgraph for interactive visualization
-        - Cluster centers are displayed with size=10 pixels in blue color (brush3)
+        - Cluster centers are displayed with size=10 pixels in green (brush3)
         - X/Y range is set to match the ROI boundaries
         """
         if len(self.good_cluster_centroids) == 0:

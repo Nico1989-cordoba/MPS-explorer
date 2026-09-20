@@ -37,12 +37,19 @@ from tools.mps_paint import (
     paint_report,
     qpaint,
 )
-from tools.mps_plot_style import AXIS_FG, TITLE_FG, set_title, style_dark
+from tools.mps_plot_style import (
+    AXIS_FG, PANEL_BG, TEXT_DIM, TITLE_FG, marked, neutral, role, set_title,
+    style_dark,
+)
 
-_OK = "#5fd75f"
-_WARN = "#ffaf5f"
-_BAD = "#ff6b6b"
-_DIM = "#9a9a9a"
+# The verdicts, by role (tools.mps_plot_style), the same three as in the
+# data-quality panel. Orange and vermillion are 18 apart for a
+# deuteranope, so every finding also carries the mark for its kind
+# through ``marked``; the colour is never the only thing saying it.
+_OK = role("good")
+_WARN = role("warn")
+_BAD = role("bad")
+_DIM = TEXT_DIM
 
 
 def _label(text: str, colour: str = TITLE_FG,
@@ -75,7 +82,8 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
             "DNA-PAINT - " + os.path.basename(getattr(loc, "path", ""))
         )
         self.resize(1200, 860)
-        self.setStyleSheet("QMainWindow { background: #1a1a1a; }")
+        self.setStyleSheet(
+            f"QMainWindow {{ background: {PANEL_BG}; }}")
 
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
@@ -190,9 +198,9 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         self._clear(self.findings)
         assert self.report is not None
         for text in self.report.missing:
-            self.findings.addWidget(_label("-  " + text, _BAD))
+            self.findings.addWidget(_label(marked("bad", text), _BAD))
         for text in self.report.warnings:
-            self.findings.addWidget(_label("!  " + text, _WARN))
+            self.findings.addWidget(_label(marked("warn", text), _WARN))
 
     # ------------------------------------------------------------ events
     def _fill_events_tab(self) -> None:
@@ -201,8 +209,9 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         report = self.report
         assert report is not None
         if report.events is None:
-            lay.addWidget(_label(
-                "No binding events: this file has no 'frame' column.", _BAD))
+            lay.addWidget(_label(marked(
+                "bad",
+                "No binding events: this file has no 'frame' column."), _BAD))
             return
 
         events = report.events
@@ -243,12 +252,13 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         if report.sticking is not None:
             sticking = report.sticking
             kept = sticking.labels.size - sticking.n_rejected
-            colour = _WARN if sticking.n_rejected else _OK
-            lay.addWidget(_label(
+            kind = "warn" if sticking.n_rejected else "good"
+            lay.addWidget(_label(marked(
+                kind,
                 f"Sticking filter: {kept} of {sticking.labels.size} clusters "
                 f"kept, {sticking.n_rejected} rejected as non-specific "
                 f"sticking (localizations confined to a short stretch of "
-                f"the movie).", colour))
+                f"the movie)."), role(kind)))
         else:
             lay.addWidget(_label(
                 "Sticking filter not run: it needs cluster labels. Cluster "
@@ -268,7 +278,7 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
                 events.length, bins=np.arange(0.5, top + 1.5, 1.0))
             length_plot.plot(
                 0.5 * (edges[:-1] + edges[1:]), counts,
-                stepMode=False, pen=pg.mkPen("#6fa8ff", width=2))
+                stepMode=False, pen=pg.mkPen(role("locs"), width=2))
         row_lay.addWidget(length_plot)
 
         time_plot = pg.PlotWidget()
@@ -278,8 +288,11 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         time_plot.setLabel("left", "events", color=AXIS_FG)
         if events.n:
             counts, edges = np.histogram(events.first_frame, bins=60)
+            # The measured distribution, in the same blue as every other
+            # one in the program: these two plots are side by side and
+            # both are the data, not one data and one derived.
             time_plot.plot(0.5 * (edges[:-1] + edges[1:]), counts,
-                           pen=pg.mkPen("#ff9f43", width=2))
+                           pen=pg.mkPen(role("locs"), width=2))
         row_lay.addWidget(time_plot)
         lay.addWidget(row, stretch=1)
         lay.addWidget(_label(
@@ -314,7 +327,9 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
                 result.tau_dark_excluding_short_frames
                 < 1.5 * result.tau_dark_frames
             )
-            lay.addWidget(_label(
+            kind = "good" if agree else "bad"
+            lay.addWidget(_label(marked(
+                kind,
                 f"tau_dark without the short gaps = "
                 f"{result.tau_dark_excluding_short_frames:.1f} frames "
                 f"({100 * result.short_gap_fraction:.0f} % of the dark "
@@ -322,8 +337,7 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
                 + ("  The two agree, so the events are not being split."
                    if agree else
                    "  The two disagree: read the warning above before using"
-                   " any count."),
-                _OK if agree else _BAD))
+                   " any count.")), role(kind)))
         lay.addWidget(_label(
             "Both are fitted to the cumulative distribution rather than "
             "averaged. Dark periods longer than the remaining acquisition "
@@ -339,11 +353,11 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
             else np.zeros(events.n, dtype=np.int64)
         )
         dark = dark_times(events.first_frame, events.last_frame, labels)
-        for name, data, tau, colour in (
+        for name, data, tau in (
             ("bright (event length)", events.length.astype(float),
-             result.tau_bright_frames, "#6fa8ff"),
+             result.tau_bright_frames),
             ("dark (between events)", dark[dark > 0].astype(float),
-             result.tau_dark_frames, "#ff9f43"),
+             result.tau_dark_frames),
         ):
             plot = pg.PlotWidget()
             style_dark(plot)
@@ -353,12 +367,15 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
             if data.size > 2:
                 ordered = np.sort(data)
                 ranks = np.arange(1, ordered.size + 1, dtype=float)
-                plot.plot(ordered, ranks, pen=pg.mkPen(colour, width=2))
+                plot.plot(ordered, ranks,
+                          pen=pg.mkPen(role("locs"), width=2))
                 if np.isfinite(tau) and tau > 0:
+                    # The fit over the data: orange against sky blue, 87
+                    # apart under every dichromacy, and dashed.
                     fitted = cumulative_exponential(
                         ordered, float(ordered.size), float(tau), 0.0)
                     plot.plot(ordered, fitted,
-                              pen=pg.mkPen("#ffffff", width=1,
+                              pen=pg.mkPen(role("fit"), width=1,
                                            style=QtCore.Qt.DashLine))
             row_lay.addWidget(plot)
         lay.addWidget(row, stretch=1)
@@ -370,10 +387,11 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         report = self.report
         assert report is not None
         if report.events is None or report.events.group is None:
-            lay.addWidget(_label(
+            lay.addWidget(_label(marked(
+                "bad",
                 "qPAINT counts docking sites per CLUSTER, so it needs "
                 "cluster labels. Cluster the ROI first, then reopen this "
-                "panel.", _BAD))
+                "panel."), _BAD))
             return
 
         banner = QtWidgets.QWidget()
@@ -429,17 +447,19 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         result = qpaint(report.events, report.events.group, **kwargs)
 
         if result.is_calibrated:
-            self.qpaint_holder.addWidget(_label(
+            self.qpaint_holder.addWidget(_label(marked(
+                "good",
                 f"Calibrated: {result.calibration_source}. The numbers below "
-                f"are docking sites per cluster.", _OK, bold=True))
+                f"are docking sites per cluster."), _OK, bold=True))
         else:
-            self.qpaint_holder.addWidget(_label(
+            self.qpaint_holder.addWidget(_label(marked(
+                "bad",
                 "UNCALIBRATED - these are relative units scaled so the "
                 "median cluster reads 1. They rank clusters; they are NOT "
-                "docking-site counts and must not be reported as such.",
+                "docking-site counts and must not be reported as such."),
                 _BAD, bold=True))
         for text in result.warnings:
-            self.qpaint_holder.addWidget(_label("!  " + text, _WARN))
+            self.qpaint_holder.addWidget(_label(marked("warn", text), _WARN))
 
         usable = np.isfinite(result.n_units)
         if np.any(usable):
@@ -475,15 +495,17 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
                 )
                 counts, edges = np.histogram(positive, bins=edges)
                 plot.plot(0.5 * (edges[:-1] + edges[1:]), counts,
-                          pen=pg.mkPen("#6fa8ff", width=2))
+                          pen=pg.mkPen(role("locs"), width=2))
                 plot.setLogMode(x=True, y=False)
             if result.is_calibrated:
                 for integer in (1, 2, 3, 4, 6, 8, 12):
                     if integer > units.max():
                         break
+                    # Whole numbers are a ruler laid over the histogram,
+                    # not a second measurement: the structural neutral.
                     plot.addItem(pg.InfiniteLine(
                         pos=np.log10(integer), angle=90,
-                        pen=pg.mkPen(_DIM, width=1,
+                        pen=pg.mkPen(neutral(dark=True), width=1,
                                      style=QtCore.Qt.DotLine)))
             self.qpaint_holder.addWidget(plot, stretch=1)
             if result.is_calibrated:
@@ -494,10 +516,11 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
                     "clusters hold varying numbers of labelled molecules.",
                     _DIM))
         else:
-            self.qpaint_holder.addWidget(_label(
+            self.qpaint_holder.addWidget(_label(marked(
+                "bad",
                 "No cluster has enough binding events for a dark-time "
                 "distribution. Either the acquisition is too short, or the "
-                "clusters are too small.", _BAD))
+                "clusters are too small."), _BAD))
 
 
 def show_paint_window(

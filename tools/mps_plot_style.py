@@ -19,6 +19,13 @@ cluster an x), because a reader who cannot separate two hues can always
 separate a dot from a cross, and because a figure printed in grey keeps
 its meaning.
 
+A verdict has no symbol to be told apart by -- it is a line of text --
+so it carries a MARK instead: ``marked("warn", ...)`` puts a "!" in
+front of it and ``marked("bad", ...)`` an "x". That matters for one pair
+in particular: orange and vermillion, the colours of a warning and of a
+failure, are only 18 apart in CIE Lab for a deuteranope, and the two are
+read one under the other in the same list.
+
 ``validate_plot_colours.py`` checks what is written here: every pair of
 roles that appears in one plot is simulated under normal vision and under
 the three dichromacies and must stay apart in CIE Lab, and every role
@@ -127,7 +134,40 @@ ROLES: Dict[str, str] = {
     "contour_all": OKABE_ITO["orange"],
     # The contour without the discarded clusters.
     "contour_kept": OKABE_ITO["blue"],
+    # --- the quality panels, which report verdicts rather than data ----
+    # A check that passed, one that needs attention, one that failed.
+    # Green and orange are 52 apart under every dichromacy, and green and
+    # vermillion 37; orange and vermillion are only 18 apart for a
+    # deuteranope, which is why a finding also carries a MARK.
+    "good": OKABE_ITO["bluish_green"],
+    "warn": OKABE_ITO["orange"],
+    "bad": OKABE_ITO["vermillion"],
+    # Explanation, and what could not be checked: present but not a
+    # result. The same grey as noise, for the same reason.
+    "dim": "#9a9a9a",
+    # The second of two series of the same kind drawn in one plot -- sy
+    # beside sx in the fitting-box check. Vermillion against the sky blue
+    # of the first, which is the pair that survives every dichromacy. It
+    # is the colour of channel_b for that same reason, and the two never
+    # appear in one plot.
+    "paired": OKABE_ITO["vermillion"],
 }
+
+# What a finding of each kind is prefixed with. Colour says it twice; the
+# mark says it once in a way that survives a photocopy, a projector and a
+# deuteranope reading orange against vermillion.
+MARKS: Dict[str, str] = {
+    "good": "ok  ",
+    "warn": "!  ",
+    "bad": "x  ",
+    "dim": "-  ",
+}
+
+
+def marked(kind: str, text: str) -> str:
+    """``text`` with the mark that says what kind of finding it is."""
+    return MARKS[kind] + text
+
 
 # Backgrounds, and the colour of everything structural on them: the
 # contour of the axon, the outline of a marker, an axis. It is the one
@@ -142,6 +182,10 @@ AXIS_FG = "#b0b0b0"
 TITLE_FG = "#e0e0e0"
 AXIS_FG_LIGHT = "#333333"
 TITLE_FG_LIGHT = "#000000"
+# Explanatory prose in a panel: quieter than a title, still readable.
+TEXT_DIM = "#9a9a9a"
+# What a panel's own window is painted, behind the plots.
+PANEL_BG = "#1a1a1a"
 
 
 def neutral(dark: bool = True) -> str:

@@ -22,6 +22,11 @@ purpose -- the same family of data at two lightnesses -- the check says
 so and requires the drawing to separate them another way, by symbol or
 by size, which is recorded here beside the pair.
 
+A verdict has no symbol: it is a line of text. It carries a MARK
+instead -- ok, !, x, - -- and the last check here requires the four to
+be distinct and to be named in TOGETHER, so a mark cannot quietly stop
+being drawn and leave the whole weight back on the colour.
+
 Run:  python validate_plot_colours.py
 """
 
@@ -37,7 +42,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from tools.mps_plot_style import (  # noqa: E402
-    DARK_BG, LIGHT_BG, OKABE_ITO, ROLES, neutral, rgba, role,
+    DARK_BG, LIGHT_BG, MARKS, OKABE_ITO, PANEL_BG, ROLES, neutral, role,
 )
 
 PASSED = 0
@@ -110,7 +115,8 @@ def delinearise(linear: np.ndarray) -> np.ndarray:
 def simulate(colour: str, kind: str) -> np.ndarray:
     """``colour`` as this kind of vision receives it, in sRGB 0..1."""
     linear = linearise(to_rgb(colour))
-    return np.clip(delinearise(SIMULATIONS[kind] @ linear), 0.0, 1.0)
+    seen = np.clip(delinearise(SIMULATIONS[kind] @ linear), 0.0, 1.0)
+    return np.asarray(seen, dtype=float)
 
 
 def to_lab(srgb: np.ndarray) -> np.ndarray:
@@ -192,11 +198,49 @@ TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
         ("contour_all", 255, "dashed line"),
         ("contour_kept", 255, "line"),
     ),
+    # --- the two panels that report on the acquisition -----------------
+    # Findings are text, not marks, and they are read one under the other
+    # on the panel's own dark grey. Each carries the mark for its kind, so
+    # the two that a deuteranope cannot separate by colour are still two
+    # things.
+    "the findings list": (
+        ("good", 255, "a leading ok"),
+        ("warn", 255, "a leading !"),
+        ("bad", 255, "a leading x"),
+        ("dim", 255, "a leading -"),
+    ),
+    "the precision check": (
+        ("locs", 255, "histogram outline"),
+        ("fit", 255, "the fitted curve and the line at its value"),
+    ),
+    # sx against sy, which differ by design: that is how z is encoded.
+    # The strongest pair in the palette, and 20 apart in lightness as
+    # well, so the two survive a photocopy.
+    "the fitting-box check": (
+        ("locs", 255, "histogram outline"),
+        ("paired", 255, "histogram outline"),
+    ),
+    # One row of bars per component, and the dashed line at each
+    # component's mean carries the mark of the verdict the table gives
+    # it -- which is what keeps the warn and bad rows apart.
+    "the axial check": (
+        ("locs", 255, "histogram outline"),
+        ("good", 255, "a thick bar and a dashed line marked ok"),
+        ("warn", 255, "a thick bar and a dashed line marked !"),
+        ("bad", 255, "a thick bar and a dashed line marked x"),
+    ),
+    "the kinetics check": (
+        ("locs", 255, "cumulative curve"),
+        ("fit", 255, "dashed curve"),
+    ),
 }
 
 # What each plot is drawn on. Anything not named here is on black.
 BACKGROUNDS: Dict[str, str] = {
     "the axoplasm image": "#808080",
+    # The quality and DNA-PAINT panels paint their own window, and the
+    # findings are read on that rather than on a plot's black.
+    "the findings list": PANEL_BG,
 }
 
 # Pairs that come close under one kind of vision and are told apart by
@@ -264,6 +308,18 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
         "an image edge against the polygon through the cluster centres",
     ("discarded", "image_spectrin"):
         "filled discs against an edge and open squares",
+    # --- the quality panels --------------------------------------------
+    ("warn", "bad"):
+        "a leading ! against a leading x, in the findings list and on the "
+        "axial plot's component lines alike. Orange against vermillion is "
+        "18 apart for a deuteranope and these two are read together, so "
+        "the mark is what separates them",
+    ("good", "dim"):
+        "a leading ok against a leading -: what passed against what could "
+        "not be checked",
+    ("locs", "good"):
+        "a histogram outline against a thick horizontal bar and a dashed "
+        "vertical line; apart for everyone but a tritanope",
 }
 
 
@@ -428,10 +484,24 @@ def test_greyscale() -> None:
         assert drawn["centre"] == "plus", drawn
         return "curated x, centroids circles, centre a plus"
 
+    def every_finding_carries_its_own_mark():
+        # A verdict is text: it has no symbol to be told apart by, so it
+        # carries a mark instead. Two kinds sharing one would put the
+        # whole weight back on the colour.
+        assert len(set(MARKS.values())) == len(MARKS), MARKS
+        named = dict((name, shape)
+                     for name, _alpha, shape in TOGETHER["the findings list"])
+        for kind, mark in MARKS.items():
+            assert kind in named, kind
+            assert mark.strip() in named[kind], (kind, mark, named[kind])
+        return "  ".join(f"{k}: {v.strip()!r}" for k, v in MARKS.items())
+
     check("no two marks of one plot are the same grey and the same shape",
           the_marks_differ_in_lightness_or_shape)
     check("what the analysis excluded is drawn with its own symbol",
           what_is_excluded_has_its_own_symbol)
+    check("every kind of finding carries its own mark",
+          every_finding_carries_its_own_mark)
 
 
 def main() -> int:
