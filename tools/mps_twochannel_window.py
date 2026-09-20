@@ -36,6 +36,7 @@ from PyQt5 import QtCore, QtWidgets
 from tools import export_ui, mps_file_drop, mps_io
 from tools.cluster_quality import describe_roi, points_in_roi
 from tools.mps_analysis import DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES
+from tools.mps_identity import AxonIdentity, axon_id
 from tools.mps_crosschannel import (
     AxialPhaseResult,
     CrossChannelResult,
@@ -278,9 +279,15 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
                  parent: Optional[QtWidgets.QWidget] = None,
                  parameters: Optional[Callable[
                      [], Tuple[Dict[str, Any], Dict[str, Any]]]] = None,
+                 identity_callback: Optional[
+                     Callable[[], Optional[Any]]] = None,
                  ) -> None:
         super().__init__(parent)
         self.inputs = inputs
+        # Which axon this pair of channels is of, in the experiment's own
+        # terms. This table is exported on its own, so it carries the
+        # identity and not only a key into a table that may not exist.
+        self.identity_callback = identity_callback
         # Reads the clustering parameters typed in the main window, so a
         # run uses the values shown there when it starts.
         self._parameters = parameters
@@ -790,6 +797,13 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
             source_a=str(self.inputs.loc_a.path),
             source_b=str(self.inputs.loc_b.path))
         row["roi"] = describe_roi(self.inputs.roi)
+        # Who this axon is, with the same axon_id as its own row in the
+        # axon table: channel 1 is the betaII-spectrin the rest of the
+        # program analyses, so the two describe one axon.
+        identity = (self.identity_callback() if self.identity_callback
+                    else None)
+        row["axon_id"] = axon_id(str(self.inputs.loc_a.path), row["roi"])
+        row.update((identity or AxonIdentity()).columns())
         row["slab_mode"] = "manual" if self.inputs.slab else "automatic"
         row["n_locs_a"] = self.outcome.n_a
         row["n_locs_b"] = self.outcome.n_b
@@ -852,9 +866,11 @@ def show_two_channel_window(
     parent: Optional[QtWidgets.QWidget] = None,
     parameters: Optional[Callable[
         [], Tuple[Dict[str, Any], Dict[str, Any]]]] = None,
+    identity_callback: Optional[Callable[[], Optional[Any]]] = None,
 ) -> TwoChannelWindow:
     """Open the two-channel panel."""
-    window = TwoChannelWindow(inputs, parent=parent, parameters=parameters)
+    window = TwoChannelWindow(inputs, parent=parent, parameters=parameters,
+                              identity_callback=identity_callback)
     window.show()
     window.raise_()
     window.activateWindow()

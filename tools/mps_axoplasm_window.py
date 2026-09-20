@@ -24,7 +24,6 @@ The calculations are in ``tools.mps_axoplasm``.
 
 from __future__ import annotations
 
-import csv
 import os
 import threading
 from dataclasses import dataclass, field
@@ -39,9 +38,7 @@ from tools import mps_axoplasm as ax
 from tools import mps_file_drop
 from tools.mps_io import load_localizations
 from tools.mps_plot_style import AXIS_FG, TITLE_FG, set_title, style_dark
-from tools import export_ui
 from tools.cluster_quality import describe_roi
-from tools.results_table import append_rows, check_appendable, replace_rows
 
 _OK = "#5fd75f"
 _WARN = "#ffaf5f"
@@ -190,9 +187,14 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
     """Membrane or interior, from widefield tubulin and spectrin images."""
 
     def __init__(self, inputs: AxoplasmInputs,
-                 parent: Optional[QtWidgets.QWidget] = None) -> None:
+                 parent: Optional[QtWidgets.QWidget] = None,
+                 export_callback: Optional[Callable[[], Any]] = None) -> None:
         super().__init__(parent)
         self.inputs = inputs
+        # Writes this axon's tables. The main window's single export: it
+        # sees this panel, the analysis and the discard at once, which is
+        # what keeps the rows of one axon describing one state.
+        self.export_callback = export_callback
         self.tubulin: Optional[ax.WidefieldImage] = None
         self.reference: Optional[ax.WidefieldImage] = None
         self.tubulin_offset: Tuple[float, float] = (0.0, 0.0)
@@ -595,7 +597,12 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.spin_margin.valueChanged.connect(lambda _v: self._reclassify())
         lay.addWidget(_label("Margin:", _DIM), 0, 0)
         lay.addWidget(self.spin_margin, 0, 1)
-        self.btn_export = QtWidgets.QPushButton("Export CSV...")
+        self.btn_export = QtWidgets.QPushButton("Export axon...")
+        self.btn_export.setToolTip(
+            "Write this axon to the tables: the analysis, this panel and "
+            "the discard in one row, and the per-cluster and "
+            "per-localization tables if you ask for them. The same button "
+            "as in the main window, so nothing is written twice.")
         self.btn_export.clicked.connect(self._export_clicked)
         lay.addWidget(self.btn_export, 0, 2)
         self.label_result = _label("")
@@ -1422,72 +1429,32 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         ]
 
     def _export_clicked(self) -> None:
-        # Not export_csv directly: clicked passes a bool, taken for a path.
-        self.export_csv()
+        """
+        Ask the main window to write this axon.
 
-    def export_csv(self, path: Optional[str] = None) -> Optional[str]:
+        This panel used to write three tables of its own, from its own
+        state, while the results window wrote another from its own -- which
+        is how one axon came to be described twice, differently. What this
+        panel measures is now part of the axon's single row, and the
+        export that writes it is the one place that sees both.
         """
-        Append this axon to a per-axon table, and its localizations to a
-        second table beside it (``<name>_localizations.csv``). When the
-        clusters were checked against both images, they go to a third
-        (``<name>_clusters.csv``), with which ones were discarded.
-        """
-        if self.result is None:
-            return None
-        if path is None:
-            stem = os.path.splitext(os.path.basename(
-                str(self.inputs.movie.path)))[0]
-            suggested = os.path.join(
-                os.path.dirname(str(self.inputs.movie.path)),
-                f"{stem}_axoplasm.csv")
-            path, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self, "Export the classification", suggested, "CSV (*.csv)")
-            if not path:
-                return None
-        base, ext = os.path.splitext(path)
-        detail = f"{base}_localizations{ext or '.csv'}"
-        clusters = f"{base}_clusters{ext or '.csv'}"
-        tables = [(path, [self.summary_row()]),
-                  (detail, self.localization_rows())]
-        if self.anchored is not None:
-            tables.append((clusters, self.cluster_rows()))
-        lines = []
-        try:
-            # Every table is checked before any is written: a refusal half
-            # way would leave the first ones written, and exporting again
-            # after fixing the file would add this axon to them twice.
-            for target, rows in tables:
-                check_appendable(target, rows)
-            # Asked once for the three tables, so that replacing replaces
-            # this axon everywhere or nowhere.
-            decision = export_ui.resolve_duplicates(
-                self, [(target, rows, ax.AXON_KEY_COLUMNS)
-                       for target, rows in tables])
-            if decision == export_ui.CANCEL:
-                return None
-            for target, rows in tables:
-                if decision == export_ui.REPLACE:
-                    replaced = replace_rows(target, rows,
-                                            ax.AXON_KEY_COLUMNS)
-                    lines.append(f"Replaced {replaced} row(s) in {target}")
-                else:
-                    appended = append_rows(target, rows)
-                    lines.append(f"{'Appended to' if appended else 'Wrote'} "
-                                 f"{target}")
-        except (OSError, ValueError, csv.Error) as error:
-            QtWidgets.QMessageBox.critical(
-                self, "Export failed", f"Could not write:\n\n{error}")
-            return None
-        QtWidgets.QMessageBox.information(self, "Exported", "\n".join(lines))
-        return path
+        if self.export_callback is None:
+            QtWidgets.QMessageBox.information(
+                self, "Export axon",
+                "This panel was opened on its own, so it cannot write the "
+                "tables. Use 'Export axon' in the main window.")
+            return
+        self.export_callback()
 
 
 def show_axoplasm_window(
     inputs: AxoplasmInputs,
     parent: Optional[QtWidgets.QWidget] = None,
+    export_callback: Optional[Callable[[], Any]] = None,
 ) -> AxoplasmWindow:
     """Open the axoplasm panel."""
-    window = AxoplasmWindow(inputs, parent=parent)
+    window = AxoplasmWindow(inputs, parent=parent,
+                            export_callback=export_callback)
     window.show()
     window.raise_()
     window.activateWindow()

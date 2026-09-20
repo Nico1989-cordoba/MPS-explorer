@@ -37,7 +37,6 @@ centroid, with a cross.
 
 from __future__ import annotations
 
-import csv
 import os
 from typing import Any, Callable, List, Optional
 
@@ -45,14 +44,10 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from tools import export_ui
 from tools.cluster_quality import good_cluster_labels
-from tools.mps_analysis import (
-    ANALYSIS_COLUMNS, AXON_KEY_COLUMNS, AxonAnalysis, DiscardComparison)
+from tools.mps_analysis import AxonAnalysis, DiscardComparison
 from tools.mps_plot_style import AXIS_FG, set_title, style_dark
 from tools.mps_settings import DEFAULT_MAHALANOBIS_THRESHOLD
-from tools.results_table import (
-    append_rows, refuse_other_analysis, replace_rows)
 
 
 # Colour-blind-safe palette, matching the one already used in MPS_explorer.
@@ -85,6 +80,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         rings_callback: Optional[Callable[[], Any]] = None,
         discard_callback: Optional[
             Callable[[AxonAnalysis], Optional[DiscardComparison]]] = None,
+        export_callback: Optional[Callable[[], Any]] = None,
     ):
         """
         Parameters
@@ -101,12 +97,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             the clusters and without the ones the axoplasm panel discarded
             (tools.mps_analysis.compare_discard), or None when there is
             none for it. Asked again at every refresh.
+        export_callback : writes this axon's tables. It is the main
+            window's single export, which sees the analysis, the discard
+            and the axoplasm panel at once; this window only asks for it.
+            None disables the button.
         """
         super().__init__(parent)
         self.analysis = analysis
         self.rerun_callback = rerun_callback
         self.rings_callback = rings_callback
         self.discard_callback = discard_callback
+        self.export_callback = export_callback
         self.comparison: Optional[DiscardComparison] = None
 
         self.setWindowTitle("MPS analysis - per-axon parameters")
@@ -238,10 +239,14 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_reset.clicked.connect(self._on_reset)
         lay.addWidget(self.btn_reset)
 
-        self.btn_export = QtWidgets.QPushButton("Export CSV")
+        self.btn_export = QtWidgets.QPushButton("Export axon...")
         self.btn_export.setToolTip(
-            "The measured parameters (the first column), one row per axon.")
+            "Write this axon: one row with the measured parameters and the\n"
+            "ones with the discard applied, plus the per-cluster and\n"
+            "per-localization tables if you ask for them. Everything is\n"
+            "written from the state on screen, in one go.")
         self.btn_export.clicked.connect(self._on_export)
+        self.btn_export.setEnabled(self.export_callback is not None)
         lay.addWidget(self.btn_export)
 
         enabled = self.rerun_callback is not None
@@ -311,23 +316,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.table.setAlternatingRowColors(True)
         lay.addWidget(self.table, stretch=3)
 
-        # One table per set of numbers: the analyses of one axon must not
-        # be pooled in one statistic.
+        # The two columns leave together, in one row. A table holding the
+        # two analyses of one axon as two rows is how a statistic over it
+        # counts that axon twice.
         self.box_export = QtWidgets.QWidget()
         export = QtWidgets.QHBoxLayout(self.box_export)
         export.setContentsMargins(0, 0, 0, 0)
-        export.addWidget(QtWidgets.QLabel("Export for the statistics:"))
-        self.btn_export_every = QtWidgets.QPushButton("All clusters")
-        self.btn_export_every.setToolTip(
-            "The 'All clusters' column (2-opt from every start), to a table\n"
-            "of its own.")
-        self.btn_export_every.clicked.connect(self._on_export_every)
-        self.btn_export_discard = QtWidgets.QPushButton("Discard applied")
-        self.btn_export_discard.setToolTip(
-            "The 'Discard applied' column, to a table of its own.")
-        self.btn_export_discard.clicked.connect(self._on_export_discard)
-        export.addWidget(self.btn_export_every)
-        export.addWidget(self.btn_export_discard)
+        self.label_export = QtWidgets.QLabel(
+            "Both columns go into one row, with and without the discard: "
+            "'Export axon...' above.")
+        self.label_export.setWordWrap(True)
+        export.addWidget(self.label_export)
         export.addStretch(1)
         self.box_export.setVisible(False)
         lay.addWidget(self.box_export)
@@ -441,7 +440,6 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.box_shown.setVisible(compared)
         self.box_export.setVisible(compared)
         self.radio_every.setVisible(every)
-        self.btn_export_every.setVisible(every)
         if not every and self.radio_every.isChecked():
             self.radio_measured.setChecked(True)
         self.table.setColumnHidden(_COL_EVERY, not every)
@@ -878,48 +876,18 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._on_param_changed()
 
     def _on_export(self) -> None:
-        """Append this axon's parameters to a CSV, one row per axon."""
-        self._export(self.analysis, "")
+        """
+        Ask the main window to write this axon.
 
-    def _on_export_every(self) -> None:
-        if self.comparison is not None:
-            self._export(self.comparison.all_clusters, "_every_start")
-
-    def _on_export_discard(self) -> None:
-        if self.comparison is not None:
-            self._export(self.comparison.discard_applied, "_discard")
-
-    def _export(self, analysis: AxonAnalysis, suffix: str) -> None:
-        base = os.path.splitext(os.path.basename(
-            analysis.source_name))[0] or "axon"
-        default = f"{base}_mps_parameters{suffix}.csv"
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Export MPS parameters", default, "CSV Files (*.csv)")
-        if not path:
+        The export is not done here on purpose: this window knows the two
+        analyses, and the axoplasm panel knows the rest of what the row
+        says. One place sees both, and that is where the tables are
+        written -- from one state, in one act.
+        """
+        if self.export_callback is None:
+            QtWidgets.QMessageBox.information(
+                self, "Export axon",
+                "This window was opened on its own, so it cannot write the "
+                "tables. Use 'Export axon' in the main window.")
             return
-
-        record = analysis.export_dict()
-        try:
-            # The measured analysis and the one with the discard each go to
-            # a table of their own, and so does the one with every 2-opt
-            # start when the measured analysis used one start.
-            refuse_other_analysis(path, record, ANALYSIS_COLUMNS)
-            # A batch of axons accumulates into one table, so this appends;
-            # but the same axon appended twice counts twice in every
-            # statistic over the table, so it is not done silently.
-            decision = export_ui.resolve_duplicates(
-                self, [(path, [record], AXON_KEY_COLUMNS)])
-            if decision == export_ui.CANCEL:
-                return
-            if decision == export_ui.REPLACE:
-                replaced = replace_rows(path, [record], AXON_KEY_COLUMNS)
-                done = f"Replaced {replaced} row(s) in"
-            else:
-                # A file with other columns is refused, not overwritten.
-                done = "Appended to" if append_rows(path, [record]) else "Wrote"
-        except (OSError, ValueError, csv.Error) as exc:
-            QtWidgets.QMessageBox.critical(
-                self, "Export failed", f"Could not write {path}:\n\n{exc}")
-            return
-
-        QtWidgets.QMessageBox.information(self, "Exported", f"{done} {path}")
+        self.export_callback()

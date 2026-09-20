@@ -37,6 +37,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools import export_ui
 from tools.mps_gaps import RingAnalysis, analyze_rings
+from tools.mps_identity import AxonIdentity, axon_id
 from tools.mps_plot_style import PLOT_BG, set_title, style_dark
 from tools.results_table import (
     append_rows, cell_text, check_appendable, refuse_other_analysis,
@@ -74,6 +75,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         rings: Optional[RingAnalysis] = None,
         rerun_callback: Optional[Callable[..., Any]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
+        identity_callback: Optional[Callable[[], Optional[Any]]] = None,
     ):
         """
         Parameters
@@ -83,11 +85,15 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         rerun_callback : called with (mode=..., guard_nm=...) when the user
             edits a control, and must return a fresh MultiSegmentAnalysis.
             None leaves the controls disabled and the panel read-only.
+        identity_callback : which axon this is, in the experiment's own
+            terms (tools.mps_identity). Its columns go into both tables,
+            since a ring is an observation of an axon of a genotype.
         """
         super().__init__(parent)
         self.ms = ms
         self.rings = rings if rings is not None else analyze_rings(ms)
         self.rerun_callback = rerun_callback
+        self.identity_callback = identity_callback
         # Target (x, y) range shared by the overlay and the small multiples,
         # re-applied whenever one of them is resized. See _build_spatial_tab.
         self._spatial_range: Optional[Tuple[Tuple[float, float],
@@ -713,6 +719,22 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.rings = analyze_rings(ms)
         self.refresh()
 
+    def _identity_columns(self) -> Dict[str, Any]:
+        """Which axon these rings are of: the same columns as the axon
+        table, and the same axon_id, so the two join.
+
+        A ring is an observation of an axon, and this table is exported on
+        its own, so it carries the identity rather than only a key into a
+        table that may not have been written.
+        """
+        identity = None
+        if self.identity_callback is not None:
+            identity = self.identity_callback()
+        columns: Dict[str, Any] = {
+            "axon_id": axon_id(self.ms.source_name, str(self.ms.roi or ""))}
+        columns.update((identity or AxonIdentity()).columns())
+        return columns
+
     def _on_export(self) -> None:
         """Write one row per segment and one row per segment pair."""
         base = os.path.splitext(os.path.basename(
@@ -723,6 +745,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         if not path:
             return
 
+        identity = self._identity_columns()
         shown = list(self.ms.warnings) + list(self.rings.warnings)
         notes = " | ".join(cell_text(w) for w in shown)
 
@@ -734,7 +757,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         runs = {seg.index: run
                 for seg, run in zip(self.ms.segments, self.rings.runs)
                 if run is not None}
-        seg_rows = self.ms.export_rows()
+        seg_rows = [{**identity, **row} for row in self.ms.export_rows()]
         for row in seg_rows:
             run = runs.get(row["segment_index"])
             if run is not None:
@@ -745,7 +768,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         # by; the coverage correlation is added to them by segment pair.
         coverage = {(p.index_a, p.index_b): p.export_dict()
                     for p in self.rings.pairs}
-        pair_rows = self.ms.pair_rows()
+        pair_rows = [{**identity, **row} for row in self.ms.pair_rows()]
         for row in pair_rows:
             row.update(coverage.get((row["segment_a"], row["segment_b"]), {}))
             row["ring_analysis_warnings"] = notes

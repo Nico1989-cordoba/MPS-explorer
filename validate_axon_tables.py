@@ -14,6 +14,7 @@ Run:  python validate_axon_tables.py
 
 from __future__ import annotations
 
+import csv
 import os
 import shutil
 import sys
@@ -733,6 +734,186 @@ def test_on_disk() -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+# ===========================================================================
+# Every column says what it is
+# ===========================================================================
+
+def test_dictionary() -> None:
+    print("\n--- the dictionary of columns ---")
+    from tools.column_dictionary import (
+        describe, missing, rows_for, unit_of, write_dictionary,
+    )
+
+    x, y, z, analysis = build()
+    flags = np.zeros(analysis.n_clusters_kept, dtype=bool)
+    flags[:3] = True
+    pair = compare_discard(analysis, flags, margin_nm=250.0,
+                           registration="measured, score 13.5")
+    tables = build_tables(
+        pair.all_clusters, identity=IDENT, discard=pair.discard_applied,
+        axoplasm=panel_row(analysis, discarded=3),
+        axoplasm_clusters=[{"cluster_label": 0, "group": "membrane",
+                            "inside_tubulin_mask": True,
+                            "inside_spectrin_interior": False,
+                            "depth_in_tubulin_mask_nm": 12.0,
+                            "depth_in_spectrin_interior_nm": None,
+                            "spectrin_interior_image": "spec.tif"}],
+        axoplasm_localizations=[
+            {"x_nm": round(float(a), 2), "y_nm": round(float(b), 2),
+             "z_nm": round(float(c), 2), "label": "membrane",
+             "distance_to_tubulin_edge_nm": 1.0}
+            for a, b, c in zip(x, y, z)],
+        with_clusters=True, with_localizations=True,
+        x_nm=x, y_nm=y, z_nm=z)
+
+    def nothing_is_undocumented():
+        gaps = {}
+        for name, columns in (("axon", list(tables.axon)),
+                              ("clusters", list(tables.clusters[0])),
+                              ("localizations",
+                               list(tables.localizations[0]))):
+            left = missing(columns)
+            if left:
+                gaps[name] = left
+        assert not gaps, gaps
+        return (f"{len(tables.axon)} + {len(tables.clusters[0])} + "
+                f"{len(tables.localizations[0])} columns, all described")
+
+    def a_discard_column_says_it_is_one():
+        text = describe("perimeter_um_discard") or ""
+        assert "contour" in text and "discarded" in text, text
+        return text[-52:]
+
+    def a_panel_column_says_where_it_comes_from():
+        text = describe("axoplasm_mask_area_um2") or ""
+        assert text.startswith("From the axoplasm panel."), text
+        return text
+
+    def the_unit_is_read_off_the_name():
+        assert unit_of("perimeter_um") == "um"
+        assert unit_of("median_area_nm2") == "nm^2"
+        assert unit_of("occupancy_percent") == "%"
+        assert unit_of("fraction_inside") == "fraction (0-1)"
+        assert unit_of("perimeter_um_discard") == "um"
+        assert unit_of("gmm_converged") == ""
+        return "nm, um, nm^2, um^2, %, fractions"
+
+    def it_is_written_beside_the_tables():
+        folder = tempfile.mkdtemp(prefix="mps_dictionary_")
+        try:
+            path = write_dictionary(
+                os.path.join(folder, "axons.csv"),
+                {"axon": list(tables.axon)})
+            assert os.path.basename(path) == "axons_columns.csv", path
+            with open(path, encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            assert len(rows) == len(tables.axon), (len(rows),
+                                                   len(tables.axon))
+            assert rows[0]["column"] == "axon_id"
+            assert all(r["meaning"] for r in rows)
+            return f"{len(rows)} rows in {os.path.basename(path)}"
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def an_unknown_column_is_reported():
+        assert missing(["something_new_nm"]) == ["something_new_nm"]
+        assert rows_for(["something_new_nm"], "axon")[0]["meaning"] == ""
+        return "a new column is not silently blank"
+
+    check("every column of the three tables has an entry",
+          nothing_is_undocumented)
+    check("a _discard column says what it is", a_discard_column_says_it_is_one)
+    check("a panel column says where it comes from",
+          a_panel_column_says_where_it_comes_from)
+    check("the unit is read off the name", the_unit_is_read_off_the_name)
+    check("the dictionary is written beside the tables",
+          it_is_written_beside_the_tables)
+    check("a column nothing describes is reported",
+          an_unknown_column_is_reported)
+
+
+# ===========================================================================
+# The layout of the axon table, and Excel
+# ===========================================================================
+
+def test_schema_and_excel() -> None:
+    print("\n--- the columns, and what Excel makes of them ---")
+    from tools.axon_export import AXOPLASM_PREFIX
+    from tools.results_table import excel_copy
+
+    x, y, z, analysis = build()
+    flags = np.zeros(analysis.n_clusters_kept, dtype=bool)
+    flags[:3] = True
+    pair = compare_discard(analysis, flags, margin_nm=250.0,
+                           registration="measured, score 13.5")
+    panel = panel_row(analysis, discarded=3)
+    row = axon_row(pair.all_clusters, identity=IDENT,
+                   discard=pair.discard_applied, axoplasm=panel)
+
+    def the_columns_are_the_layout_and_in_order():
+        expected = (list(HEAD_COLUMNS) + list(STATE_COLUMNS)
+                    + list(SHARED_COLUMNS) + list(MEASURED_COLUMNS)
+                    + [n + DISCARD_SUFFIX for n in MEASURED_COLUMNS]
+                    + [AXOPLASM_PREFIX + n for n in panel
+                       if AXOPLASM_PREFIX + n in row])
+        assert list(row) == expected, [
+            (a, b) for a, b in zip(list(row) + [""] * 5, expected + [""] * 5)
+            if a != b][:4]
+        return f"{len(row)} columns, in the order of the layout"
+
+    def a_row_of_another_layout_is_refused():
+        folder = tempfile.mkdtemp(prefix="mps_schema_")
+        try:
+            path = os.path.join(folder, "axons.csv")
+            append_rows(path, [row])
+            from tools.results_table import TableMismatch
+            trimmed = {k: v for k, v in row.items() if k != "ks_pvalue"}
+            try:
+                append_rows(path, [trimmed])
+            except TableMismatch as error:
+                assert "ks_pvalue" in str(error), error
+                return str(error)[:58]
+            raise AssertionError("a table took a row of other columns")
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def excel_reads_the_copy():
+        folder = tempfile.mkdtemp(prefix="mps_excel_")
+        try:
+            path = os.path.join(folder, "axons.csv")
+            append_rows(path, [row])
+            copy = excel_copy(path)
+            with open(copy, encoding="utf-8-sig") as handle:
+                header, values = list(csv.reader(handle, delimiter=";"))[:2]
+            place = dict(zip(header, values))
+            # The decimal mark is a comma in the copy and a point in the
+            # table; the perimeter is the same number in both.
+            assert "," in place["perimeter_um"], place["perimeter_um"]
+            assert abs(float(place["perimeter_um"].replace(",", "."))
+                       - row["perimeter_um"]) < 1e-9
+            assert abs(float(place["perimeter_um_discard"].replace(",", "."))
+                       - row["perimeter_um_discard"]) < 1e-9
+            # And the text columns are not split by the new separator.
+            assert place["roi"] == row["roi"], place["roi"]
+            return (f"{place['perimeter_um']} um beside "
+                    f"{place['perimeter_um_discard']}")
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def no_cell_holds_the_separator():
+        for name, value in row.items():
+            assert ";" not in str(value or ""), (name, value)
+        return f"{len(row)} cells, none with ';'"
+
+    check("the axon table's columns are the layout, in order",
+          the_columns_are_the_layout_and_in_order)
+    check("a row of another layout is refused, not appended",
+          a_row_of_another_layout_is_refused)
+    check("the copy for Excel keeps the numbers", excel_reads_the_copy)
+    check("no cell holds the separator that copy uses",
+          no_cell_holds_the_separator)
+
+
 def main() -> int:
     print("=" * 72)
     print("AXON TABLE CHECKS")
@@ -745,6 +926,8 @@ def main() -> int:
     test_the_panel_localizations()
     test_analysis_id()
     test_on_disk()
+    test_dictionary()
+    test_schema_and_excel()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")
     print("=" * 72)
