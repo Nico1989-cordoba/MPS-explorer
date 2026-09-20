@@ -833,6 +833,189 @@ def test_dictionary() -> None:
 
 
 # ===========================================================================
+# The three tables say the same thing
+# ===========================================================================
+
+def test_coherence() -> None:
+    print("\n--- the tables agree with each other ---")
+    x, y, z, analysis = build()
+    flags = np.zeros(analysis.n_clusters_kept, dtype=bool)
+    flags[:3] = True
+    pair = compare_discard(analysis, flags, margin_nm=250.0,
+                           registration="measured, score 13.5")
+    labels = sorted({int(v) for v in analysis.labels if v >= 0})
+    panel_clusters = [
+        {"cluster_label": label,
+         "group": "discarded" if i < 3 else
+                  "tubulin only" if i < 5 else "membrane",
+         "inside_tubulin_mask": i < 5,
+         "inside_spectrin_interior": i < 3}
+        for i, label in enumerate(labels)]
+    tables = build_tables(
+        pair.all_clusters, identity=IDENT, discard=pair.discard_applied,
+        axoplasm=panel_row(analysis, discarded=3),
+        axoplasm_clusters=panel_clusters,
+        with_clusters=True, with_localizations=True,
+        x_nm=x, y_nm=y, z_nm=z)
+    row, clusters, locs = tables.axon, tables.clusters, tables.localizations
+
+    def the_localizations_count_what_the_axon_says():
+        assert len(locs) == row["n_locs_total"], (len(locs),
+                                                  row["n_locs_total"])
+        in_slab = sum(1 for r in locs if r["in_slab"])
+        assert in_slab == row["n_locs_slab"], (in_slab, row["n_locs_slab"])
+        return f"{len(locs)} rows, {in_slab} of them in the slab"
+
+    def the_clusters_count_what_the_axon_says():
+        assert len(clusters) == row["n_clusters_kept"], len(clusters)
+        gone = sum(1 for c in clusters if c["discarded"])
+        assert gone == row["n_clusters_discarded"], (gone, row)
+        left = len(clusters) - gone
+        assert left == row["n_clusters_kept" + DISCARD_SUFFIX], left
+        return (f"{len(clusters)} kept, {gone} discarded, "
+                f"{left} left")
+
+    def every_kept_cluster_has_localizations():
+        # Every cluster of the clusters table is in the localizations
+        # table, and nothing is in a cluster that is not in that table.
+        from_locs = {r["cluster_label"] for r in locs
+                     if r["cluster_label"] is not None and r["cluster_kept"]}
+        from_clusters = {c["cluster_label"] for c in clusters}
+        assert from_locs == from_clusters, (
+            sorted(from_clusters - from_locs)[:4],
+            sorted(from_locs - from_clusters)[:4])
+        return f"{len(from_clusters)} clusters on both sides"
+
+    def the_panel_groups_split_the_clusters():
+        counted: dict = {}
+        for c in clusters:
+            counted[c["axoplasm_group"]] = counted.get(
+                c["axoplasm_group"], 0) + 1
+        assert sum(counted.values()) == len(clusters), counted
+        assert None not in counted, counted
+        # And "discarded" is the same set the discard columns mark.
+        gone = {c["cluster_label"] for c in clusters if c["discarded"]}
+        grouped = {c["cluster_label"] for c in clusters
+                   if c["axoplasm_group"] == "discarded"}
+        assert gone == grouped, (sorted(gone), sorted(grouped))
+        return ", ".join(f"{k}: {v}" for k, v in sorted(counted.items()))
+
+    def the_medians_are_the_axon_row_medians():
+        nn = np.array([c["nn_1_nm"] for c in clusters], dtype=float)
+        left = np.array([c["nn_1_nm_discard"] for c in clusters
+                         if not c["discarded"]], dtype=float)
+        assert abs(float(np.median(nn)) - row["median_1nn_nm"]) < 0.2
+        assert abs(float(np.median(left))
+                   - row["median_1nn_nm" + DISCARD_SUFFIX]) < 0.2
+        return (f"1NN {np.median(nn):.1f} nm measured, "
+                f"{np.median(left):.1f} nm with the discard")
+
+    check("the localizations table counts what the axon row says",
+          the_localizations_count_what_the_axon_says)
+    check("the clusters table counts what the axon row says",
+          the_clusters_count_what_the_axon_says)
+    check("the two tables name the same clusters",
+          every_kept_cluster_has_localizations)
+    check("the panel's groups split the clusters, discarded included",
+          the_panel_groups_split_the_clusters)
+    check("both medians are the medians of the clusters table",
+          the_medians_are_the_axon_row_medians)
+
+
+# ===========================================================================
+# What a failure looks like
+# ===========================================================================
+
+def test_partial_states() -> None:
+    print("\n--- half measured is not measured ---")
+    x, y, z, analysis = build()
+
+    def a_panel_whose_mask_is_empty():
+        # What mps_axoplasm.summary_row writes when the tubulin image has
+        # no axon in it: statuses, and empty cells where a measurement
+        # would be. The axon row must pass that through, not fill it in.
+        failed = {
+            "source_localizations": analysis.source_name,
+            "roi": None, "margin_nm": 250.0,
+            "mask_status": "the tubulin mask is empty at this threshold",
+            "mask_area_um2": None, "ring_area_um2": None,
+            "spectrin_interior_status": "no spectrin image",
+            "n_localizations": int(analysis.n_locs_total),
+            "n_localizations_inside": None,
+            "fraction_inside": None,
+            "n_clusters_discarded": None,
+            "discard_registration": None,
+            "n_warnings": 2, "warnings": "empty mask | no spectrin image"}
+        row = axon_row(analysis, identity=IDENT, axoplasm=failed)
+        assert row["axoplasm_measured"] is True
+        assert "empty" in row["axoplasm_mask_status"]
+        for name in ("axoplasm_mask_area_um2", "axoplasm_fraction_inside",
+                     "axoplasm_n_localizations_inside"):
+            assert row[name] is None, (name, row[name])
+        # Nothing invented about the discard either.
+        assert row["discard_applied"] is False
+        assert row["n_clusters_discarded"] is None
+        assert row["discard_registration"] is None
+        return row["axoplasm_mask_status"]
+
+    def a_panel_that_has_not_been_placed():
+        # The images are loaded but not registered: no cluster is sorted,
+        # so the row says so instead of exporting a discard of zero.
+        unplaced = {
+            "source_localizations": analysis.source_name,
+            "registration_source": "none",
+            "mask_status": "ok", "mask_area_um2": 12.5,
+            "n_clusters_discarded": None,
+            "discard_registration": None,
+            "n_warnings": 1,
+            "warnings": "The widefield images are not placed yet"}
+        row = axon_row(analysis, identity=IDENT, axoplasm=unplaced)
+        assert row["axoplasm_registration_source"] == "none"
+        assert row["n_clusters_discarded"] is None
+        assert row["n_clusters_kept" + DISCARD_SUFFIX] is None
+        return "no discard, and the row says why"
+
+    def an_axon_with_no_clusters():
+        # Too few localizations in the slab to cluster at all: a row is
+        # still written, with the counts it does have and empty cells for
+        # everything that needs a cluster.
+        rng = np.random.default_rng(11)
+        few = rng.normal(0.0, 5.0, 12)
+        analysis_empty = analyze_axon(
+            few, few, rng.normal(0.0, 3.0, 12),
+            source_name="empty.hdf5", pixel_size_nm=113.0,
+            pixel_size_source="yaml", min_samples=50,
+            run_randomization=False)
+        row = axon_row(analysis_empty, identity=IDENT)
+        assert row["n_clusters_kept"] == 0, row["n_clusters_kept"]
+        assert row["perimeter_um"] is None
+        assert row["median_1nn_nm"] is None
+        assert row["occupancy_percent"] is None
+        assert row["n_warnings"] >= 1 and "cannot cluster" in row["warnings"]
+        rows, _notes = localization_table(analysis_empty)
+        assert rows == [] or all(r["cluster_label"] is None for r in rows)
+        return row["warnings"][:52]
+
+    def zero_is_never_written_for_not_measured():
+        row = axon_row(analysis, identity=IDENT)
+        empty = [name for name in MEASURED_COLUMNS
+                 if row[name + DISCARD_SUFFIX] is not None]
+        assert not empty, empty
+        # ... and no cell holds a sentinel that reads as a number.
+        for name, value in row.items():
+            assert str(value) not in ("-inf", "inf", "nan"), (name, value)
+        return f"{len(MEASURED_COLUMNS)} empty cells, no -inf, no nan"
+
+    check("a panel whose mask is empty exports the failure, not zeros",
+          a_panel_whose_mask_is_empty)
+    check("a panel that has not been placed discards nothing",
+          a_panel_that_has_not_been_placed)
+    check("an axon with no clusters still gets a row",
+          an_axon_with_no_clusters)
+    check("what was not measured is an empty cell", zero_is_never_written_for_not_measured)
+
+
+# ===========================================================================
 # The layout of the axon table, and Excel
 # ===========================================================================
 
@@ -926,6 +1109,8 @@ def main() -> int:
     test_the_panel_localizations()
     test_analysis_id()
     test_on_disk()
+    test_coherence()
+    test_partial_states()
     test_dictionary()
     test_schema_and_excel()
     print("\n" + "=" * 72)
