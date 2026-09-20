@@ -129,17 +129,21 @@ class ExportAxonDialog(QtWidgets.QDialog):
 
     # -- state -------------------------------------------------------------
 
+    # Converted rather than returned as they come: where PyQt5 has no
+    # stubs -- as in this project's type check -- a widget's value is
+    # Any, and a function that says it returns str would hand one back
+    # unchecked.
     def path(self) -> str:
-        return self.edit_path.text().strip()
+        return str(self.edit_path.text()).strip()
 
     def identity(self) -> Optional[AxonIdentity]:
         return self._identity
 
     def wants_clusters(self) -> bool:
-        return self.chk_clusters.isChecked()
+        return bool(self.chk_clusters.isChecked())
 
     def wants_localizations(self) -> bool:
-        return self.chk_localizations.isChecked()
+        return bool(self.chk_localizations.isChecked())
 
     def _browse(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
