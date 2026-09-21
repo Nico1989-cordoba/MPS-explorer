@@ -1,10 +1,16 @@
 name: Type Check with MyPy
 
+# Every pull request, whatever it is aimed at. The branch filter used to
+# be [main, develop], so a pull request stacked on another feature branch
+# -- how this repository reviews a long piece of work -- showed no checks
+# at all, which reads like "nothing to say" rather than "not run".
+# "edited" is included because changing a pull request's base is an edit:
+# without it, re-aiming a stacked branch at main still ran nothing.
 on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 jobs:
@@ -13,16 +19,16 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.10', '3.14']
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -38,10 +44,29 @@ jobs:
           # which requirements.txt controls separately) keeps the stub
           # syntax compatible with that check.
           pip install mypy "numpy<2.5"
-      
+
+      # The modules that are clean today, and must stay clean. Everything
+      # an export writes is here: a wrong type in these is a wrong number
+      # in a table, or a table that is not written at all.
+      #
+      # --follow-imports=silent: the modules these import are read for
+      # their types but their own errors are not reported here, so a
+      # pre-existing error in a dependency cannot fail a pull request that
+      # did not touch it. The step below counts those instead.
       - name: Run MyPy type checking
         run: |
           python -m mypy \
+            tools/axon_export.py \
+            tools/axon_export_ui.py \
+            tools/column_dictionary.py \
+            tools/mps_identity.py \
+            tools/identity_ui.py \
+            tools/export_ui.py \
+            tools/results_table.py \
+            tools/mps_settings.py \
+            tools/mps_plot_style.py \
+            tools/figure_export.py \
+            tools/figure_export_ui.py \
             tools/clustering.py \
             tools/clustering_strategies.py \
             tools/parallel_clustering.py \
@@ -50,8 +75,23 @@ jobs:
             logging_config.py \
             --ignore-missing-imports \
             --explicit-package-bases \
-            --show-error-codes
-      
+            --show-error-codes \
+            --follow-imports=silent
+
+      # The rest of the program, for the record and not for the verdict.
+      # It carries errors that predate this workflow; failing on them
+      # would make every pull request red and teach everyone to ignore
+      # the colour. The count is printed so a change that adds to it is
+      # visible in the log of the run.
+      - name: Count the errors in the rest of the program
+        continue-on-error: true
+        run: |
+          python -m mypy tools/ MPS_explorer.py \
+            --ignore-missing-imports \
+            --explicit-package-bases \
+            --show-error-codes \
+            | tail -30 || true
+
       - name: Report success
         if: success()
         run: echo "✓ Type checking passed for Python ${{ matrix.python-version }}"
