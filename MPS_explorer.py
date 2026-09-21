@@ -1207,14 +1207,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """
         s = self.mps_settings
 
-        def read(eps: Any, minimum: Any) -> Dict[str, Any]:
+        def read(eps: Any, minimum: Any, eps_default: float,
+                 min_default: float) -> Dict[str, Any]:
             return dict(
-                eps_nm=self._field_parameter(eps, float(s.eps_nm)),
-                min_samples=int(self._field_parameter(
-                    minimum, float(s.min_samples))))
+                eps_nm=self._field_parameter(eps, eps_default),
+                min_samples=int(self._field_parameter(minimum, min_default)))
 
-        return (read(self.ui.lineEdit_eps, self.ui.lineEdit_minsamples),
-                read(self.ui.lineEdit_eps_2, self.ui.lineEdit_minsamples_2))
+        return (read(self.ui.lineEdit_eps, self.ui.lineEdit_minsamples,
+                     float(s.eps_nm), float(s.min_samples)),
+                read(self.ui.lineEdit_eps_2, self.ui.lineEdit_minsamples_2,
+                     float(s.eps_nm_channel2 or s.eps_nm),
+                     float(s.min_samples_channel2 or s.min_samples)))
 
     def show_two_channel_panel(self) -> None:
         """Open the two-channel panel on the two loaded files."""
@@ -1526,14 +1529,22 @@ class MPS_explorer(QtWidgets.QMainWindow):
         take precedence, and what was restored is logged.
         """
         s = self.mps_settings
-        for widget in (self.ui.lineEdit_eps, self.ui.lineEdit_eps_2):
-            widget.setText(f"{s.eps_nm:g}")
-        for widget in (self.ui.lineEdit_minsamples, self.ui.lineEdit_minsamples_2):
-            widget.setText(f"{int(s.min_samples)}")
+        self.ui.lineEdit_eps.setText(f"{s.eps_nm:g}")
+        self.ui.lineEdit_minsamples.setText(f"{int(s.min_samples)}")
+        # Channel 2 gets its OWN stored value, and channel 1's only when
+        # it has none. Seeding it from channel 1 while saving only
+        # channel 1 is how a value typed for the partner protein used to
+        # revert at the next launch without a word.
+        eps2 = s.eps_nm_channel2 or s.eps_nm
+        min2 = s.min_samples_channel2 or s.min_samples
+        self.ui.lineEdit_eps_2.setText(f"{eps2:g}")
+        self.ui.lineEdit_minsamples_2.setText(f"{int(min2)}")
         self.logger.info(
             f"MPS settings restored: eps={s.eps_nm:g} nm, "
             f"min_samples={int(s.min_samples)}, "
-            f"slab half-width={s.slab_half_width_nm:g} nm"
+            f"slab half-width={s.slab_half_width_nm:g} nm; channel 2 "
+            f"eps={eps2:g} nm, min_samples={int(min2)}"
+            + ("" if s.eps_nm_channel2 else " (inherited from channel 1)")
         )
 
     def _persist_mps_settings(self) -> None:
@@ -1542,6 +1553,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.mps_settings.eps_nm = float(self.ui.lineEdit_eps.text())
             self.mps_settings.min_samples = int(
                 float(self.ui.lineEdit_minsamples.text()))
+        except (ValueError, AttributeError):
+            pass
+        try:
+            self.mps_settings.eps_nm_channel2 = float(
+                self.ui.lineEdit_eps_2.text())
+            self.mps_settings.min_samples_channel2 = int(
+                float(self.ui.lineEdit_minsamples_2.text()))
         except (ValueError, AttributeError):
             # "auto" or a malformed entry: keep whatever was stored before
             # rather than writing a value the analysis never actually used.

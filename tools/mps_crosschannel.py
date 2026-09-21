@@ -86,6 +86,17 @@ from tools.mps_registration import (
 # range.
 PHASE_UNCERTAINTY_WARN = 0.1
 
+# One lateral resolution cell, near the median localization precision of
+# this data (lpx medians of 15 to 27 nm across the real files). Used only
+# to compare how densely the two channels are sampled, never to cluster.
+RESOLUTION_CELL_NM = 20.0
+# Above this ratio of localizations per cell, channel B is sampled in a
+# different regime from channel A and cannot share its min_samples --
+# which counts localizations, not molecules. Measured over the five real
+# adducin files the ratio is 12 to 138 in four of them and about 1 in the
+# fifth, so there is no single number that fits both.
+OVERSAMPLING_WARN = 3.0
+
 
 # ============================================================================
 # Axial phase relationship
@@ -290,6 +301,31 @@ class CrossChannelResult:
     radial: Optional["RadialOffsetResult"] = None
     registration: Registration = field(default_factory=lambda: NO_REGISTRATION)
     warnings: List[str] = field(default_factory=list)
+
+
+def locs_per_cell(x: NDArray[np.float64], y: NDArray[np.float64],
+                  radius_nm: float = RESOLUTION_CELL_NM,
+                  sample: int = 2000, seed: int = 0) -> Optional[float]:
+    """
+    Median localizations within one resolution cell of a localization.
+
+    How densely a channel is sampled, in the unit ``min_samples``
+    actually counts. Subsampled, because the median of a few thousand
+    points is the same number and the full query is not free.
+    """
+    pts = np.column_stack([np.asarray(x, float).ravel(),
+                           np.asarray(y, float).ravel()])
+    if len(pts) < 2:
+        return None
+    tree = cKDTree(pts)
+    if len(pts) > sample:
+        rng = np.random.default_rng(seed)
+        probe = pts[rng.choice(len(pts), size=sample, replace=False)]
+    else:
+        probe = pts
+    counts = tree.query_ball_point(probe, r=float(radius_nm),
+                                   return_length=True)
+    return float(np.median(counts))
 
 
 def _radii(centroids: NDArray[np.float64], center: NDArray[np.float64]):
@@ -916,6 +952,21 @@ def cross_channel_transverse(
         slab = (ra.main_peak_nm - slab_half_width_nm,
                 ra.main_peak_nm + slab_half_width_nm)
 
+    # Channel B inherits channel A's clustering parameters whenever
+    # nothing overrides them. That is an assumption about the partner
+    # protein's density, not a measurement of it, so it is measured here
+    # and said out loud rather than made quietly.
+    inherited = [name for name in ("eps_nm", "min_samples")
+                 if name in analyze_kwargs and name not in (analyze_kwargs_b
+                                                            or {})]
+    if inherited:
+        warnings_.append(
+            f"Channel B was clustered with channel A's "
+            f"{' and '.join(inherited)}: nothing set its own. On one real "
+            f"pair, moving channel B from 25 nm / 10 to 10 nm / 5 changed "
+            f"its cluster count from 13 to 35 and the median heterotypic "
+            f"distance from 280 to 223 nm.")
+
     an_a = an_b = None
     try:
         an_a = analyze_axon(xa, ya, za, slab_override=slab,
@@ -929,6 +980,24 @@ def cross_channel_transverse(
                             **kwargs_b)
     except Exception as exc:                              # noqa: BLE001
         warnings_.append(f"Channel B analysis failed: {exc}")
+
+    if an_a is not None and an_b is not None:
+        cell_a = locs_per_cell(an_a.x_slab, an_a.y_slab)
+        cell_b = locs_per_cell(an_b.x_slab, an_b.y_slab)
+        if cell_a and cell_b:
+            ratio = cell_b / cell_a
+            same = (kwargs_b.get("min_samples", analyze_kwargs.get("min_samples"))
+                    == analyze_kwargs.get("min_samples"))
+            if ratio >= OVERSAMPLING_WARN or ratio <= 1.0 / OVERSAMPLING_WARN:
+                warnings_.append(
+                    f"The two channels are sampled in different regimes: "
+                    f"within {RESOLUTION_CELL_NM:g} nm of a localization "
+                    f"there are {cell_a:.0f} of channel A's and "
+                    f"{cell_b:.0f} of channel B's, a factor of "
+                    f"{max(ratio, 1 / ratio):.0f}."
+                    + (" min_samples counts localizations, so the same "
+                       "value does not mean the same thing in both."
+                       if same else ""))
 
     ca = an_a.centroids if an_a is not None else np.empty((0, 2))
     cb = an_b.centroids if an_b is not None else np.empty((0, 2))

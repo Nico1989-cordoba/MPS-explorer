@@ -66,6 +66,15 @@ class MPSSettings:
 
     eps_nm: float = DEFAULT_EPS_NM
     min_samples: int = DEFAULT_MIN_SAMPLES
+    # Channel 2's own, stored separately because they are not channel
+    # 1's. Until 2026-09-20 both fields were seeded from the pair above
+    # and only channel 1's was read back, so a value typed for channel 2
+    # reverted at the next launch without saying so. 0 means "never set",
+    # in which case channel 2 falls back to channel 1's -- an assumption
+    # about the partner protein's density, which the two-channel panel
+    # now measures and reports rather than making quietly.
+    eps_nm_channel2: float = 0.0
+    min_samples_channel2: int = 0
     slab_half_width_nm: float = DEFAULT_SLAB_HALF_WIDTH_NM
     dbcv_threshold: float = DEFAULT_DBCV_THRESHOLD
     mahalanobis_threshold: float = DEFAULT_MAHALANOBIS_THRESHOLD
@@ -134,6 +143,29 @@ class MPSSettings:
                 "Stored mahalanobis_threshold=%r out of range; using %s",
                 self.mahalanobis_threshold, DEFAULT_MAHALANOBIS_THRESHOLD)
             self.mahalanobis_threshold = DEFAULT_MAHALANOBIS_THRESHOLD
+        # 0 is the legal "never set"; anything else has to be a usable
+        # parameter or it is dropped rather than clamped, because a
+        # clamped clustering radius is a number nobody chose.
+        try:
+            eps2 = float(self.eps_nm_channel2)
+        except (TypeError, ValueError):
+            eps2 = 0.0
+        if eps2 != 0.0 and not (0 < eps2 <= 1000):
+            logger.warning(
+                "Stored eps_nm_channel2=%r out of range; channel 2 will be "
+                "asked for again", self.eps_nm_channel2)
+            eps2 = 0.0
+        self.eps_nm_channel2 = eps2
+        try:
+            min2 = int(float(self.min_samples_channel2))
+        except (TypeError, ValueError):
+            min2 = 0
+        if min2 != 0 and not (1 <= min2 <= 10000):
+            logger.warning(
+                "Stored min_samples_channel2=%r out of range; channel 2 "
+                "will be asked for again", self.min_samples_channel2)
+            min2 = 0
+        self.min_samples_channel2 = min2
         if not isinstance(self.picasso_path, str):
             self.picasso_path = ""
         for name in ("last_open_dir", "last_export_dir",
