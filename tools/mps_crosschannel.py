@@ -67,6 +67,7 @@ from tools.mps_occupancy import SIGMA_CAP_FRACTION, compute_occupancy
 from tools.mps_periodicity import (
     DEFAULT_SLAB_HALF_WIDTH_NM,
     ZPeriodicityResult,
+    density_valleys,
     fit_z_periodicity,
 )
 from tools.mps_randomization import (
@@ -107,6 +108,14 @@ class AxialPhaseResult:
     # The axial registration error as a fraction of the period, or None
     # when either is unknown.
     phase_uncertainty: Optional[float] = None
+    # Whether each channel's axial density actually dips between the
+    # components the mixture fitted. A mixture will split one broad
+    # distribution into two components whether or not anything separates
+    # them, and the spacing between those two is then a number with no
+    # periodicity behind it. None when there are fewer than two
+    # components to separate.
+    peaks_separated_a: Optional[bool] = None
+    peaks_separated_b: Optional[bool] = None
     warnings: List[str] = field(default_factory=list)
 
     @property
@@ -114,6 +123,11 @@ class AxialPhaseResult:
         """Descriptive label only -- never a biological conclusion."""
         f = self.phase_fraction
         if f is None:
+            return "undetermined"
+        if self.peaks_separated_a is False:
+            # The period this fraction is expressed against was measured
+            # on a channel whose axial density never dips. Naming the
+            # result "antiphase" would dress that up as a finding.
             return "undetermined"
         if f < 0.15:
             return "near in-phase"
@@ -178,6 +192,33 @@ def axial_phase(
             "offset cannot be expressed as a phase."
         )
 
+    # Does either channel's axial density actually separate the
+    # components the mixture fitted? Measured on the 18-axon dataset,
+    # more than half of the boundaries have no interior minimum at all,
+    # so this is the common case rather than the exception.
+    separated: Dict[str, Optional[bool]] = {}
+    for tag, fitted in (("a", ra), ("b", rb)):
+        try:
+            valleys = density_valleys(fitted)
+        except Exception:                                 # noqa: BLE001
+            separated[tag] = None
+            continue
+        if valleys.n_boundaries == 0:
+            separated[tag] = None
+        else:
+            separated[tag] = bool(np.any(valleys.is_true_valley))
+    if separated.get("a") is False:
+        warnings_.append(
+            "[ch A] The axial density never dips between the components "
+            "fitted to it: there is no evidence in the profile that these "
+            "are separate rings rather than one broad distribution the "
+            "mixture split. The period, and any phase expressed against "
+            "it, rest on that split.")
+    if separated.get("b") is False:
+        warnings_.append(
+            "[ch B] The same: channel B's axial density has no interior "
+            "minimum between its components.")
+
     uncertainty: Optional[float] = None
     axial_error = registration.axial_rms_nm
     if axial_error is None:
@@ -199,7 +240,9 @@ def axial_phase(
         offset_nm=offset, period_a_nm=pa, period_b_nm=pb,
         period_used_nm=period, phase_fraction=frac,
         z_result_a=ra, z_result_b=rb, registration=registration,
-        phase_uncertainty=uncertainty, warnings=warnings_,
+        phase_uncertainty=uncertainty,
+        peaks_separated_a=separated.get("a"),
+        peaks_separated_b=separated.get("b"), warnings=warnings_,
     )
 
 
@@ -243,6 +286,8 @@ class CrossChannelResult:
     registration_rms_nm: Optional[float]
     # How much of channel A's covered perimeter channel B also covers.
     shared: Optional["SharedOccupancyResult"] = None
+    # How far inside or outside A's contour channel B's clusters sit.
+    radial: Optional["RadialOffsetResult"] = None
     registration: Registration = field(default_factory=lambda: NO_REGISTRATION)
     warnings: List[str] = field(default_factory=list)
 
@@ -661,6 +706,156 @@ def shared_occupancy(
     )
 
 
+# ============================================================================
+# Where the partner sits relative to the spectrin outline
+# ============================================================================
+#
+# The shared occupancy says how much of the ring the partner covers. It
+# does not distinguish "the partner is not there" from "the partner is
+# there, 267 nm further in" -- both give the same zero. This does: for
+# each channel-B cluster, the signed distance from its centre to channel
+# A's contour, negative towards the inside of the axon.
+#
+# The contour is not a membrane. It is a polyline through channel A's own
+# cluster centres, so channel A's own localizations straddle it: measured
+# on the one real pair in the repo, 62.6 % of them fall outside their own
+# contour, median +12.9 nm. A channel-B offset therefore means nothing
+# read alone, and channel A's own offsets are returned beside it as the
+# reference they have to be read against.
+
+
+@dataclass
+class RadialOffsetResult:
+    """Signed distances from channel B to channel A's contour, in nm.
+
+    Negative is towards the inside of the axon. Everything here is None
+    or empty when ``reason`` says why nothing could be measured.
+    """
+
+    offsets_nm: NDArray[np.float64]        # one per channel-B cluster centre
+    median_nm: Optional[float]
+    iqr_nm: Optional[Tuple[float, float]]
+    n_inside: int
+    n_outside: int
+    # The same measurement on channel A's OWN slab localizations: the
+    # width of the contour's own scatter, which any channel-B offset has
+    # to be larger than to mean anything.
+    reference_median_nm: Optional[float]
+    reference_iqr_nm: Optional[Tuple[float, float]]
+    reason: str = ""
+    warnings: List[str] = field(default_factory=list)
+
+
+def _segment_distances(points: NDArray[np.float64],
+                       contour: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Distance from each point to the closed polyline, in nm."""
+    a = contour
+    b = np.roll(contour, -1, axis=0)
+    ab = b - a                                            # (K, 2)
+    length2 = np.einsum("ij,ij->i", ab, ab)
+    length2 = np.where(length2 == 0.0, 1.0, length2)
+    # (N, K, 2) would be large for 10,000 points; loop over segments
+    # instead, which is K passes over N points.
+    best = np.full(len(points), np.inf)
+    for k in range(len(a)):
+        ap = points - a[k]
+        t = np.clip((ap @ ab[k]) / length2[k], 0.0, 1.0)
+        d = ap - np.outer(t, ab[k])
+        best = np.minimum(best, np.hypot(d[:, 0], d[:, 1]))
+    return best
+
+
+def _inside_polygon(points: NDArray[np.float64],
+                    contour: NDArray[np.float64]) -> NDArray[np.bool_]:
+    """Ray casting: whether each point is enclosed by the closed polyline."""
+    x, y = points[:, 0], points[:, 1]
+    inside = np.zeros(len(points), dtype=bool)
+    x1, y1 = contour[:, 0], contour[:, 1]
+    x2, y2 = np.roll(x1, -1), np.roll(y1, -1)
+    for k in range(len(contour)):
+        # A horizontal ray to +x crosses this edge when the edge spans the
+        # point's y and the crossing is to its right.
+        spans = (y1[k] > y) != (y2[k] > y)
+        if not spans.any():
+            continue
+        with np.errstate(divide="ignore", invalid="ignore"):
+            cross_x = (x2[k] - x1[k]) * (y - y1[k]) / (y2[k] - y1[k]) + x1[k]
+        inside ^= spans & (x < cross_x)
+    return inside
+
+
+def signed_offsets(points: NDArray[np.float64],
+                   contour: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Signed distance of each point to a closed contour; inside is negative."""
+    pts = np.asarray(points, dtype=float).reshape(-1, 2)
+    if pts.size == 0 or len(contour) < 3:
+        return np.array([])
+    d = _segment_distances(pts, np.asarray(contour, dtype=float))
+    return np.where(_inside_polygon(pts, np.asarray(contour, dtype=float)),
+                    -d, d)
+
+
+def radial_offsets(
+    analysis_a: Optional[AxonAnalysis],
+    analysis_b: Optional[AxonAnalysis],
+) -> RadialOffsetResult:
+    """
+    How far inside or outside channel A's contour channel B's clusters sit.
+
+    Returns a RadialOffsetResult whose ``reason`` is non-empty when the
+    pair could not be measured. Channel A's own localizations are
+    measured the same way and returned as the reference: the contour runs
+    through channel A's cluster CENTRES, so its own data straddles it, and
+    a channel-B offset inside that scatter is not a displacement.
+    """
+    empty: Dict[str, Any] = dict(
+        offsets_nm=np.array([]), median_nm=None, iqr_nm=None,
+        n_inside=0, n_outside=0,
+        reference_median_nm=None, reference_iqr_nm=None)
+    if analysis_a is None or analysis_a.perimeter is None:
+        return RadialOffsetResult(
+            **empty, reason="channel A has no contour to measure against")
+    if analysis_b is None or analysis_b.centroids.size == 0:
+        return RadialOffsetResult(**empty, reason="channel B has no clusters")
+
+    contour = np.asarray(analysis_a.perimeter.contour, dtype=float)
+    if len(contour) < 3:
+        return RadialOffsetResult(
+            **empty,
+            reason="channel A's contour has fewer than three vertices")
+
+    offsets = signed_offsets(analysis_b.centroids, contour)
+    reference = signed_offsets(
+        np.column_stack([analysis_a.x_slab, analysis_a.y_slab]), contour)
+
+    def summary(values):
+        if values.size == 0:
+            return None, None
+        return (float(np.median(values)),
+                (float(np.percentile(values, 25)),
+                 float(np.percentile(values, 75))))
+
+    median, iqr = summary(offsets)
+    ref_median, ref_iqr = summary(reference)
+
+    warnings_: List[str] = []
+    if median is not None and ref_iqr is not None:
+        spread = ref_iqr[1] - ref_iqr[0]
+        if spread > 0 and abs(median) < 0.5 * spread:
+            warnings_.append(
+                f"Channel B sits {median:+.0f} nm from channel A's contour, "
+                f"which is inside the contour's own scatter (channel A's "
+                f"localizations span {spread:.0f} nm between quartiles). "
+                f"That is not a displacement.")
+
+    return RadialOffsetResult(
+        offsets_nm=offsets, median_nm=median, iqr_nm=iqr,
+        n_inside=int(np.count_nonzero(offsets < 0)),
+        n_outside=int(np.count_nonzero(offsets > 0)),
+        reference_median_nm=ref_median, reference_iqr_nm=ref_iqr,
+        warnings=warnings_)
+
+
 def cross_channel_transverse(
     x_a: NDArray[np.float64], y_a: NDArray[np.float64], z_a: NDArray[np.float64],
     x_b: NDArray[np.float64], y_b: NDArray[np.float64], z_b: NDArray[np.float64],
@@ -829,6 +1024,10 @@ def cross_channel_transverse(
             f"No shared perimeter occupancy: {shared.reason}.")
     warnings_.extend(shared.warnings)
 
+    # ---- where channel B sits relative to that contour ---------------
+    radial = radial_offsets(an_a, an_b)
+    warnings_.extend(radial.warnings)
+
     for an, tag in ((an_a, "ch A"), (an_b, "ch B")):
         if an is not None:
             warnings_.extend(f"[{tag}] {w}" for w in an.warnings
@@ -844,7 +1043,7 @@ def cross_channel_transverse(
         angular_nn_median_deg=ang_med, best_rotation_deg=best_rot,
         max_correlation=max_corr, rotation_fraction_of_spacing=rot_frac,
         median_radius_a_nm=rad_a, median_radius_b_nm=rad_b,
-        registration_rms_nm=lateral_error, shared=shared,
+        registration_rms_nm=lateral_error, shared=shared, radial=radial,
         registration=registration,
         warnings=warnings_,
     )
@@ -878,6 +1077,8 @@ def export_cross_channel(
         "axial_phase_fraction": None if a is None else a.phase_fraction,
         "axial_phase_uncertainty": None if a is None else a.phase_uncertainty,
         "axial_phase_label": None if a is None else a.interpretation_hint,
+        "axial_peaks_separated_a": None if a is None else a.peaks_separated_a,
+        "axial_peaks_separated_b": None if a is None else a.peaks_separated_b,
     })
     t = transverse
     row.update({
@@ -945,5 +1146,19 @@ def export_cross_channel(
         "registration_band_lo_shared_of_a": None if band is None else band[0],
         "registration_band_hi_shared_of_a": None if band is None else band[1],
         "shared_not_measured_because": "" if s is None else s.reason,
+    })
+    rad = t.radial if t is not None else None
+    r_iqr = rad.iqr_nm if rad is not None else None
+    ref_iqr = rad.reference_iqr_nm if rad is not None else None
+    row.update({
+        "radial_offset_b_median_nm": None if rad is None else rad.median_nm,
+        "radial_offset_b_q1_nm": None if r_iqr is None else r_iqr[0],
+        "radial_offset_b_q3_nm": None if r_iqr is None else r_iqr[1],
+        "n_clusters_b_inside_contour": None if rad is None else rad.n_inside,
+        "n_clusters_b_outside_contour": None if rad is None else rad.n_outside,
+        "radial_offset_a_median_nm":
+            None if rad is None else rad.reference_median_nm,
+        "radial_offset_a_q1_nm": None if ref_iqr is None else ref_iqr[0],
+        "radial_offset_a_q3_nm": None if ref_iqr is None else ref_iqr[1],
     })
     return row

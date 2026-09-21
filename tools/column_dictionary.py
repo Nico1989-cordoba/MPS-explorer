@@ -344,6 +344,13 @@ CROSSCHANNEL: Dict[str, str] = {
     "axial_phase_uncertainty": "The axial registration error as a fraction of "
                                "the period. A phase measured below this is "
                                "not measured.",
+    "axial_peaks_separated_a": "Whether channel A's axial density actually "
+                               "dips between the components fitted to it. "
+                               "False means the mixture split one broad "
+                               "distribution, and the period rests on that "
+                               "split; the phase label then reads "
+                               "undetermined whatever the fraction is.",
+    "axial_peaks_separated_b": "The same for channel B.",
     "axial_phase_label": "A word for the fraction, never a conclusion: near "
                          "in-phase, intermediate, near antiphase.",
 
@@ -397,6 +404,25 @@ CROSSCHANNEL: Dict[str, str] = {
     "median_radius_a_nm": "Median distance of channel A's clusters from the "
                           "contour centre.",
     "median_radius_b_nm": "The same for channel B's.",
+
+    # --- where channel B sits relative to channel A's outline
+    "radial_offset_b_median_nm": "Median signed distance from channel B's "
+                                 "cluster centres to channel A's contour. "
+                                 "Negative is towards the inside of the "
+                                 "axon. This is what tells 'the partner is "
+                                 "not there' apart from 'the partner is "
+                                 "there, further in'.",
+    "radial_offset_b_q1_nm": "First quartile of those distances.",
+    "radial_offset_b_q3_nm": "Third quartile.",
+    "n_clusters_b_inside_contour": "Channel B clusters inside the contour.",
+    "n_clusters_b_outside_contour": "Channel B clusters outside it.",
+    "radial_offset_a_median_nm": "The same measurement on channel A's OWN "
+                                 "localizations: the contour runs through "
+                                 "channel A's cluster centres, so its own "
+                                 "data straddles it. Read channel B's offset "
+                                 "against this, never alone.",
+    "radial_offset_a_q1_nm": "First quartile of channel A's own offsets.",
+    "radial_offset_a_q3_nm": "Third quartile of them.",
 
     # --- shared perimeter occupancy
     "shared_of_a": "THE headline: the fraction of the perimeter covered by "
