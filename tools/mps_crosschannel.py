@@ -457,7 +457,7 @@ def _ellipse_mask(ellipses: Sequence[Any], probes: NDArray[np.float64],
     return covered
 
 
-def _kept_labels(analysis: AxonAnalysis) -> set:
+def _excluded_labels(analysis: AxonAnalysis) -> set:
     """The clusters an analysis removed, automatically or by hand."""
     return set(analysis.bad_report.bad_labels) | set(analysis.discarded_labels)
 
@@ -557,7 +557,7 @@ def shared_occupancy(
     occ_b = compute_occupancy(
         analysis_b.x_slab, analysis_b.y_slab, analysis_b.labels,
         analysis_a.perimeter.contour,
-        exclude_labels=_kept_labels(analysis_b),
+        exclude_labels=_excluded_labels(analysis_b),
         n_points=occ_a.n_points,
         mahalanobis_threshold=threshold,
         sigma_cap_fraction=SIGMA_CAP_FRACTION,
