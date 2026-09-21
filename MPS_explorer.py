@@ -13,7 +13,9 @@ pyuic5 -x data_explorer.ui -o data_explorer.py
 
 import os
 import sys
-from typing import Callable, Optional, Tuple, List, Dict, Union, Any, NamedTuple
+from collections import OrderedDict
+from typing import (Callable, Optional, Tuple, List, Dict, Union, Any,
+                    NamedTuple, Sequence)
 from pathlib import Path
 import logging
 import traceback
@@ -48,7 +50,7 @@ from tools.cluster_quality import (
 )
 from tools.mps_analysis import analyze_axon
 from tools.mps_periodicity import fit_z_periodicity
-from tools import mps_file_drop, mps_io
+from tools import mps_file_drop, mps_io, mps_pixel_size
 from tools.mps_picasso_tools import PicassoTools
 from tools import mps_plot_style as plot_style
 from tools.mps_tooltips import MAIN_WINDOW, apply_tooltips
@@ -112,11 +114,18 @@ if sys.platform == "win32":
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 
+# How many discarded sets to remember per analysis. Dragging the
+# axoplasm panel's margin over a cluster and back used to re-run the
+# 1000-iteration randomization each way; this covers a drag that
+# crosses three clusters and returns.
+DISCARD_CACHE_SIZE = 8
+
+
 class _HeldDiscard(NamedTuple):
     """The MPS analysis with and without the discarded clusters."""
 
-    base: Any          # the AxonAnalysis it was computed from
-    key: bytes         # which clusters were discarded
+    base: Any                    # the AxonAnalysis it was computed from
+    key: Tuple[int, bytes]       # how many clusters, and which went
     comparison: Any    # tools.mps_analysis.DiscardComparison
 
 
@@ -411,6 +420,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # The same analysis with all its clusters and without the ones the
         # axoplasm panel found inside the axon (a _HeldDiscard), or None.
         self.mps_discard: Optional[Any] = None
+        # Every discarded set already computed for the current analysis.
+        # Dragging the margin over one cluster and back used to re-run
+        # the 1000-iteration randomization each way; eight entries covers
+        # a drag that crosses three clusters and returns. They hold
+        # references to the slab arrays already in memory, not copies.
+        self._discard_cache: "OrderedDict[Tuple[int, bytes], Any]" = \
+            OrderedDict()
+        self._discard_cache_base: Any = None
         self.mps_window: Optional[Any] = None        # results window (kept alive)
         self.rings_window: Optional[Any] = None      # multi-segment panel
         # Which axon the loaded file is, in the experiment's own terms, and
@@ -913,6 +930,15 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if identity is None:
             return None
 
+        # Before anything is read: a drag left within the last 250 ms
+        # still owes the panel a recompute, and what is written has to be
+        # what the controls now say. This has to happen BEFORE the
+        # discard is bound below -- flushing after it would hand the
+        # export a stale discard beside a fresh panel, which is exactly
+        # the disagreement axon_export refuses on.
+        if self.axoplasm_window is not None:
+            self.axoplasm_window.flush()
+
         comparison = self._discard_for(analysis)
         measured = (comparison.all_clusters if comparison is not None
                     else analysis)
@@ -1366,14 +1392,25 @@ class MPS_explorer(QtWidgets.QMainWindow):
         held = self.mps_discard
         if held is not None and held.base is not analysis:
             held = None
+        # A key says only which clusters went, so two analyses must never
+        # share one: the cache belongs to an analysis and is dropped with
+        # it.
+        if self._discard_cache_base is not analysis:
+            self._discard_cache.clear()
+            self._discard_cache_base = analysis
         comparison: Optional[Any] = None
         current = self._current_cluster_centroids()
         if (found is not None and centroids is not None
                 and current is not None and analysis is not None
                 and np.array_equal(np.asarray(centroids, float), current)):
-            key = np.asarray(found.discarded, bool).tobytes()
-            if held is not None and held.key == key:
-                comparison = held.comparison
+            flags = np.asarray(found.discarded, bool).ravel()
+            key = (int(flags.size), flags.tobytes())
+            cached = (held.comparison if (held is not None
+                                          and held.key == key)
+                      else self._discard_cache.get(key))
+            if cached is not None:
+                self._discard_cache.move_to_end(key, last=True)
+                comparison = cached
                 applied = comparison.discard_applied
                 if (applied.discard_margin_nm != found.margin_nm
                         or applied.discard_registration != found.registration):
@@ -1412,6 +1449,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if comparison is not None:
                 held = _HeldDiscard(base=analysis, key=key,
                                     comparison=comparison)
+                self._discard_cache[key] = comparison
+                self._discard_cache.move_to_end(key, last=True)
+                while len(self._discard_cache) > DISCARD_CACHE_SIZE:
+                    self._discard_cache.popitem(last=False)
             else:
                 held = None
         else:
@@ -2186,37 +2227,76 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """
         return mps_io.read_pixel_size(hdf5_filename)
 
-    def _ask_user_for_pixel_size(self) -> float:
+    def _ask_user_for_pixel_size(
+            self,
+            candidates: Sequence[mps_pixel_size.Candidate] = (),
+            notes: Sequence[str] = ()) -> Optional[float]:
         """
-        Prompts the user for the pixel size when it cannot be read from the YAML.
-        Defaults to 113 nm (Hamamatsu ORCA-Flash 4.0 with 2x2 binning, the most
-        common configuration) and falls back to 133 nm if the user cancels,
-        preserving original behavior with a visible warning.
+        Ask for the pixel size of a file that does not carry one.
 
-        Returns
-        -------
-        float
-            Pixel size in nm.
+        Called by ``mps_pixel_size.resolve`` only after the search of the
+        surrounding folders came back with nothing, or with more than one
+        answer. Those are shown, because when two neighbouring files
+        record different pixel sizes the person is the only one who can
+        say which acquisition this file belongs to.
+
+        Returns the value in nanometres, or None if the user did not give
+        one -- in which case the caller must refuse the file.
+
+        Nothing is filled in for them, not even a single candidate. This
+        box used to open with 113 nm already typed, which is the value of
+        a DIFFERENT microscope, and a pre-filled number is a wrong answer
+        that one Enter accepts. On Cancel it used to load the file at
+        133 nm with a warning: a fallback is a wrong answer that a Cancel
+        accepts. Either way the program carried on and every lateral
+        distance was rescaled, and every cluster area rescaled by the
+        square, without anything ever raising.
+
+        Every other path in this program refuses a file whose pixel size
+        cannot be read. This one does now too.
         """
         from PyQt5.QtWidgets import QInputDialog
-        value, ok = QInputDialog.getDouble(
+
+        if candidates:
+            found = (
+                mps_pixel_size.describe(candidates, notes) + "\n\n"
+                "Type the one that belongs to this file, in nanometres.\n"
+                "They are not filled in: only you know which acquisition\n"
+                "this file came from.\n\n")
+        else:
+            found = (
+                "This file carries no pixel size: there is no Picasso YAML\n"
+                "beside it and no '/metadata' inside it, and nothing in\n"
+                "the folders around it records one either.\n\n"
+                "Type the effective pixel size in nanometres -- the camera\n"
+                "pixel divided by the magnification, as the acquisition\n"
+                "software reports it. Nothing is filled in on purpose: a\n"
+                "number from another microscope would rescale every distance\n"
+                "this program measures.\n\n")
+
+        text, ok = QInputDialog.getText(
             self,
             "Pixel size required",
-            "Could not read pixel size from YAML.\n"
-            "Please enter the effective pixel size in nm:",
-            value=113.0, min=1.0, max=1000.0, decimals=2
+            found +
+            "It will be remembered for the other files in this folder.\n"
+            "Leave it empty to open nothing.",
         )
-        if ok:
-            return value
-        else:
+        if not ok or not text.strip():
+            return None
+        try:
+            value = float(text.strip().replace(",", "."))
+        except ValueError:
             QtWidgets.QMessageBox.warning(
-                self, "Using default pixel size",
-                "No pixel size provided. Falling back to 133 nm.\n"
-                "WARNING: this is the original hardcoded value and may not\n"
-                "match your optical system. All distances will be miscalibrated\n"
-                "if the true pixel size differs from 133 nm."
-            )
-            return 133.0
+                self, "Pixel size",
+                f"{text!r} is not a number, so nothing was opened.")
+            return None
+        if not 1.0 <= value <= 1000.0:
+            QtWidgets.QMessageBox.warning(
+                self, "Pixel size",
+                f"{value:g} nm is outside the range this program will "
+                f"accept (1 to 1000 nm), so nothing was opened.")
+            return None
+        return value
 
     def import_file(
         self,
@@ -2258,20 +2338,43 @@ class MPS_explorer(QtWidgets.QMainWindow):
         except ValueError as error:
             if "pixel size" not in str(error).lower():
                 raise
-            # Neither a YAML sidecar nor an embedded '/metadata'. Whatever
-            # the user types (or the fallback) is a guess. Record that,
-            # because a wrong pixel size rescales every lateral distance
-            # and squares into the cluster areas without ever raising.
-            guessed = self._ask_user_for_pixel_size()
+            # Neither a YAML sidecar nor an embedded '/metadata'. Look
+            # around before asking: the siblings of this file usually
+            # kept the metadata it lost, and the movie is often a folder
+            # up. Whatever comes back is still an inference about which
+            # acquisition this file belongs to, so it is recorded as one
+            # -- a wrong pixel size rescales every lateral distance and
+            # squares into the cluster areas without ever raising.
+            resolution, notes = mps_pixel_size.resolve(
+                filename, self.mps_settings.pixel_size_by_folder,
+                self._ask_user_for_pixel_size)
+            for note in notes:
+                self.logger.info(note)
+            guessed = None if resolution is None else resolution.nm
+            if guessed is None:
+                # Refusing is the only honest answer: without a pixel
+                # size every number this program would go on to write is
+                # in the wrong units. Raising rather than returning, so
+                # the caller's own "was not loaded" path runs and the
+                # previously loaded file stays as it was.
+                raise ValueError(
+                    "it carries no pixel size -- no Picasso YAML beside "
+                    "it and no '/metadata' inside it -- and none was "
+                    "found near it or given, so nothing was loaded")
             loc = mps_io.load_localizations(
                 filename, fileformat, pixel_size_nm=guessed
             )
-            loc.pixel_size_source = "manual"
+            assert resolution is not None       # guessed is not None
+            loc.pixel_size_source = resolution.token
+            if resolution.token == "manual":
+                # Typed just now: keep it for the rest of this folder.
+                save_settings(self.mps_settings)
             self.logger.warning(
                 f"No Picasso metadata for {os.path.basename(filename)} "
                 f"(no YAML sidecar and no embedded '/metadata'); pixel size "
-                f"{guessed} nm was supplied manually. All lateral distances "
-                f"scale with it and cluster areas scale with its square."
+                f"{guessed} nm was {resolution.source}. All lateral "
+                f"distances scale with it and cluster areas scale with its "
+                f"square."
             )
 
         self.pxsize = loc.pixel_size_nm

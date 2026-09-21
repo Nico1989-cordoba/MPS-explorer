@@ -81,7 +81,9 @@ ANALYSIS: Dict[str, str] = {
     "pixel_size_nm": "Camera pixel, used to turn pixels into nanometres. "
                      "A wrong value rescales every distance here.",
     "pixel_size_source": "Where that pixel size came from: the Picasso "
-                         "sidecar, the file itself, or typed by hand.",
+                         "sidecar, the file itself, a file beside it "
+                         "(neighbour), a value typed for this folder "
+                         "earlier (remembered), or typed by hand now.",
     "eps_nm": "DBSCAN's neighbourhood radius.",
     "min_samples": "DBSCAN's minimum number of localizations for a cluster.",
     "dbcv_threshold": "Below this DBCV score a cluster is curated away. "
@@ -131,6 +133,7 @@ ANALYSIS: Dict[str, str] = {
     "clusters_per_um": "Clusters per micrometre of that contour.",
     "contour_2opt": "Whether the tour was refined from one start or from "
                     "every start.",
+    "contour_order_source": "Where the order of the tour through the centres came from: the program built it, or a person set it. An order set by hand leaves contour_2opt empty, because no 2-opt ran on it.",
     "contour_hull_um": "Perimeter of the convex hull of the same centres.",
     "contour_tour_over_hull": "How much longer the contour is than that "
                               "hull. Far above 1 means it wanders.",

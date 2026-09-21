@@ -101,6 +101,11 @@ SHARED_COLUMNS: Tuple[str, ...] = (
 # "_discard" suffix.
 MEASURED_COLUMNS: Tuple[str, ...] = (
     "n_clusters_kept", "perimeter_um", "clusters_per_um", "contour_2opt",
+    # Where the order of the tour came from. Written twice, plain and
+    # _discard, because the discard analysis has its own contour: an
+    # order set by hand on the measured one does not make the other
+    # hand-set.
+    "contour_order_source",
     "contour_hull_um", "contour_tour_over_hull", "contour_max_over_median",
     "contour_n_deep_vertices", "contour_hull_radius_nm",
     "contour_deep_limit_nm", "contour_max_depth_nm",

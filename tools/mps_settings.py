@@ -84,6 +84,12 @@ class MPSSettings:
     # retyped one by one. Carried over only within the same slide.
     identity_last: Dict[str, str] = field(default_factory=dict)
     identity_last_folder: str = ""
+    # Pixel sizes a person had to supply, one per folder, so the six or
+    # more axons of one acquisition are not asked about one at a time.
+    # Keyed by tools.mps_pixel_size.folder_key. Only ever written when a
+    # file carried no pixel size AND nothing near it recorded one; a
+    # value here never overrides a file's own metadata.
+    pixel_size_by_folder: Dict[str, float] = field(default_factory=dict)
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -105,6 +111,19 @@ class MPSSettings:
                 "Stored slab_half_width_nm=%r out of range; using %s",
                 self.slab_half_width_nm, DEFAULT_SLAB_HALF_WIDTH_NM)
             self.slab_half_width_nm = DEFAULT_SLAB_HALF_WIDTH_NM
+        # The knob was retired on 2026-09-20. Measured over the 18 real
+        # April axons (1143 clusters), the DBCV score correlates with
+        # log10(cluster area) at -0.70, and in 10 of the 18 the largest
+        # cluster is the lowest- or second-lowest-scoring one: any
+        # threshold above off removes the big clusters first. A settings
+        # file written before that is ignored rather than obeyed, because
+        # a stored value would otherwise silently curate an analysis.
+        if self.dbcv_threshold != DEFAULT_DBCV_THRESHOLD:
+            logger.info(
+                "Stored dbcv_threshold=%r ignored: the criterion was "
+                "retired (it removes the largest clusters first); using %s",
+                self.dbcv_threshold, DEFAULT_DBCV_THRESHOLD)
+            self.dbcv_threshold = DEFAULT_DBCV_THRESHOLD
         if not (-1.0 <= self.dbcv_threshold <= 1.0):
             logger.warning(
                 "Stored dbcv_threshold=%r out of range; using %s",
@@ -128,6 +147,26 @@ class MPSSettings:
                 continue
             setattr(self, name, {str(k): str(v) for k, v in value.items()
                                  if isinstance(v, str)})
+        # A remembered pixel size is a number a person typed once; a
+        # corrupted one would rescale every distance measured in that
+        # folder without anything raising, so an entry that is not a
+        # plausible pixel size is dropped rather than clamped.
+        if not isinstance(self.pixel_size_by_folder, dict):
+            self.pixel_size_by_folder = {}
+        else:
+            kept: Dict[str, float] = {}
+            for folder, value in self.pixel_size_by_folder.items():
+                try:
+                    nm = float(value)
+                except (TypeError, ValueError):
+                    nm = 0.0
+                if 1.0 <= nm <= 5000.0:
+                    kept[str(folder)] = nm
+                else:
+                    logger.warning(
+                        "Stored pixel size %r for %s is not a pixel size; "
+                        "it will be asked for again", value, folder)
+            self.pixel_size_by_folder = kept
         # A stored pattern that no longer compiles would raise at the next
         # export, in the middle of writing tables; drop it here instead and
         # fall back to the default for that field.

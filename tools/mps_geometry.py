@@ -597,6 +597,12 @@ class PerimeterResult:
     # is kept and the spread says how much the start would have mattered.
     n_starts: int = 1
     start_lengths_nm: Optional[NDArray[np.float64]] = None
+    # Where the order of the tour came from. "automatic" is the polar
+    # angle plus 2-opt below; anything else was set by a person, and the
+    # difference has to survive every later step -- it is what stops a
+    # hand-set contour being exported as a measured one, and what stops
+    # with_every_start rebuilding it.
+    order_source: str = "automatic"
     # The area centroid of the contour; None when it crosses itself or
     # encloses no area (contour_centre).
     centre: Optional[ContourCentre] = None
@@ -698,6 +704,11 @@ def reconstruct_perimeter(
             perimeter_nm=_tour_length(centroids, order),
             perimeter_um=_tour_length(centroids, order) / 1000.0,
             n_clusters=k,
+            # No 2-opt ran, so neither number describes this tour: zero
+            # starts rather than one, which is what a reader of n_starts
+            # would otherwise take for a 2-opt result.
+            n_starts=0,
+            order_source="set by hand",
             n_2opt_improvements=0,
             self_intersections_before=before,
             self_intersections_after=before,

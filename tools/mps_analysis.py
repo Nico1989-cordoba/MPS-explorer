@@ -241,10 +241,26 @@ class AxonAnalysis:
 
     @property
     def contour_2opt(self) -> Optional[str]:
-        """"one start" or "every start"; None without a contour."""
+        """"one start" or "every start"; None without a contour, and None
+        for an order set by hand, where no 2-opt ran at all.
+
+        It used to say "one start" for a hand-set order, because it read
+        n_starts and a hand-set order leaves it at its default. That is
+        a measured-sounding answer to a question that was never asked.
+        """
         if self.perimeter is None:
             return None
+        if self.perimeter.order_source != "automatic":
+            return None
         return "every start" if self.perimeter.n_starts > 1 else "one start"
+
+    @property
+    def contour_order_source(self) -> Optional[str]:
+        """Whether the tour through the centres is the one the program
+        built or one a person set. None without a contour."""
+        if self.perimeter is None:
+            return None
+        return self.perimeter.order_source
 
     @property
     def mean_delta_z_nm(self) -> Optional[float]:
@@ -321,6 +337,9 @@ class AxonAnalysis:
         starts = 1 if self.perimeter is None else self.perimeter.n_starts
         joined = ("centroids connected, 2-opt" if starts == 1 else
                   f"centroids connected, 2-opt from all {starts} starts")
+        if (self.perimeter is not None
+                and self.perimeter.order_source != "automatic"):
+            joined = f"centroids connected in the order {self.perimeter.order_source}"
         centre = self.centre
         if centre is not None:
             where = f"x {centre.x_nm:.0f}, y {centre.y_nm:.0f} nm"
@@ -487,6 +506,10 @@ class AxonAnalysis:
             # behaviour) or the shortest over every start. Tables of the
             # two must not be pooled either.
             "contour_2opt": self.contour_2opt,
+            # Where the order of the tour came from: the program, or a
+            # person. Empty 2opt with a source of "set by hand" is the
+            # pair that says no 2-opt ran.
+            "contour_order_source": self.contour_order_source,
             # Contour health: the perimeter above is only a perimeter if
             # these say so, and a reader of the CSV cannot tell otherwise.
             "contour_hull_um": (
@@ -574,9 +597,15 @@ class AxonAnalysis:
 # ("hdf5"), a line scan of a sidecar that would not parse ("yaml_scan"), a
 # value given in code ("override") or typed by the user ("manual"), nothing
 # ("unknown"), or a file already in nanometres ("not_applicable").
+# "neighbour": read from the acquisition metadata of a DIFFERENT file
+# near this one, because this one carries none. "remembered": a value a
+# person typed for another file in the same folder. Both are inferences
+# about which acquisition a file belongs to, not records of it, so both
+# warn exactly like a typed value does.
 PIXEL_SIZE_SOURCES = ("yaml", "hdf5", "yaml_scan", "override", "manual",
-                      "unknown", "not_applicable")
-GUESSED_PIXEL_SIZE_SOURCES = ("override", "manual", "unknown")
+                      "neighbour", "remembered", "unknown", "not_applicable")
+GUESSED_PIXEL_SIZE_SOURCES = ("override", "manual", "neighbour",
+                              "remembered", "unknown")
 
 
 def analyze_axon(
@@ -926,7 +955,13 @@ def with_every_start(
     back as it is, and so does one with too few clusters for a contour.
     """
     if not analysis.discard_applied and (
-            analysis.perimeter is None or analysis.perimeter.n_starts > 1):
+            analysis.perimeter is None
+            or analysis.perimeter.n_starts > 1
+            # An order a person set is not a 2-opt result to be improved
+            # on. Without this line, opening the axoplasm panel silently
+            # replaced it: measured, the perimeter went from 19.31 um
+            # back to 8.96 um with nothing touched.
+            or analysis.perimeter.order_source != "automatic"):
         return analysis
     return _rerun(analysis, np.zeros(analysis.n_clusters_kept, dtype=bool),
                   contour=contour, margin_nm=None)
@@ -960,7 +995,8 @@ def _rerun(
                                       centroids[contour.order])):
             raise ValueError(
                 "The contour given joins other clusters than the ones left.")
-        if contour.n_starts == 1 and len(centroids) >= 4:
+        if (contour.order_source == "automatic"
+                and contour.n_starts == 1 and len(centroids) >= 4):
             raise ValueError(
                 "The contour given was built from one 2-opt start, not "
                 "from every start.")
