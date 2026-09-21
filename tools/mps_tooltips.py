@@ -117,14 +117,24 @@ MAIN_WINDOW: Dict[str, str] = {
         "Everything downstream -- the perimeter, the occupancy, the "
         "randomization, the export -- comes from this one press.",
     "lineEdit_eps_2":
-        "DBSCAN's epsilon for channel 2, in nanometres. Independent of "
+        "DBSCAN's epsilon for channel 2, in nanometres.\n\n"
+        "'auto' means nobody has chosen one: the cluster button will "
+        "estimate it from channel 2's own points, and the Two channels "
+        "panel will ask before it compares. It is never filled in from "
         "channel 1's.",
     "lineEdit_minsamples_2":
-        "DBSCAN's Min Pts for channel 2. Independent of channel 1's.",
+        "DBSCAN's Min Pts for channel 2.\n\n"
+        "This one counts LOCALIZATIONS, and the two channels are rarely "
+        "sampled alike: across five real adducin files channel 2 carried "
+        "1 to 138 times more of them per 20 nm cell than channel 1. That "
+        "is why the Two channels panel will not borrow channel 1's.",
     "pushButton_clusterch2":
-        "Cluster the channel-2 selection.\n\n"
-        "It gives channel 2 its own clusters for the Two channels panel. "
-        "The per-axon analysis stays on channel 1.",
+        "Cluster the channel-2 selection, to look at.\n\n"
+        "The Two channels panel clusters channel 2 again from whatever "
+        "is in the two boxes above, so these clusters are not the ones "
+        "it compares. With 'auto' in the boxes this button is how you "
+        "find a number to put in them. The per-axon analysis stays on "
+        "channel 1.",
     # --- the distance histogram ----------------------------------------
     "lineEdit_Nneighbor":
         "Which neighbour the distance histogram shows: 1 is the nearest "

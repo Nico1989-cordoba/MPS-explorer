@@ -1191,6 +1191,99 @@ class MPS_explorer(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(
                 self, "DNA-PAINT", f"Could not build the panel:\n{error}")
 
+    def _usable_field(self, edit: Any, lo: float,
+                      hi: float) -> Optional[float]:
+        """A number typed in a box, or None for "auto", blank or junk."""
+        try:
+            value = float(str(edit.text()).strip().replace(",", "."))
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if not np.isfinite(value) or not (lo <= value <= hi):
+            return None
+        return value
+
+    def _channel2_folder(self) -> str:
+        """The key channel 2's clustering is remembered under."""
+        from tools.mps_pixel_size import folder_key
+
+        path = self.ui.lineEdit_filename_2.text().strip()
+        return folder_key(path) if path else ""
+
+    def _remembered_channel2(self) -> Optional[Dict[str, float]]:
+        """What was chosen for channel 2 in this acquisition, if anything."""
+        key = self._channel2_folder()
+        if not key:
+            return None
+        entry = self.mps_settings.channel2_clustering_by_folder.get(key)
+        if not isinstance(entry, dict):
+            return None
+        if "eps_nm" not in entry or "min_samples" not in entry:
+            return None
+        return dict(entry)
+
+    def _remember_channel2(self, values: Dict[str, float]) -> None:
+        """Keep channel 2's parameters for the rest of this acquisition.
+
+        Per folder, like the pixel size, and for the same reason: the
+        measurement that forces the question is per file. Across five
+        real adducin files the localizations per resolution cell ran 4,
+        62, 238, 485 and 550, so one global answer would only move the
+        assumption instead of removing it.
+        """
+        key = self._channel2_folder()
+        if not key:
+            return
+        self.mps_settings.channel2_clustering_by_folder[key] = {
+            "eps_nm": float(values["eps_nm"]),
+            "min_samples": float(values["min_samples"]),
+        }
+        save_settings(self.mps_settings)
+
+    def _ask_channel2_parameters(self) -> Optional[Dict[str, float]]:
+        """Ask for channel 2's own clustering, once per acquisition.
+
+        Returns the pair and remembers it for this folder, or None when
+        the person declined -- in which case the comparison is refused
+        and the panel still opens for the registration.
+
+        The box is given the ROI selection of both channels so it can
+        show what it is asking about: the measured density of each
+        channel, in the unit Min Pts counts, and what the program's own
+        estimator makes of channel 2's points. Without those a person
+        asked for a number they do not have will type anything.
+        """
+        from tools.channel2_ui import ask_channel2_parameters
+
+        answer = ask_channel2_parameters(
+            self,
+            x_a=self.xroi, y_a=self.yroi,
+            x_b=self.xroi2, y_b=self.yroi2,
+            channel1={"eps_nm": float(self.mps_settings.eps_nm),
+                      "min_samples": int(self.mps_settings.min_samples)},
+            file_name=os.path.basename(
+                self.ui.lineEdit_filename_2.text().strip()))
+        if answer is None:
+            return None
+        self._remember_channel2(answer)
+        self._show_channel2_parameters(answer)
+        self.logger.info(
+            f"Channel 2's clustering set by hand: eps "
+            f"{answer['eps_nm']:g} nm, min samples "
+            f"{int(answer['min_samples'])}; remembered for "
+            f"{self._channel2_folder() or 'this folder'}")
+        return answer
+
+    def _show_channel2_parameters(self, values: Optional[Dict[str, float]]
+                                  ) -> None:
+        """Put a chosen pair in the boxes, or put them back on auto."""
+        if values is None:
+            self.ui.lineEdit_eps_2.setText("auto")
+            self.ui.lineEdit_minsamples_2.setText("auto")
+            return
+        self.ui.lineEdit_eps_2.setText(f"{float(values['eps_nm']):g}")
+        self.ui.lineEdit_minsamples_2.setText(
+            f"{int(values['min_samples'])}")
+
     def _field_parameter(self, edit: Any, fallback: float) -> float:
         try:
             value = float(edit.text())
@@ -1213,11 +1306,27 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 eps_nm=self._field_parameter(eps, eps_default),
                 min_samples=int(self._field_parameter(minimum, min_default)))
 
+        def read_channel2() -> Dict[str, Any]:
+            """Channel 2's, or an EMPTY dict when nobody has set them.
+
+            No fallback on purpose. Substituting channel 1's numbers here
+            is what made the inheritance invisible: by the time anything
+            downstream could look, "never set" had already become 25 / 10.
+            An empty dict is the truth, and cross_channel_transverse
+            refuses on it.
+            """
+            out: Dict[str, Any] = {}
+            eps = self._usable_field(self.ui.lineEdit_eps_2, 1e-9, 1000.0)
+            minimum = self._usable_field(
+                self.ui.lineEdit_minsamples_2, 1, 10000)
+            if eps is not None and minimum is not None:
+                out["eps_nm"] = eps
+                out["min_samples"] = int(minimum)
+            return out
+
         return (read(self.ui.lineEdit_eps, self.ui.lineEdit_minsamples,
                      float(s.eps_nm), float(s.min_samples)),
-                read(self.ui.lineEdit_eps_2, self.ui.lineEdit_minsamples_2,
-                     float(s.eps_nm_channel2 or s.eps_nm),
-                     float(s.min_samples_channel2 or s.min_samples)))
+                read_channel2())
 
     def show_two_channel_panel(self) -> None:
         """Open the two-channel panel on the two loaded files."""
@@ -1232,6 +1341,25 @@ class MPS_explorer(QtWidgets.QMainWindow):
         slab = self._applied_slab
         shared = dict(dbcv_threshold=float(s.dbcv_threshold), roi=roi)
         params_a, params_b = self._clustering_parameters()
+        source = "typed" if params_b else ""
+        # Ask only when a comparison is actually going to run. With no
+        # ROI this panel measures the registration and nothing else --
+        # it is offered from the menu as exactly that -- and demanding
+        # clustering parameters to open it would block a mode that needs
+        # none.
+        if roi is not None and not params_b:
+            remembered = self._remembered_channel2()
+            if remembered is not None:
+                params_b = {"eps_nm": float(remembered["eps_nm"]),
+                            "min_samples": int(remembered["min_samples"])}
+                source = "typed"
+                self._show_channel2_parameters(remembered)
+            else:
+                answer = self._ask_channel2_parameters()
+                if answer is not None:
+                    params_b = {"eps_nm": float(answer["eps_nm"]),
+                                "min_samples": int(answer["min_samples"])}
+                    source = "typed"
         kwargs_a = dict(
             shared, **params_a,
             pixel_size_nm=self.locs1.pixel_size_nm,
@@ -1244,6 +1372,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
             pixel_size_source=self.locs2.pixel_size_source,
             source_name=self.ui.lineEdit_filename_2.text(),
         )
+        if roi is not None and not params_b:
+            # Declined. The panel still opens: the registration is worth
+            # measuring on its own, and run_two_channels puts the reason
+            # in the notes instead of dying.
+            self.logger.warning(
+                "Two channels: the comparison was refused -- channel 2 has "
+                "no clustering parameters of its own.")
         try:
             from tools.mps_twochannel_window import (
                 TwoChannelInputs,
@@ -1256,7 +1391,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 TwoChannelInputs(
                     loc_a=self.locs1, loc_b=self.locs2, roi=roi, slab=slab,
                     slab_half_width_nm=float(s.slab_half_width_nm),
-                    kwargs_a=kwargs_a, kwargs_b=kwargs_b),
+                    kwargs_a=kwargs_a, kwargs_b=kwargs_b,
+                    channel_b_parameter_source=source),
                 parent=self, parameters=self._clustering_parameters,
                 identity_callback=self.current_identity)
             self.logger.info(
@@ -1531,20 +1667,21 @@ class MPS_explorer(QtWidgets.QMainWindow):
         s = self.mps_settings
         self.ui.lineEdit_eps.setText(f"{s.eps_nm:g}")
         self.ui.lineEdit_minsamples.setText(f"{int(s.min_samples)}")
-        # Channel 2 gets its OWN stored value, and channel 1's only when
-        # it has none. Seeding it from channel 1 while saving only
-        # channel 1 is how a value typed for the partner protein used to
-        # revert at the next launch without a word.
-        eps2 = s.eps_nm_channel2 or s.eps_nm
-        min2 = s.min_samples_channel2 or s.min_samples
-        self.ui.lineEdit_eps_2.setText(f"{eps2:g}")
-        self.ui.lineEdit_minsamples_2.setText(f"{int(min2)}")
+        # Channel 2's boxes are NOT seeded from channel 1. Copying
+        # channel 1's numbers into them made every later reader -- the
+        # panel, the export, the person -- unable to tell a deliberate
+        # 25 / 10 from one nobody chose. "auto" is the resting state:
+        # it is a real working input for the cluster Ch2 button, which
+        # estimates from channel 2's own points, and it is not a number
+        # pretending to be an answer. What channel 2 was actually chosen
+        # to use is filled in by load_channel2, per folder.
+        self.ui.lineEdit_eps_2.setText("auto")
+        self.ui.lineEdit_minsamples_2.setText("auto")
         self.logger.info(
             f"MPS settings restored: eps={s.eps_nm:g} nm, "
             f"min_samples={int(s.min_samples)}, "
-            f"slab half-width={s.slab_half_width_nm:g} nm; channel 2 "
-            f"eps={eps2:g} nm, min_samples={int(min2)}"
-            + ("" if s.eps_nm_channel2 else " (inherited from channel 1)")
+            f"slab half-width={s.slab_half_width_nm:g} nm; channel 2 on "
+            f"auto until a file is loaded"
         )
 
     def _persist_mps_settings(self) -> None:
@@ -1555,15 +1692,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 float(self.ui.lineEdit_minsamples.text()))
         except (ValueError, AttributeError):
             pass
-        try:
-            self.mps_settings.eps_nm_channel2 = float(
-                self.ui.lineEdit_eps_2.text())
-            self.mps_settings.min_samples_channel2 = int(
-                float(self.ui.lineEdit_minsamples_2.text()))
-        except (ValueError, AttributeError):
-            # "auto" or a malformed entry: keep whatever was stored before
-            # rather than writing a value the analysis never actually used.
-            pass
+        # Channel 2's are deliberately NOT read back from the boxes.
+        # This runs after every channel-1 clustering and on close, and
+        # the boxes were seeded from channel 1, so reading them back
+        # wrote channel 1's numbers into channel 2's store under
+        # channel 2's name. Only _remember_channel2 writes there, and
+        # only with what a person answered.
         self.mps_settings.validate()
         save_settings(self.mps_settings)
 
@@ -2201,6 +2335,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.xroi2 = self.yroi2 = self.zroi2 = None
         self.cluster_labels2 = self.cluster_centroids2 = None
         self._clustered_x[2] = None
+        # A new acquisition is a new question. Across five real adducin
+        # files the localizations per resolution cell ran 4, 62, 238,
+        # 485 and 550, so a choice made for one folder is not an answer
+        # for the next; the boxes go back to auto unless this folder
+        # already has one.
+        self._show_channel2_parameters(self._remembered_channel2())
         if self.two_channel_window is not None:
             self.two_channel_window.close()
         for layout in (self.ui.zhistlayoutch2,

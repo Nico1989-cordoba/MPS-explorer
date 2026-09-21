@@ -405,6 +405,20 @@ CROSSCHANNEL: Dict[str, str] = {
                           "contour centre.",
     "median_radius_b_nm": "The same for channel B's.",
 
+    "locs_per_cell_a": "Median localizations within 20 nm of a channel-1 "
+                       "localization: how densely this channel is sampled, "
+                       "in the unit Min Pts counts.",
+    "locs_per_cell_b": "The same for channel 2. Far above channel 1's means "
+                       "the two are not in the same regime and cannot share "
+                       "a Min Pts; measured across five real adducin files "
+                       "the ratio ran from 1 to 138.",
+    "channel_b_parameter_source": "Where channel 2's Epsilon and Min Pts "
+                                  "came from, as the caller stated it: "
+                                  "typed by a person, estimated by the "
+                                  "program from channel 2's own points, or "
+                                  "empty when a script supplied them and "
+                                  "nobody can say.",
+
     # --- where channel B sits relative to channel A's outline
     "radial_offset_b_median_nm": "Median signed distance from channel B's "
                                  "cluster centres to channel A's contour. "

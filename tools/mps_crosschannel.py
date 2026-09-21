@@ -97,6 +97,33 @@ RESOLUTION_CELL_NM = 20.0
 # fifth, so there is no single number that fits both.
 OVERSAMPLING_WARN = 3.0
 
+# The one text for this refusal. The library raises it and the main
+# window shows it, so the two cannot drift apart. Instruction first: a
+# message that only explains leaves the reader knowing why they are
+# stuck and not how to get out. "Epsilon" and "Min Pts" are what the two
+# controls are actually labelled.
+CHANNEL2_PARAMETERS_REQUIRED = (
+    "Type channel 2's own Epsilon and Min Pts before comparing the "
+    "channels -- they are not channel 1's. Min Pts counts localizations, "
+    "and across five real adducin files channel 2 carried 1 to 138 times "
+    "more of them per 20 nm cell than channel 1; on one axon channel 1's "
+    "25 nm / 10 found 13 clusters where channel 2's own found 35.")
+
+
+def _usable_parameter(value: Any, lo: float, hi: float) -> bool:
+    """Whether a clustering parameter is a number this program will run on.
+
+    Checked BEFORE any coercion. float(None) raises TypeError and
+    float("auto") raises a ValueError carrying the wrong message, and
+    both would reach the caller as something other than the refusal.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    number = float(value)
+    if not np.isfinite(number):
+        return False
+    return lo <= number <= hi
+
 
 # ============================================================================
 # Axial phase relationship
@@ -295,6 +322,16 @@ class CrossChannelResult:
 
     # The lateral registration error, from ``registration``.
     registration_rms_nm: Optional[float]
+    # How densely each channel is sampled, in the unit min_samples
+    # counts: the median localizations within one resolution cell. The
+    # reason channel B cannot share channel A's min_samples, as a number.
+    locs_per_cell_a: Optional[float] = None
+    locs_per_cell_b: Optional[float] = None
+    # Where channel B's clustering parameters came from, as the caller
+    # states it: "typed", "estimated from channel 2", or empty when a
+    # script supplied them and nobody can say. Never inferred here --
+    # this function sees two numbers and nothing about their origin.
+    channel_b_parameter_source: str = ""
     # How much of channel A's covered perimeter channel B also covers.
     shared: Optional["SharedOccupancyResult"] = None
     # How far inside or outside A's contour channel B's clusters sit.
@@ -902,6 +939,7 @@ def cross_channel_transverse(
     analyze_kwargs_b: Optional[Dict[str, Any]] = None,
     n_null: int = 200,
     per_channel_randomization: bool = False,
+    channel_b_parameter_source: str = "",
     annulus_half_width_nm: float = 50.0,
     grid_spacing_nm: float = 5.0,
     random_seed: int = 0,
@@ -922,7 +960,17 @@ def cross_channel_transverse(
         ``axial_phase`` before reading the transverse numbers.
     registration : how channel B was registered. Cross-channel distances
         within three times its lateral error are flagged.
-    analyze_kwargs_b : overrides of ``analyze_kwargs`` for channel B -- its
+    channel_b_parameter_source : where channel B's eps and min_samples
+        came from, in the caller's own words -- "typed" when a person
+        supplied them, "estimated from channel 2" when the program did,
+        empty when a script did and nobody can say. Written to the export
+        as given; this function cannot tell and never guesses.
+    analyze_kwargs_b : channel B's OWN clustering parameters. Both
+        ``eps_nm`` and ``min_samples`` are required and a ValueError is
+        raised without them: they used to fall back to channel A's,
+        which assumes the two proteins are sampled alike. Measured over
+        five real adducin files they are 1 to 138 times apart per
+        resolution cell. Also overrides of ``analyze_kwargs`` for its
         own clustering parameters, pixel size and source name.
     n_null : randomizations for the null distribution of heterotypic 1NN,
         and for the null of the shared perimeter occupancy.
@@ -940,10 +988,24 @@ def cross_channel_transverse(
     -------
     CrossChannelResult
     """
+    # Before anything is read or computed: channel B must carry its own
+    # clustering parameters. Until 2026-09-21 the line below merged
+    # channel A's in for whatever channel B did not set, which is an
+    # assumption about the partner protein's density rather than a
+    # measurement of it -- and measured, the two are 1 to 138 times apart
+    # per resolution cell across five real files, so there is no single
+    # min_samples that fits both. Both keys are required: a half-set
+    # channel B, with eps given and min_samples inherited, inherits the
+    # parameter the measurement is actually about.
+    provided = dict(analyze_kwargs_b or {})
+    if not (_usable_parameter(provided.get("eps_nm"), 1e-9, 1000.0)
+            and _usable_parameter(provided.get("min_samples"), 1, 10000)):
+        raise ValueError(CHANNEL2_PARAMETERS_REQUIRED)
+
     warnings_: List[str] = []
     registration = registration or NO_REGISTRATION
     lateral_error = registration.lateral_rms_nm
-    kwargs_b = {**analyze_kwargs, **(analyze_kwargs_b or {})}
+    kwargs_b = {**analyze_kwargs, **provided}
     xa, ya, za = (np.asarray(v, float).ravel() for v in (x_a, y_a, z_a))
     xb, yb, zb = (np.asarray(v, float).ravel() for v in (x_b, y_b, z_b))
 
@@ -951,21 +1013,6 @@ def cross_channel_transverse(
         ra = fit_z_periodicity(za)
         slab = (ra.main_peak_nm - slab_half_width_nm,
                 ra.main_peak_nm + slab_half_width_nm)
-
-    # Channel B inherits channel A's clustering parameters whenever
-    # nothing overrides them. That is an assumption about the partner
-    # protein's density, not a measurement of it, so it is measured here
-    # and said out loud rather than made quietly.
-    inherited = [name for name in ("eps_nm", "min_samples")
-                 if name in analyze_kwargs and name not in (analyze_kwargs_b
-                                                            or {})]
-    if inherited:
-        warnings_.append(
-            f"Channel B was clustered with channel A's "
-            f"{' and '.join(inherited)}: nothing set its own. On one real "
-            f"pair, moving channel B from 25 nm / 10 to 10 nm / 5 changed "
-            f"its cluster count from 13 to 35 and the median heterotypic "
-            f"distance from 280 to 223 nm.")
 
     an_a = an_b = None
     try:
@@ -981,6 +1028,7 @@ def cross_channel_transverse(
     except Exception as exc:                              # noqa: BLE001
         warnings_.append(f"Channel B analysis failed: {exc}")
 
+    cell_a = cell_b = None
     if an_a is not None and an_b is not None:
         cell_a = locs_per_cell(an_a.x_slab, an_a.y_slab)
         cell_b = locs_per_cell(an_b.x_slab, an_b.y_slab)
@@ -1113,6 +1161,8 @@ def cross_channel_transverse(
         max_correlation=max_corr, rotation_fraction_of_spacing=rot_frac,
         median_radius_a_nm=rad_a, median_radius_b_nm=rad_b,
         registration_rms_nm=lateral_error, shared=shared, radial=radial,
+        locs_per_cell_a=cell_a, locs_per_cell_b=cell_b,
+        channel_b_parameter_source=channel_b_parameter_source,
         registration=registration,
         warnings=warnings_,
     )
@@ -1215,6 +1265,10 @@ def export_cross_channel(
         "registration_band_lo_shared_of_a": None if band is None else band[0],
         "registration_band_hi_shared_of_a": None if band is None else band[1],
         "shared_not_measured_because": "" if s is None else s.reason,
+        "locs_per_cell_a": None if t is None else t.locs_per_cell_a,
+        "locs_per_cell_b": None if t is None else t.locs_per_cell_b,
+        "channel_b_parameter_source":
+            None if t is None else t.channel_b_parameter_source,
     })
     rad = t.radial if t is not None else None
     r_iqr = rad.iqr_nm if rad is not None else None

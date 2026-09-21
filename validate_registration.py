@@ -770,9 +770,17 @@ def test_end_to_end() -> None:
             kwargs_a=dict(common, pixel_size_nm=loc_a.pixel_size_nm,
                           pixel_size_source=loc_a.pixel_size_source,
                           source_name=pair.path_a),
+            # Channel 2's OWN clustering. Not optional since
+            # 2026-09-21: cross_channel_transverse refuses to fall back
+            # on channel 1's, because min_samples counts localizations
+            # and the two channels are not sampled alike. These are the
+            # same numbers channel 1 uses, chosen deliberately here so
+            # the registration checks below measure the registration and
+            # not a difference in clustering.
             kwargs_b=dict(pixel_size_nm=loc_b.pixel_size_nm,
                           pixel_size_source=loc_b.pixel_size_source,
-                          source_name=pair.path_b))
+                          source_name=pair.path_b,
+                          eps_nm=25.0, min_samples=10))
 
     results: dict = {}
 
@@ -974,15 +982,26 @@ def test_end_to_end() -> None:
         out = results["registered"]
         assert out.parameters_a == {"eps_nm": 25.0, "min_samples": 10}
         assert out.parameters_b == out.parameters_a
-        b_only = dataclasses.replace(
-            inputs(700.0), kwargs_b=dict(inputs(700.0).kwargs_b,
-                                         eps_nm=31.0))
+        base = inputs(700.0)
+        half = {k: v for k, v in base.kwargs_b.items()
+                if k not in ("eps_nm", "min_samples")}
+        half["eps_nm"] = 31.0
+        b_only = dataclasses.replace(base, kwargs_b=half)
+        from tools.mps_crosschannel import CHANNEL2_PARAMETERS_REQUIRED
         from tools.mps_twochannel_window import clustering_parameters
 
         a, b = clustering_parameters(b_only)
-        assert a["eps_nm"] == 25.0 and b == {"eps_nm": 31.0,
-                                             "min_samples": 10}
-        return None
+        # Channel 2's missing min_samples stays missing. It used to be
+        # filled in with channel 1's here, which is what made the
+        # inheritance invisible on screen and in the export.
+        assert a["eps_nm"] == 25.0, a
+        assert b == {"eps_nm": 31.0}, b
+        # And a half-set channel 2 is refused, not completed: the key it
+        # is missing is the one the measurement is about.
+        refused = run_two_channels(b_only, results["registered"].registration)
+        assert refused.transverse is None
+        assert CHANNEL2_PARAMETERS_REQUIRED in refused.notes, refused.notes
+        return "a half-set channel 2 is refused, not completed"
 
     def export_name_is_not_an_input():
         from tools.mps_io import is_derived_output

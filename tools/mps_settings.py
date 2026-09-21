@@ -66,15 +66,7 @@ class MPSSettings:
 
     eps_nm: float = DEFAULT_EPS_NM
     min_samples: int = DEFAULT_MIN_SAMPLES
-    # Channel 2's own, stored separately because they are not channel
-    # 1's. Until 2026-09-20 both fields were seeded from the pair above
-    # and only channel 1's was read back, so a value typed for channel 2
-    # reverted at the next launch without saying so. 0 means "never set",
-    # in which case channel 2 falls back to channel 1's -- an assumption
-    # about the partner protein's density, which the two-channel panel
-    # now measures and reports rather than making quietly.
-    eps_nm_channel2: float = 0.0
-    min_samples_channel2: int = 0
+
     slab_half_width_nm: float = DEFAULT_SLAB_HALF_WIDTH_NM
     dbcv_threshold: float = DEFAULT_DBCV_THRESHOLD
     mahalanobis_threshold: float = DEFAULT_MAHALANOBIS_THRESHOLD
@@ -99,6 +91,24 @@ class MPSSettings:
     # file carried no pixel size AND nothing near it recorded one; a
     # value here never overrides a file's own metadata.
     pixel_size_by_folder: Dict[str, float] = field(default_factory=dict)
+    # Channel 2's OWN eps and min samples, one entry per folder, keyed by
+    # tools.mps_pixel_size.folder_key on the channel-2 file.
+    #
+    # Per folder and not global, because the measurement that forces this
+    # is per file: across five real adducin files, localizations within
+    # one 20 nm cell ran 4, 62, 238, 485, 550 against 3 to 5 for
+    # spectrin. A min samples chosen for the 550 file is as wrong on the
+    # 4 file as channel 1's ever was, so one global answer would only
+    # move the assumption rather than remove it.
+    #
+    # The keys are new on purpose. The fields that stood here until
+    # 2026-09-21 were written from the two boxes on screen, which were
+    # themselves seeded from channel 1 -- so a settings file can carry
+    # channel 1's 25 / 10 under channel 2's name, with nothing to
+    # distinguish it from a deliberate 25 / 10. No rule on the VALUE can
+    # tell those apart, so the name changes and the old one is ignored.
+    channel2_clustering_by_folder: Dict[str, Dict[str, float]] = field(
+        default_factory=dict)
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -143,29 +153,34 @@ class MPSSettings:
                 "Stored mahalanobis_threshold=%r out of range; using %s",
                 self.mahalanobis_threshold, DEFAULT_MAHALANOBIS_THRESHOLD)
             self.mahalanobis_threshold = DEFAULT_MAHALANOBIS_THRESHOLD
-        # 0 is the legal "never set"; anything else has to be a usable
-        # parameter or it is dropped rather than clamped, because a
-        # clamped clustering radius is a number nobody chose.
-        try:
-            eps2 = float(self.eps_nm_channel2)
-        except (TypeError, ValueError):
-            eps2 = 0.0
-        if eps2 != 0.0 and not (0 < eps2 <= 1000):
-            logger.warning(
-                "Stored eps_nm_channel2=%r out of range; channel 2 will be "
-                "asked for again", self.eps_nm_channel2)
-            eps2 = 0.0
-        self.eps_nm_channel2 = eps2
-        try:
-            min2 = int(float(self.min_samples_channel2))
-        except (TypeError, ValueError):
-            min2 = 0
-        if min2 != 0 and not (1 <= min2 <= 10000):
-            logger.warning(
-                "Stored min_samples_channel2=%r out of range; channel 2 "
-                "will be asked for again", self.min_samples_channel2)
-            min2 = 0
-        self.min_samples_channel2 = min2
+        # Channel 2's clustering, one entry per folder. An entry that is
+        # not a usable pair is dropped and asked for again rather than
+        # clamped: a clamped clustering radius is a number nobody chose,
+        # and this store exists precisely to record what somebody chose.
+        if not isinstance(self.channel2_clustering_by_folder, dict):
+            self.channel2_clustering_by_folder = {}
+        else:
+            chosen: Dict[str, Dict[str, float]] = {}
+            for folder, entry in self.channel2_clustering_by_folder.items():
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    eps2 = float(entry["eps_nm"])
+                    min2 = int(float(entry["min_samples"]))
+                except (KeyError, TypeError, ValueError):
+                    logger.warning(
+                        "Stored channel-2 clustering for %s is not a pair of "
+                        "parameters; it will be asked for again", folder)
+                    continue
+                if 0 < eps2 <= 1000 and 1 <= min2 <= 10000:
+                    chosen[str(folder)] = {"eps_nm": eps2,
+                                           "min_samples": float(min2)}
+                else:
+                    logger.warning(
+                        "Stored channel-2 clustering for %s is out of range "
+                        "(%r nm, %r); it will be asked for again",
+                        folder, eps2, min2)
+            self.channel2_clustering_by_folder = chosen
         if not isinstance(self.picasso_path, str):
             self.picasso_path = ""
         for name in ("last_open_dir", "last_export_dir",

@@ -38,6 +38,7 @@ from tools.cluster_quality import describe_roi, points_in_roi
 from tools.mps_analysis import DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES
 from tools.mps_identity import AxonIdentity, axon_id
 from tools.mps_crosschannel import (
+    CHANNEL2_PARAMETERS_REQUIRED,
     AxialPhaseResult,
     CrossChannelResult,
     axial_phase,
@@ -107,17 +108,25 @@ def clustering_parameters(inputs: "TwoChannelInputs"
     a = {"eps_nm": inputs.kwargs_a.get("eps_nm", DEFAULT_EPS_NM),
          "min_samples": inputs.kwargs_a.get("min_samples",
                                             DEFAULT_MIN_SAMPLES)}
-    # Channel B takes channel A's value for anything it does not set.
-    b = {key: inputs.kwargs_b.get(key, value) for key, value in a.items()}
+    # Channel B gets NOTHING it did not set. This line used to fill in
+    # channel A's value for whatever channel B left out, which put a
+    # number channel B never had on screen and in the export, labelled
+    # as channel 2's. A missing key here is the truth: nobody set it.
+    b = {key: inputs.kwargs_b[key] for key in a if key in inputs.kwargs_b}
     return a, b
 
 
 def describe_parameters(inputs: "TwoChannelInputs") -> str:
     """One line with both channels' clustering parameters."""
     a, b = clustering_parameters(inputs)
-    return "; ".join(
-        f"channel {n}: eps {p['eps_nm']:g} nm, min samples {p['min_samples']}"
-        for n, p in (("1", a), ("2", b)))
+
+    def one(name: str, p: Dict[str, Any]) -> str:
+        if "eps_nm" not in p or "min_samples" not in p:
+            return f"channel {name}: not set"
+        return (f"channel {name}: eps {p['eps_nm']:g} nm, "
+                f"min samples {p['min_samples']}")
+
+    return "; ".join(one(n, p) for n, p in (("1", a), ("2", b)))
 
 
 def _marker_file(path: str, channel: Any, round_name: str
@@ -162,6 +171,8 @@ class TwoChannelInputs:
     slab_half_width_nm: float
     kwargs_a: Dict[str, Any] = field(default_factory=dict)
     kwargs_b: Dict[str, Any] = field(default_factory=dict)
+    # Where channel 2's eps and min samples came from, for the export.
+    channel_b_parameter_source: str = ""
 
 
 @dataclass
@@ -269,11 +280,22 @@ def run_two_channels(
             f"was skipped and the channels were compared as 2D projections, "
             f"without an axial slab.")
     progress("Clustering and comparing the channels")
-    out.transverse = cross_channel_transverse(
-        xa[sel_a], ya[sel_a], za[sel_a], xb[sel_b], yb[sel_b], zb[sel_b],
-        slab=slab, slab_half_width_nm=inputs.slab_half_width_nm,
-        registration=registration, analyze_kwargs_b=inputs.kwargs_b,
-        **inputs.kwargs_a)
+    try:
+        out.transverse = cross_channel_transverse(
+            xa[sel_a], ya[sel_a], za[sel_a], xb[sel_b], yb[sel_b], zb[sel_b],
+            slab=slab, slab_half_width_nm=inputs.slab_half_width_nm,
+            registration=registration, analyze_kwargs_b=inputs.kwargs_b,
+            channel_b_parameter_source=inputs.channel_b_parameter_source,
+            **inputs.kwargs_a)
+    except ValueError as error:
+        if str(error) != CHANNEL2_PARAMETERS_REQUIRED:
+            raise
+        # Refusing the comparison must not cost the registration. This
+        # panel is the one place the two channels are put in a common
+        # frame, it is offered from the menu as exactly that, and it
+        # already works with no ROI at all -- so the refusal is a note
+        # beside a measured registration, not a dead window.
+        out.notes.append(str(error))
     return out
 
 
