@@ -102,6 +102,15 @@ def _cased_edge(edge: "np.ndarray", colour: tuple) -> "np.ndarray":
 # Contours rebuilt with every 2-opt start, kept per set of cluster centres.
 CONTOUR_CACHE_SIZE = 32
 
+# How long the panel waits, after the last step of a drag, before it
+# recomputes the mask and the discard. Measured on axon 7 (34 clusters,
+# 10,034 localizations): one control event costs 110-135 ms of panel work
+# even when nothing is discarded, and 2.6-2.8 s when the discarded set
+# changes, of which 2.46 s is the 1000-iteration randomization. A slider
+# emits about 60 of those a second, so without this the window is not
+# slow -- it is frozen.
+RECOMPUTE_DELAY_MS = 250
+
 # Points drawn per class; the classification itself uses all of them.
 MAX_DRAWN = 20000
 # Histogram of the distances to the edge.
@@ -266,6 +275,15 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self._generation = 0
         self._relay = _Relay()
         self._relay.finished.connect(self._measured)
+
+        # What a drag has asked for and not yet been given. The timer is
+        # parented to the window so it dies with it on the paths that
+        # delete the panel rather than keep it.
+        self._pending: Optional[str] = None
+        self._recompute = QtCore.QTimer(self)
+        self._recompute.setSingleShot(True)
+        self._recompute.setInterval(RECOMPUTE_DELAY_MS)
+        self._recompute.timeout.connect(self._run_pending)
 
         self.setWindowTitle(
             "Axoplasm - " + os.path.basename(str(inputs.movie.path)))
@@ -635,7 +653,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.spin_smooth.setToolTip(
             "Gaussian smoothing of the tubulin image before thresholding "
             "(sigma).")
-        self.spin_smooth.valueChanged.connect(lambda _v: self._rebuild())
+        self.spin_smooth.valueChanged.connect(
+            lambda _v: self._schedule("rebuild"))
         lay.addWidget(_label("Smoothing:", _DIM), 1, 0)
         lay.addWidget(self.spin_smooth, 1, 1)
         self.label_mask = _label("")
@@ -654,7 +673,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             "half inside without a margin. A cluster is inside only when "
             "both images put it inside (section 5), and a localization only "
             "when its cluster is.")
-        self.spin_margin.valueChanged.connect(lambda _v: self._reclassify())
+        self.spin_margin.valueChanged.connect(
+            lambda _v: self._schedule("reclassify"))
         lay.addWidget(_label("Margin:", _DIM), 0, 0)
         lay.addWidget(self.spin_margin, 0, 1)
         self.btn_export = QtWidgets.QPushButton("Export axon...")
@@ -724,6 +744,12 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: Any) -> None:
         self._generation += 1
+        # A timer armed just before the close would otherwise fire on a
+        # hidden window and push a new discard into the main window. The
+        # panel is kept alive and reopened on one of the three close
+        # paths, so it cannot be left to deletion.
+        self._recompute.stop()
+        self._pending = None
         self._close_progress()
         super().closeEvent(event)
 
@@ -830,8 +856,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             self._updating = False
 
     def _shift_edited(self, _value: float) -> None:
+        # The shift spins step by 10 nm and are held down the same way
+        # the margin is.
         if not self._updating:
-            self._rebuild()
+            self._schedule("rebuild")
 
     def _back_to_measured(self) -> None:
         if self.measured is not None:
@@ -909,6 +937,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
 
     def wait(self, timeout: float = 600.0) -> None:
         """Block until a measurement finishes (for scripts and tests)."""
+        self.flush()
         if self._thread is not None:
             self._thread.join(timeout)
         QtWidgets.QApplication.processEvents()
@@ -944,6 +973,38 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         return (np.asarray(x_nm, float) / self.pixel_nm + offset[0] + sx,
                 np.asarray(y_nm, float) / self.pixel_nm + offset[1] + sy)
 
+    def _schedule(self, what: str) -> None:
+        """Recompute once the drag stops, not on every step of it.
+
+        A rebuild subsumes a reclassify -- it ends in one -- so a pending
+        rebuild is never downgraded.
+        """
+        self._pending = ("rebuild" if (what == "rebuild"
+                                       or self._pending == "rebuild")
+                         else "reclassify")
+        self._recompute.start()
+
+    def _run_pending(self) -> None:
+        """What the timer fires. Clears the request before dispatching,
+        because the work below re-enters the event loop."""
+        what, self._pending = self._pending, None
+        if what == "rebuild":
+            self._rebuild()
+        elif what == "reclassify":
+            self._reclassify()
+
+    def flush(self) -> None:
+        """Do now whatever a drag has left pending.
+
+        Anything that READS what the panel computed has to call this
+        first: what is exported, drawn into a figure or compared against
+        the analysis must be what the controls currently say, not what
+        they said 250 ms ago.
+        """
+        if self._pending is not None:
+            self._recompute.stop()
+            self._run_pending()
+
     def _rebuild(self) -> None:
         """Mask and classification from the current controls."""
         self.axoplasm = self.result = self.located = self.loc_cluster = None
@@ -964,6 +1025,13 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self._reclassify()
 
     def _reclassify(self) -> None:
+        # Seven callers reach here directly -- loading an image, pressing
+        # Otsu, going back to the measured shift, a new selection. Any of
+        # them can land inside the pause a drag opened, and without this
+        # the timer would fire afterwards and run the whole chain a
+        # second time, including the 2.6 s discard comparison.
+        self._recompute.stop()
+        self._pending = None
         self.result = self.located = self.loc_cluster = None
         self.spectrin_interior = self.anchored = None
         self.anchored_centroids = None
@@ -1065,16 +1133,18 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         if self._updating or self.axoplasm is None:
             return
         low, high = self._threshold_range
+        # The threshold itself follows the slider at once; only the mask
+        # built from it waits for the drag to stop.
         self._manual_threshold = low + (high - low) * position / 1000.0
         self.selection_note = None
-        self._rebuild()
+        self._schedule("rebuild")
 
     def _threshold_typed(self, value: float) -> None:
         if self._updating or self.axoplasm is None:
             return
         self._manual_threshold = float(value)
         self.selection_note = None
-        self._rebuild()
+        self._schedule("rebuild")
 
     def _use_otsu(self) -> None:
         self._manual_threshold = None
@@ -1505,6 +1575,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         panel draws on is a widefield photograph, and a figure of it is
         that photograph with the edges and the clusters on top.
         """
+        # A figure written within the pause a drag opened would show the
+        # mask from before the drag.
+        self.flush()
         from tools import figure_export
         from tools.figure_export_ui import ask
 

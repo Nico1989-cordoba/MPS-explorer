@@ -13,7 +13,9 @@ pyuic5 -x data_explorer.ui -o data_explorer.py
 
 import os
 import sys
-from typing import Callable, Optional, Tuple, List, Dict, Union, Any, NamedTuple
+from collections import OrderedDict
+from typing import (Callable, Optional, Tuple, List, Dict, Union, Any,
+                    NamedTuple, Sequence)
 from pathlib import Path
 import logging
 import traceback
@@ -48,7 +50,7 @@ from tools.cluster_quality import (
 )
 from tools.mps_analysis import analyze_axon
 from tools.mps_periodicity import fit_z_periodicity
-from tools import mps_file_drop, mps_io
+from tools import mps_file_drop, mps_io, mps_pixel_size
 from tools.mps_picasso_tools import PicassoTools
 from tools import mps_plot_style as plot_style
 from tools.mps_tooltips import MAIN_WINDOW, apply_tooltips
@@ -112,11 +114,18 @@ if sys.platform == "win32":
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 
+# How many discarded sets to remember per analysis. Dragging the
+# axoplasm panel's margin over a cluster and back used to re-run the
+# 1000-iteration randomization each way; this covers a drag that
+# crosses three clusters and returns.
+DISCARD_CACHE_SIZE = 8
+
+
 class _HeldDiscard(NamedTuple):
     """The MPS analysis with and without the discarded clusters."""
 
-    base: Any          # the AxonAnalysis it was computed from
-    key: bytes         # which clusters were discarded
+    base: Any                    # the AxonAnalysis it was computed from
+    key: Tuple[int, bytes]       # how many clusters, and which went
     comparison: Any    # tools.mps_analysis.DiscardComparison
 
 
@@ -411,6 +420,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # The same analysis with all its clusters and without the ones the
         # axoplasm panel found inside the axon (a _HeldDiscard), or None.
         self.mps_discard: Optional[Any] = None
+        # Every discarded set already computed for the current analysis.
+        # Dragging the margin over one cluster and back used to re-run
+        # the 1000-iteration randomization each way; eight entries covers
+        # a drag that crosses three clusters and returns. They hold
+        # references to the slab arrays already in memory, not copies.
+        self._discard_cache: "OrderedDict[Tuple[int, bytes], Any]" = \
+            OrderedDict()
+        self._discard_cache_base: Any = None
         self.mps_window: Optional[Any] = None        # results window (kept alive)
         self.rings_window: Optional[Any] = None      # multi-segment panel
         # Which axon the loaded file is, in the experiment's own terms, and
@@ -913,6 +930,15 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if identity is None:
             return None
 
+        # Before anything is read: a drag left within the last 250 ms
+        # still owes the panel a recompute, and what is written has to be
+        # what the controls now say. This has to happen BEFORE the
+        # discard is bound below -- flushing after it would hand the
+        # export a stale discard beside a fresh panel, which is exactly
+        # the disagreement axon_export refuses on.
+        if self.axoplasm_window is not None:
+            self.axoplasm_window.flush()
+
         comparison = self._discard_for(analysis)
         measured = (comparison.all_clusters if comparison is not None
                     else analysis)
@@ -1165,6 +1191,99 @@ class MPS_explorer(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(
                 self, "DNA-PAINT", f"Could not build the panel:\n{error}")
 
+    def _usable_field(self, edit: Any, lo: float,
+                      hi: float) -> Optional[float]:
+        """A number typed in a box, or None for "auto", blank or junk."""
+        try:
+            value = float(str(edit.text()).strip().replace(",", "."))
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if not np.isfinite(value) or not (lo <= value <= hi):
+            return None
+        return value
+
+    def _channel2_folder(self) -> str:
+        """The key channel 2's clustering is remembered under."""
+        from tools.mps_pixel_size import folder_key
+
+        path = self.ui.lineEdit_filename_2.text().strip()
+        return folder_key(path) if path else ""
+
+    def _remembered_channel2(self) -> Optional[Dict[str, float]]:
+        """What was chosen for channel 2 in this acquisition, if anything."""
+        key = self._channel2_folder()
+        if not key:
+            return None
+        entry = self.mps_settings.channel2_clustering_by_folder.get(key)
+        if not isinstance(entry, dict):
+            return None
+        if "eps_nm" not in entry or "min_samples" not in entry:
+            return None
+        return dict(entry)
+
+    def _remember_channel2(self, values: Dict[str, float]) -> None:
+        """Keep channel 2's parameters for the rest of this acquisition.
+
+        Per folder, like the pixel size, and for the same reason: the
+        measurement that forces the question is per file. Across five
+        real adducin files the localizations per resolution cell ran 4,
+        62, 238, 485 and 550, so one global answer would only move the
+        assumption instead of removing it.
+        """
+        key = self._channel2_folder()
+        if not key:
+            return
+        self.mps_settings.channel2_clustering_by_folder[key] = {
+            "eps_nm": float(values["eps_nm"]),
+            "min_samples": float(values["min_samples"]),
+        }
+        save_settings(self.mps_settings)
+
+    def _ask_channel2_parameters(self) -> Optional[Dict[str, float]]:
+        """Ask for channel 2's own clustering, once per acquisition.
+
+        Returns the pair and remembers it for this folder, or None when
+        the person declined -- in which case the comparison is refused
+        and the panel still opens for the registration.
+
+        The box is given the ROI selection of both channels so it can
+        show what it is asking about: the measured density of each
+        channel, in the unit Min Pts counts, and what the program's own
+        estimator makes of channel 2's points. Without those a person
+        asked for a number they do not have will type anything.
+        """
+        from tools.channel2_ui import ask_channel2_parameters
+
+        answer = ask_channel2_parameters(
+            self,
+            x_a=self.xroi, y_a=self.yroi,
+            x_b=self.xroi2, y_b=self.yroi2,
+            channel1={"eps_nm": float(self.mps_settings.eps_nm),
+                      "min_samples": int(self.mps_settings.min_samples)},
+            file_name=os.path.basename(
+                self.ui.lineEdit_filename_2.text().strip()))
+        if answer is None:
+            return None
+        self._remember_channel2(answer)
+        self._show_channel2_parameters(answer)
+        self.logger.info(
+            f"Channel 2's clustering set by hand: eps "
+            f"{answer['eps_nm']:g} nm, min samples "
+            f"{int(answer['min_samples'])}; remembered for "
+            f"{self._channel2_folder() or 'this folder'}")
+        return answer
+
+    def _show_channel2_parameters(self, values: Optional[Dict[str, float]]
+                                  ) -> None:
+        """Put a chosen pair in the boxes, or put them back on auto."""
+        if values is None:
+            self.ui.lineEdit_eps_2.setText("auto")
+            self.ui.lineEdit_minsamples_2.setText("auto")
+            return
+        self.ui.lineEdit_eps_2.setText(f"{float(values['eps_nm']):g}")
+        self.ui.lineEdit_minsamples_2.setText(
+            f"{int(values['min_samples'])}")
+
     def _field_parameter(self, edit: Any, fallback: float) -> float:
         try:
             value = float(edit.text())
@@ -1181,14 +1300,33 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """
         s = self.mps_settings
 
-        def read(eps: Any, minimum: Any) -> Dict[str, Any]:
+        def read(eps: Any, minimum: Any, eps_default: float,
+                 min_default: float) -> Dict[str, Any]:
             return dict(
-                eps_nm=self._field_parameter(eps, float(s.eps_nm)),
-                min_samples=int(self._field_parameter(
-                    minimum, float(s.min_samples))))
+                eps_nm=self._field_parameter(eps, eps_default),
+                min_samples=int(self._field_parameter(minimum, min_default)))
 
-        return (read(self.ui.lineEdit_eps, self.ui.lineEdit_minsamples),
-                read(self.ui.lineEdit_eps_2, self.ui.lineEdit_minsamples_2))
+        def read_channel2() -> Dict[str, Any]:
+            """Channel 2's, or an EMPTY dict when nobody has set them.
+
+            No fallback on purpose. Substituting channel 1's numbers here
+            is what made the inheritance invisible: by the time anything
+            downstream could look, "never set" had already become 25 / 10.
+            An empty dict is the truth, and cross_channel_transverse
+            refuses on it.
+            """
+            out: Dict[str, Any] = {}
+            eps = self._usable_field(self.ui.lineEdit_eps_2, 1e-9, 1000.0)
+            minimum = self._usable_field(
+                self.ui.lineEdit_minsamples_2, 1, 10000)
+            if eps is not None and minimum is not None:
+                out["eps_nm"] = eps
+                out["min_samples"] = int(minimum)
+            return out
+
+        return (read(self.ui.lineEdit_eps, self.ui.lineEdit_minsamples,
+                     float(s.eps_nm), float(s.min_samples)),
+                read_channel2())
 
     def show_two_channel_panel(self) -> None:
         """Open the two-channel panel on the two loaded files."""
@@ -1203,6 +1341,25 @@ class MPS_explorer(QtWidgets.QMainWindow):
         slab = self._applied_slab
         shared = dict(dbcv_threshold=float(s.dbcv_threshold), roi=roi)
         params_a, params_b = self._clustering_parameters()
+        source = "typed" if params_b else ""
+        # Ask only when a comparison is actually going to run. With no
+        # ROI this panel measures the registration and nothing else --
+        # it is offered from the menu as exactly that -- and demanding
+        # clustering parameters to open it would block a mode that needs
+        # none.
+        if roi is not None and not params_b:
+            remembered = self._remembered_channel2()
+            if remembered is not None:
+                params_b = {"eps_nm": float(remembered["eps_nm"]),
+                            "min_samples": int(remembered["min_samples"])}
+                source = "typed"
+                self._show_channel2_parameters(remembered)
+            else:
+                answer = self._ask_channel2_parameters()
+                if answer is not None:
+                    params_b = {"eps_nm": float(answer["eps_nm"]),
+                                "min_samples": int(answer["min_samples"])}
+                    source = "typed"
         kwargs_a = dict(
             shared, **params_a,
             pixel_size_nm=self.locs1.pixel_size_nm,
@@ -1215,6 +1372,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
             pixel_size_source=self.locs2.pixel_size_source,
             source_name=self.ui.lineEdit_filename_2.text(),
         )
+        if roi is not None and not params_b:
+            # Declined. The panel still opens: the registration is worth
+            # measuring on its own, and run_two_channels puts the reason
+            # in the notes instead of dying.
+            self.logger.warning(
+                "Two channels: the comparison was refused -- channel 2 has "
+                "no clustering parameters of its own.")
         try:
             from tools.mps_twochannel_window import (
                 TwoChannelInputs,
@@ -1227,7 +1391,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 TwoChannelInputs(
                     loc_a=self.locs1, loc_b=self.locs2, roi=roi, slab=slab,
                     slab_half_width_nm=float(s.slab_half_width_nm),
-                    kwargs_a=kwargs_a, kwargs_b=kwargs_b),
+                    kwargs_a=kwargs_a, kwargs_b=kwargs_b,
+                    channel_b_parameter_source=source),
                 parent=self, parameters=self._clustering_parameters,
                 identity_callback=self.current_identity)
             self.logger.info(
@@ -1366,14 +1531,25 @@ class MPS_explorer(QtWidgets.QMainWindow):
         held = self.mps_discard
         if held is not None and held.base is not analysis:
             held = None
+        # A key says only which clusters went, so two analyses must never
+        # share one: the cache belongs to an analysis and is dropped with
+        # it.
+        if self._discard_cache_base is not analysis:
+            self._discard_cache.clear()
+            self._discard_cache_base = analysis
         comparison: Optional[Any] = None
         current = self._current_cluster_centroids()
         if (found is not None and centroids is not None
                 and current is not None and analysis is not None
                 and np.array_equal(np.asarray(centroids, float), current)):
-            key = np.asarray(found.discarded, bool).tobytes()
-            if held is not None and held.key == key:
-                comparison = held.comparison
+            flags = np.asarray(found.discarded, bool).ravel()
+            key = (int(flags.size), flags.tobytes())
+            cached = (held.comparison if (held is not None
+                                          and held.key == key)
+                      else self._discard_cache.get(key))
+            if cached is not None:
+                self._discard_cache.move_to_end(key, last=True)
+                comparison = cached
                 applied = comparison.discard_applied
                 if (applied.discard_margin_nm != found.margin_nm
                         or applied.discard_registration != found.registration):
@@ -1412,6 +1588,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if comparison is not None:
                 held = _HeldDiscard(base=analysis, key=key,
                                     comparison=comparison)
+                self._discard_cache[key] = comparison
+                self._discard_cache.move_to_end(key, last=True)
+                while len(self._discard_cache) > DISCARD_CACHE_SIZE:
+                    self._discard_cache.popitem(last=False)
             else:
                 held = None
         else:
@@ -1485,14 +1665,23 @@ class MPS_explorer(QtWidgets.QMainWindow):
         take precedence, and what was restored is logged.
         """
         s = self.mps_settings
-        for widget in (self.ui.lineEdit_eps, self.ui.lineEdit_eps_2):
-            widget.setText(f"{s.eps_nm:g}")
-        for widget in (self.ui.lineEdit_minsamples, self.ui.lineEdit_minsamples_2):
-            widget.setText(f"{int(s.min_samples)}")
+        self.ui.lineEdit_eps.setText(f"{s.eps_nm:g}")
+        self.ui.lineEdit_minsamples.setText(f"{int(s.min_samples)}")
+        # Channel 2's boxes are NOT seeded from channel 1. Copying
+        # channel 1's numbers into them made every later reader -- the
+        # panel, the export, the person -- unable to tell a deliberate
+        # 25 / 10 from one nobody chose. "auto" is the resting state:
+        # it is a real working input for the cluster Ch2 button, which
+        # estimates from channel 2's own points, and it is not a number
+        # pretending to be an answer. What channel 2 was actually chosen
+        # to use is filled in by load_channel2, per folder.
+        self.ui.lineEdit_eps_2.setText("auto")
+        self.ui.lineEdit_minsamples_2.setText("auto")
         self.logger.info(
             f"MPS settings restored: eps={s.eps_nm:g} nm, "
             f"min_samples={int(s.min_samples)}, "
-            f"slab half-width={s.slab_half_width_nm:g} nm"
+            f"slab half-width={s.slab_half_width_nm:g} nm; channel 2 on "
+            f"auto until a file is loaded"
         )
 
     def _persist_mps_settings(self) -> None:
@@ -1502,9 +1691,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.mps_settings.min_samples = int(
                 float(self.ui.lineEdit_minsamples.text()))
         except (ValueError, AttributeError):
-            # "auto" or a malformed entry: keep whatever was stored before
-            # rather than writing a value the analysis never actually used.
             pass
+        # Channel 2's are deliberately NOT read back from the boxes.
+        # This runs after every channel-1 clustering and on close, and
+        # the boxes were seeded from channel 1, so reading them back
+        # wrote channel 1's numbers into channel 2's store under
+        # channel 2's name. Only _remember_channel2 writes there, and
+        # only with what a person answered.
         self.mps_settings.validate()
         save_settings(self.mps_settings)
 
@@ -2142,6 +2335,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.xroi2 = self.yroi2 = self.zroi2 = None
         self.cluster_labels2 = self.cluster_centroids2 = None
         self._clustered_x[2] = None
+        # A new acquisition is a new question. Across five real adducin
+        # files the localizations per resolution cell ran 4, 62, 238,
+        # 485 and 550, so a choice made for one folder is not an answer
+        # for the next; the boxes go back to auto unless this folder
+        # already has one.
+        self._show_channel2_parameters(self._remembered_channel2())
         if self.two_channel_window is not None:
             self.two_channel_window.close()
         for layout in (self.ui.zhistlayoutch2,
@@ -2186,37 +2385,76 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """
         return mps_io.read_pixel_size(hdf5_filename)
 
-    def _ask_user_for_pixel_size(self) -> float:
+    def _ask_user_for_pixel_size(
+            self,
+            candidates: Sequence[mps_pixel_size.Candidate] = (),
+            notes: Sequence[str] = ()) -> Optional[float]:
         """
-        Prompts the user for the pixel size when it cannot be read from the YAML.
-        Defaults to 113 nm (Hamamatsu ORCA-Flash 4.0 with 2x2 binning, the most
-        common configuration) and falls back to 133 nm if the user cancels,
-        preserving original behavior with a visible warning.
+        Ask for the pixel size of a file that does not carry one.
 
-        Returns
-        -------
-        float
-            Pixel size in nm.
+        Called by ``mps_pixel_size.resolve`` only after the search of the
+        surrounding folders came back with nothing, or with more than one
+        answer. Those are shown, because when two neighbouring files
+        record different pixel sizes the person is the only one who can
+        say which acquisition this file belongs to.
+
+        Returns the value in nanometres, or None if the user did not give
+        one -- in which case the caller must refuse the file.
+
+        Nothing is filled in for them, not even a single candidate. This
+        box used to open with 113 nm already typed, which is the value of
+        a DIFFERENT microscope, and a pre-filled number is a wrong answer
+        that one Enter accepts. On Cancel it used to load the file at
+        133 nm with a warning: a fallback is a wrong answer that a Cancel
+        accepts. Either way the program carried on and every lateral
+        distance was rescaled, and every cluster area rescaled by the
+        square, without anything ever raising.
+
+        Every other path in this program refuses a file whose pixel size
+        cannot be read. This one does now too.
         """
         from PyQt5.QtWidgets import QInputDialog
-        value, ok = QInputDialog.getDouble(
+
+        if candidates:
+            found = (
+                mps_pixel_size.describe(candidates, notes) + "\n\n"
+                "Type the one that belongs to this file, in nanometres.\n"
+                "They are not filled in: only you know which acquisition\n"
+                "this file came from.\n\n")
+        else:
+            found = (
+                "This file carries no pixel size: there is no Picasso YAML\n"
+                "beside it and no '/metadata' inside it, and nothing in\n"
+                "the folders around it records one either.\n\n"
+                "Type the effective pixel size in nanometres -- the camera\n"
+                "pixel divided by the magnification, as the acquisition\n"
+                "software reports it. Nothing is filled in on purpose: a\n"
+                "number from another microscope would rescale every distance\n"
+                "this program measures.\n\n")
+
+        text, ok = QInputDialog.getText(
             self,
             "Pixel size required",
-            "Could not read pixel size from YAML.\n"
-            "Please enter the effective pixel size in nm:",
-            value=113.0, min=1.0, max=1000.0, decimals=2
+            found +
+            "It will be remembered for the other files in this folder.\n"
+            "Leave it empty to open nothing.",
         )
-        if ok:
-            return value
-        else:
+        if not ok or not text.strip():
+            return None
+        try:
+            value = float(text.strip().replace(",", "."))
+        except ValueError:
             QtWidgets.QMessageBox.warning(
-                self, "Using default pixel size",
-                "No pixel size provided. Falling back to 133 nm.\n"
-                "WARNING: this is the original hardcoded value and may not\n"
-                "match your optical system. All distances will be miscalibrated\n"
-                "if the true pixel size differs from 133 nm."
-            )
-            return 133.0
+                self, "Pixel size",
+                f"{text!r} is not a number, so nothing was opened.")
+            return None
+        if not 1.0 <= value <= 1000.0:
+            QtWidgets.QMessageBox.warning(
+                self, "Pixel size",
+                f"{value:g} nm is outside the range this program will "
+                f"accept (1 to 1000 nm), so nothing was opened.")
+            return None
+        return value
 
     def import_file(
         self,
@@ -2258,20 +2496,43 @@ class MPS_explorer(QtWidgets.QMainWindow):
         except ValueError as error:
             if "pixel size" not in str(error).lower():
                 raise
-            # Neither a YAML sidecar nor an embedded '/metadata'. Whatever
-            # the user types (or the fallback) is a guess. Record that,
-            # because a wrong pixel size rescales every lateral distance
-            # and squares into the cluster areas without ever raising.
-            guessed = self._ask_user_for_pixel_size()
+            # Neither a YAML sidecar nor an embedded '/metadata'. Look
+            # around before asking: the siblings of this file usually
+            # kept the metadata it lost, and the movie is often a folder
+            # up. Whatever comes back is still an inference about which
+            # acquisition this file belongs to, so it is recorded as one
+            # -- a wrong pixel size rescales every lateral distance and
+            # squares into the cluster areas without ever raising.
+            resolution, notes = mps_pixel_size.resolve(
+                filename, self.mps_settings.pixel_size_by_folder,
+                self._ask_user_for_pixel_size)
+            for note in notes:
+                self.logger.info(note)
+            guessed = None if resolution is None else resolution.nm
+            if guessed is None:
+                # Refusing is the only honest answer: without a pixel
+                # size every number this program would go on to write is
+                # in the wrong units. Raising rather than returning, so
+                # the caller's own "was not loaded" path runs and the
+                # previously loaded file stays as it was.
+                raise ValueError(
+                    "it carries no pixel size -- no Picasso YAML beside "
+                    "it and no '/metadata' inside it -- and none was "
+                    "found near it or given, so nothing was loaded")
             loc = mps_io.load_localizations(
                 filename, fileformat, pixel_size_nm=guessed
             )
-            loc.pixel_size_source = "manual"
+            assert resolution is not None       # guessed is not None
+            loc.pixel_size_source = resolution.token
+            if resolution.token == "manual":
+                # Typed just now: keep it for the rest of this folder.
+                save_settings(self.mps_settings)
             self.logger.warning(
                 f"No Picasso metadata for {os.path.basename(filename)} "
                 f"(no YAML sidecar and no embedded '/metadata'); pixel size "
-                f"{guessed} nm was supplied manually. All lateral distances "
-                f"scale with it and cluster areas scale with its square."
+                f"{guessed} nm was {resolution.source}. All lateral "
+                f"distances scale with it and cluster areas scale with its "
+                f"square."
             )
 
         self.pxsize = loc.pixel_size_nm

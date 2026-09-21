@@ -1069,7 +1069,11 @@ def anchored_clusters(
             cache[key] = reconstruct_perimeter(points, all_starts=True)
         return cache[key]
 
-    if (contour_all is not None and contour_all.n_starts > 1
+    if (contour_all is not None
+            # A hand-set order runs no 2-opt, so it has no starts
+            # to count; it is still the contour to reuse.
+            and (contour_all.n_starts > 1
+                 or contour_all.order_source != "automatic")
             and contour_all.n_clusters == len(centroids)
             and np.array_equal(contour_all.contour,
                                centroids[contour_all.order])):

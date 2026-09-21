@@ -38,6 +38,7 @@ from tools.cluster_quality import describe_roi, points_in_roi
 from tools.mps_analysis import DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES
 from tools.mps_identity import AxonIdentity, axon_id
 from tools.mps_crosschannel import (
+    CHANNEL2_PARAMETERS_REQUIRED,
     AxialPhaseResult,
     CrossChannelResult,
     axial_phase,
@@ -107,17 +108,25 @@ def clustering_parameters(inputs: "TwoChannelInputs"
     a = {"eps_nm": inputs.kwargs_a.get("eps_nm", DEFAULT_EPS_NM),
          "min_samples": inputs.kwargs_a.get("min_samples",
                                             DEFAULT_MIN_SAMPLES)}
-    # Channel B takes channel A's value for anything it does not set.
-    b = {key: inputs.kwargs_b.get(key, value) for key, value in a.items()}
+    # Channel B gets NOTHING it did not set. This line used to fill in
+    # channel A's value for whatever channel B left out, which put a
+    # number channel B never had on screen and in the export, labelled
+    # as channel 2's. A missing key here is the truth: nobody set it.
+    b = {key: inputs.kwargs_b[key] for key in a if key in inputs.kwargs_b}
     return a, b
 
 
 def describe_parameters(inputs: "TwoChannelInputs") -> str:
     """One line with both channels' clustering parameters."""
     a, b = clustering_parameters(inputs)
-    return "; ".join(
-        f"channel {n}: eps {p['eps_nm']:g} nm, min samples {p['min_samples']}"
-        for n, p in (("1", a), ("2", b)))
+
+    def one(name: str, p: Dict[str, Any]) -> str:
+        if "eps_nm" not in p or "min_samples" not in p:
+            return f"channel {name}: not set"
+        return (f"channel {name}: eps {p['eps_nm']:g} nm, "
+                f"min samples {p['min_samples']}")
+
+    return "; ".join(one(n, p) for n, p in (("1", a), ("2", b)))
 
 
 def _marker_file(path: str, channel: Any, round_name: str
@@ -162,6 +171,8 @@ class TwoChannelInputs:
     slab_half_width_nm: float
     kwargs_a: Dict[str, Any] = field(default_factory=dict)
     kwargs_b: Dict[str, Any] = field(default_factory=dict)
+    # Where channel 2's eps and min samples came from, for the export.
+    channel_b_parameter_source: str = ""
 
 
 @dataclass
@@ -269,11 +280,22 @@ def run_two_channels(
             f"was skipped and the channels were compared as 2D projections, "
             f"without an axial slab.")
     progress("Clustering and comparing the channels")
-    out.transverse = cross_channel_transverse(
-        xa[sel_a], ya[sel_a], za[sel_a], xb[sel_b], yb[sel_b], zb[sel_b],
-        slab=slab, slab_half_width_nm=inputs.slab_half_width_nm,
-        registration=registration, analyze_kwargs_b=inputs.kwargs_b,
-        **inputs.kwargs_a)
+    try:
+        out.transverse = cross_channel_transverse(
+            xa[sel_a], ya[sel_a], za[sel_a], xb[sel_b], yb[sel_b], zb[sel_b],
+            slab=slab, slab_half_width_nm=inputs.slab_half_width_nm,
+            registration=registration, analyze_kwargs_b=inputs.kwargs_b,
+            channel_b_parameter_source=inputs.channel_b_parameter_source,
+            **inputs.kwargs_a)
+    except ValueError as error:
+        if str(error) != CHANNEL2_PARAMETERS_REQUIRED:
+            raise
+        # Refusing the comparison must not cost the registration. This
+        # panel is the one place the two channels are put in a common
+        # frame, it is offered from the menu as exactly that, and it
+        # already works with no ROI at all -- so the refusal is a note
+        # beside a measured registration, not a dead window.
+        out.notes.append(str(error))
     return out
 
 
@@ -808,6 +830,69 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         ]
         for text in rows:
             lay.addWidget(_label(text))
+
+        # --- the shared perimeter occupancy ---------------------------
+        # The number this panel exists for. It is shown with its null
+        # beside it, never on its own: a fraction of a ring is meaningless
+        # until you know what randomly placed clusters would give.
+        lay.addWidget(_label("Shared perimeter occupancy", bold=True))
+        sh = t.shared
+        if sh is None or not sh.measured:
+            reason = "" if sh is None else sh.reason
+            lay.addWidget(_label(
+                "Not measured" + (f": {reason}." if reason else "."), _DIM))
+        else:
+            kind = "good"
+            if sh.p_null_at_least_measured is None:
+                kind = "dim"
+            elif sh.p_null_at_least_measured > 0.05:
+                kind = "warn"
+            lay.addWidget(_label(
+                f"{100 * sh.shared_of_a:.1f} % of the channel-1 perimeter "
+                f"that is covered is also covered by channel 2 "
+                f"({sh.shared_length_nm:.0f} nm).",
+                plot_style.verdict(kind), bold=True))
+            if sh.null_median_shared_of_a is not None:
+                lay.addWidget(_label(
+                    f"Channel 2 placed at random: "
+                    f"{100 * sh.null_median_shared_of_a:.1f} % "
+                    f"[{100 * sh.null_ci_shared_of_a[0]:.1f}, "
+                    f"{100 * sh.null_ci_shared_of_a[1]:.1f}]"
+                    + ("" if sh.p_null_at_least_measured is None else
+                       f"; chance reaches the measured value in "
+                       f"{100 * sh.p_null_at_least_measured:.0f} % of draws")
+                    + f" ({sh.n_null} draws)."))
+            if sh.registration_band_shared_of_a is not None:
+                lo, hi = sh.registration_band_shared_of_a
+                lay.addWidget(_label(
+                    f"Registration alone moves it between {100 * lo:.1f} % "
+                    f"and {100 * hi:.1f} %."))
+            lay.addWidget(_label(
+                f"The other way round {100 * sh.shared_of_b:.1f} %; "
+                f"channel 1 covers {sh.occupancy_a_percent:.1f} % of its own "
+                f"perimeter, channel 2 covers {sh.occupancy_b_percent:.1f} % "
+                f"of it. Covered patches are "
+                + ("-" if sh.median_patch_a_nm is None
+                   else f"{sh.median_patch_a_nm:.0f} nm")
+                + " long, which is the scale this overlap is resolved at.",
+                _DIM))
+            if sh.n_clusters_b_off_contour:
+                lay.addWidget(_label(
+                    f"{sh.n_clusters_b_off_contour} of "
+                    f"{sh.n_clusters_b_on_contour + sh.n_clusters_b_off_contour}"
+                    f" channel-2 clusters reach no point of the channel-1 "
+                    f"contour and contribute nothing.",
+                    plot_style.verdict("warn")))
+
+        rad = t.radial
+        if rad is not None and rad.median_nm is not None:
+            lay.addWidget(_label(
+                f"Channel 2 sits {rad.median_nm:+.0f} nm from that contour "
+                f"({rad.n_inside} inside, {rad.n_outside} outside); channel "
+                f"1's own localizations sit "
+                + ("-" if rad.reference_median_nm is None
+                   else f"{rad.reference_median_nm:+.0f} nm")
+                + " from it, which is the scatter to read that against."))
 
         plot = pg.PlotWidget()
         style_dark(plot)

@@ -150,6 +150,15 @@ def smooth_contour_bspline(
         return contour.copy()
 
 
+# The name this helper had while it was private. The shared perimeter
+# occupancy of tools.mps_crosschannel needs it too, so it is public now.
+
+
+def _place_with_min_distance(*args, **kwargs):          # pragma: no cover
+    """Deprecated alias of ``place_with_min_distance``."""
+    return place_with_min_distance(*args, **kwargs)
+
+
 def build_annulus_candidates(
     smoothed: NDArray[np.float64],
     half_width_nm: float = DEFAULT_ANNULUS_HALF_WIDTH_NM,
@@ -184,7 +193,7 @@ def build_annulus_candidates(
     return grid[dist <= half_width_nm]
 
 
-def _place_with_min_distance(
+def place_with_min_distance(
     candidates: NDArray[np.float64],
     n_wanted: int,
     min_distance: float,
@@ -337,7 +346,7 @@ def randomize_cluster_positions(
     example: Optional[NDArray[np.float64]] = None
 
     for it in range(n_iterations):
-        centres = _place_with_min_distance(
+        centres = place_with_min_distance(
             candidates, n_clusters, min_distance_nm, rng)
         placed_fracs[it] = len(centres) / n_clusters
         if len(centres) < n_clusters:

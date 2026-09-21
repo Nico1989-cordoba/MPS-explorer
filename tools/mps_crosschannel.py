@@ -49,7 +49,7 @@ difference between rounds shifts one to one.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -63,10 +63,17 @@ from tools.mps_multisegment import (
     cluster_angles,
     fold_rotation,
 )
+from tools.mps_occupancy import SIGMA_CAP_FRACTION, compute_occupancy
 from tools.mps_periodicity import (
     DEFAULT_SLAB_HALF_WIDTH_NM,
     ZPeriodicityResult,
+    density_valleys,
     fit_z_periodicity,
+)
+from tools.mps_randomization import (
+    build_annulus_candidates,
+    place_with_min_distance,
+    smooth_contour_bspline,
 )
 from tools.mps_registration import (
     NO_REGISTRATION,
@@ -78,6 +85,44 @@ from tools.mps_registration import (
 # out: a tenth of a period is a fifth of the whole in-phase-to-antiphase
 # range.
 PHASE_UNCERTAINTY_WARN = 0.1
+
+# One lateral resolution cell, near the median localization precision of
+# this data (lpx medians of 15 to 27 nm across the real files). Used only
+# to compare how densely the two channels are sampled, never to cluster.
+RESOLUTION_CELL_NM = 20.0
+# Above this ratio of localizations per cell, channel B is sampled in a
+# different regime from channel A and cannot share its min_samples --
+# which counts localizations, not molecules. Measured over the five real
+# adducin files the ratio is 12 to 138 in four of them and about 1 in the
+# fifth, so there is no single number that fits both.
+OVERSAMPLING_WARN = 3.0
+
+# The one text for this refusal. The library raises it and the main
+# window shows it, so the two cannot drift apart. Instruction first: a
+# message that only explains leaves the reader knowing why they are
+# stuck and not how to get out. "Epsilon" and "Min Pts" are what the two
+# controls are actually labelled.
+CHANNEL2_PARAMETERS_REQUIRED = (
+    "Type channel 2's own Epsilon and Min Pts before comparing the "
+    "channels -- they are not channel 1's. Min Pts counts localizations, "
+    "and across five real adducin files channel 2 carried 1 to 138 times "
+    "more of them per 20 nm cell than channel 1; on one axon channel 1's "
+    "25 nm / 10 found 13 clusters where channel 2's own found 35.")
+
+
+def _usable_parameter(value: Any, lo: float, hi: float) -> bool:
+    """Whether a clustering parameter is a number this program will run on.
+
+    Checked BEFORE any coercion. float(None) raises TypeError and
+    float("auto") raises a ValueError carrying the wrong message, and
+    both would reach the caller as something other than the refusal.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    number = float(value)
+    if not np.isfinite(number):
+        return False
+    return lo <= number <= hi
 
 
 # ============================================================================
@@ -101,6 +146,14 @@ class AxialPhaseResult:
     # The axial registration error as a fraction of the period, or None
     # when either is unknown.
     phase_uncertainty: Optional[float] = None
+    # Whether each channel's axial density actually dips between the
+    # components the mixture fitted. A mixture will split one broad
+    # distribution into two components whether or not anything separates
+    # them, and the spacing between those two is then a number with no
+    # periodicity behind it. None when there are fewer than two
+    # components to separate.
+    peaks_separated_a: Optional[bool] = None
+    peaks_separated_b: Optional[bool] = None
     warnings: List[str] = field(default_factory=list)
 
     @property
@@ -108,6 +161,11 @@ class AxialPhaseResult:
         """Descriptive label only -- never a biological conclusion."""
         f = self.phase_fraction
         if f is None:
+            return "undetermined"
+        if self.peaks_separated_a is False:
+            # The period this fraction is expressed against was measured
+            # on a channel whose axial density never dips. Naming the
+            # result "antiphase" would dress that up as a finding.
             return "undetermined"
         if f < 0.15:
             return "near in-phase"
@@ -172,6 +230,33 @@ def axial_phase(
             "offset cannot be expressed as a phase."
         )
 
+    # Does either channel's axial density actually separate the
+    # components the mixture fitted? Measured on the 18-axon dataset,
+    # more than half of the boundaries have no interior minimum at all,
+    # so this is the common case rather than the exception.
+    separated: Dict[str, Optional[bool]] = {}
+    for tag, fitted in (("a", ra), ("b", rb)):
+        try:
+            valleys = density_valleys(fitted)
+        except Exception:                                 # noqa: BLE001
+            separated[tag] = None
+            continue
+        if valleys.n_boundaries == 0:
+            separated[tag] = None
+        else:
+            separated[tag] = bool(np.any(valleys.is_true_valley))
+    if separated.get("a") is False:
+        warnings_.append(
+            "[ch A] The axial density never dips between the components "
+            "fitted to it: there is no evidence in the profile that these "
+            "are separate rings rather than one broad distribution the "
+            "mixture split. The period, and any phase expressed against "
+            "it, rest on that split.")
+    if separated.get("b") is False:
+        warnings_.append(
+            "[ch B] The same: channel B's axial density has no interior "
+            "minimum between its components.")
+
     uncertainty: Optional[float] = None
     axial_error = registration.axial_rms_nm
     if axial_error is None:
@@ -193,7 +278,9 @@ def axial_phase(
         offset_nm=offset, period_a_nm=pa, period_b_nm=pb,
         period_used_nm=period, phase_fraction=frac,
         z_result_a=ra, z_result_b=rb, registration=registration,
-        phase_uncertainty=uncertainty, warnings=warnings_,
+        phase_uncertainty=uncertainty,
+        peaks_separated_a=separated.get("a"),
+        peaks_separated_b=separated.get("b"), warnings=warnings_,
     )
 
 
@@ -235,8 +322,47 @@ class CrossChannelResult:
 
     # The lateral registration error, from ``registration``.
     registration_rms_nm: Optional[float]
+    # How densely each channel is sampled, in the unit min_samples
+    # counts: the median localizations within one resolution cell. The
+    # reason channel B cannot share channel A's min_samples, as a number.
+    locs_per_cell_a: Optional[float] = None
+    locs_per_cell_b: Optional[float] = None
+    # Where channel B's clustering parameters came from, as the caller
+    # states it: "typed", "estimated from channel 2", or empty when a
+    # script supplied them and nobody can say. Never inferred here --
+    # this function sees two numbers and nothing about their origin.
+    channel_b_parameter_source: str = ""
+    # How much of channel A's covered perimeter channel B also covers.
+    shared: Optional["SharedOccupancyResult"] = None
+    # How far inside or outside A's contour channel B's clusters sit.
+    radial: Optional["RadialOffsetResult"] = None
     registration: Registration = field(default_factory=lambda: NO_REGISTRATION)
     warnings: List[str] = field(default_factory=list)
+
+
+def locs_per_cell(x: NDArray[np.float64], y: NDArray[np.float64],
+                  radius_nm: float = RESOLUTION_CELL_NM,
+                  sample: int = 2000, seed: int = 0) -> Optional[float]:
+    """
+    Median localizations within one resolution cell of a localization.
+
+    How densely a channel is sampled, in the unit ``min_samples``
+    actually counts. Subsampled, because the median of a few thousand
+    points is the same number and the full query is not free.
+    """
+    pts = np.column_stack([np.asarray(x, float).ravel(),
+                           np.asarray(y, float).ravel()])
+    if len(pts) < 2:
+        return None
+    tree = cKDTree(pts)
+    if len(pts) > sample:
+        rng = np.random.default_rng(seed)
+        probe = pts[rng.choice(len(pts), size=sample, replace=False)]
+    else:
+        probe = pts
+    counts = tree.query_ball_point(probe, r=float(radius_nm),
+                                   return_length=True)
+    return float(np.median(counts))
 
 
 def _radii(centroids: NDArray[np.float64], center: NDArray[np.float64]):
@@ -262,11 +388,6 @@ def _null_hetero_nn(
     Without this, a small measured distance means nothing: pack enough
     points around a thin ring and the nearest one is close by construction.
     """
-    from tools.mps_randomization import (
-        build_annulus_candidates,
-        smooth_contour_bspline,
-    )
-
     smoothed = smooth_contour_bspline(contour)
     candidates = build_annulus_candidates(
         smoothed, annulus_half_width_nm, grid_spacing_nm)
@@ -283,6 +404,531 @@ def _null_hetero_nn(
     return out
 
 
+# ============================================================================
+# Shared perimeter occupancy
+# ============================================================================
+#
+# The thesis question in one number: what fraction of the betaII-spectrin
+# ring also carries the partner protein? Occupancy already answers "how
+# much of the perimeter does one channel cover" (parameter 6, Gazal et
+# al. 2026). Two channels give two covered sets on the SAME sampled
+# perimeter, and their intersection is the shared part.
+#
+# Spectrin defines the MPS, so the perimeter is spectrin's: channel B's
+# clusters are projected onto channel A's contour by the same
+# compute_occupancy, with the same Mahalanobis threshold, the same
+# ellipse mode and the same sample points. That last one is checked
+# rather than assumed -- two different samplings would make the two masks
+# incomparable element by element, and nothing downstream would notice.
+#
+# Nothing here is from a paper. No published method measures this: Gazal
+# et al. analyse one channel, Xu et al. (2013) read alternation off 1D
+# projected histograms. What is borrowed is the machinery -- the
+# constrained Gaussian, the Mahalanobis criterion, and the annulus
+# randomization of parameter 8 -- so the shared number is built out of
+# quantities this program already validates.
+
+# A registration error above this fraction of channel A's median covered
+# patch makes the overlap worth reading only with its error bar; above
+# the second, the bare number is not a measurement at all. The scale is
+# the patch and not the perimeter because that is what an overlap is
+# resolved against: measured on the one loadable real pair, channel A's
+# covered patches are a median of 86 nm.
+SHARED_REGISTRATION_WARN = 0.10
+SHARED_REGISTRATION_REFUSE = 0.50
+# Matching parameter 8, which uses 1000 randomizations.
+DEFAULT_SHARED_NULL = 1000
+# Above this, one channel-B cluster alone is carrying the answer.
+SINGLE_CLUSTER_SHARE_WARN = 0.25
+
+
+@dataclass
+class SharedOccupancyResult:
+    """
+    How much of one channel's covered perimeter the other also covers.
+
+    ``shared_of_a`` is the headline: the fraction of the perimeter
+    covered by channel A that channel B also covers. ``shared_of_b`` is
+    the same quantity the other way round -- a specificity check, "is the
+    partner confined to spectrin?" -- and ``jaccard`` is the symmetric
+    version, reported because it is cheap and because neither one-sided
+    fraction alone shows when both channels cover almost everything.
+
+    All three are fractions in [0, 1], not percentages, and every one of
+    them is None when ``reason`` says why nothing could be measured.
+    """
+
+    shared_of_a: Optional[float]
+    shared_of_b: Optional[float]
+    jaccard: Optional[float]
+    occupancy_a_percent: Optional[float]
+    occupancy_b_percent: Optional[float]
+    shared_length_nm: Optional[float]
+    perimeter_length_nm: Optional[float]
+    # A channel-B cluster can sit far enough from channel A's contour to
+    # reach none of its sample points. It then contributes nothing, and
+    # how many did so is part of reading the number.
+    n_clusters_b_on_contour: int
+    n_clusters_b_off_contour: int
+    # The largest share any SINGLE channel-B cluster covers on its own.
+    b_largest_single_share: Optional[float]
+    # The scale the overlap is resolved at: the median length of channel
+    # A's covered patches.
+    median_patch_a_nm: Optional[float]
+    null_median_shared_of_a: Optional[float]
+    null_ci_shared_of_a: Optional[Tuple[float, float]]
+    # P(null >= measured): small means the overlap exceeds chance.
+    p_null_at_least_measured: Optional[float]
+    n_null: int
+    # What the registration error alone does to shared_of_a, as a 95 %
+    # band. None when the registration error is unknown.
+    registration_band_shared_of_a: Optional[Tuple[float, float]]
+    # Empty when there is a number; otherwise why there is not.
+    reason: str = ""
+    warnings: List[str] = field(default_factory=list)
+
+    @property
+    def measured(self) -> bool:
+        return self.shared_of_a is not None
+
+
+def _arc_runs(mask: NDArray[np.bool_], spacing_nm: float
+              ) -> NDArray[np.float64]:
+    """
+    The lengths of the covered patches, treating the perimeter as closed.
+
+    A patch that straddles the sampling's start and end is one patch, not
+    two: the perimeter is a loop and the sample index zero is arbitrary.
+    """
+    if not mask.any():
+        return np.array([])
+    if mask.all():
+        return np.array([float(mask.sum()) * spacing_nm])
+    start = np.flatnonzero(mask & ~np.roll(mask, 1))
+    end = np.flatnonzero(mask & ~np.roll(mask, -1))
+    end = np.roll(end, -int(np.searchsorted(end, start[0])))
+    return np.asarray(((end - start) % len(mask) + 1) * spacing_nm,
+                      dtype=float)
+
+
+def _ellipse_mask(ellipses: Sequence[Any], probes: NDArray[np.float64],
+                  threshold: float,
+                  shift: Tuple[float, float] = (0.0, 0.0)) -> NDArray[np.bool_]:
+    """Which sampled perimeter points any of these ellipses covers.
+
+    The union over clusters, exactly as ``compute_occupancy`` does it, so
+    overlapping ellipses never count a length twice. ``shift`` moves every
+    ellipse rigidly, which is how both the null and the registration band
+    are built.
+    """
+    covered = np.zeros(len(probes), dtype=bool)
+    limit = float(threshold) ** 2
+    offset = np.asarray(shift, dtype=float)
+    for ellipse in ellipses:
+        d = probes - (ellipse.mean + offset)
+        covered |= np.einsum("ij,jk,ik->i", d, ellipse.inv_cov, d) <= limit
+    return covered
+
+
+def _excluded_labels(analysis: AxonAnalysis) -> set:
+    """The clusters an analysis removed, automatically or by hand."""
+    return set(analysis.bad_report.bad_labels) | set(analysis.discarded_labels)
+
+
+def shared_occupancy(
+    analysis_a: Optional[AxonAnalysis],
+    analysis_b: Optional[AxonAnalysis],
+    *,
+    registration: Optional[Registration] = None,
+    n_null: int = DEFAULT_SHARED_NULL,
+    annulus_half_width_nm: float = 50.0,
+    grid_spacing_nm: float = 5.0,
+    n_registration_draws: int = 200,
+    random_seed: int = 0,
+) -> SharedOccupancyResult:
+    """
+    The fraction of channel A's covered perimeter that channel B covers.
+
+    Parameters
+    ----------
+    analysis_a : the reference channel, betaII-spectrin. Its contour and
+        its occupancy define the perimeter and its sampling; both must
+        exist or nothing is measured.
+    analysis_b : the partner channel, ALREADY registered onto A and
+        analysed on the same axial slab.
+    registration : how channel B was put in A's frame. Its lateral error
+        becomes an error bar, and a large one withdraws the number.
+    n_null : draws of the null, in which channel B's ellipses are moved
+        rigidly to random positions in the annulus around A's contour.
+    n_registration_draws : draws of the registration band.
+
+    Returns
+    -------
+    SharedOccupancyResult, whose ``reason`` is non-empty and whose
+    numbers are all None when the pair cannot be measured.
+
+    Notes
+    -----
+    Three things this does NOT do, each deliberately.
+
+    It does not re-sample the perimeter for channel B. It asks
+    ``compute_occupancy`` for the same ``n_points`` on the same contour
+    and then checks that the sample points came back identical; if they
+    did not, the two masks would not be comparable point by point and the
+    intersection would be meaningless.
+
+    It does not decide that a channel-B cluster away from A's contour is
+    an error. Both channels straddle the contour -- it is a polyline
+    through cluster centres, not a boundary -- so "outside" is not a
+    defect. A cluster that reaches no sample point simply contributes
+    nothing, and the count of those is returned so that a low shared
+    fraction built on two of three clusters can be read as such.
+
+    It does not compare across different occupancy settings. A different
+    Mahalanobis threshold or ellipse mode changes what "covered" means in
+    each channel, and an intersection of two different definitions is not
+    a measurement, so it is refused rather than computed.
+    """
+    reg = registration or NO_REGISTRATION
+    warnings_: List[str] = []
+    nothing: Dict[str, Any] = dict(
+        shared_of_a=None, shared_of_b=None, jaccard=None,
+        occupancy_a_percent=None, occupancy_b_percent=None,
+        shared_length_nm=None, perimeter_length_nm=None,
+        n_clusters_b_on_contour=0, n_clusters_b_off_contour=0,
+        b_largest_single_share=None, median_patch_a_nm=None,
+        null_median_shared_of_a=None, null_ci_shared_of_a=None,
+        p_null_at_least_measured=None, n_null=0,
+        registration_band_shared_of_a=None)
+
+    if (analysis_a is None or analysis_a.perimeter is None
+            or analysis_a.occupancy is None):
+        return SharedOccupancyResult(
+            **nothing, warnings=warnings_,
+            reason="channel A has no contour, so there is no perimeter to "
+                   "share")
+    if analysis_b is None or analysis_b.n_clusters_kept == 0:
+        return SharedOccupancyResult(
+            **nothing, warnings=warnings_,
+            reason="channel B has no clusters")
+    if (analysis_a.mahalanobis_threshold != analysis_b.mahalanobis_threshold
+            or analysis_a.ellipse_mode != analysis_b.ellipse_mode):
+        return SharedOccupancyResult(
+            **nothing, warnings=warnings_,
+            reason=(f"the two channels were measured with different occupancy "
+                    f"settings (Mahalanobis "
+                    f"{analysis_a.mahalanobis_threshold:g} vs "
+                    f"{analysis_b.mahalanobis_threshold:g}, ellipse "
+                    f"{analysis_a.ellipse_mode} vs {analysis_b.ellipse_mode})"))
+
+    occ_a = analysis_a.occupancy
+    probes = occ_a.perimeter_points
+    spacing = occ_a.point_spacing_nm
+    mask_a = occ_a.occupied_mask
+    threshold = analysis_a.mahalanobis_threshold
+
+    occ_b = compute_occupancy(
+        analysis_b.x_slab, analysis_b.y_slab, analysis_b.labels,
+        analysis_a.perimeter.contour,
+        exclude_labels=_excluded_labels(analysis_b),
+        n_points=occ_a.n_points,
+        mahalanobis_threshold=threshold,
+        sigma_cap_fraction=SIGMA_CAP_FRACTION,
+        ellipse_mode=analysis_a.ellipse_mode,
+        # occ_a already settled the sampling; re-deciding it here could
+        # return a different number of points for the same perimeter.
+        ensure_subnm_spacing=False)
+    if not np.array_equal(occ_b.perimeter_points, probes):
+        return SharedOccupancyResult(
+            **nothing, warnings=warnings_,
+            reason="the two channels were sampled at different points on the "
+                   "perimeter, so their covered sets cannot be intersected")
+    mask_b = occ_b.occupied_mask
+    ellipses_b = occ_b.ellipses
+
+    length_a = float(mask_a.sum()) * spacing
+    length_b = float(mask_b.sum()) * spacing
+    length_shared = float((mask_a & mask_b).sum()) * spacing
+    length_union = float((mask_a | mask_b).sum()) * spacing
+    shared_of_a = length_shared / length_a if length_a else None
+    shared_of_b = length_shared / length_b if length_b else None
+    jaccard = length_shared / length_union if length_union else None
+
+    per_cluster = [_ellipse_mask([e], probes, threshold) for e in ellipses_b]
+    off_contour = sum(1 for m in per_cluster if not m.any())
+    largest = max((float(m.mean()) for m in per_cluster), default=0.0)
+    patches = _arc_runs(mask_a, spacing)
+    median_patch = float(np.median(patches)) if patches.size else None
+
+    if off_contour:
+        warnings_.append(
+            f"{off_contour} of the {len(ellipses_b)} channel-B clusters reach "
+            f"no point of channel A's contour, so the shared fraction "
+            f"describes only the {len(ellipses_b) - off_contour} that do.")
+    if largest > SINGLE_CLUSTER_SHARE_WARN:
+        warnings_.append(
+            f"One channel-B cluster alone covers {100 * largest:.0f} % of the "
+            f"perimeter. A shared fraction built on it is a statement about "
+            f"one blob, not about a pattern of clusters.")
+    if length_b == 0:
+        warnings_.append(
+            "Channel B covers no part of channel A's contour.")
+
+    # ---- the null -------------------------------------------------------
+    # Channel B's ellipses, each carrying its own size and orientation,
+    # moved rigidly to random positions in the annulus around A's
+    # contour. Everything else is held: channel A entirely, the contour,
+    # the sampling, how many B clusters there are, and their own smallest
+    # separation -- so the only thing randomized is WHERE they sit.
+    null_median = null_ci = p_null = None
+    n_null_done = 0
+    if n_null > 0 and ellipses_b and length_a > 0:
+        centres_b = np.array([e.mean for e in ellipses_b], dtype=float)
+        if len(centres_b) >= 2:
+            d, _ = cKDTree(centres_b).query(centres_b, k=2)
+            min_separation = float(np.min(d[:, 1]))
+        else:
+            min_separation = 0.0
+        candidates = build_annulus_candidates(
+            smooth_contour_bspline(analysis_a.perimeter.contour),
+            annulus_half_width_nm, grid_spacing_nm)
+        if len(candidates) < len(ellipses_b):
+            warnings_.append(
+                "The annulus around channel A's contour holds fewer "
+                "positions than channel B has clusters, so no null could be "
+                "built.")
+        else:
+            rng = np.random.default_rng(random_seed)
+            values = np.empty(int(n_null))
+            for draw in range(int(n_null)):
+                centres = place_with_min_distance(
+                    candidates, len(ellipses_b), min_separation, rng)
+                covered = np.zeros(len(probes), dtype=bool)
+                limit = threshold ** 2
+                for ellipse, centre in zip(ellipses_b, centres):
+                    d = probes - centre
+                    covered |= np.einsum(
+                        "ij,jk,ik->i", d, ellipse.inv_cov, d) <= limit
+                values[draw] = float((mask_a & covered).sum()) * spacing \
+                    / length_a
+            null_median = float(np.median(values))
+            null_ci = (float(np.percentile(values, 2.5)),
+                       float(np.percentile(values, 97.5)))
+            n_null_done = int(n_null)
+            if shared_of_a is not None:
+                p_null = float(np.mean(values >= shared_of_a))
+                if p_null > 0.05:
+                    warnings_.append(
+                        f"Channel-B clusters placed at random cover at least "
+                        f"as much of channel A's perimeter in "
+                        f"{100 * p_null:.0f} % of draws: this overlap is not "
+                        f"distinguishable from chance.")
+
+    # ---- what the registration error alone does -------------------------
+    band = None
+    lateral = reg.lateral_rms_nm
+    if lateral is None:
+        warnings_.append(
+            "The lateral registration of channel B is unknown, so this "
+            "shared fraction has no error bar: a shift the size of one "
+            "covered patch changes it completely.")
+    elif shared_of_a is not None and n_registration_draws > 0:
+        rng = np.random.default_rng(random_seed + 1)
+        # An isotropic 2-D error of total RMS ``lateral`` has this per
+        # axis, which is how Registration reports it.
+        draws = rng.normal(0.0, lateral / np.sqrt(2.0),
+                           size=(int(n_registration_draws), 2))
+        values = np.empty(len(draws))
+        for i, shift in enumerate(draws):
+            covered = _ellipse_mask(ellipses_b, probes, threshold,
+                                    shift=(float(shift[0]), float(shift[1])))
+            values[i] = float((mask_a & covered).sum()) * spacing / length_a
+        band = (float(np.percentile(values, 2.5)),
+                float(np.percentile(values, 97.5)))
+        if median_patch:
+            ratio = lateral / median_patch
+            if ratio >= SHARED_REGISTRATION_REFUSE:
+                warnings_.append(
+                    f"The registration error ({lateral:.0f} nm) is "
+                    f"{ratio:.2f} of channel A's median covered patch "
+                    f"({median_patch:.0f} nm): this overlap is not a "
+                    f"measurement.")
+            elif ratio >= SHARED_REGISTRATION_WARN:
+                warnings_.append(
+                    f"The registration error ({lateral:.0f} nm) is "
+                    f"{ratio:.2f} of channel A's median covered patch "
+                    f"({median_patch:.0f} nm); read the band, not the "
+                    f"number.")
+
+    return SharedOccupancyResult(
+        shared_of_a=shared_of_a, shared_of_b=shared_of_b, jaccard=jaccard,
+        occupancy_a_percent=100.0 * float(mask_a.mean()),
+        occupancy_b_percent=100.0 * float(mask_b.mean()),
+        shared_length_nm=length_shared,
+        perimeter_length_nm=occ_a.perimeter_length_nm,
+        n_clusters_b_on_contour=len(ellipses_b) - off_contour,
+        n_clusters_b_off_contour=off_contour,
+        b_largest_single_share=largest,
+        median_patch_a_nm=median_patch,
+        null_median_shared_of_a=null_median,
+        null_ci_shared_of_a=null_ci,
+        p_null_at_least_measured=p_null,
+        n_null=n_null_done,
+        registration_band_shared_of_a=band,
+        warnings=warnings_,
+    )
+
+
+# ============================================================================
+# Where the partner sits relative to the spectrin outline
+# ============================================================================
+#
+# The shared occupancy says how much of the ring the partner covers. It
+# does not distinguish "the partner is not there" from "the partner is
+# there, 267 nm further in" -- both give the same zero. This does: for
+# each channel-B cluster, the signed distance from its centre to channel
+# A's contour, negative towards the inside of the axon.
+#
+# The contour is not a membrane. It is a polyline through channel A's own
+# cluster centres, so channel A's own localizations straddle it: measured
+# on the one real pair in the repo, 62.6 % of them fall outside their own
+# contour, median +12.9 nm. A channel-B offset therefore means nothing
+# read alone, and channel A's own offsets are returned beside it as the
+# reference they have to be read against.
+
+
+@dataclass
+class RadialOffsetResult:
+    """Signed distances from channel B to channel A's contour, in nm.
+
+    Negative is towards the inside of the axon. Everything here is None
+    or empty when ``reason`` says why nothing could be measured.
+    """
+
+    offsets_nm: NDArray[np.float64]        # one per channel-B cluster centre
+    median_nm: Optional[float]
+    iqr_nm: Optional[Tuple[float, float]]
+    n_inside: int
+    n_outside: int
+    # The same measurement on channel A's OWN slab localizations: the
+    # width of the contour's own scatter, which any channel-B offset has
+    # to be larger than to mean anything.
+    reference_median_nm: Optional[float]
+    reference_iqr_nm: Optional[Tuple[float, float]]
+    reason: str = ""
+    warnings: List[str] = field(default_factory=list)
+
+
+def _segment_distances(points: NDArray[np.float64],
+                       contour: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Distance from each point to the closed polyline, in nm."""
+    a = contour
+    b = np.roll(contour, -1, axis=0)
+    ab = b - a                                            # (K, 2)
+    length2 = np.einsum("ij,ij->i", ab, ab)
+    length2 = np.where(length2 == 0.0, 1.0, length2)
+    # (N, K, 2) would be large for 10,000 points; loop over segments
+    # instead, which is K passes over N points.
+    best = np.full(len(points), np.inf)
+    for k in range(len(a)):
+        ap = points - a[k]
+        t = np.clip((ap @ ab[k]) / length2[k], 0.0, 1.0)
+        d = ap - np.outer(t, ab[k])
+        best = np.minimum(best, np.hypot(d[:, 0], d[:, 1]))
+    return best
+
+
+def _inside_polygon(points: NDArray[np.float64],
+                    contour: NDArray[np.float64]) -> NDArray[np.bool_]:
+    """Ray casting: whether each point is enclosed by the closed polyline."""
+    x, y = points[:, 0], points[:, 1]
+    inside = np.zeros(len(points), dtype=bool)
+    x1, y1 = contour[:, 0], contour[:, 1]
+    x2, y2 = np.roll(x1, -1), np.roll(y1, -1)
+    for k in range(len(contour)):
+        # A horizontal ray to +x crosses this edge when the edge spans the
+        # point's y and the crossing is to its right.
+        spans = (y1[k] > y) != (y2[k] > y)
+        if not spans.any():
+            continue
+        with np.errstate(divide="ignore", invalid="ignore"):
+            cross_x = (x2[k] - x1[k]) * (y - y1[k]) / (y2[k] - y1[k]) + x1[k]
+        inside ^= spans & (x < cross_x)
+    return inside
+
+
+def signed_offsets(points: NDArray[np.float64],
+                   contour: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Signed distance of each point to a closed contour; inside is negative."""
+    pts = np.asarray(points, dtype=float).reshape(-1, 2)
+    if pts.size == 0 or len(contour) < 3:
+        return np.array([])
+    d = _segment_distances(pts, np.asarray(contour, dtype=float))
+    return np.where(_inside_polygon(pts, np.asarray(contour, dtype=float)),
+                    -d, d)
+
+
+def radial_offsets(
+    analysis_a: Optional[AxonAnalysis],
+    analysis_b: Optional[AxonAnalysis],
+) -> RadialOffsetResult:
+    """
+    How far inside or outside channel A's contour channel B's clusters sit.
+
+    Returns a RadialOffsetResult whose ``reason`` is non-empty when the
+    pair could not be measured. Channel A's own localizations are
+    measured the same way and returned as the reference: the contour runs
+    through channel A's cluster CENTRES, so its own data straddles it, and
+    a channel-B offset inside that scatter is not a displacement.
+    """
+    empty: Dict[str, Any] = dict(
+        offsets_nm=np.array([]), median_nm=None, iqr_nm=None,
+        n_inside=0, n_outside=0,
+        reference_median_nm=None, reference_iqr_nm=None)
+    if analysis_a is None or analysis_a.perimeter is None:
+        return RadialOffsetResult(
+            **empty, reason="channel A has no contour to measure against")
+    if analysis_b is None or analysis_b.centroids.size == 0:
+        return RadialOffsetResult(**empty, reason="channel B has no clusters")
+
+    contour = np.asarray(analysis_a.perimeter.contour, dtype=float)
+    if len(contour) < 3:
+        return RadialOffsetResult(
+            **empty,
+            reason="channel A's contour has fewer than three vertices")
+
+    offsets = signed_offsets(analysis_b.centroids, contour)
+    reference = signed_offsets(
+        np.column_stack([analysis_a.x_slab, analysis_a.y_slab]), contour)
+
+    def summary(values):
+        if values.size == 0:
+            return None, None
+        return (float(np.median(values)),
+                (float(np.percentile(values, 25)),
+                 float(np.percentile(values, 75))))
+
+    median, iqr = summary(offsets)
+    ref_median, ref_iqr = summary(reference)
+
+    warnings_: List[str] = []
+    if median is not None and ref_iqr is not None:
+        spread = ref_iqr[1] - ref_iqr[0]
+        if spread > 0 and abs(median) < 0.5 * spread:
+            warnings_.append(
+                f"Channel B sits {median:+.0f} nm from channel A's contour, "
+                f"which is inside the contour's own scatter (channel A's "
+                f"localizations span {spread:.0f} nm between quartiles). "
+                f"That is not a displacement.")
+
+    return RadialOffsetResult(
+        offsets_nm=offsets, median_nm=median, iqr_nm=iqr,
+        n_inside=int(np.count_nonzero(offsets < 0)),
+        n_outside=int(np.count_nonzero(offsets > 0)),
+        reference_median_nm=ref_median, reference_iqr_nm=ref_iqr,
+        warnings=warnings_)
+
+
 def cross_channel_transverse(
     x_a: NDArray[np.float64], y_a: NDArray[np.float64], z_a: NDArray[np.float64],
     x_b: NDArray[np.float64], y_b: NDArray[np.float64], z_b: NDArray[np.float64],
@@ -292,6 +938,8 @@ def cross_channel_transverse(
     registration: Optional[Registration] = None,
     analyze_kwargs_b: Optional[Dict[str, Any]] = None,
     n_null: int = 200,
+    per_channel_randomization: bool = False,
+    channel_b_parameter_source: str = "",
     annulus_half_width_nm: float = 50.0,
     grid_spacing_nm: float = 5.0,
     random_seed: int = 0,
@@ -312,18 +960,52 @@ def cross_channel_transverse(
         ``axial_phase`` before reading the transverse numbers.
     registration : how channel B was registered. Cross-channel distances
         within three times its lateral error are flagged.
-    analyze_kwargs_b : overrides of ``analyze_kwargs`` for channel B -- its
+    channel_b_parameter_source : where channel B's eps and min_samples
+        came from, in the caller's own words -- "typed" when a person
+        supplied them, "estimated from channel 2" when the program did,
+        empty when a script did and nobody can say. Written to the export
+        as given; this function cannot tell and never guesses.
+    analyze_kwargs_b : channel B's OWN clustering parameters. Both
+        ``eps_nm`` and ``min_samples`` are required and a ValueError is
+        raised without them: they used to fall back to channel A's,
+        which assumes the two proteins are sampled alike. Measured over
+        five real adducin files they are 1 to 138 times apart per
+        resolution cell. Also overrides of ``analyze_kwargs`` for its
         own clustering parameters, pixel size and source name.
-    n_null : randomizations for the null distribution of heterotypic 1NN.
+    n_null : randomizations for the null distribution of heterotypic 1NN,
+        and for the null of the shared perimeter occupancy.
+    per_channel_randomization : whether each channel ALSO gets its own
+        single-channel randomization (parameter 8), which asks whether
+        that channel's own 1NN spacing differs from randomly placed
+        clusters. It was hardcoded off here, which is defensible -- the
+        cross-channel nulls above are the ones these measurements need --
+        but silently off is not: it costs about 9 s per axon and it is
+        the only thing that says whether the PARTNER channel was
+        clustered into anything with MPS-like spacing at all. Off by
+        default, and now visible.
 
     Returns
     -------
     CrossChannelResult
     """
+    # Before anything is read or computed: channel B must carry its own
+    # clustering parameters. Until 2026-09-21 the line below merged
+    # channel A's in for whatever channel B did not set, which is an
+    # assumption about the partner protein's density rather than a
+    # measurement of it -- and measured, the two are 1 to 138 times apart
+    # per resolution cell across five real files, so there is no single
+    # min_samples that fits both. Both keys are required: a half-set
+    # channel B, with eps given and min_samples inherited, inherits the
+    # parameter the measurement is actually about.
+    provided = dict(analyze_kwargs_b or {})
+    if not (_usable_parameter(provided.get("eps_nm"), 1e-9, 1000.0)
+            and _usable_parameter(provided.get("min_samples"), 1, 10000)):
+        raise ValueError(CHANNEL2_PARAMETERS_REQUIRED)
+
     warnings_: List[str] = []
     registration = registration or NO_REGISTRATION
     lateral_error = registration.lateral_rms_nm
-    kwargs_b = {**analyze_kwargs, **(analyze_kwargs_b or {})}
+    kwargs_b = {**analyze_kwargs, **provided}
     xa, ya, za = (np.asarray(v, float).ravel() for v in (x_a, y_a, z_a))
     xb, yb, zb = (np.asarray(v, float).ravel() for v in (x_b, y_b, z_b))
 
@@ -335,14 +1017,35 @@ def cross_channel_transverse(
     an_a = an_b = None
     try:
         an_a = analyze_axon(xa, ya, za, slab_override=slab,
-                            run_randomization=False, **analyze_kwargs)
+                            run_randomization=per_channel_randomization,
+                            **analyze_kwargs)
     except Exception as exc:                              # noqa: BLE001
         warnings_.append(f"Channel A analysis failed: {exc}")
     try:
         an_b = analyze_axon(xb, yb, zb, slab_override=slab,
-                            run_randomization=False, **kwargs_b)
+                            run_randomization=per_channel_randomization,
+                            **kwargs_b)
     except Exception as exc:                              # noqa: BLE001
         warnings_.append(f"Channel B analysis failed: {exc}")
+
+    cell_a = cell_b = None
+    if an_a is not None and an_b is not None:
+        cell_a = locs_per_cell(an_a.x_slab, an_a.y_slab)
+        cell_b = locs_per_cell(an_b.x_slab, an_b.y_slab)
+        if cell_a and cell_b:
+            ratio = cell_b / cell_a
+            same = (kwargs_b.get("min_samples", analyze_kwargs.get("min_samples"))
+                    == analyze_kwargs.get("min_samples"))
+            if ratio >= OVERSAMPLING_WARN or ratio <= 1.0 / OVERSAMPLING_WARN:
+                warnings_.append(
+                    f"The two channels are sampled in different regimes: "
+                    f"within {RESOLUTION_CELL_NM:g} nm of a localization "
+                    f"there are {cell_a:.0f} of channel A's and "
+                    f"{cell_b:.0f} of channel B's, a factor of "
+                    f"{max(ratio, 1 / ratio):.0f}."
+                    + (" min_samples counts localizations, so the same "
+                       "value does not mean the same thing in both."
+                       if same else ""))
 
     ca = an_a.centroids if an_a is not None else np.empty((0, 2))
     cb = an_b.centroids if an_b is not None else np.empty((0, 2))
@@ -397,7 +1100,23 @@ def cross_channel_transverse(
     ang_med = best_rot = max_corr = rot_frac = None
     rad_a = rad_b = None
     if n_a >= MIN_CLUSTERS_FOR_ANGLE and n_b >= MIN_CLUSTERS_FOR_ANGLE:
-        center = np.concatenate([ca, cb], axis=0).mean(axis=0)
+        # The contour's area centroid, which is this project's axon
+        # centre since 2026-09-19. The mean of the two channels'
+        # centroids used to stand here, and it moves with how channel B
+        # was clustered: measured on the one loadable real pair it sits
+        # 77 to 151 nm from the area centroid, and channel A's own median
+        # radius changed by 54 to 59 nm depending on channel B's DBSCAN
+        # parameters -- a number about channel A that channel B could
+        # move is not a measurement of channel A.
+        centre_a = an_a.centre if an_a is not None else None
+        if centre_a is not None:
+            center = np.array([centre_a.x_nm, centre_a.y_nm], dtype=float)
+        else:
+            center = np.concatenate([ca, cb], axis=0).mean(axis=0)
+            warnings_.append(
+                "Channel A has no contour centre, so the angular and radial "
+                "numbers are measured about the mean of both channels' "
+                "centroids, which moves with how channel B was clustered.")
         aa = cluster_angles(ca, center)
         ab = cluster_angles(cb, center)
         nn = angular_nn_offsets_deg(aa, ab)
@@ -411,6 +1130,20 @@ def cross_channel_transverse(
             rot_frac = fold_rotation(best_rot, 360.0 / ((n_a + n_b) / 2.0))
         rad_a = float(np.median(_radii(ca, center)))
         rad_b = float(np.median(_radii(cb, center)))
+
+    # ---- shared perimeter occupancy -------------------------------
+    shared = shared_occupancy(
+        an_a, an_b, registration=registration, n_null=n_null,
+        annulus_half_width_nm=annulus_half_width_nm,
+        grid_spacing_nm=grid_spacing_nm, random_seed=random_seed)
+    if shared.reason:
+        warnings_.append(
+            f"No shared perimeter occupancy: {shared.reason}.")
+    warnings_.extend(shared.warnings)
+
+    # ---- where channel B sits relative to that contour ---------------
+    radial = radial_offsets(an_a, an_b)
+    warnings_.extend(radial.warnings)
 
     for an, tag in ((an_a, "ch A"), (an_b, "ch B")):
         if an is not None:
@@ -427,7 +1160,10 @@ def cross_channel_transverse(
         angular_nn_median_deg=ang_med, best_rotation_deg=best_rot,
         max_correlation=max_corr, rotation_fraction_of_spacing=rot_frac,
         median_radius_a_nm=rad_a, median_radius_b_nm=rad_b,
-        registration_rms_nm=lateral_error, registration=registration,
+        registration_rms_nm=lateral_error, shared=shared, radial=radial,
+        locs_per_cell_a=cell_a, locs_per_cell_b=cell_b,
+        channel_b_parameter_source=channel_b_parameter_source,
+        registration=registration,
         warnings=warnings_,
     )
 
@@ -460,6 +1196,8 @@ def export_cross_channel(
         "axial_phase_fraction": None if a is None else a.phase_fraction,
         "axial_phase_uncertainty": None if a is None else a.phase_uncertainty,
         "axial_phase_label": None if a is None else a.interpretation_hint,
+        "axial_peaks_separated_a": None if a is None else a.peaks_separated_a,
+        "axial_peaks_separated_b": None if a is None else a.peaks_separated_b,
     })
     t = transverse
     row.update({
@@ -483,5 +1221,67 @@ def export_cross_channel(
         "median_radius_a_nm": None if t is None else t.median_radius_a_nm,
         "median_radius_b_nm": None if t is None else t.median_radius_b_nm,
         "n_warnings": None if t is None else len(t.warnings),
+    })
+    # Each channel's own measures. Both analyses computed these and
+    # nothing wrote them down, so a reader of this table could not tell
+    # whether channel B had been clustered into anything MPS-like.
+    for tag, an in (("a", None if t is None else t.analysis_a),
+                    ("b", None if t is None else t.analysis_b)):
+        row.update({
+            f"perimeter_{tag}_um": None if an is None else an.perimeter_um,
+            f"clusters_per_um_{tag}":
+                None if an is None else an.clusters_per_um,
+            f"median_area_{tag}_nm2": None if an is None else an.median_area_nm2,
+            f"median_1nn_{tag}_nm": None if an is None else an.median_1nn_nm,
+            f"n_locs_slab_{tag}": None if an is None else int(len(an.x_slab)),
+            f"eps_{tag}_nm": None if an is None else an.eps_nm,
+            f"min_samples_{tag}": None if an is None else an.min_samples,
+        })
+
+    s = t.shared if t is not None else None
+    ci = s.null_ci_shared_of_a if s is not None else None
+    band = s.registration_band_shared_of_a if s is not None else None
+    row.update({
+        "shared_of_a": None if s is None else s.shared_of_a,
+        "shared_of_b": None if s is None else s.shared_of_b,
+        "shared_jaccard": None if s is None else s.jaccard,
+        "shared_length_nm": None if s is None else s.shared_length_nm,
+        "occupancy_a_percent": None if s is None else s.occupancy_a_percent,
+        "occupancy_b_percent": None if s is None else s.occupancy_b_percent,
+        "n_clusters_b_on_contour":
+            None if s is None else s.n_clusters_b_on_contour,
+        "n_clusters_b_off_contour":
+            None if s is None else s.n_clusters_b_off_contour,
+        "b_largest_single_share":
+            None if s is None else s.b_largest_single_share,
+        "median_patch_a_nm": None if s is None else s.median_patch_a_nm,
+        "null_median_shared_of_a":
+            None if s is None else s.null_median_shared_of_a,
+        "null_ci_lo_shared_of_a": None if ci is None else ci[0],
+        "null_ci_hi_shared_of_a": None if ci is None else ci[1],
+        "p_null_at_least_measured":
+            None if s is None else s.p_null_at_least_measured,
+        "n_null_shared": None if s is None else s.n_null,
+        "registration_band_lo_shared_of_a": None if band is None else band[0],
+        "registration_band_hi_shared_of_a": None if band is None else band[1],
+        "shared_not_measured_because": "" if s is None else s.reason,
+        "locs_per_cell_a": None if t is None else t.locs_per_cell_a,
+        "locs_per_cell_b": None if t is None else t.locs_per_cell_b,
+        "channel_b_parameter_source":
+            None if t is None else t.channel_b_parameter_source,
+    })
+    rad = t.radial if t is not None else None
+    r_iqr = rad.iqr_nm if rad is not None else None
+    ref_iqr = rad.reference_iqr_nm if rad is not None else None
+    row.update({
+        "radial_offset_b_median_nm": None if rad is None else rad.median_nm,
+        "radial_offset_b_q1_nm": None if r_iqr is None else r_iqr[0],
+        "radial_offset_b_q3_nm": None if r_iqr is None else r_iqr[1],
+        "n_clusters_b_inside_contour": None if rad is None else rad.n_inside,
+        "n_clusters_b_outside_contour": None if rad is None else rad.n_outside,
+        "radial_offset_a_median_nm":
+            None if rad is None else rad.reference_median_nm,
+        "radial_offset_a_q1_nm": None if ref_iqr is None else ref_iqr[0],
+        "radial_offset_a_q3_nm": None if ref_iqr is None else ref_iqr[1],
     })
     return row

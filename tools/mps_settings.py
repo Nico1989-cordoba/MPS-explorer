@@ -66,6 +66,7 @@ class MPSSettings:
 
     eps_nm: float = DEFAULT_EPS_NM
     min_samples: int = DEFAULT_MIN_SAMPLES
+
     slab_half_width_nm: float = DEFAULT_SLAB_HALF_WIDTH_NM
     dbcv_threshold: float = DEFAULT_DBCV_THRESHOLD
     mahalanobis_threshold: float = DEFAULT_MAHALANOBIS_THRESHOLD
@@ -84,6 +85,30 @@ class MPSSettings:
     # retyped one by one. Carried over only within the same slide.
     identity_last: Dict[str, str] = field(default_factory=dict)
     identity_last_folder: str = ""
+    # Pixel sizes a person had to supply, one per folder, so the six or
+    # more axons of one acquisition are not asked about one at a time.
+    # Keyed by tools.mps_pixel_size.folder_key. Only ever written when a
+    # file carried no pixel size AND nothing near it recorded one; a
+    # value here never overrides a file's own metadata.
+    pixel_size_by_folder: Dict[str, float] = field(default_factory=dict)
+    # Channel 2's OWN eps and min samples, one entry per folder, keyed by
+    # tools.mps_pixel_size.folder_key on the channel-2 file.
+    #
+    # Per folder and not global, because the measurement that forces this
+    # is per file: across five real adducin files, localizations within
+    # one 20 nm cell ran 4, 62, 238, 485, 550 against 3 to 5 for
+    # spectrin. A min samples chosen for the 550 file is as wrong on the
+    # 4 file as channel 1's ever was, so one global answer would only
+    # move the assumption rather than remove it.
+    #
+    # The keys are new on purpose. The fields that stood here until
+    # 2026-09-21 were written from the two boxes on screen, which were
+    # themselves seeded from channel 1 -- so a settings file can carry
+    # channel 1's 25 / 10 under channel 2's name, with nothing to
+    # distinguish it from a deliberate 25 / 10. No rule on the VALUE can
+    # tell those apart, so the name changes and the old one is ignored.
+    channel2_clustering_by_folder: Dict[str, Dict[str, float]] = field(
+        default_factory=dict)
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -105,6 +130,19 @@ class MPSSettings:
                 "Stored slab_half_width_nm=%r out of range; using %s",
                 self.slab_half_width_nm, DEFAULT_SLAB_HALF_WIDTH_NM)
             self.slab_half_width_nm = DEFAULT_SLAB_HALF_WIDTH_NM
+        # The knob was retired on 2026-09-20. Measured over the 18 real
+        # April axons (1143 clusters), the DBCV score correlates with
+        # log10(cluster area) at -0.70, and in 10 of the 18 the largest
+        # cluster is the lowest- or second-lowest-scoring one: any
+        # threshold above off removes the big clusters first. A settings
+        # file written before that is ignored rather than obeyed, because
+        # a stored value would otherwise silently curate an analysis.
+        if self.dbcv_threshold != DEFAULT_DBCV_THRESHOLD:
+            logger.info(
+                "Stored dbcv_threshold=%r ignored: the criterion was "
+                "retired (it removes the largest clusters first); using %s",
+                self.dbcv_threshold, DEFAULT_DBCV_THRESHOLD)
+            self.dbcv_threshold = DEFAULT_DBCV_THRESHOLD
         if not (-1.0 <= self.dbcv_threshold <= 1.0):
             logger.warning(
                 "Stored dbcv_threshold=%r out of range; using %s",
@@ -115,6 +153,34 @@ class MPSSettings:
                 "Stored mahalanobis_threshold=%r out of range; using %s",
                 self.mahalanobis_threshold, DEFAULT_MAHALANOBIS_THRESHOLD)
             self.mahalanobis_threshold = DEFAULT_MAHALANOBIS_THRESHOLD
+        # Channel 2's clustering, one entry per folder. An entry that is
+        # not a usable pair is dropped and asked for again rather than
+        # clamped: a clamped clustering radius is a number nobody chose,
+        # and this store exists precisely to record what somebody chose.
+        if not isinstance(self.channel2_clustering_by_folder, dict):
+            self.channel2_clustering_by_folder = {}
+        else:
+            chosen: Dict[str, Dict[str, float]] = {}
+            for folder, entry in self.channel2_clustering_by_folder.items():
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    eps2 = float(entry["eps_nm"])
+                    min2 = int(float(entry["min_samples"]))
+                except (KeyError, TypeError, ValueError):
+                    logger.warning(
+                        "Stored channel-2 clustering for %s is not a pair of "
+                        "parameters; it will be asked for again", folder)
+                    continue
+                if 0 < eps2 <= 1000 and 1 <= min2 <= 10000:
+                    chosen[str(folder)] = {"eps_nm": eps2,
+                                           "min_samples": float(min2)}
+                else:
+                    logger.warning(
+                        "Stored channel-2 clustering for %s is out of range "
+                        "(%r nm, %r); it will be asked for again",
+                        folder, eps2, min2)
+            self.channel2_clustering_by_folder = chosen
         if not isinstance(self.picasso_path, str):
             self.picasso_path = ""
         for name in ("last_open_dir", "last_export_dir",
@@ -128,6 +194,26 @@ class MPSSettings:
                 continue
             setattr(self, name, {str(k): str(v) for k, v in value.items()
                                  if isinstance(v, str)})
+        # A remembered pixel size is a number a person typed once; a
+        # corrupted one would rescale every distance measured in that
+        # folder without anything raising, so an entry that is not a
+        # plausible pixel size is dropped rather than clamped.
+        if not isinstance(self.pixel_size_by_folder, dict):
+            self.pixel_size_by_folder = {}
+        else:
+            kept: Dict[str, float] = {}
+            for folder, value in self.pixel_size_by_folder.items():
+                try:
+                    nm = float(value)
+                except (TypeError, ValueError):
+                    nm = 0.0
+                if 1.0 <= nm <= 5000.0:
+                    kept[str(folder)] = nm
+                else:
+                    logger.warning(
+                        "Stored pixel size %r for %s is not a pixel size; "
+                        "it will be asked for again", value, folder)
+            self.pixel_size_by_folder = kept
         # A stored pattern that no longer compiles would raise at the next
         # export, in the middle of writing tables; drop it here instead and
         # fall back to the default for that field.

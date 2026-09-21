@@ -270,3 +270,284 @@ def disagreement(name: str, used_nm: Optional[float],
             f"{recorded.source} records {recorded.nm:g} nm. Every distance "
             f"scales with it -- {ratio:.1%} here, and areas by "
             f"{(1 + ratio) ** 2 - 1:.1%} -- so one of the two is wrong.")
+
+
+# ---------------------------------------------------------------------
+# Finding a pixel size for a file that does not carry one
+# ---------------------------------------------------------------------
+#
+# The readers above answer "what does THIS file record?". Two of the
+# user's own datasets answer "nothing": the 2023 sciatic-nerve exports
+# and the TIRF4 DNA-PAINT set both contain localization files whose
+# Picasso YAML was lost somewhere between the acquisition computer and
+# the analysis folder. Until now the program either refused them or --
+# worse, until 2026-09-20 -- loaded them at a hardcoded 133 nm.
+#
+# A file that records nothing is rarely alone. It sits in a folder with
+# its siblings from the same acquisition, and those siblings usually
+# kept their metadata; the movie it came from is often one folder up.
+# So look there before asking a person to remember a number, and when a
+# person does have to be asked, ask once per folder rather than once per
+# file.
+
+# Folders that never hold acquisition metadata and can cost minutes to
+# walk. Skipped by name, not by content.
+_SKIP_DIRS = {".git", "__pycache__", ".ipynb_checkpoints", "venv", ".venv",
+              "node_modules", ".mypy_cache", ".pytest_cache"}
+# Localization files whose own metadata is worth reading.
+_LOC_SUFFIXES = (".hdf5", ".h5")
+_TIFF_SUFFIXES = (".tif", ".tiff")
+# Opening files is not free and a data folder can hold thousands. The
+# search stops at this many and says that it did.
+DEFAULT_FILE_BUDGET = 300
+# How far up the tree to walk. Two levels reaches the acquisition folder
+# from <acquisition>/<roi>/<picked>/file.hdf5 without reaching the disk.
+DEFAULT_LEVELS_UP = 2
+
+
+@dataclass
+class Candidate:
+    """A pixel size found somewhere near a file that has none."""
+
+    nm: float
+    # Where it was read from, in words, for a sentence the user reads.
+    source: str
+    # The file it was read from.
+    path: str
+    # 0 beside the file, 1 one folder up, 2 two folders up.
+    steps_away: int
+
+    @property
+    def where(self) -> str:
+        if self.steps_away == 0:
+            return "in the same folder"
+        if self.steps_away == 1:
+            return "one folder up"
+        return f"{self.steps_away} folders up"
+
+
+def _from_localization_file(path: str) -> Optional[RecordedPixel]:
+    """The pixel size a neighbouring localization file carries, if any."""
+    try:
+        info, _ = mps_metadata.load_metadata(path)
+    except Exception:                                     # noqa: BLE001
+        return None
+    nm = mps_metadata.pixel_size_nm(info)
+    if not plausible(nm):
+        return None
+    recorded = from_micromanager(info, os.path.basename(path))
+    if recorded is not None:
+        return recorded
+    return RecordedPixel(
+        float(nm),
+        f"the Picasso metadata of {os.path.basename(path)}")
+
+
+def _scan_folder(folder: str, steps_away: int, skip: str,
+                 budget: List[int]) -> Tuple[List["Candidate"], List[str]]:
+    """Every pixel size the files directly inside one folder record."""
+    found: List[Candidate] = []
+    notes: List[str] = []
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError as error:
+        return found, [f"{folder} could not be read ({error})."]
+    for name in names:
+        if budget[0] <= 0:
+            notes.append(
+                f"The search stopped after {DEFAULT_FILE_BUDGET} files; "
+                f"{folder} was not read to the end.")
+            break
+        full = os.path.join(folder, name)
+        if os.path.normcase(full) == os.path.normcase(skip):
+            continue
+        if not os.path.isfile(full):
+            continue
+        lower = name.lower()
+        recorded: Optional[RecordedPixel] = None
+        if lower.endswith(_LOC_SUFFIXES):
+            budget[0] -= 1
+            recorded = _from_localization_file(full)
+            if recorded is None:
+                recorded = _from_hdf5_sidecar(full)
+        elif lower.endswith(_TIFF_SUFFIXES):
+            budget[0] -= 1
+            try:
+                recorded, tiff_notes = from_tiff(full)
+            except Exception as error:                    # noqa: BLE001
+                recorded, tiff_notes = None, [f"{name}: {error}"]
+            notes.extend(tiff_notes)
+        elif lower.endswith(".txt"):
+            budget[0] -= 1
+            recorded = _from_text_sidecar(full)
+        if recorded is not None and plausible(recorded.nm):
+            found.append(Candidate(recorded.nm, recorded.source, full,
+                                   steps_away))
+    return found, notes
+
+
+def discover(path: str, *, levels_up: int = DEFAULT_LEVELS_UP,
+             file_budget: int = DEFAULT_FILE_BUDGET
+             ) -> Tuple[List["Candidate"], List[str]]:
+    """
+    Look around a file for a pixel size it does not itself carry.
+
+    The file's own sidecars first, then the files beside it, then the
+    folders above it, stopping as soon as a level yields anything: a
+    value from the same folder describes the same acquisition, and one
+    from three folders up may describe a different day.
+
+    Returns every candidate found at that level and the notes worth
+    showing (a unit that did not parse, a folder that could not be read,
+    the budget running out). It decides nothing: candidates that
+    disagree are all returned, because two different numbers near one
+    file is exactly the situation a person has to settle.
+    """
+    candidates: List[Candidate] = []
+    notes: List[str] = []
+    budget = [int(file_budget)]
+    # The file itself is never a candidate: this is only ever called
+    # because it has no pixel size of its own.
+    itself = os.path.abspath(path)
+
+    beside = from_sidecar(path)
+    if beside is not None and plausible(beside.nm):
+        candidates.append(Candidate(beside.nm, beside.source, path, 0))
+
+    folder = os.path.dirname(os.path.abspath(path))
+    for step in range(max(0, int(levels_up)) + 1):
+        if not folder or os.path.basename(folder) in _SKIP_DIRS:
+            break
+        found, more = _scan_folder(folder, step, itself, budget)
+        notes.extend(more)
+        candidates.extend(found)
+        if candidates:
+            break
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            break
+        folder = parent
+    return candidates, notes
+
+
+def distinct(candidates: Sequence["Candidate"],
+             tolerance_nm: float = 0.5) -> List[float]:
+    """
+    The distinct values among candidates, smallest first.
+
+    Two readings of the same acquisition can differ in the last digit
+    without disagreeing; 135 and 133 nm, the two values the 2023 data
+    carries, are a real disagreement and stay two values.
+    """
+    values: List[float] = []
+    for candidate in sorted(candidates, key=lambda c: c.nm):
+        if not any(abs(candidate.nm - v) <= tolerance_nm for v in values):
+            values.append(candidate.nm)
+    return values
+
+
+def describe(candidates: Sequence["Candidate"],
+             notes: Sequence[str] = ()) -> str:
+    """What the search found, as the sentences a dialog can show."""
+    lines: List[str] = []
+    if not candidates:
+        lines.append("Nothing near this file records a pixel size.")
+    else:
+        values = distinct(candidates)
+        if len(values) == 1:
+            lines.append(f"{values[0]:g} nm was found near this file:")
+        else:
+            lines.append(
+                f"{len(values)} different pixel sizes were found near this "
+                f"file, so they cannot all be right:")
+        for candidate in candidates[:8]:
+            lines.append(f"  {candidate.nm:g} nm -- {candidate.source}, "
+                         f"{candidate.where}")
+        if len(candidates) > 8:
+            lines.append(f"  ... and {len(candidates) - 8} more")
+    lines.extend(str(note) for note in notes)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------
+# Remembering the answer
+# ---------------------------------------------------------------------
+
+def folder_key(path: str) -> str:
+    """
+    The key a remembered pixel size is stored under: the file's folder.
+
+    One acquisition is one folder in this user's layout, and the six or
+    more axons picked out of it are the files inside it. Keying on the
+    folder asks once per acquisition instead of once per axon, and never
+    carries a value across to the next day's folder -- which is the
+    failure a global "last pixel size" setting would have.
+    """
+    return os.path.normcase(os.path.abspath(os.path.dirname(path)))
+
+
+@dataclass
+class Resolution:
+    """A pixel size to use, and where it came from."""
+
+    nm: float
+    # One of mps_analysis.PIXEL_SIZE_SOURCES, for the export column. All
+    # three possible values here are in GUESSED_PIXEL_SIZE_SOURCES: none
+    # of them is this file's own record, so all three warn.
+    token: str
+    # The same thing in words, for the log and the provenance line.
+    source: str
+
+    @property
+    def by_hand(self) -> bool:
+        """A person supplied it, now or for an earlier file."""
+        return self.token in ("manual", "remembered")
+
+
+def resolve(path: str, remembered: Dict[str, float], ask: Any,
+            *, levels_up: int = DEFAULT_LEVELS_UP,
+            file_budget: int = DEFAULT_FILE_BUDGET
+            ) -> Tuple[Optional["Resolution"], List[str]]:
+    """
+    Settle the pixel size of a file that does not carry one.
+
+    ``remembered`` maps ``folder_key`` to a value a person already gave
+    for that folder; ``ask`` is called as ``ask(candidates, notes)`` and
+    returns a value in nanometres, or None if the person declined. It is
+    the only part of this that needs a screen, which is why it is passed
+    in: everything above is testable without one.
+
+    A single agreed value found near the file is used without asking --
+    that is the whole point of looking. Two different values are never
+    resolved here, not even by majority: the program does not know which
+    microscope wrote which file, and a wrong pixel size rescales every
+    distance in the thesis silently. It asks, and it shows both.
+
+    Returns (Resolution, notes), or (None, notes) when nothing was
+    settled -- in which case the caller must refuse the file, as every
+    other path in this program does.
+    """
+    candidates, notes = discover(path, levels_up=levels_up,
+                                 file_budget=file_budget)
+    values = distinct(candidates)
+
+    if len(values) == 1:
+        best = min(candidates, key=lambda c: c.steps_away)
+        return (Resolution(values[0], "neighbour",
+                           f"found in {best.source}, {best.where}"),
+                notes)
+
+    key = folder_key(path)
+    if not values and key in remembered:
+        stored = remembered.get(key)
+        if plausible(stored):
+            return (Resolution(float(stored),
+                               "remembered",
+                               "given by hand for this folder earlier"),
+                    notes)
+
+    given = ask(candidates, notes)
+    if given is None or not plausible(given):
+        return None, notes
+    remembered[key] = float(given)
+    return Resolution(float(given), "manual", "typed by hand"), notes

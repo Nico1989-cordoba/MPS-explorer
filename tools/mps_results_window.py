@@ -49,7 +49,8 @@ from tools.mps_analysis import AxonAnalysis, DiscardComparison
 from tools.mps_plot_style import (
     AXIS_FG, AXIS_FG_LIGHT, neutral, rgba, role, set_title, style_dark,
     style_light, verdict)
-from tools.mps_settings import DEFAULT_MAHALANOBIS_THRESHOLD
+from tools.mps_settings import (
+    DEFAULT_DBCV_THRESHOLD, DEFAULT_MAHALANOBIS_THRESHOLD)
 
 
 # Every colour comes from tools.mps_plot_style, by the role it plays.
@@ -192,20 +193,16 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         )
         lay.addWidget(self.spin_min)
 
-        lay.addWidget(QtWidgets.QLabel("DBCV thr.:"))
-        self.spin_dbcv = QtWidgets.QDoubleSpinBox()
-        self.spin_dbcv.setRange(-1.0, 1.0)
-        self.spin_dbcv.setDecimals(2)
-        self.spin_dbcv.setSingleStep(0.05)
-        self.spin_dbcv.setToolTip(
-            "Clusters scoring below this density-validation index are removed\n"
-            "automatically. OFF by default (-1.0): DBCV score correlates with\n"
-            "log(cluster area) at -0.78 to -0.79, so raising this threshold\n"
-            "also removes large clusters -- exactly the ones Gazal et al.\n"
-            "(2026) interpret as spectrin oligomers and keep. Raise only\n"
-            "deliberately."
-        )
-        lay.addWidget(self.spin_dbcv)
+        # A "DBCV thr." spin box stood here until 2026-09-20. Measured
+        # over the 18 real April axons (1143 clusters), the score
+        # correlates with log10(cluster area) at -0.70 pooled, and in 10
+        # of the 18 the LARGEST cluster is the lowest- or
+        # second-lowest-scoring one: every threshold above off removes
+        # the big clusters first. There is no setting of it that curates
+        # without doing that, so it is gone rather than defaulted. The
+        # analysis still takes the parameter and the export still records
+        # it, so older tables stay readable; what curates is the
+        # edge-touching criterion.
 
         lay.addWidget(QtWidgets.QLabel("Mahalanobis:"))
         self.spin_maha = QtWidgets.QDoubleSpinBox()
@@ -274,7 +271,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         enabled = self.rerun_callback is not None
         for w in (self.combo_peak, self.spin_half, self.spin_eps,
-                  self.spin_min, self.spin_dbcv, self.spin_maha,
+                  self.spin_min, self.spin_maha,
                   self.chk_random, self.btn_reset):
             w.setEnabled(enabled)
 
@@ -594,7 +591,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         triggering a re-run (signals are blocked while setting)."""
         a = self.analysis
         for wdg in (self.combo_peak, self.spin_half, self.spin_eps,
-                    self.spin_min, self.spin_dbcv, self.spin_maha):
+                    self.spin_min, self.spin_maha):
             wdg.blockSignals(True)
 
         self.combo_peak.clear()
@@ -619,21 +616,13 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.spin_half.setValue(a.slab_half_width_nm)
         self.spin_eps.setValue(a.eps_nm)
         self.spin_min.setValue(int(a.min_samples))
-        # Read back the threshold that actually produced this analysis,
-        # not Qt's own 0.0 spinbox default. DBCV is OFF by default (-1.0):
-        # if this were left at whatever the widget happens to show, editing
-        # ANY other control (eps, slab width, ...) would silently resend
-        # 0.0 as dbcv_threshold and re-enable a criterion measured to
-        # remove the largest, most biologically relevant clusters in an
-        # axon (log-area vs. DBCV score correlation -0.78 to -0.79).
-        self.spin_dbcv.setValue(a.dbcv_threshold)
         # From the analysis, not from its occupancy: an analysis with too
         # few clusters to measure occupancy still ran with a threshold, and
         # reading it back from the widget is what let 0.1 through.
         self.spin_maha.setValue(a.mahalanobis_threshold)
 
         for wdg in (self.combo_peak, self.spin_half, self.spin_eps,
-                    self.spin_min, self.spin_dbcv, self.spin_maha):
+                    self.spin_min, self.spin_maha):
             wdg.blockSignals(False)
 
         # (Re)connect after the initial population so the first fill does
@@ -644,7 +633,6 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 self.spin_half.editingFinished.disconnect()
                 self.spin_eps.editingFinished.disconnect()
                 self.spin_min.editingFinished.disconnect()
-                self.spin_dbcv.editingFinished.disconnect()
                 self.spin_maha.editingFinished.disconnect()
             except TypeError:
                 pass
@@ -652,7 +640,6 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.spin_half.editingFinished.connect(self._on_param_changed)
             self.spin_eps.editingFinished.connect(self._on_param_changed)
             self.spin_min.editingFinished.connect(self._on_param_changed)
-            self.spin_dbcv.editingFinished.connect(self._on_param_changed)
             self.spin_maha.editingFinished.connect(self._on_param_changed)
             try:
                 self.chk_random.stateChanged.disconnect()
@@ -668,6 +655,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                "yaml_scan": "from Picasso YAML",
                "override": "given explicitly",
                "manual": "entered manually",
+               "neighbour": "from a file beside it, not this one",
+               "remembered": "typed by hand for this folder earlier",
                "unknown": "UNKNOWN"}.get(a.pixel_size_source, a.pixel_size_source)
         colour = (AXIS_FG_LIGHT
                   if a.pixel_size_source in ("yaml", "hdf5", "yaml_scan")
@@ -979,7 +968,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 slab_half_width_nm=float(self.spin_half.value()),
                 eps_nm=float(self.spin_eps.value()),
                 min_samples=int(self.spin_min.value()),
-                dbcv_threshold=float(self.spin_dbcv.value()),
+                # Always off: see the note where the control used to be.
+                dbcv_threshold=DEFAULT_DBCV_THRESHOLD,
                 mahalanobis_threshold=float(self.spin_maha.value()),
                 run_randomization=bool(self.chk_random.isChecked()),
             )
@@ -994,23 +984,20 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _on_reset(self) -> None:
         from tools.mps_settings import (
-            DEFAULT_DBCV_THRESHOLD, DEFAULT_EPS_NM,
-            DEFAULT_MAHALANOBIS_THRESHOLD, DEFAULT_MIN_SAMPLES,
-            DEFAULT_SLAB_HALF_WIDTH_NM,
+            DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES, DEFAULT_SLAB_HALF_WIDTH_NM,
         )
         for w in (self.spin_half, self.spin_eps, self.spin_min,
-                  self.spin_dbcv, self.spin_maha):
+                  self.spin_maha):
             w.blockSignals(True)
         self.spin_half.setValue(DEFAULT_SLAB_HALF_WIDTH_NM)
         self.spin_eps.setValue(DEFAULT_EPS_NM)
         self.spin_min.setValue(DEFAULT_MIN_SAMPLES)
-        self.spin_dbcv.setValue(DEFAULT_DBCV_THRESHOLD)
         self.spin_maha.setValue(DEFAULT_MAHALANOBIS_THRESHOLD)
         self.combo_peak.blockSignals(True)
         self.combo_peak.setCurrentIndex(max(0, self.combo_peak.count() - 1))
         self.combo_peak.blockSignals(False)
         for w in (self.spin_half, self.spin_eps, self.spin_min,
-                  self.spin_dbcv, self.spin_maha):
+                  self.spin_maha):
             w.blockSignals(False)
         self._on_param_changed()
 

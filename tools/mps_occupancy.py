@@ -23,10 +23,22 @@ Why the constraint is what it is
 Capping the largest standard deviation at d_max/3 makes the 3-sigma
 occupancy ellipse coincide, at most, with the cluster's own measured
 extent: 3 * (d_max / 3) = d_max. Without it a cluster with few
-localizations and one outlier would claim a stretch of perimeter far larger
-than the molecules it actually contains, inflating occupancy. The
-constraint is therefore not cosmetic -- it is what keeps the headline
-~20 % from being an artefact of sparse clusters.
+localizations and one outlier would claim a stretch of perimeter far
+larger than the molecules it actually contains, inflating occupancy.
+
+How far that protection reaches was measured rather than assumed, and it
+is narrower than it sounds. For m - 1 localizations at one spot plus a
+single outlier at distance R, sigma_max is R / sqrt(m) while the cap is
+(m - 1)R / 3m, so the cap binds only for m < 10.9 -- confirmed
+numerically at m = 10 (capped) and m = 11 (not). A lone outlier in any
+cluster of eleven or more localizations passes through untouched, and
+the claimed half-width peaks at 271 nm for a 300 nm outlier exactly
+where the cap stops biting. The constraint keeps the headline ~20 % from
+being an artefact of the SPARSEST clusters; what it does not do is
+police a badly clustered large one. In the real April data, one cluster
+of 4,500 localizations spanning 847 nm claims 14.0 % of its axon's
+perimeter on its own -- a clustering problem, which no setting of this
+module fixes.
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -117,10 +129,33 @@ def fit_constrained_gaussian(
           over-extended ellipse rounder.
         - "scale": divide both axes by the same factor, preserving the
           cluster's measured anisotropy (elongation and orientation).
-        The paper does not disambiguate; "clip" is the default because it
-        follows the wording, and "scale" is offered because it is the
-        shape-preserving alternative. They differ only for clusters that
-        actually hit the cap.
+
+        The paper does not disambiguate, and the choice is not small:
+        measured over the 18 real April axons, occupancy differs by a
+        median 3.57 percentage points (2.36 to 6.61; every axon moves by
+        more than one), which is 9.6 times the measurement's own
+        bootstrap noise of 0.37 pp. It changes nothing else -- areas,
+        r_eff, 1NN, perimeter and cluster counts are bit-identical -- and
+        it does not change the ranking of axons (Spearman 0.998).
+
+        "clip" stays the default on evidence, not on wording alone. Both
+        modes set the major axis to exactly the cap; they differ only in
+        the minor axis, which "scale" always shrinks (median 0.754 times
+        "clip"'s) although the paper's constraint says nothing about it.
+        Optimising the Gaussian log-likelihood over every covariance
+        whose sigmas are all at most the cap reproduced "clip"'s sigmas
+        in every case tested, at anisotropies from 1.2 to 8; "scale"
+        matched only when the cap did not bind. "clip" is the
+        constrained maximum-likelihood fit; "scale" is an ad-hoc shrink.
+
+        The two are nearly degenerate with ``mahalanobis_threshold``:
+        calibrated so each mode's claimed arc matches the arc its own
+        localizations span, "clip" lands at 2.4 and "scale" at 2.8, and
+        the two then agree to 0.39 pp with Spearman 1.000. So this is a
+        second knob on one degree of freedom, which is why it is a
+        keyword argument with a justified default and not a control --
+        the threshold is the one to turn, and it is persisted, exported
+        and documented.
 
     Returns
     -------
