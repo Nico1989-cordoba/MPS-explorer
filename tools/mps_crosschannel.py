@@ -670,6 +670,7 @@ def cross_channel_transverse(
     registration: Optional[Registration] = None,
     analyze_kwargs_b: Optional[Dict[str, Any]] = None,
     n_null: int = 200,
+    per_channel_randomization: bool = False,
     annulus_half_width_nm: float = 50.0,
     grid_spacing_nm: float = 5.0,
     random_seed: int = 0,
@@ -692,7 +693,17 @@ def cross_channel_transverse(
         within three times its lateral error are flagged.
     analyze_kwargs_b : overrides of ``analyze_kwargs`` for channel B -- its
         own clustering parameters, pixel size and source name.
-    n_null : randomizations for the null distribution of heterotypic 1NN.
+    n_null : randomizations for the null distribution of heterotypic 1NN,
+        and for the null of the shared perimeter occupancy.
+    per_channel_randomization : whether each channel ALSO gets its own
+        single-channel randomization (parameter 8), which asks whether
+        that channel's own 1NN spacing differs from randomly placed
+        clusters. It was hardcoded off here, which is defensible -- the
+        cross-channel nulls above are the ones these measurements need --
+        but silently off is not: it costs about 9 s per axon and it is
+        the only thing that says whether the PARTNER channel was
+        clustered into anything with MPS-like spacing at all. Off by
+        default, and now visible.
 
     Returns
     -------
@@ -713,12 +724,14 @@ def cross_channel_transverse(
     an_a = an_b = None
     try:
         an_a = analyze_axon(xa, ya, za, slab_override=slab,
-                            run_randomization=False, **analyze_kwargs)
+                            run_randomization=per_channel_randomization,
+                            **analyze_kwargs)
     except Exception as exc:                              # noqa: BLE001
         warnings_.append(f"Channel A analysis failed: {exc}")
     try:
         an_b = analyze_axon(xb, yb, zb, slab_override=slab,
-                            run_randomization=False, **kwargs_b)
+                            run_randomization=per_channel_randomization,
+                            **kwargs_b)
     except Exception as exc:                              # noqa: BLE001
         warnings_.append(f"Channel B analysis failed: {exc}")
 
@@ -889,6 +902,22 @@ def export_cross_channel(
         "median_radius_b_nm": None if t is None else t.median_radius_b_nm,
         "n_warnings": None if t is None else len(t.warnings),
     })
+    # Each channel's own measures. Both analyses computed these and
+    # nothing wrote them down, so a reader of this table could not tell
+    # whether channel B had been clustered into anything MPS-like.
+    for tag, an in (("a", None if t is None else t.analysis_a),
+                    ("b", None if t is None else t.analysis_b)):
+        row.update({
+            f"perimeter_{tag}_um": None if an is None else an.perimeter_um,
+            f"clusters_per_um_{tag}":
+                None if an is None else an.clusters_per_um,
+            f"median_area_{tag}_nm2": None if an is None else an.median_area_nm2,
+            f"median_1nn_{tag}_nm": None if an is None else an.median_1nn_nm,
+            f"n_locs_slab_{tag}": None if an is None else int(len(an.x_slab)),
+            f"eps_{tag}_nm": None if an is None else an.eps_nm,
+            f"min_samples_{tag}": None if an is None else an.min_samples,
+        })
+
     s = t.shared if t is not None else None
     ci = s.null_ci_shared_of_a if s is not None else None
     band = s.registration_band_shared_of_a if s is not None else None

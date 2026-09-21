@@ -353,6 +353,28 @@ CROSSCHANNEL: Dict[str, str] = {
     "n_clusters_a": "Channel A clusters kept in that slab.",
     "n_clusters_b": "Channel B clusters kept in it.",
 
+    # --- each channel's own measures, on its own clusters
+    "perimeter_a_um": "Length of channel A's contour through its cluster "
+                      "centres.",
+    "perimeter_b_um": "The same for channel B, through ITS centres -- not "
+                      "the perimeter the shared occupancy is measured on.",
+    "clusters_per_um_a": "Channel A clusters per micrometre of its contour.",
+    "clusters_per_um_b": "Channel B clusters per micrometre of its own.",
+    "median_area_a_nm2": "Median area of channel A's clusters.",
+    "median_area_b_nm2": "Median area of channel B's. Far above channel A's "
+                         "usually means DBSCAN chained a diffuse signal "
+                         "instead of resolving clusters.",
+    "median_1nn_a_nm": "Median nearest-neighbour spacing within channel A.",
+    "median_1nn_b_nm": "Within channel B.",
+    "n_locs_slab_a": "Channel A localizations in the analysed slab.",
+    "n_locs_slab_b": "Channel B localizations in it.",
+    "eps_a_nm": "DBSCAN radius used on channel A.",
+    "eps_b_nm": "DBSCAN radius used on channel B. When nothing set it, it "
+                "is channel A's -- which is an assumption about the partner "
+                "protein's density, not a measurement of it.",
+    "min_samples_a": "DBSCAN minimum cluster size on channel A.",
+    "min_samples_b": "On channel B, with the same caveat as eps_b_nm.",
+
     # --- heterotypic nearest neighbours
     "median_hetero_nn_a_to_b_nm": "From each channel-A cluster to the nearest "
                                   "channel-B one. Not symmetric.",
