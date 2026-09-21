@@ -809,6 +809,69 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         for text in rows:
             lay.addWidget(_label(text))
 
+        # --- the shared perimeter occupancy ---------------------------
+        # The number this panel exists for. It is shown with its null
+        # beside it, never on its own: a fraction of a ring is meaningless
+        # until you know what randomly placed clusters would give.
+        lay.addWidget(_label("Shared perimeter occupancy", bold=True))
+        sh = t.shared
+        if sh is None or not sh.measured:
+            reason = "" if sh is None else sh.reason
+            lay.addWidget(_label(
+                "Not measured" + (f": {reason}." if reason else "."), _DIM))
+        else:
+            kind = "good"
+            if sh.p_null_at_least_measured is None:
+                kind = "dim"
+            elif sh.p_null_at_least_measured > 0.05:
+                kind = "warn"
+            lay.addWidget(_label(
+                f"{100 * sh.shared_of_a:.1f} % of the channel-1 perimeter "
+                f"that is covered is also covered by channel 2 "
+                f"({sh.shared_length_nm:.0f} nm).",
+                plot_style.verdict(kind), bold=True))
+            if sh.null_median_shared_of_a is not None:
+                lay.addWidget(_label(
+                    f"Channel 2 placed at random: "
+                    f"{100 * sh.null_median_shared_of_a:.1f} % "
+                    f"[{100 * sh.null_ci_shared_of_a[0]:.1f}, "
+                    f"{100 * sh.null_ci_shared_of_a[1]:.1f}]"
+                    + ("" if sh.p_null_at_least_measured is None else
+                       f"; chance reaches the measured value in "
+                       f"{100 * sh.p_null_at_least_measured:.0f} % of draws")
+                    + f" ({sh.n_null} draws)."))
+            if sh.registration_band_shared_of_a is not None:
+                lo, hi = sh.registration_band_shared_of_a
+                lay.addWidget(_label(
+                    f"Registration alone moves it between {100 * lo:.1f} % "
+                    f"and {100 * hi:.1f} %."))
+            lay.addWidget(_label(
+                f"The other way round {100 * sh.shared_of_b:.1f} %; "
+                f"channel 1 covers {sh.occupancy_a_percent:.1f} % of its own "
+                f"perimeter, channel 2 covers {sh.occupancy_b_percent:.1f} % "
+                f"of it. Covered patches are "
+                + ("-" if sh.median_patch_a_nm is None
+                   else f"{sh.median_patch_a_nm:.0f} nm")
+                + " long, which is the scale this overlap is resolved at.",
+                _DIM))
+            if sh.n_clusters_b_off_contour:
+                lay.addWidget(_label(
+                    f"{sh.n_clusters_b_off_contour} of "
+                    f"{sh.n_clusters_b_on_contour + sh.n_clusters_b_off_contour}"
+                    f" channel-2 clusters reach no point of the channel-1 "
+                    f"contour and contribute nothing.",
+                    plot_style.verdict("warn")))
+
+        rad = t.radial
+        if rad is not None and rad.median_nm is not None:
+            lay.addWidget(_label(
+                f"Channel 2 sits {rad.median_nm:+.0f} nm from that contour "
+                f"({rad.n_inside} inside, {rad.n_outside} outside); channel "
+                f"1's own localizations sit "
+                + ("-" if rad.reference_median_nm is None
+                   else f"{rad.reference_median_nm:+.0f} nm")
+                + " from it, which is the scatter to read that against."))
+
         plot = pg.PlotWidget()
         style_dark(plot)
         set_title(plot, "Cluster centroids in the slab")
