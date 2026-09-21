@@ -159,6 +159,12 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.spin_exposure)
 
         self.btn_run = QtWidgets.QPushButton("Recompute")
+        self.btn_run.setToolTip(
+            "Link the localizations into binding events again with "
+            "the three values on the left, and redo every tab from "
+            "them.\n\n"
+            "Everything in this panel is a function of the linking, "
+            "so nothing here changes until this is pressed.")
         self.btn_run.clicked.connect(self.recompute)
         lay.addWidget(self.btn_run)
         lay.addStretch(1)
@@ -393,6 +399,12 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         banner_lay = QtWidgets.QHBoxLayout(banner)
         banner_lay.addWidget(_label("Calibration:", _DIM))
         self.combo_calibration = QtWidgets.QComboBox()
+        self.combo_calibration.setToolTip(
+            "What turns a dark time into a number of docking sites.\n\n"
+            "N sites capture imagers N times as fast, so tau_dark falls "
+            "as 1/N -- but only against a reference of KNOWN valency "
+            "imaged in the same sample at the same imager concentration. "
+            "'none' leaves the numbers relative.")
         self.combo_calibration.addItems([
             "none - relative units only",
             "single-site reference tau_dark [frames]",
@@ -400,11 +412,21 @@ class MPSPaintWindow(QtWidgets.QMainWindow):
         ])
         banner_lay.addWidget(self.combo_calibration)
         self.spin_calibration = QtWidgets.QDoubleSpinBox()
+        self.spin_calibration.setToolTip(
+            "The value for the calibration chosen on the left: the dark "
+            "time of a single-site reference, in frames, or the influx "
+            "rate per frame.\n\n"
+            "Zero means no calibration.")
         self.spin_calibration.setRange(0.0, 1e6)
         self.spin_calibration.setDecimals(4)
         self.spin_calibration.setValue(0.0)
         banner_lay.addWidget(self.spin_calibration)
         button = QtWidgets.QPushButton("Count")
+        button.setToolTip(
+            "Count the docking sites of every cluster with the "
+            "calibration chosen on the left.\n\n"
+            "Without a calibration the numbers are relative: they rank "
+            "clusters and are not docking-site counts.")
         button.clicked.connect(self._run_qpaint)
         banner_lay.addWidget(button)
         banner_lay.addStretch(1)

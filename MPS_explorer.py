@@ -51,6 +51,7 @@ from tools.mps_periodicity import fit_z_periodicity
 from tools import mps_file_drop, mps_io
 from tools.mps_picasso_tools import PicassoTools
 from tools import mps_plot_style as plot_style
+from tools.mps_tooltips import MAIN_WINDOW, apply_tooltips
 from tools.mps_settings import load_settings, save_settings
 
 # Import logging configuration
@@ -229,6 +230,18 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.lmin = 0
         self.lmax = MAX_LATERAL_DISTANCE_NM
         self.bins = DEFAULT_KNN_BINS
+
+        # What every control says when the mouse rests on it, for
+        # somebody meeting the program for the first time. The texts are
+        # in tools/mps_tooltips.py so they can be read as a set; a name
+        # that no longer matches a widget is logged rather than
+        # swallowed, because a tooltip that stops appearing is invisible
+        # by definition.
+        gone = apply_tooltips(self.ui, MAIN_WINDOW)
+        if gone:
+            self.logger.warning(
+                f"These controls have a tooltip written for them but no "
+                f"longer exist under that name: {', '.join(gone)}")
         
         # Colours, by the role they play (tools.mps_plot_style). These
         # plots are on the application's white background, so the neutral
@@ -676,6 +689,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         picasso_button.setToolTip(
             "AIM drift correction, SMLM clustering and G5M molecular "
             "mapping, run by the Picasso program.")
+        # The button carries the text, but the menu behind it has an
+        # action of its own, and that is what a keyboard or a screen
+        # reader reaches.
+        picasso_menu.menuAction().setToolTip(picasso_button.toolTip())
         picasso_button.setMenu(picasso_menu)
         picasso_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         toolbar.addWidget(picasso_button)
@@ -4252,22 +4269,33 @@ class MPS_explorer(QtWidgets.QMainWindow):
     
     def latchange(self) -> None:
         """
-        Update histogram parameters (bins, lmin, lmax) from UI inputs with validation.
-        Hallazgo: Input validation for histogram configuration parameters.
+        Read the three histogram fields and redraw the distance histogram.
+
+        The fields are wired to this on every keystroke. It used to read
+        ``self.nbins``, ``self.latmin`` and ``self.latmax``, none of
+        which is ever assigned anywhere in this class, so typing in any
+        of the three raised AttributeError -- which the ``except
+        ValueError`` below does not catch -- and the histogram never
+        moved. They are ``self.ui.lineEdit_bin`` and the two
+        ``lineEdit_lat*``.
+
+        A half-typed number is not an error: the field says "1" for an
+        instant on the way to "150". The previous value is kept and the
+        histogram is left alone until what is typed is a number again.
         """
         try:
-            self.bins = int(self.nbins.text())
-            self.lmin = float(self.latmin.text())
-            self.lmax = float(self.latmax.text())
-        except ValueError:
-            QtWidgets.QMessageBox.warning(
-                self, "Invalid Input",
-                "Histogram parameters must be numeric values.\n"
-                "Bins must be an integer, and Min/Max must be valid numbers."
-            )
+            bins = int(self.ui.lineEdit_bin.text())
+            lmin = float(self.ui.lineEdit_latmin.text())
+            lmax = float(self.ui.lineEdit_latmax.text())
+        except (ValueError, AttributeError):
+            return
+        if bins < 1 or not lmax > lmin:
             return
 
-        self.KNdist_hist()
+        self.bins, self.lmin, self.lmax = bins, lmin, lmax
+        if self.good_cluster_centroids is not None and len(
+                self.good_cluster_centroids):
+            self.KNdist_hist()
         
     def KNdist_hist(self) -> None:
         """Compute K-nearest-neighbour distances between cluster centroids and
@@ -4415,10 +4443,33 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Stop the entire process and close the application
         QApplication.quit()
     
+def application_icon() -> Any:
+    """The icon in assets/, or an empty one if it is not there.
+
+    Drawn by ``tools/make_icon.py``; a missing file is not worth failing
+    over, so the program simply runs without it.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "assets", "mps_explorer.ico")
+    return QtGui.QIcon(path) if os.path.exists(path) else QtGui.QIcon()
+
+
 if __name__ == '__main__':
     
     app = QtWidgets.QApplication([])
-    # app = QtGui.QApplication([])
+    # Windows groups a window under the taskbar button of whatever
+    # launched it unless the process says who it is; without this, the
+    # shortcut's icon is replaced by Python's the moment the window
+    # opens.
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "uncor.immf.mps-explorer")
+        except Exception:      # noqa: BLE001 - cosmetic, never fatal
+            pass
+    app.setWindowIcon(application_icon())
     win = MPS_explorer()
     win.show()
     app.exec_()

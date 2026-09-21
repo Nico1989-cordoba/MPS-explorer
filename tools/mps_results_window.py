@@ -246,6 +246,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.btn_rings)
 
         self.btn_reset = QtWidgets.QPushButton("Reset to paper defaults")
+        self.btn_reset.setToolTip(
+            "Put the parameters above back to the values Gazal et al. "
+            "(2026) report, and run the analysis again.\n\n"
+            "It touches the parameters only. The axial slab stays where "
+            "it is and the randomization stays as it is set.")
         self.btn_reset.clicked.connect(self._on_reset)
         lay.addWidget(self.btn_reset)
 

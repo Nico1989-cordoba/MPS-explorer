@@ -440,6 +440,19 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         self.edit_marker_b = QtWidgets.QLineEdit()
         self.btn_marker_a = QtWidgets.QPushButton("Browse...")
         self.btn_marker_b = QtWidgets.QPushButton("Browse...")
+        for button, which in ((self.btn_marker_a, "round 1"),
+                              (self.btn_marker_b, "round 2")):
+            button.setToolTip(
+                f"Choose the localization file of {which}'s full field of "
+                f"view.\n\n"
+                f"The markers are usually outside the picked axon, so the "
+                f"shift is measured on the whole field and applied to the "
+                f"axon.")
+        for edit_box, which in ((self.edit_marker_a, "round 1"),
+                                (self.edit_marker_b, "round 2")):
+            edit_box.setToolTip(
+                f"Path to {which}'s full field of view. It can be typed, "
+                f"or chosen with Browse.")
         self.btn_marker_a.clicked.connect(
             lambda: self._browse(self.edit_marker_a, "Round 1 field of view",
                                  "Picasso HDF5 (*.hdf5)"))
@@ -463,6 +476,13 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
         self.check_calibration.toggled.connect(self._update_enabled)
         self.edit_calibration = QtWidgets.QLineEdit()
         self.btn_calibration = QtWidgets.QPushButton("Browse...")
+        self.btn_calibration.setToolTip(
+            "Choose the file the chromatic calibration was written to "
+            "(.json, .yaml).\n\n"
+            "Only its error is read: the matrix itself is assumed to have "
+            "been applied already.")
+        self.edit_calibration.setToolTip(
+            "Path to the chromatic calibration. Only its error is used.")
         self.btn_calibration.clicked.connect(
             lambda: self._browse(
                 self.edit_calibration, "Calibration output",
@@ -487,6 +507,11 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
             "channels with the ROI and compare them.")
         self.btn_run.clicked.connect(self.run)
         self.btn_export = QtWidgets.QPushButton("Export CSV...")
+        self.btn_export.setToolTip(
+            "Write one row for this pair of channels: the registration, "
+            "its error, and every comparison in the tabs below.\n\n"
+            "It carries the identity columns and the axon's id, so it "
+            "lines up with the axon table that 'Export axon' writes.")
         self.btn_export.setEnabled(False)
         self.btn_export.clicked.connect(self._export_clicked)
         grid.addWidget(self.btn_run, 0, 4)
