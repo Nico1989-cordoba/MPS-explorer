@@ -559,6 +559,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         for i, (text, edit, title, pattern, loader, suffixes) in enumerate(rows):
             lay.addWidget(_label(text, _DIM), 2 * i, 0, 1, 2)
             button = QtWidgets.QPushButton("Browse...")
+            button.setToolTip(f"Choose the file for: {text}\n\n"
+                              f"It can also be dropped onto the box beside "
+                              f"this button.")
             button.clicked.connect(
                 lambda _=False, e=edit, t=title, p=pattern, f=loader:
                 self._browse(e, t, p, f))
@@ -584,6 +587,11 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             "widefield image's position, since they were acquired together.")
         self.btn_measure.clicked.connect(self.measure)
         self.btn_back = QtWidgets.QPushButton("Back to the measured shift")
+        self.btn_back.setToolTip(
+            "Undo a shift typed by hand and go back to the one the "
+            "correlation measured.\n\n"
+            "The exported row records which of the two it was, so a "
+            "shift moved by hand is never reported as a measured one.")
         self.btn_back.clicked.connect(self._back_to_measured)
         lay.addWidget(self.btn_measure, 0, 0, 1, 2)
         lay.addWidget(self.btn_back, 0, 2, 1, 2)
@@ -608,6 +616,11 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.slider_threshold.setRange(0, 1000)
         self.slider_threshold.valueChanged.connect(self._slider_moved)
         self.spin_threshold = _spin(-1e9, 1e9, 1)
+        self.spin_threshold.setToolTip(
+            "The grey level that separates the inside of the axon from "
+            "the background in the tubulin image.\n\n"
+            "Everything brighter is axoplasm. The slider beside it does "
+            "the same thing; Otsu picks a value from the image itself.")
         self.spin_threshold.valueChanged.connect(self._threshold_typed)
         self.btn_otsu = QtWidgets.QPushButton("Otsu")
         self.btn_otsu.setToolTip(

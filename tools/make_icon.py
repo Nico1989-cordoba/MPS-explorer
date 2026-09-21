@@ -14,6 +14,14 @@ An icon is drawn rather than kept as a binary blob so it can be changed
 with the palette instead of in an image editor, and so a reviewer can
 see what it is from the source.
 
+Enum names
+----------
+Qt's constants are spelled with the enum they belong to --
+``Qt.PenStyle.NoPen`` rather than ``Qt.NoPen``. Both are the same value
+at runtime in PyQt5, but only the first is in the type stubs, and this
+file is new: it starts clean rather than adding six more of the
+complaint that already accounts for most of the project's mypy output.
+
 @author: Nicolas (ngomez) + Claude
 """
 
@@ -43,7 +51,7 @@ N_CLUSTERS = 8
 def draw(size: int) -> QtGui.QImage:
     """One square of the icon, drawn at ``size`` pixels."""
     image = QtGui.QImage(size, size, QtGui.QImage.Format_ARGB32)
-    image.fill(QtCore.Qt.transparent)
+    image.fill(QtCore.Qt.GlobalColor.transparent)
     painter = QtGui.QPainter(image)
     painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
 
@@ -51,7 +59,7 @@ def draw(size: int) -> QtGui.QImage:
 
     # The rounded square behind it, so the ring reads on a light desktop
     # and on a dark one alike.
-    painter.setPen(QtCore.Qt.NoPen)
+    painter.setPen(QtCore.Qt.PenStyle.NoPen)
     painter.setBrush(QtGui.QColor(PANEL_BG))
     radius = 48 * s
     painter.drawRoundedRect(QtCore.QRectF(0, 0, size, size), radius, radius)
@@ -68,11 +76,11 @@ def draw(size: int) -> QtGui.QImage:
         pen = QtGui.QPen(QtGui.QColor(neutral(dark=True)))
         pen.setWidthF(max(1.0, 6 * s))
         painter.setPen(pen)
-        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         painter.drawEllipse(QtCore.QPointF(centre, centre), ring, ring)
 
     # The cluster centres on it.
-    painter.setPen(QtCore.Qt.NoPen)
+    painter.setPen(QtCore.Qt.PenStyle.NoPen)
     painter.setBrush(QtGui.QColor(role("locs")))
     dot = max(1.6, (38 if tiny else 26) * s)
     for i in range(N_CLUSTERS):
@@ -88,7 +96,7 @@ def draw(size: int) -> QtGui.QImage:
     if size >= 32:
         pen = QtGui.QPen(QtGui.QColor(role("centre")))
         pen.setWidthF(max(1.0, 10 * s))
-        pen.setCapStyle(QtCore.Qt.RoundCap)
+        pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
         arm = 20 * s
         painter.drawLine(QtCore.QPointF(centre - arm, centre),
@@ -103,7 +111,7 @@ def draw(size: int) -> QtGui.QImage:
 def _png_bytes(image: QtGui.QImage) -> bytes:
     """One size, PNG-compressed, as an icon entry carries it."""
     buffer = QtCore.QBuffer()
-    buffer.open(QtCore.QIODevice.WriteOnly)
+    buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
     if not image.save(buffer, "PNG"):
         raise RuntimeError(f"could not encode the {image.width()} px size")
     return bytes(buffer.data())

@@ -199,6 +199,11 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
         lay.addWidget(QtWidgets.QLabel("Segments"))
         self.table_seg = QtWidgets.QTableWidget(0, 8)
+        self.table_seg.setToolTip(
+            "One row per axial segment of this axon, in the order "
+            "they sit along z. The number and the symbol in the "
+            "first column are the ones every plot draws that "
+            "segment with.")
         self.table_seg.setHorizontalHeaderLabels([
             "Seg", "z centre", "slab", "locs", "clusters",
             "occupancy", "patch", "gap"])
