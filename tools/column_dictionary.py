@@ -310,12 +310,125 @@ AXOPLASM_CLUSTERS: Dict[str, str] = {
     "spectrin_interior_image": "The image the interior came from.",
 }
 
+CROSSCHANNEL: Dict[str, str] = {
+    # --- which two files, and how they were put in one frame
+    "source_channel_a": "The reference channel, betaII-spectrin: it defines "
+                        "the MPS and its contour is the perimeter everything "
+                        "here is measured on.",
+    "source_channel_b": "The partner channel (alpha-adducin or 4.1B), "
+                        "already moved into channel A's frame.",
+
+    # --- how channel B was put in channel A's frame
+    "registration_source": "How the two channels were aligned: fiducials, "
+                           "cross-correlation, set by hand, or none -- in "
+                           "which case every number below inherits an "
+                           "unknown error.",
+    "registration_shift_x_nm": "How far channel B was moved in x.",
+    "registration_shift_y_nm": "In y.",
+    "registration_shift_z_nm": "In z.",
+    "registration_lateral_rms_nm": "What is left over laterally after that "
+                                   "move. A cross-channel distance of this "
+                                   "size is not a measurement.",
+    "registration_axial_rms_nm": "What is left over axially. It bounds the "
+                                 "axial phase one to one.",
+    "registration_n_pairs": "How many matched pairs the alignment rests on.",
+
+    # --- axial phase
+    "axial_peak_a_nm": "Where channel A's axial distribution peaks.",
+    "axial_peak_b_nm": "Where channel B's does.",
+    "axial_offset_nm": "Signed, B minus A.",
+    "period_a_nm": "Channel A's mean spacing between axial peaks.",
+    "period_b_nm": "Channel B's.",
+    "axial_phase_fraction": "The offset as a fraction of the period, folded "
+                            "to 0-0.5: 0 is in phase, 0.5 is antiphase.",
+    "axial_phase_uncertainty": "The axial registration error as a fraction of "
+                               "the period. A phase measured below this is "
+                               "not measured.",
+    "axial_phase_label": "A word for the fraction, never a conclusion: near "
+                         "in-phase, intermediate, near antiphase.",
+
+    # --- the slab and the clusters in it
+    "slab_zmin_nm": "Bottom of the axial slab both channels were cut to.",
+    "slab_zmax_nm": "Top of it.",
+    "n_clusters_a": "Channel A clusters kept in that slab.",
+    "n_clusters_b": "Channel B clusters kept in it.",
+
+    # --- heterotypic nearest neighbours
+    "median_hetero_nn_a_to_b_nm": "From each channel-A cluster to the nearest "
+                                  "channel-B one. Not symmetric.",
+    "median_hetero_nn_b_to_a_nm": "The same the other way round.",
+    "null_median_hetero_nn_nm": "The same distance when channel B is "
+                                "scattered at random through the annulus its "
+                                "clusters occupy.",
+    "fraction_null_below_measured": "How often chance alone gets that close. "
+                                    "Above 0.05 the measured proximity is not "
+                                    "distinguishable from chance.",
+
+    # --- angular and radial, about channel A's contour centre
+    "angular_nn_median_deg": "Median angle from each channel-A cluster to the "
+                             "nearest channel-B one, about channel A's "
+                             "contour centre.",
+    "rotation_fraction_of_spacing": "The best rigid rotation of channel B "
+                                    "onto A, as a fraction of the mean "
+                                    "angular spacing.",
+    "max_angular_correlation": "The correlation at that rotation.",
+    "median_radius_a_nm": "Median distance of channel A's clusters from the "
+                          "contour centre.",
+    "median_radius_b_nm": "The same for channel B's.",
+
+    # --- shared perimeter occupancy
+    "shared_of_a": "THE headline: the fraction of the perimeter covered by "
+                   "channel A that channel B also covers. A fraction, not a "
+                   "percentage. Read it against null_median_shared_of_a.",
+    "shared_of_b": "The same the other way round -- is the partner confined "
+                   "to spectrin? Fragile when channel B has few clusters.",
+    "shared_jaccard": "The symmetric version: shared over the union.",
+    "shared_length_nm": "The length both channels cover.",
+    "occupancy_a_percent": "How much of its own perimeter channel A covers.",
+    "occupancy_b_percent": "How much of CHANNEL A's perimeter channel B "
+                           "covers. Not channel B's own occupancy.",
+    "n_clusters_b_on_contour": "Channel-B clusters that reach at least one "
+                               "sampled point of channel A's contour.",
+    "n_clusters_b_off_contour": "Channel-B clusters that reach none, and so "
+                                "contribute nothing. Not an error: the "
+                                "contour is a line through cluster centres, "
+                                "not a boundary, and both channels straddle "
+                                "it.",
+    "b_largest_single_share": "The share the largest single channel-B cluster "
+                              "covers on its own. High means the answer rests "
+                              "on one blob.",
+    "median_patch_a_nm": "The median length of channel A's covered patches: "
+                         "the scale this overlap is resolved at.",
+    "null_median_shared_of_a": "shared_of_a when channel B's ellipses are "
+                               "moved rigidly to random positions in the "
+                               "annulus, keeping their sizes, shapes and "
+                               "their own minimum separation.",
+    "null_ci_lo_shared_of_a": "2.5th percentile of that null.",
+    "null_ci_hi_shared_of_a": "97.5th percentile of it.",
+    "p_null_at_least_measured": "How often the null reaches the measured "
+                                "value. Above 0.05 the overlap is not "
+                                "distinguishable from chance.",
+    "n_null_shared": "Draws behind those three numbers.",
+    "registration_band_lo_shared_of_a": "What the registration error alone "
+                                        "does to shared_of_a: the 2.5th "
+                                        "percentile over random shifts of "
+                                        "that size.",
+    "registration_band_hi_shared_of_a": "The 97.5th percentile of the same.",
+    "shared_not_measured_because": "Why there is no shared fraction in this "
+                                   "row, when there is not.",
+
+    "n_warnings": "How many warnings this pair raised. Never zero by "
+                  "default; read them.",
+}
+
+
 _PANEL = {**AXOPLASM, **AXOPLASM_CLUSTERS, **AXOPLASM_LOCALIZATIONS}
 
 
 def describe(name: str) -> Optional[str]:
     """What one column means, or None when nothing here describes it."""
-    for table in (IDENTITY, STATE, ANALYSIS, CLUSTERS, LOCALIZATIONS):
+    for table in (IDENTITY, STATE, ANALYSIS, CLUSTERS, LOCALIZATIONS,
+                  CROSSCHANNEL):
         if name in table:
             return table[name]
     if name.endswith(DISCARD_SUFFIX):
