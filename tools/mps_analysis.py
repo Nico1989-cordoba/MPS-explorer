@@ -382,7 +382,26 @@ class AxonAnalysis:
              else f"this program flags any deeper than "
                   f"{self.contour_health.depth_limit_nm:,.0f} nm "
                   f"({DEEP_VERTEX_FRACTION:.0%} of the hull radius); "
-                  f"deepest {self.contour_health.max_depth_nm:,.0f} nm"),
+                  f"deepest {self.contour_health.max_depth_nm:,.0f} nm"
+                  + ("" if self.contour_health.scatter_depth_limit_nm is None
+                     else f"; this axon's own scatter "
+                          f"(~{self.contour_health.scatter_nm:,.0f} nm) "
+                          f"reaches {self.contour_health.scatter_depth_limit_nm:,.0f}"
+                          f" nm, {self.contour_health.n_deep_beyond_scatter} "
+                          f"deeper than that")),
+            ("  scatter off the outline",
+             "n/a" if (self.contour_health is None
+                       or self.contour_health.scatter_nm is None)
+             else f"{self.contour_health.scatter_nm:,.0f} nm "
+                  f"({self.contour_health.scatter_percent:.1f} % of R)",
+             "-",
+             "" if (self.contour_health is None
+                    or self.contour_health.scatter_nm is None)
+             else f"how far the centres sit off a smooth outline, as a "
+                  f"share of the hull radius R "
+                  f"({self.contour_health.hull_radius_nm:,.0f} nm); the "
+                  f"deep-centre check assumes up to 5 %, the April axons "
+                  f"measure 6-16 %. Estimated from the centres, so rough"),
             ("  contour / its convex hull",
              "n/a" if self.contour_health is None
              else f"{self.contour_health.tour_over_hull:.2f}",
@@ -535,6 +554,26 @@ class AxonAnalysis:
             "contour_max_depth_nm": (
                 None if self.contour_health is None
                 else round(self.contour_health.max_depth_nm, 1)),
+            # The same depth read against this axon's own scatter: the
+            # 0.40 limit above is right for centres that scatter by up to
+            # 5 % of the radius, and the April axons scatter about twice
+            # that, so a count above can be scatter. These say whether it
+            # is.
+            "contour_scatter_nm": (
+                None if self.contour_health is None
+                or self.contour_health.scatter_nm is None
+                else round(self.contour_health.scatter_nm, 1)),
+            "contour_scatter_percent": (
+                None if self.contour_health is None
+                or self.contour_health.scatter_percent is None
+                else round(self.contour_health.scatter_percent, 2)),
+            "contour_scatter_depth_limit_nm": (
+                None if self.contour_health is None
+                or self.contour_health.scatter_depth_limit_nm is None
+                else round(self.contour_health.scatter_depth_limit_nm, 1)),
+            "contour_n_deep_beyond_scatter": (
+                None if self.contour_health is None
+                else self.contour_health.n_deep_beyond_scatter),
             "contour_length_in_long_edges": (
                 None if self.contour_health is None
                 else round(self.contour_health.length_in_long_edges, 3)),

@@ -73,6 +73,26 @@ this dataset:
   at 250 nm. It is meant to catch the contours that are plainly wrong,
   not to measure the interior.
 
+  Measured on the 18 April axons (2026-09-22), the centres scatter off a
+  smooth outline by a median of 9.6 % of the hull radius, 6 to 16 % --
+  twice what the 0.40 was calibrated for -- and the check fired on 14 of
+  the 18. So the count stays, because it is right for clean data, and
+  what it CLAIMS is now read against the axon's own scatter
+  (``radial_scatter``): the depth a healthy ring with that scatter and
+  that many centres stays under 99 times in 100 is 0.237 + 1.052 s
+  sqrt(2 ln K) of the hull radius -- the upper envelope over a circle, an
+  oval, a peanut and the waist-a-third cross-section, s from 4 to 20 %
+  and K from 30 to 140, no case above it. Only centres deeper than that
+  as well are called probably off the membrane; the rest are said to be
+  within what the scatter explains. Tried first and ruled out, each on
+  measurement: measuring depth from a fitted smooth outline instead of
+  the hull (less sensitive, 19 % against 93 % for a centre at half the
+  radius), and a per-axon limit from a parametric bootstrap (11 to 32 %
+  false alarms on healthy circles, because the fit absorbs scatter). On
+  the 18, 10 axons have centres deeper than their own scatter reaches,
+  and the four whose interior clusters the widefield images confirm are
+  among them.
+
   longest step over the median step, for the chord a gap forces. This
   one separates poorly and its limit is correspondingly loose: random
   angular spacing on simulated rings with no gap reached 18.8, so the
@@ -134,6 +154,30 @@ LONG_EDGE_FACTOR = 3.0
 # would make the same axon more or less suspicious with the DBSCAN
 # settings alone. Calibrated in the module docstring.
 DEEP_VERTEX_FRACTION = 0.40
+# The same question asked of THIS axon's scatter. How far the centres
+# scatter off a smooth outline is estimated from the centres themselves: a
+# robust fit of the radius against the angle (harmonics up to this order,
+# Tukey's biweight, so a few centres from inside do not drag it in), and
+# 1.4826 x MAD of what is left. Measured on simulated rings, that estimate
+# comes out low -- a median of 0.85 of the true scatter over 36 cases of
+# scatter, number of centres and shape -- so it is divided by that. It
+# stays rough: one ring's estimate ranges from 0.43 to 1.06 of the truth at
+# 35 centres and 0.64 to 1.22 at 95, which is why it only qualifies the
+# warning and never sets the count.
+SCATTER_HARMONICS = 4
+SCATTER_ESTIMATE_BIAS = 0.85
+# Below this many centres the fit above has too few to spare.
+SCATTER_MIN_CENTRES = 15
+# How deep the deepest vertex of a HEALTHY ring goes, as a fraction of the
+# hull radius, for radial scatter s (a fraction of the radius) and K
+# centres: 0.237 + 1.052 * s * sqrt(2 ln K). The 99th percentile over
+# 400 simulated rings per case, the most permissive of four shapes (circle,
+# oval 0.7, peanut, and the waist-a-third cross-section the concave check
+# uses), fitted over s = 4-20 % and K = 30-140 and moved up so that no case
+# lies above it. A vertex deeper than that is deeper than a healthy axon of
+# any of those shapes, with this scatter, reaches 99 times in 100.
+HEALTHY_DEPTH_INTERCEPT = 0.237
+HEALTHY_DEPTH_SLOPE = 1.052
 # One step this many times the median is a chord across the axon. Wide,
 # because random angular spacing reached 18.8 on simulated gapless rings
 # (the largest of them, not a bound: a rarer ring can pass it).
@@ -330,6 +374,15 @@ class ContourHealth:
     n_deep_vertices: int
     max_depth_nm: float
     warnings: List[str] = field(default_factory=list)
+    # How far the centres scatter off a smooth outline, estimated from
+    # them (radial_scatter); None with too few centres to fit.
+    scatter_nm: Optional[float] = None
+    # The depth a healthy ring with that scatter and this many centres
+    # stays under 99 times in 100, as a fraction of the hull radius.
+    healthy_depth_fraction: Optional[float] = None
+    # Deep centres that are deeper than that as well: the ones this
+    # axon's own scatter does not explain.
+    n_deep_beyond_scatter: Optional[int] = None
 
     @property
     def hull_perimeter_um(self) -> float:
@@ -341,6 +394,20 @@ class ContourHealth:
         return DEEP_VERTEX_FRACTION * self.hull_radius_nm
 
     @property
+    def scatter_percent(self) -> Optional[float]:
+        """The scatter as a percentage of the hull radius."""
+        if self.scatter_nm is None or self.hull_radius_nm <= 0:
+            return None
+        return 100.0 * self.scatter_nm / self.hull_radius_nm
+
+    @property
+    def scatter_depth_limit_nm(self) -> Optional[float]:
+        """How deep a healthy ring with this axon's scatter reaches."""
+        if self.healthy_depth_fraction is None:
+            return None
+        return self.healthy_depth_fraction * self.hull_radius_nm
+
+    @property
     def has_interior_vertices(self) -> bool:
         """Some centres are deeper inside than a ring's ever are."""
         return self.n_deep_vertices > 0
@@ -349,6 +416,108 @@ class ContourHealth:
     def bridges_a_gap(self) -> bool:
         """One step is long enough to be a chord across the axon."""
         return self.max_over_median > MAX_OVER_MEDIAN_LIMIT
+
+
+@dataclass
+class RadialProfile:
+    """Centres against the smooth outline fitted to them, for plotting."""
+
+    # The origin of the polar coordinates: the centres' mean.
+    centre: NDArray[np.float64]
+    theta: NDArray[np.float64]       # each centre's angle, radians
+    r: NDArray[np.float64]           # its distance from the origin, nm
+    coef: NDArray[np.float64]        # the harmonic outline's coefficients
+    scatter_nm: float
+
+    def outline_at(self, theta: NDArray[np.float64]) -> NDArray[np.float64]:
+        """The fitted outline's radius at these angles, nm."""
+        t = np.asarray(theta, dtype=float)
+        cols = [np.ones_like(t)]
+        for j in range(1, SCATTER_HARMONICS + 1):
+            cols += [np.cos(j * t), np.sin(j * t)]
+        return np.column_stack(cols) @ self.coef
+
+
+def radial_scatter(points: NDArray[np.float64]) -> Optional[float]:
+    """How far centres scatter off a smooth closed outline, in nm.
+
+    ``radial_profile`` does the work; this is its one number.
+    """
+    profile = radial_profile(points)
+    return None if profile is None else profile.scatter_nm
+
+
+def radial_profile(points: NDArray[np.float64]) -> Optional[RadialProfile]:
+    """
+    How far centres scatter off a smooth closed outline, and the outline.
+
+    The radius about the centres' mean is fitted against the angle with
+    harmonics up to SCATTER_HARMONICS, reweighted with Tukey's biweight so
+    that centres far off the outline -- a cluster from inside the axon --
+    stop pulling it; the scatter is the upper half-spread of what remains,
+    (Q75 - Q50) / 0.6745, which a centre from inside cannot reach, divided
+    by SCATTER_ESTIMATE_BIAS. None with fewer than SCATTER_MIN_CENTRES
+    centres.
+
+    Rough by nature: from one ring of 35 centres it can be off by a
+    factor of two either way. Use it to qualify a statement, never to
+    make one.
+    """
+    pts = np.asarray(points, dtype=float).reshape(-1, 2)
+    if len(pts) < SCATTER_MIN_CENTRES or not np.isfinite(pts).all():
+        return None
+    d = pts - pts.mean(axis=0)
+    theta = np.arctan2(d[:, 1], d[:, 0])
+    r = np.hypot(d[:, 0], d[:, 1])
+    cols = [np.ones_like(theta)]
+    for j in range(1, SCATTER_HARMONICS + 1):
+        cols += [np.cos(j * theta), np.sin(j * theta)]
+    X = np.column_stack(cols)
+    w = np.ones_like(r)
+    res = r - r.mean()
+    for _ in range(25):
+        root = np.sqrt(w)
+        coef, *_ = np.linalg.lstsq(X * root[:, None], r * root, rcond=None)
+        res = r - X @ coef
+        mad = float(np.median(np.abs(res - np.median(res))))
+        if mad <= 0.0:
+            break
+        u = res / (4.685 * 1.4826 * mad)
+        w = np.where(np.abs(u) < 1.0, (1.0 - u * u) ** 2, 0.0)
+    # The scale from the OUTER half of the residuals only. A centre from
+    # inside the axon deviates inward, into the lower tail, so a
+    # two-sided scale would let the very centres this check looks for
+    # raise the bar they are judged against. Measured with 20 % of the
+    # centres planted inside: the two-sided MAD came out 1.29 to 1.37
+    # times the true scatter at 95 centres, the outer half 1.09 to 1.17.
+    q50, q75 = np.percentile(res, [50.0, 75.0])
+    outer = float(q75 - q50) / 0.6745
+    if not np.isfinite(outer) or outer <= 0.0:
+        return None
+    return RadialProfile(centre=pts.mean(axis=0), theta=theta, r=r,
+                         coef=np.asarray(coef, dtype=float),
+                         scatter_nm=outer / SCATTER_ESTIMATE_BIAS)
+
+
+def vertex_depths(contour: NDArray[np.float64]
+                  ) -> Tuple[NDArray[np.float64], float]:
+    """How far inside the convex hull each vertex sits (nm), and the
+    hull's effective radius (2 x area / perimeter)."""
+    pts = np.asarray(contour, dtype=float).reshape(-1, 2)
+    hull = ConvexHull(pts)
+    vertices = pts[hull.vertices]
+    closed = np.vstack([vertices, vertices[:1]])
+    length = float(np.linalg.norm(np.diff(closed, axis=0), axis=1).sum())
+    depth = -(pts @ hull.equations[:, :2].T + hull.equations[:, 2]).max(axis=1)
+    return depth, 2.0 * float(hull.volume) / length
+
+
+def healthy_depth_fraction(scatter_fraction: float, n_centres: int) -> float:
+    """How deep a healthy ring's deepest vertex goes, / hull radius."""
+    k = max(int(n_centres), 3)
+    return (HEALTHY_DEPTH_INTERCEPT
+            + HEALTHY_DEPTH_SLOPE * scatter_fraction
+            * float(np.sqrt(2.0 * np.log(k))))
 
 
 def contour_health(contour: NDArray[np.float64]) -> Optional[ContourHealth]:
@@ -421,26 +590,61 @@ def contour_health(contour: NDArray[np.float64]) -> Optional[ContourHealth]:
         n_deep_vertices=int(deep.sum()),
         max_depth_nm=float(depth.max()),
     )
+    scatter = radial_scatter(contour)
+    if scatter is not None:
+        health.scatter_nm = scatter
+        health.healthy_depth_fraction = healthy_depth_fraction(
+            scatter / hull_radius, len(contour))
+        beyond = depth > max(DEEP_VERTEX_FRACTION,
+                             health.healthy_depth_fraction) * hull_radius
+        health.n_deep_beyond_scatter = int(beyond.sum())
 
     if health.has_interior_vertices:
-        health.warnings.append(
+        base = (
             f"{health.n_deep_vertices} of the {len(contour)} centres on "
             f"this contour sit more than {health.depth_limit_nm:,.0f} nm "
             f"inside their own convex hull, the deepest by "
-            f"{health.max_depth_nm:,.0f} nm. No simulated ring whose centres "
-            f"scatter off the outline by up to 5 % of its radius reaches "
-            f"that depth -- not with a gap of 160 degrees, not with a dent "
-            f"half the radius deep, not on a cross-section as flat as a "
-            f"peanut whose waist is a third of its width. So those centres "
-            f"are not on the membrane, or this axon is more concave than "
-            f"any of those, or its centres scatter off the outline more "
-            f"than the simulated ones did. Look at the contour before using "
-            f"the "
-            f"perimeter: it is {health.tour_over_hull:.2f} times the hull "
-            f"of the same centres ({health.hull_perimeter_um:.2f} um), and "
-            f"clusters per um, occupancy and the randomization all follow "
-            f"it."
-        )
+            f"{health.max_depth_nm:,.0f} nm: deeper than any simulated ring "
+            f"whose centres scatter off the outline by up to 5 % of its "
+            f"radius reaches, with gaps, dents or a waist a third of its "
+            f"width. ")
+        tail = (
+            f"Look at the contour before using the perimeter: it is "
+            f"{health.tour_over_hull:.2f} times the hull of the same "
+            f"centres ({health.hull_perimeter_um:.2f} um), and clusters per "
+            f"um, occupancy and the randomization all follow it.")
+        limit = health.scatter_depth_limit_nm
+        if health.scatter_nm is None or limit is None:
+            middle = (
+                f"Too few centres to measure how far this axon's scatter "
+                f"off its outline goes, so whether that is scatter or "
+                f"centres from inside the axon cannot be told apart here. ")
+        elif health.n_deep_beyond_scatter:
+            middle = (
+                f"This axon's centres scatter off a smooth outline by about "
+                f"{health.scatter_nm:,.0f} nm "
+                f"({health.scatter_nm / health.hull_radius_nm:.0%} of its "
+                f"radius, estimated from its own centres, so rough), and a "
+                f"healthy ring that scatters that much stays under "
+                f"{limit:,.0f} nm 99 times in 100. "
+                + (f"1 of them is deeper than that too: it is probably not "
+                   f"on the membrane, or the axon is more concave than any "
+                   f"simulated shape. "
+                   if health.n_deep_beyond_scatter == 1 else
+                   f"{health.n_deep_beyond_scatter} of them are deeper than "
+                   f"that too: those are probably not on the membrane, or "
+                   f"the axon is more concave than any simulated shape. "))
+        else:
+            middle = (
+                f"But this axon's centres scatter off a smooth outline by "
+                f"about {health.scatter_nm:,.0f} nm "
+                f"({health.scatter_nm / health.hull_radius_nm:.0%} of its "
+                f"radius, estimated from its own centres, so rough), and a "
+                f"healthy ring that scatters that much reaches "
+                f"{limit:,.0f} nm: these depths are within what its own "
+                f"scatter explains, so they may be scatter rather than "
+                f"centres from inside the axon. ")
+        health.warnings.append(base + middle + tail)
     if health.bridges_a_gap:
         health.warnings.append(
             f"One step of the contour is {health.max_over_median:.1f} times "
