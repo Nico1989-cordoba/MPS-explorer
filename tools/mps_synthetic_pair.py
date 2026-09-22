@@ -147,3 +147,162 @@ def write_pair(
         shift_nm=(float(shift[0]), float(shift[1]), float(shift[2])),
         marker_error_nm=marker_error_nm,
     )
+
+
+# ---------------------------------------------------------------------------
+# In memory, with the ground truth attached
+# ---------------------------------------------------------------------------
+#
+# write_pair above exists to test the FILE path: loading, markers, the
+# registration. What it cannot do is say what the transverse numbers
+# should come out as, because it never hands back where it put the
+# clusters. This does: every channel comes back with the true centre of
+# every cluster, so a validator can compute the right answer on the truth
+# with its own independent code and compare the pipeline's answer to it.
+#
+# The model is the same one: rings of isotropic Gaussian clusters, stacked
+# along z with the MPS period, the partner ``phase`` of a period away.
+# What can now be varied is everything a transverse measure depends on --
+# the partner's angular offset, its radius, which positions it occupies,
+# how densely each cluster is sampled -- because each of those has an
+# answer that can be written down before anything is measured.
+
+
+@dataclass
+class RingTruth:
+    """Where one synthetic channel's clusters really are."""
+
+    # (n, 2) true cluster centres in the plane, in increasing angle: the
+    # order a contour through them has to follow.
+    centres_nm: np.ndarray
+    # The true angle of each, radians.
+    angles: np.ndarray
+    radius_nm: float
+    sigma_xy_nm: float
+    # Localizations drawn per cluster in the ring at the axial peak.
+    n_per_cluster: int
+
+
+@dataclass
+class SyntheticChannels:
+    """Two channels in nanometres, already in one frame, and the truth."""
+
+    x_a: np.ndarray
+    y_a: np.ndarray
+    z_a: np.ndarray
+    x_b: np.ndarray
+    y_b: np.ndarray
+    z_b: np.ndarray
+    truth_a: RingTruth
+    truth_b: RingTruth
+    centre_nm: Tuple[float, float]
+    period_nm: float
+    phase: float
+
+
+def _ring_channel(rng: np.random.Generator, centre: Tuple[float, float], *,
+                  n_clusters: int, radius: float, angle_offset: float,
+                  jitter: float, occupied: Optional[np.ndarray],
+                  n_per_cluster: int, sigma_xy: float, sigma_z: float,
+                  period: float, z_offset: float, n_rings: int,
+                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, RingTruth]:
+    """One channel: ``n_rings`` rings along z; the truth of the middle one.
+
+    The middle ring (k = 0) sits at ``z_offset`` and holds
+    ``n_per_cluster`` localizations per cluster; the others hold half, as
+    a section cut through the middle ring's centre would.
+    """
+    keep = (np.ones(n_clusters, dtype=bool) if occupied is None
+            else np.asarray(occupied, dtype=bool))
+    xs, ys, zs = [], [], []
+    truth_angles = np.empty(0)
+    half = n_rings // 2
+    for k in range(-half, half + 1):
+        angles = angle_offset + np.linspace(0, 2 * np.pi, n_clusters,
+                                            endpoint=False)
+        if jitter:
+            angles = angles + rng.normal(0, jitter, angles.size)
+        angles = angles[keep]
+        n = n_per_cluster if k == 0 else max(1, n_per_cluster // 2)
+        for angle in angles:
+            cx = centre[0] + radius * np.cos(angle)
+            cy = centre[1] + radius * np.sin(angle)
+            xs.append(cx + rng.normal(0, sigma_xy, n))
+            ys.append(cy + rng.normal(0, sigma_xy, n))
+            zs.append(k * period + z_offset + rng.normal(0, sigma_z, n))
+        if k == 0:
+            truth_angles = np.asarray(angles, dtype=float)
+    order = np.argsort(np.mod(truth_angles, 2 * np.pi))
+    truth_angles = truth_angles[order]
+    centres = np.column_stack([centre[0] + radius * np.cos(truth_angles),
+                               centre[1] + radius * np.sin(truth_angles)])
+    truth = RingTruth(centres_nm=centres, angles=truth_angles,
+                      radius_nm=float(radius), sigma_xy_nm=float(sigma_xy),
+                      n_per_cluster=int(n_per_cluster))
+    return (np.concatenate(xs), np.concatenate(ys), np.concatenate(zs),
+            truth)
+
+
+def ring_pair(
+    seed: int = 0,
+    *,
+    n_clusters: int = 16,
+    radius_nm: float = 400.0,
+    radius_b_nm: Optional[float] = None,
+    angle_offset_b: float = 0.0,
+    occupied_b: Optional[np.ndarray] = None,
+    phase: float = 0.0,
+    n_per_cluster: int = 60,
+    n_per_cluster_b: Optional[int] = None,
+    sigma_xy_nm: float = 8.0,
+    sigma_z_nm: float = 25.0,
+    angular_jitter: float = 0.05,
+    period_nm: float = 190.0,
+    n_rings: int = 3,
+    b_is_a: bool = False,
+) -> SyntheticChannels:
+    """
+    Two channels around one axon, in memory, with the truth attached.
+
+    Parameters
+    ----------
+    radius_b_nm : the partner's ring radius; None is spectrin's.
+    angle_offset_b : the partner's angular offset from spectrin, radians.
+        Half the spacing (pi / n_clusters) interleaves the two rings.
+    occupied_b : which of the n_clusters positions the partner occupies.
+    phase : the partner's axial offset as a fraction of the period.
+    n_per_cluster_b : localizations per partner cluster; None is
+        spectrin's. Ten times more is how a channel oversampled per
+        resolution cell, as the real adducin files are, is modelled.
+    angular_jitter : per-cluster angular scatter, radians, drawn
+        independently for each channel. 0 makes every answer analytic.
+    b_is_a : the partner IS spectrin, localization for localization.
+        Every cross-channel number then has an exact answer -- the whole
+        ring shared, zero distance, zero offset -- which is the sharpest
+        test there is of whether the arithmetic is right.
+    """
+    rng = np.random.default_rng(seed)
+    centre = (16000.0, 16000.0)
+    xa, ya, za, truth_a = _ring_channel(
+        rng, centre, n_clusters=n_clusters, radius=radius_nm,
+        angle_offset=0.0, jitter=angular_jitter, occupied=None,
+        n_per_cluster=n_per_cluster, sigma_xy=sigma_xy_nm,
+        sigma_z=sigma_z_nm, period=period_nm, z_offset=0.0, n_rings=n_rings)
+    if b_is_a:
+        return SyntheticChannels(
+            x_a=xa, y_a=ya, z_a=za, x_b=xa.copy(), y_b=ya.copy(),
+            z_b=za.copy(), truth_a=truth_a, truth_b=truth_a,
+            centre_nm=centre, period_nm=period_nm, phase=0.0)
+    xb, yb, zb, truth_b = _ring_channel(
+        rng, centre, n_clusters=n_clusters,
+        radius=radius_nm if radius_b_nm is None else radius_b_nm,
+        angle_offset=angle_offset_b, jitter=angular_jitter,
+        occupied=occupied_b,
+        n_per_cluster=(n_per_cluster if n_per_cluster_b is None
+                       else n_per_cluster_b),
+        sigma_xy=sigma_xy_nm, sigma_z=sigma_z_nm, period=period_nm,
+        z_offset=phase * period_nm, n_rings=n_rings)
+    return SyntheticChannels(
+        x_a=xa, y_a=ya, z_a=za, x_b=xb, y_b=yb, z_b=zb,
+        truth_a=truth_a, truth_b=truth_b, centre_nm=centre,
+        period_nm=period_nm, phase=phase)

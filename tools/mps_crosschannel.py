@@ -96,6 +96,11 @@ RESOLUTION_CELL_NM = 20.0
 # adducin files the ratio is 12 to 138 in four of them and about 1 in the
 # fifth, so there is no single number that fits both.
 OVERSAMPLING_WARN = 3.0
+# Below this ratio of the two channels' slab fractions (B's over A's),
+# channel B's rings are measurably not where spectrin's are. Measured on
+# the synthetic pair: 1.00 in phase, 0.97 at a quarter period, 0.63 in
+# antiphase -- where shared_of_a is already inflated by 0.13.
+SLAB_FRACTION_WARN = 0.75
 
 # The one text for this refusal. The library raises it and the main
 # window shows it, so the two cannot drift apart. Instruction first: a
@@ -1028,6 +1033,32 @@ def cross_channel_transverse(
     except Exception as exc:                              # noqa: BLE001
         warnings_.append(f"Channel B analysis failed: {exc}")
 
+    # How much of each channel the slab holds. A partner whose rings are
+    # not where spectrin's are is cut by spectrin's slab through the TAILS
+    # of the rings above and below it, and two tails at slightly different
+    # angles merge into wider clusters; a wider cluster covers more of the
+    # perimeter. Measured on the synthetic pair with the partner's
+    # positions in the plane held fixed and only its phase moved from 0
+    # to 0.5: its slab fraction fell from 0.50 to 0.32, its median cluster
+    # area rose 12 %, and shared_of_a rose from 0.50 to 0.66, up in 8 of
+    # 8 seeds. That is the headline number read as more co-localized for
+    # a protein that is less so, which nothing used to say.
+    if (an_a is not None and an_b is not None
+            and len(xa) and len(xb)):
+        in_a = len(an_a.x_slab) / len(xa)
+        in_b = len(an_b.x_slab) / len(xb)
+        if in_a > 0 and in_b / in_a < SLAB_FRACTION_WARN:
+            warnings_.append(
+                f"Only {100 * in_b:.0f} % of channel B's localizations fall "
+                f"in this slab, against {100 * in_a:.0f} % of channel A's: "
+                f"channel B's rings are not where spectrin's are, so its "
+                f"clusters here are built from the tails of the rings above "
+                f"and below. Those merge into wider clusters, and wider "
+                f"clusters cover more perimeter -- on a synthetic pair, "
+                f"moving the partner from in phase to antiphase with "
+                f"nothing else changed raised shared_of_a from 0.50 to "
+                f"0.66. Read the axial phase before the shared occupancy.")
+
     cell_a = cell_b = None
     if an_a is not None and an_b is not None:
         cell_a = locs_per_cell(an_a.x_slab, an_a.y_slab)
@@ -1089,11 +1120,24 @@ def cross_channel_transverse(
                         float(np.percentile(null, 75)))
             frac_below = float(np.mean(null <= med_ab))
             if frac_below > 0.05:
+                # One-sided in what it can see. Validated on the synthetic
+                # pair (validate_crosschannel.py): sixteen clusters placed
+                # at random on a 2.5 um ring already sit a median 62 nm
+                # from their nearest partner, so a partner interleaved at
+                # exactly half the spacing -- 78 nm, as far away as sixteen
+                # clusters allow -- is barely further than chance, and
+                # with realistic angular scatter (64 nm) not at all. The
+                # rotation of the angular registry places it at 0.49 to
+                # 0.50 of the spacing every time.
                 warnings_.append(
                     f"Randomly placed clusters achieve a heterotypic "
                     f"distance at least as small as the measured one in "
                     f"{100 * frac_below:.0f}% of draws: the measured "
-                    f"proximity is not distinguishable from chance."
+                    f"proximity is not distinguishable from chance. This "
+                    f"test sees attraction, not avoidance -- a partner "
+                    f"interleaved at exactly half the spacing gets the same "
+                    f"verdict -- so read rotation_fraction_of_spacing before "
+                    f"concluding the arrangement is random."
                 )
 
     # ---- angular and radial -------------------------------------------
