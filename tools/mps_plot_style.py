@@ -137,6 +137,11 @@ ROLES: Dict[str, str] = {
     "image_tubulin": OKABE_ITO["bluish_green"],
     # The same for the dark inside of the spectrin ring.
     "image_spectrin": OKABE_ITO["reddish_purple"],
+    # The path a person drags along the membrane in the contour editor.
+    # Never on screen with the widefield images, so it can share their
+    # purple; drawn dashed as well, so it does not rely on the hue alone
+    # against the green centres and the blue contour it produces.
+    "guide": OKABE_ITO["reddish_purple"],
     # The contour through every cluster, dashed. Orange rather than the
     # neutral the MPS window uses: over the bright inside of the axon a
     # white line disappears.

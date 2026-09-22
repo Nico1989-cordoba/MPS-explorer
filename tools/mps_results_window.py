@@ -269,10 +269,23 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_image.clicked.connect(self._on_export_image)
         lay.addWidget(self.btn_image)
 
+        self.btn_contour = QtWidgets.QPushButton("Draw contour...")
+        self.btn_contour.setToolTip(
+            "Drag a path along the membrane and join the cluster centres in\n"
+            "the order they fall along it, instead of the automatic 2-opt\n"
+            "contour. For axons where the automatic contour runs through\n"
+            "centres that are not on the membrane, or cuts a concavity.\n\n"
+            "The path is kept for this axon: changing eps, min samples or\n"
+            "the slab re-orders the new clusters along it, and the clusters\n"
+            "the axoplasm panel keeps are joined along it too. It is written\n"
+            "to the table, so the contour can be rebuilt from there.")
+        self.btn_contour.clicked.connect(self._on_draw_contour)
+        lay.addWidget(self.btn_contour)
+
         enabled = self.rerun_callback is not None
         for w in (self.combo_peak, self.spin_half, self.spin_eps,
                   self.spin_min, self.spin_maha,
-                  self.chk_random, self.btn_reset):
+                  self.chk_random, self.btn_reset, self.btn_contour):
             w.setEnabled(enabled)
 
         return box
@@ -972,12 +985,61 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 dbcv_threshold=DEFAULT_DBCV_THRESHOLD,
                 mahalanobis_threshold=float(self.spin_maha.value()),
                 run_randomization=bool(self.chk_random.isChecked()),
+                # A contour drawn by hand is kept across every re-run of
+                # this axon. Without this line, moving ANY control -- the
+                # Mahalanobis threshold included, which does not touch the
+                # clusters -- would drop it and hand back the automatic
+                # contour without a word: the 19.31 -> 8.96 um kind of jump
+                # this program must not make on its own.
+                contour_guide=self.analysis.contour_guide,
             )
         except Exception as exc:                      # noqa: BLE001
             QtWidgets.QApplication.restoreOverrideCursor()
             QtWidgets.QMessageBox.critical(
                 self, "Analysis failed",
                 f"Could not re-run the analysis with these parameters:\n\n{exc}")
+            return
+        QtWidgets.QApplication.restoreOverrideCursor()
+        self.refresh()
+
+    def _on_draw_contour(self) -> None:
+        """Open the editor; re-run the analysis along what it returns."""
+        from tools.contour_editor import APPLY, AUTOMATIC, draw_contour
+
+        a = self.analysis
+        if self.rerun_callback is None:
+            return
+        if a.centroids is None or len(a.centroids) < 3:
+            QtWidgets.QMessageBox.information(
+                self, "Contour",
+                "This axon has fewer than three clusters: there is no "
+                "contour to draw.")
+            return
+        answer, path = draw_contour(
+            self, a.centroids,
+            current_contour=(None if a.perimeter is None
+                             else a.perimeter.contour),
+            current_guide=a.contour_guide)
+        if answer not in (APPLY, AUTOMATIC):
+            return
+        peak = self.combo_peak.currentData()
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        try:
+            self.analysis = self.rerun_callback(
+                main_peak_override_nm=(None if peak is None else float(peak)),
+                slab_half_width_nm=float(self.spin_half.value()),
+                eps_nm=float(self.spin_eps.value()),
+                min_samples=int(self.spin_min.value()),
+                dbcv_threshold=DEFAULT_DBCV_THRESHOLD,
+                mahalanobis_threshold=float(self.spin_maha.value()),
+                run_randomization=bool(self.chk_random.isChecked()),
+                contour_guide=(path if answer == APPLY else None),
+            )
+        except Exception as exc:                      # noqa: BLE001
+            QtWidgets.QApplication.restoreOverrideCursor()
+            QtWidgets.QMessageBox.critical(
+                self, "Contour",
+                f"Could not re-run the analysis along that path:\n\n{exc}")
             return
         QtWidgets.QApplication.restoreOverrideCursor()
         self.refresh()

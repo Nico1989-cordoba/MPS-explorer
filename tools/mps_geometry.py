@@ -606,6 +606,12 @@ class PerimeterResult:
     # The area centroid of the contour; None when it crosses itself or
     # encloses no area (contour_centre).
     centre: Optional[ContourCentre] = None
+    # The closed path a person drew along the membrane, when the order came
+    # from one (nm, one vertex per row). It travels with the contour so
+    # that everything rebuilt later from other clusters -- the discard, a
+    # change of eps -- is ordered along the same path instead of falling
+    # back to the automatic one without a word.
+    guide: Optional[NDArray[np.float64]] = None
 
     @property
     def start_spread_um(self) -> Optional[float]:
@@ -628,11 +634,89 @@ class PerimeterResult:
                 + PAPER_INTERCEPT_CLUSTERS)
 
 
+# A centre further than this from the path drawn along the membrane is
+# named. It is roughly two cluster radii: the constrained Gaussian of a
+# typical April cluster reaches ~25 nm, so a centre 60 nm off the path is
+# not a cluster the path runs through.
+GUIDE_FAR_NM = 60.0
+
+
+def check_guide(guide: NDArray[np.float64]) -> NDArray[np.float64]:
+    """A drawn path, as an (M, 2) float array, or a ValueError saying why not.
+
+    A path that crosses itself has no single "along": two stretches of
+    membrane would claim the same clusters in two different orders.
+    """
+    path = np.asarray(guide, dtype=float)
+    if path.ndim != 2 or path.shape[1] != 2:
+        raise ValueError(
+            f"The path drawn along the membrane must be (M, 2), got "
+            f"{path.shape}.")
+    if len(path) < 3:
+        raise ValueError(
+            f"The path drawn along the membrane needs at least 3 points to "
+            f"close, got {len(path)}.")
+    if not np.isfinite(path).all():
+        raise ValueError(
+            "The path drawn along the membrane has a point that is not a "
+            "finite coordinate.")
+    crossings = _count_self_intersections(path, np.arange(len(path)))
+    if crossings:
+        raise ValueError(
+            f"The path drawn along the membrane crosses itself at "
+            f"{crossings} point(s), so it does not say which way round the "
+            f"membrane goes there. Move its handles until it does not.")
+    return path
+
+
+def order_along_guide(
+    centroids: NDArray[np.float64],
+    guide: NDArray[np.float64],
+) -> Tuple[NDArray[np.intp], NDArray[np.float64]]:
+    """
+    Order cluster centres by where they fall along a closed drawn path.
+
+    Each centre is projected onto the nearest point of the path, which is
+    closed back on its first vertex, and the centres are sorted by how far
+    along the path that point is. Returns the order and each centre's
+    distance to the path (nm), so a caller can say which centres the path
+    does not run through.
+
+    This is what turns "the membrane goes round here" into an order of
+    whatever clusters exist: the same path orders the clusters of another
+    eps, or the ones the discard leaves, without being redrawn.
+    """
+    pts = np.asarray(centroids, dtype=float).reshape(-1, 2)
+    path = np.asarray(guide, dtype=float).reshape(-1, 2)
+    a = path
+    b = np.roll(path, -1, axis=0)
+    seg = b - a
+    seg_len = np.hypot(seg[:, 0], seg[:, 1])
+    start_arc = np.concatenate([[0.0], np.cumsum(seg_len)[:-1]])
+    safe = np.where(seg_len > 0, seg_len * seg_len, 1.0)
+
+    best_d = np.full(len(pts), np.inf)
+    best_arc = np.zeros(len(pts))
+    for i in range(len(a)):
+        rel = pts - a[i]
+        t = np.clip((rel @ seg[i]) / safe[i], 0.0, 1.0)
+        foot = a[i] + t[:, None] * seg[i]
+        d = np.hypot(pts[:, 0] - foot[:, 0], pts[:, 1] - foot[:, 1])
+        closer = d < best_d
+        best_d = np.where(closer, d, best_d)
+        best_arc = np.where(closer, start_arc[i] + t * seg_len[i], best_arc)
+    # Ties along the path (two centres projecting to one point) are broken
+    # by distance, so the order is always the same for the same input.
+    order = np.lexsort((best_d, best_arc)).astype(np.intp)
+    return order, best_d
+
+
 def reconstruct_perimeter(
     centroids: NDArray[np.float64],
     refine: bool = True,
     custom_order: Optional[NDArray[np.intp]] = None,
     all_starts: bool = False,
+    guide: Optional[NDArray[np.float64]] = None,
 ) -> PerimeterResult:
     """
     Reconstruct the axonal perimeter by connecting cluster centres of mass.
@@ -646,6 +730,11 @@ def reconstruct_perimeter(
         This is the hook for expert manual override from the GUI: the user
         can reorder/repair the contour by hand when the automatic result
         is wrong for an unusual axon shape.
+    guide : a closed path drawn along the membrane, (M, 2) in nm. The
+        centroids are joined in the order they fall along it -- see
+        ``order_along_guide`` -- instead of the automatic order. Exclusive
+        with ``custom_order``: a path is how a person's contour is kept,
+        because it still means something after the clusters change.
     all_starts : run 2-opt from every starting point of the polar cycle and
         keep the shortest tour. 2-opt only accepts improvements, so where it
         ends depends on where it starts: on the 18 April axons, rolling the
@@ -687,6 +776,24 @@ def reconstruct_perimeter(
             f"number from this axon."
         )
 
+    guide_notes: List[str] = []
+    if guide is not None:
+        if custom_order is not None:
+            raise ValueError(
+                "Give the contour either as a path drawn along the membrane "
+                "or as an order of the clusters, not both.")
+        path = check_guide(guide)
+        custom_order, distance = order_along_guide(centroids, path)
+        far = distance > GUIDE_FAR_NM
+        if far.any():
+            guide_notes.append(
+                f"{int(far.sum())} of the {k} cluster centres sit more than "
+                f"{GUIDE_FAR_NM:g} nm from the path drawn along the membrane "
+                f"(the furthest by {float(distance.max()):.0f} nm). The "
+                f"contour still passes through them, so each pulls it off "
+                f"the path; if they are not on the membrane, the axoplasm "
+                f"panel is where they are discarded.")
+
     if custom_order is not None:
         order = np.asarray(custom_order, dtype=np.intp)
         if sorted(order.tolist()) != list(range(k)):
@@ -713,10 +820,15 @@ def reconstruct_perimeter(
             self_intersections_before=before,
             self_intersections_after=before,
             warnings=(warnings_
-                      + ["Manual contour ordering supplied by the user."]
+                      + ["Contour drawn by hand along the membrane."
+                         if guide is not None else
+                         "Manual contour ordering supplied by the user."]
+                      + guide_notes
                       + crossing + (health.warnings if health else [])),
             health=health,
             centre=contour_centre(centroids[order]) if before == 0 else None,
+            guide=(None if guide is None
+                   else np.array(check_guide(guide), dtype=float)),
         )
 
     order = _polar_angle_order(centroids)

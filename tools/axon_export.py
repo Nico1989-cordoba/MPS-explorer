@@ -94,7 +94,8 @@ SHARED_COLUMNS: Tuple[str, ...] = (
     "gmm_n_discarded_components", "delta_z_mean_nm", "delta_z_values_nm",
     "n_clusters_raw", "n_clusters_removed", "removed_edge_touching",
     "removed_low_dbcv", "edge_criterion_disabled", "mahalanobis_threshold",
-    "ellipse_mode", "random_seed", "randomization_requested")
+    "ellipse_mode", "random_seed", "randomization_requested",
+    "contour_guide_nm")
 
 # Columns the discard does change: everything from the clusters that are
 # left onwards. These are the ones written twice, the second time with a
@@ -194,6 +195,8 @@ def analysis_id(analysis: AxonAnalysis) -> str:
     written with, and what says that two rows of a pooled table were not
     measured the same way.
     """
+    from tools.mps_analysis import format_guide
+
     coords = np.concatenate([
         np.asarray(analysis.x_slab, dtype=np.float64).ravel(),
         np.asarray(analysis.y_slab, dtype=np.float64).ravel(),
@@ -212,6 +215,8 @@ def analysis_id(analysis: AxonAnalysis) -> str:
         f"{analysis.n_randomizations if analysis.run_randomization else 0}",
         str(analysis.contour_2opt), analysis.cluster_set,
         f"{analysis.discard_margin_nm}",
+        str(analysis.contour_order_source),
+        format_guide(analysis.contour_guide) or "",
     ]
     return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()[:10]
 
