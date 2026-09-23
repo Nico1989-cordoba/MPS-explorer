@@ -60,8 +60,13 @@ from tools.results_table import cell_text
 # panel's columns written for every axon, empty where the panel did not
 # measure it -- in v1 a row without the panel had fewer columns than a row
 # with it, and the two could not share a table.
+# v3 (2026-09-22): the contour drawn by hand (contour_guide_nm, #26, written
+# once) and the scatter of the cluster centres off the outline
+# (contour_scatter_nm, contour_scatter_percent,
+# contour_scatter_depth_limit_nm, contour_n_deep_beyond_scatter, #27, also
+# with "_discard").
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v2"
+TABLE_VERSION = "axon tables v3"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
