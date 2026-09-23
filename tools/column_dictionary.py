@@ -134,6 +134,12 @@ ANALYSIS: Dict[str, str] = {
     "contour_2opt": "Whether the tour was refined from one start or from "
                     "every start.",
     "contour_order_source": "Where the order of the tour through the centres came from: the program built it, or a person set it. An order set by hand leaves contour_2opt empty, because no 2-opt ran on it.",
+    "contour_guide_nm": "The path drawn by hand along the membrane, when "
+                        "the contour was ordered along one: x,y pairs in nm "
+                        "separated by ';'. The centres are joined in the "
+                        "order they fall along it, so the contour can be "
+                        "rebuilt from this cell alone. Empty when the "
+                        "program ordered the contour.",
     "contour_hull_um": "Perimeter of the convex hull of the same centres.",
     "contour_tour_over_hull": "How much longer the contour is than that "
                               "hull. Far above 1 means it wanders.",

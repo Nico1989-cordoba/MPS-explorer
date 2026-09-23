@@ -1133,12 +1133,20 @@ def anchored_clusters(
     cache: Dict[bytes, PerimeterResult] = (
         {} if contour_cache is None else contour_cache)
 
+    # A contour drawn by hand travels with the analysis' contour; the
+    # clusters this panel keeps are joined along the same path, so the
+    # contour it draws and the one the "_discard" columns are measured on
+    # are the one the person drew, not one the program built instead.
+    guide = None if contour_all is None else contour_all.guide
+
     def shortest(points: NDArray[np.float64]) -> Optional[PerimeterResult]:
         if len(points) < 3:
             return None
-        key = np.ascontiguousarray(points).tobytes()
+        key = np.ascontiguousarray(points).tobytes() + (
+            b"" if guide is None else np.ascontiguousarray(guide).tobytes())
         if key not in cache:
-            cache[key] = reconstruct_perimeter(points, all_starts=True)
+            cache[key] = reconstruct_perimeter(points, all_starts=True,
+                                               guide=guide)
         return cache[key]
 
     if (contour_all is not None
@@ -1151,7 +1159,9 @@ def anchored_clusters(
                                centroids[contour_all.order])):
         # Already the shortest over every start, of these same centres:
         # the analysis' own contour stands for all the clusters.
-        cache[np.ascontiguousarray(centroids).tobytes()] = contour_all
+        cache[np.ascontiguousarray(centroids).tobytes() + (
+            b"" if guide is None
+            else np.ascontiguousarray(guide).tobytes())] = contour_all
     if contour_all is None:
         contour_all = shortest(centroids)
     kept = centroids[~discarded]

@@ -263,6 +263,12 @@ class AxonAnalysis:
         return self.perimeter.order_source
 
     @property
+    def contour_guide(self) -> Optional[NDArray[np.float64]]:
+        """The path a person drew along the membrane, when the contour was
+        ordered along one; None when the program ordered it."""
+        return None if self.perimeter is None else self.perimeter.guide
+
+    @property
     def mean_delta_z_nm(self) -> Optional[float]:
         return self.z_result.mean_delta_z_nm
 
@@ -340,6 +346,9 @@ class AxonAnalysis:
         if (self.perimeter is not None
                 and self.perimeter.order_source != "automatic"):
             joined = f"centroids connected in the order {self.perimeter.order_source}"
+            if self.perimeter.guide is not None:
+                joined = ("centroids connected along the path drawn by hand "
+                          f"({len(self.perimeter.guide)} points)")
         centre = self.centre
         if centre is not None:
             where = f"x {centre.x_nm:.0f}, y {centre.y_nm:.0f} nm"
@@ -510,6 +519,7 @@ class AxonAnalysis:
             # person. Empty 2opt with a source of "set by hand" is the
             # pair that says no 2-opt ran.
             "contour_order_source": self.contour_order_source,
+            "contour_guide_nm": format_guide(self.contour_guide),
             # Contour health: the perimeter above is only a perimeter if
             # these say so, and a reader of the CSV cannot tell otherwise.
             "contour_hull_um": (
@@ -602,6 +612,28 @@ class AxonAnalysis:
 # person typed for another file in the same folder. Both are inferences
 # about which acquisition a file belongs to, not records of it, so both
 # warn exactly like a typed value does.
+def format_guide(guide: Optional[NDArray[np.float64]]) -> Optional[str]:
+    """A drawn path as one table cell: "x,y;x,y;..." in nm, to 0.1 nm.
+
+    Written so the contour can be rebuilt from the table alone -- a
+    contour set by hand that cannot be reproduced is a number nobody can
+    check.
+    """
+    if guide is None:
+        return None
+    path = np.asarray(guide, dtype=float).reshape(-1, 2)
+    return ";".join(f"{x:.1f},{y:.1f}" for x, y in path)
+
+
+def parse_guide(text: Optional[str]) -> Optional[NDArray[np.float64]]:
+    """The inverse of format_guide; None for an empty cell."""
+    if text is None or not str(text).strip():
+        return None
+    rows = [tuple(float(v) for v in pair.split(","))
+            for pair in str(text).strip().split(";") if pair.strip()]
+    return np.asarray(rows, dtype=float).reshape(-1, 2)
+
+
 PIXEL_SIZE_SOURCES = ("yaml", "hdf5", "yaml_scan", "override", "manual",
                       "neighbour", "remembered", "unknown", "not_applicable")
 GUESSED_PIXEL_SIZE_SOURCES = ("override", "manual", "neighbour",
@@ -630,6 +662,7 @@ def analyze_axon(
     n_randomizations: int = DEFAULT_N_RANDOMIZATIONS,
     random_seed: int = 0,
     all_starts: bool = True,
+    contour_guide: Optional[NDArray[np.float64]] = None,
 ) -> AxonAnalysis:
     """
     Run the full per-axon pipeline on one ROI's localizations.
@@ -647,6 +680,13 @@ def analyze_axon(
         slab entirely.
     custom_contour_order : explicit ordering of the cluster centroids for
         the perimeter, for axons where the automatic contour is wrong.
+    contour_guide : a closed path drawn along the membrane, (M, 2) in nm.
+        The centroids are joined in the order they fall along it. This is
+        how the GUI keeps a contour set by hand: unlike an order of
+        cluster indices, it still means something when eps, min samples
+        or the slab change the clusters, and it orders the clusters the
+        axoplasm discard leaves as well. Exclusive with
+        ``custom_contour_order``.
 
     all_starts : build the contour with 2-opt from every start and keep
         the shortest tour (default). False refines it from one start, as
@@ -791,7 +831,8 @@ def analyze_axon(
 
     steps = _cluster_steps(
         xs, ys, labels, set(report.bad_labels), centroids,
-        custom_contour_order=custom_contour_order, all_starts=all_starts,
+        custom_contour_order=custom_contour_order,
+        contour_guide=contour_guide, all_starts=all_starts,
         **settings)
     return AxonAnalysis(
         perimeter=steps.perimeter, areas=steps.areas, nn=steps.nn,
@@ -831,6 +872,7 @@ def _cluster_steps(
     all_starts: bool = False,
     contour: Optional[PerimeterResult] = None,
     left_after: str = "curation",
+    contour_guide: Optional[NDArray[np.float64]] = None,
 ) -> _ClusterSteps:
     """
     Steps 3-6 on the clusters whose labels are not in ``excluded``.
@@ -852,7 +894,7 @@ def _cluster_steps(
     if perimeter is None and n_kept >= 3:
         perimeter = reconstruct_perimeter(
             centroids, refine=True, custom_order=custom_contour_order,
-            all_starts=all_starts)
+            all_starts=all_starts, guide=contour_guide)
     if perimeter is not None:
         warnings_.extend(perimeter.warnings)
     else:
@@ -1010,6 +1052,11 @@ def _rerun(
         n_randomizations=analysis.n_randomizations,
         random_seed=analysis.random_seed,
         all_starts=True, contour=contour,
+        # A contour drawn by hand is drawn for this axon, not for this set
+        # of clusters: the ones the discard leaves are joined along the
+        # same path. Without this the "_discard" columns would compare a
+        # contour a person drew with one the program built.
+        contour_guide=(analysis.contour_guide if contour is None else None),
         left_after=("curation" if margin_nm is None
                     else "curation and the discard"))
     notes = ([] if margin_nm is None else
