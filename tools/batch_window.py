@@ -143,7 +143,8 @@ class SetFieldDialog(QtWidgets.QDialog):
         return str(self.combo.currentData())
 
     def value(self) -> str:
-        return self.edit.text().strip()
+        # str(): where PyQt5 has no type stubs -- the CI -- text() is Any.
+        return str(self.edit.text()).strip()
 
 
 class BatchWindow(QtWidgets.QMainWindow):
