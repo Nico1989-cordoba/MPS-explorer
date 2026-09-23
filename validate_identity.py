@@ -94,7 +94,8 @@ def test_from_the_path() -> None:
         assert p.identity.genotype == "KO", p.identity
         assert p.identity.protein.lower() == "aducina", p.identity
         assert p.identity.sample == "Vidrio 3", p.identity
-        assert p.identity.is_complete, p.identity.missing
+        # Everything the path says, and not the animal, which it does not.
+        assert p.identity.missing == ("animal",), p.identity.missing
         return p.identity.describe()
 
     check("the ROI and the axon come from the folders",
@@ -137,7 +138,7 @@ def test_nothing_is_invented() -> None:
     def a_path_that_says_nothing():
         p = propose("D:/data/file.hdf5")
         assert p.identity.missing == FIELDS, p.identity.missing
-        assert len(p.warnings) == 5, p.warnings
+        assert len(p.warnings) == len(FIELDS), p.warnings
         return f"{len(p.warnings)} warnings, nothing filled in"
 
     def a_broken_pattern_is_reported_not_raised():
@@ -332,6 +333,70 @@ def test_settings() -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+
+def test_the_animal() -> None:
+    """The replicate of a KO-WT comparison: typed, never guessed."""
+    print("\n--- the animal ---")
+    from tools.mps_identity import DEFAULT_PATTERNS, NO_PATTERN
+
+    def it_has_no_pattern():
+        assert DEFAULT_PATTERNS["animal"] == "", DEFAULT_PATTERNS["animal"]
+        return "the default pattern is empty"
+
+    def a_folder_that_looks_like_one_is_not_read():
+        # Folder names that a pattern could take for an animal. None of
+        # them is read: a guess here decides the n of the comparison.
+        path = ("D:/M12_WT/raton 3/animal 5/nervio KO aducina/Vidrio 3/"
+                "ROI 2/Axon 11/locs.hdf5")
+        p = propose(path)
+        assert p.identity.animal == "", p.identity.animal
+        assert p.origin["animal"] == NO_PATTERN, p.origin["animal"]
+        assert any("Animal" in w for w in p.warnings), p.warnings
+        return p.explain("animal")
+
+    def a_pattern_the_user_writes_reads_it():
+        path = "D:/M12_WT/Vidrio 3/ROI 2/Axon 11/locs.hdf5"
+        p = propose(path, patterns={"animal": r"/(M\d+)_"})
+        assert p.identity.animal == "M12", p.identity.animal
+        return f"'{p.identity.animal}' with the user's own pattern"
+
+    typed = AxonIdentity(genotype="KO", protein="4.1B", animal="M12",
+                         sample="Abril", roi_name="ROI 1", axon_name="Axon 6")
+    folder = os.path.dirname(REAL)
+
+    def it_stays_with_the_slide():
+        # Two axons of one slide are one nerve, of one animal.
+        p = propose(REAL, remembered=typed, remembered_folder=folder)
+        assert p.identity.animal == "M12", p.identity
+        assert "previous axon" in p.explain("animal"), p.explain("animal")
+        return p.explain("animal")
+
+    def it_does_not_cross_to_another_slide():
+        other = "D:/Mayo/ROI 1/Axon 2/locs.hdf5"
+        p = propose(other, remembered=typed, remembered_folder=folder)
+        assert p.identity.animal == "", p.identity
+        return "another slide starts empty"
+
+    def it_is_kept_in_the_settings():
+        back = identity_from_dict(identity_to_dict(typed))
+        assert back.animal == "M12", back
+        # An identity stored before the animal existed still loads.
+        old = identity_from_dict({"genotype": "KO", "sample": "Abril"})
+        assert old.animal == "" and old.genotype == "KO", old
+        return "stored, and an older stored identity still loads"
+
+    check("the animal has no pattern", it_has_no_pattern)
+    check("a folder that looks like an animal is not read as one",
+          a_folder_that_looks_like_one_is_not_read)
+    check("a pattern the user writes reads it",
+          a_pattern_the_user_writes_reads_it)
+    check("it is kept for the other axons of the slide",
+          it_stays_with_the_slide)
+    check("and not carried to another slide",
+          it_does_not_cross_to_another_slide)
+    check("it is stored with the rest of the identity",
+          it_is_kept_in_the_settings)
+
 def main() -> int:
     print("=" * 72)
     print("IDENTITY CHECKS")
@@ -339,6 +404,7 @@ def main() -> int:
     test_from_the_path()
     test_nothing_is_invented()
     test_carry_over()
+    test_the_animal()
     test_axon_id()
     test_settings()
     print("\n" + "=" * 72)

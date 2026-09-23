@@ -34,7 +34,7 @@ ERROR_STYLE = f"color: {verdict('bad', dark=False)};"
 
 
 class PatternsDialog(QtWidgets.QDialog):
-    """Where the five patterns are written, with what they find here."""
+    """Where the patterns are written, with what they find here."""
 
     def __init__(self, patterns: Dict[str, str], path: str,
                  parent: Optional[QtWidgets.QWidget] = None):
@@ -50,7 +50,9 @@ class PatternsDialog(QtWidgets.QDialog):
             "with '/' as the separator and upper or lower case alike. The "
             "first capturing group is the value.\n"
             "The slide is left empty on purpose: with no pattern it is taken "
-            "as the folder above the ROI folder.")
+            "as the folder above the ROI folder.\n"
+            "The animal is left empty on purpose too, and with no pattern it "
+            "stays empty: it is typed, never guessed from a folder name.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -152,9 +154,9 @@ class IdentityDialog(QtWidgets.QDialog):
 
         layout = QtWidgets.QVBoxLayout(self)
         intro = QtWidgets.QLabel(
-            "These five columns go into every table this axon is exported "
-            "to. They are read off the path; what the path does not say is "
-            "left empty, and only you can fill it in.")
+            "These columns go into every table this axon is exported to. "
+            "They are read off the path; what the path does not say is left "
+            "empty, and only you can fill it in.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 

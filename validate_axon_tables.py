@@ -91,8 +91,8 @@ def build(rng=None, k=20, **kwargs):
     return x, y, z, with_every_start(analysis)
 
 
-IDENT = AxonIdentity(genotype="KO", protein="4.1B", sample="Abril",
-                     roi_name="ROI 1", axon_name="Axon 7")
+IDENT = AxonIdentity(genotype="KO", protein="4.1B", animal="mouse 1",
+                     sample="Abril", roi_name="ROI 1", axon_name="Axon 7")
 
 
 def panel_row(analysis, discarded=0, margin=250.0,
@@ -1034,15 +1034,51 @@ def test_schema_and_excel() -> None:
                    discard=pair.discard_applied, axoplasm=panel)
 
     def the_columns_are_the_layout_and_in_order():
+        from tools.axon_export import _AXOPLASM_DROPPED
+        from tools.mps_axoplasm import SUMMARY_COLUMNS
         expected = (list(HEAD_COLUMNS) + list(STATE_COLUMNS)
                     + list(SHARED_COLUMNS) + list(MEASURED_COLUMNS)
                     + [n + DISCARD_SUFFIX for n in MEASURED_COLUMNS]
-                    + [AXOPLASM_PREFIX + n for n in panel
-                       if AXOPLASM_PREFIX + n in row])
+                    + [AXOPLASM_PREFIX + n for n in SUMMARY_COLUMNS
+                       if n not in _AXOPLASM_DROPPED])
         assert list(row) == expected, [
             (a, b) for a, b in zip(list(row) + [""] * 5, expected + [""] * 5)
             if a != b][:4]
         return f"{len(row)} columns, in the order of the layout"
+
+    def with_or_without_the_panel_one_layout():
+        # v1 wrote the panel's columns only when the panel was open, so an
+        # axon exported without it could not join a table that held one
+        # exported with it: the export was refused for "other columns".
+        # Every row of a batch is such a row.
+        bare = axon_row(analysis, identity=IDENT)
+        assert list(bare) == list(row), (
+            set(bare) ^ set(row))
+        assert bare["axoplasm_measured"] is False
+        # axoplasm_measured is a state column, not one of the panel's.
+        filled = [c for c in bare if c.startswith(AXOPLASM_PREFIX)
+                  and c != "axoplasm_measured" and bare[c] is not None]
+        assert not filled, filled
+        folder = tempfile.mkdtemp(prefix="mps_layout_")
+        try:
+            path = os.path.join(folder, "axons.csv")
+            append_rows(path, [row])
+            append_rows(path, [bare])
+            with open(path, encoding="utf-8", newline="") as handle:
+                back = list(csv.DictReader(handle))
+            assert len(back) == 2, len(back)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        return "a row with the panel and one without, in one table"
+
+    def a_panel_column_nobody_placed_is_raised():
+        odd = dict(panel, a_new_panel_number=1.0)
+        try:
+            axon_row(analysis, identity=IDENT, axoplasm=odd)
+        except ValueError as error:
+            assert "a_new_panel_number" in str(error), error
+            return str(error)[:60]
+        raise AssertionError("a panel column fell out of the table")
 
     def a_row_of_another_layout_is_refused():
         folder = tempfile.mkdtemp(prefix="mps_schema_")
@@ -1108,6 +1144,10 @@ def test_schema_and_excel() -> None:
             assert ";" not in str(value or ""), (name, value)
         return f"{len(row)} cells, none with ';'"
 
+    check("with or without the panel, a row has the same columns",
+          with_or_without_the_panel_one_layout)
+    check("a column of the panel cannot fall out of the table",
+          a_panel_column_nobody_placed_is_raised)
     check("the axon table's columns are the layout, in order",
           the_columns_are_the_layout_and_in_order)
     check("a row of another layout is refused, not appended",

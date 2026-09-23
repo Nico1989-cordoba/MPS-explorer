@@ -47,6 +47,7 @@ from numpy.typing import NDArray
 
 from tools.cluster_quality import describe_roi, good_cluster_labels
 from tools.mps_analysis import AxonAnalysis
+from tools.mps_axoplasm import SUMMARY_COLUMNS as PANEL_COLUMNS
 from tools.mps_identity import FIELDS as IDENTITY_FIELDS
 from tools.mps_identity import AxonIdentity, axon_id
 from tools.results_table import cell_text
@@ -54,8 +55,13 @@ from tools.results_table import cell_text
 # Bumped when the columns of these tables change, so a table written by
 # another version is recognisable in its own column rather than only by
 # the export being refused.
+#
+# v2 (2026-09-22): the animal among the identity columns, and the axoplasm
+# panel's columns written for every axon, empty where the panel did not
+# measure it -- in v1 a row without the panel had fewer columns than a row
+# with it, and the two could not share a table.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v1"
+TABLE_VERSION = "axon tables v2"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
@@ -347,10 +353,23 @@ def axon_row(
             None if second is None else _rounded(name, second[name]))
 
     # --- the panel ------------------------------------------------------
-    for name, value in (axoplasm or {}).items():
+    # Every column of the panel's row, whether the panel measured this
+    # axon or not. A table holds one layout of columns, and the row of an
+    # axon the panel never saw -- every row of a batch -- has to fit beside
+    # one it did; axoplasm_measured says which is which. A column of the
+    # panel this list does not know is raised, as for the analysis above:
+    # left out, it would vanish from the table without a word.
+    panel = dict(axoplasm or {})
+    unplaced = sorted(set(panel) - set(PANEL_COLUMNS))
+    if unplaced:
+        raise ValueError(
+            f"The axoplasm panel exports columns this table does not place: "
+            f"{', '.join(unplaced)}. Add them to SUMMARY_COLUMNS in "
+            f"tools/mps_axoplasm.py.")
+    for name in PANEL_COLUMNS:
         if name in _AXOPLASM_DROPPED:
             continue
-        row[AXOPLASM_PREFIX + name] = value
+        row[AXOPLASM_PREFIX + name] = panel.get(name)
     return row
 
 

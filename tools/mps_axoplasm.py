@@ -1195,6 +1195,38 @@ def axon_centre(col: NDArray[np.float64], row: NDArray[np.float64]
 AXON_KEY_COLUMNS = ("source_localizations", "roi")
 
 
+# The columns of ``summary_row``, in its order. They are the same whatever
+# the panel could measure -- what it could not is an empty cell -- and the
+# axon table writes all of them for every axon, the panel's or not, so that
+# rows with and without the panel fit in one table. validate_axoplasm
+# checks that a real row has exactly these.
+SUMMARY_COLUMNS: Tuple[str, ...] = (
+    "source_localizations", "tubulin_image", "tubulin_source",
+    "spectrin_interior_source", "registration_reference_image",
+    "registration_localizations", "roi", "pixel_size_nm",
+    "camera_offset_x_px", "camera_offset_y_px", "registration_source",
+    "shift_x_nm", "shift_y_nm", "registration_peak",
+    "registration_zero_shift", "registration_runner_up",
+    "registration_score", "threshold", "threshold_source",
+    "otsu_threshold", "smooth_sigma_nm", "margin_nm", "mask_status",
+    "mask_area_um2", "ring_area_um2", "selection_zmin_nm",
+    "selection_zmax_nm", "selection_z_source", "n_localizations",
+    "n_outside_tubulin_region", "n_localizations_inside",
+    "n_localizations_membrane", "n_localizations_no_cluster",
+    "fraction_inside", "n_clusters", "spectrin_interior_image",
+    "spectrin_interior_status", "discard_registration",
+    "spectrin_interior_cut", "spectrin_interior_cut_source",
+    "spectrin_level_interior", "spectrin_level_ring",
+    "spectrin_level_half_max", "spectrin_level_spill",
+    "spectrin_interior_area_um2", "n_clusters_discarded",
+    "n_clusters_inside_tubulin_only", "n_clusters_inside_spectrin_only",
+    "perimeter_all_clusters_um", "perimeter_all_clusters_all_starts_um",
+    "perimeter_anchored_um", "perimeter_anchored_2opt_starts",
+    "perimeter_anchored_start_spread_um", "anchored_contour_deep_vertices",
+    "n_warnings", "warnings",
+)
+
+
 def summary_row(
     *,
     localizations: str,

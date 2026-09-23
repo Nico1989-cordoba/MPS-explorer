@@ -612,6 +612,38 @@ def is_derived_output(name: str) -> bool:
     return any(pattern.search(stem) for pattern in _DERIVED_PATTERNS)
 
 
+# Columns that only the tables this program writes carry together: the
+# axon table and its clusters and localizations (axon_id with
+# analysis_id), the batch's log, and the dictionary of columns. Their
+# names are the user's to choose -- "mps_axons.csv" by default, anything
+# after -- so they are recognised by what they hold, not by their name.
+# A batch over the April folder took the three tables of the manual test
+# (2026-09-19) for axons.
+_PROGRAM_TABLE_MARKS: Tuple[Tuple[str, ...], ...] = (
+    ("axon_id", "analysis_id"),
+    ("table", "position", "column", "unit", "meaning"),
+)
+
+
+def is_program_table(path: str) -> bool:
+    """
+    True for a CSV this program wrote as a table of results, whatever it
+    is called: its first line holds the columns only those tables carry.
+    The copy made for Excel (';' between fields) is recognised too.
+    """
+    if os.path.splitext(path)[1].lower() != ".csv":
+        return False
+    try:
+        with open(path, encoding="utf-8-sig", errors="replace") as handle:
+            first = handle.readline()
+    except OSError:
+        return False
+    names = {cell.strip().strip('"').lower()
+             for cell in re.split(r"[,;\t]", first)}
+    return any(all(mark in names for mark in marks)
+               for marks in _PROGRAM_TABLE_MARKS)
+
+
 def source_stem(name: str) -> str:
     """
     The part of a filename that identifies WHICH acquisition it came from.
@@ -664,7 +696,9 @@ def find_localization_files(
     pattern : substring filter on the basename. "" takes every file, which
         in a Picasso working directory also picks up intermediate renders
         and unpicked files -- hence the default.
-    exclude_derived : skip the outputs MPS Explorer writes itself.
+    exclude_derived : skip the outputs MPS Explorer writes itself: the
+        derived files by their names, and the tables of results by their
+        columns (``is_program_table``).
 
     Returns
     -------
@@ -683,7 +717,8 @@ def find_localization_files(
             if needle and needle not in name.lower():
                 continue
             full = os.path.join(dirpath, name)
-            if exclude_derived and is_derived_output(name):
+            if exclude_derived and (is_derived_output(name)
+                                    or is_program_table(full)):
                 skipped.append(full)
             else:
                 found.append(full)

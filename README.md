@@ -445,7 +445,7 @@ for roi_name, roi_data in roi_datasets.items():
 | **What's the minimum RAM needed?** | 4GB for small datasets, 8GB+ for large |
 | **Can I use it on macOS/Linux?** | Yes, fully cross-platform |
 | **How do I debug issues?** | Check `logs/` directory for detailed logs |
-| **Can I batch process multiple files?** | Yes, see batch processing guide |
+| **Can I batch process multiple files?** | Yes: the **Batch** button analyses every picked axon under a folder with the main window's settings and writes the same per-axon table as **Export axon**. Its second tab summarises one column per group, per axon and per animal, without computing a p-value. |
 | **What file formats are supported?** | Localization tables only: Picasso .hdf5/.h5, ThunderSTORM .csv, custom .csv. Images are not supported. |
 | **How do I export results?** | Use Export button → Choose CSV/JSON/HDF5 |
 | **Is there a GUI?** | Yes, PyQt5-based interactive interface |
