@@ -179,6 +179,12 @@ ANALYSIS: Dict[str, str] = {
 }
 
 AXOPLASM: Dict[str, str] = {
+    "tubulin_source": "What the axoplasm mask was drawn from: a widefield "
+                      "betaIII-tubulin image placed on the localizations by "
+                      "a measured shift, or tubulin localizations acquired "
+                      "with the movie (dual view), placed by construction.",
+    "spectrin_interior_source": "The same for the image the spectrin ring's "
+                                "interior was found in.",
     "tubulin_image": "The widefield betaIII-tubulin image the axon's own "
                      "area was taken from.",
     "spectrin_interior_image": "The widefield betaII-spectrin image the "
@@ -201,7 +207,9 @@ AXOPLASM: Dict[str, str] = {
     "camera_offset_x_px": "Offset between the two cameras, in x.",
     "camera_offset_y_px": "The same, in y.",
     "registration_source": "Whether the shift was measured, set by hand, or "
-                           "not placed at all.",
+                           "not placed at all -- or not needed ('same "
+                           "acquisition'): every image was drawn from "
+                           "localizations acquired with the movie.",
     "shift_x_nm": "How far the images were moved onto the localizations, "
                   "in x.",
     "shift_y_nm": "The same, in y.",
