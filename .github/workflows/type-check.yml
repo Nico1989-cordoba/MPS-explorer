@@ -58,6 +58,8 @@ jobs:
           python -m mypy \
             tools/axon_export.py \
             tools/axon_export_ui.py \
+            tools/mps_batch.py \
+            tools/batch_window.py \
             tools/column_dictionary.py \
             tools/mps_identity.py \
             tools/identity_ui.py \

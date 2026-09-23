@@ -11,9 +11,17 @@ number itself is arbitrary -- it is the order in which the user picked
 them -- so it identifies an axon only together with its ROI, its slide and
 its nerve.
 
-Those five things are in the folder names the user already keeps, and
-nowhere in the files. This module proposes them from the path and stops
-there.
+Most of that is in the folder names the user already keeps, and nowhere
+in the files. This module proposes it from the path and stops there.
+
+The animal is the exception, and the one that matters most for a
+knockout: the knockout is done to an animal, so when KO is compared with
+WT the replicate is the animal, not the axon, and a comparison needs to
+know which axons share one. The user's folders do not name it (2026-09-21:
+"son todos ratón"), so it has no pattern and is never read off a folder
+name: a guessed animal would turn one mouse into several, or several into
+one, and change the n of the comparison without a word. It is typed, or
+read by a pattern the user writes.
 
 Why nothing here guesses
 ------------------------
@@ -37,15 +45,16 @@ import re
 from dataclasses import dataclass, field, fields
 from typing import Dict, List, Optional, Tuple
 
-# The five fields, in the order the nesting goes from the widest to the
+# The fields, in the order the nesting goes from the widest to the
 # narrowest. Every table carries all of them.
-FIELDS: Tuple[str, ...] = ("genotype", "protein", "sample", "roi_name",
-                           "axon_name")
+FIELDS: Tuple[str, ...] = ("genotype", "protein", "animal", "sample",
+                           "roi_name", "axon_name")
 
 # What each one is, in the user's terms. Shown beside the field.
 FIELD_LABELS: Dict[str, str] = {
     "genotype": "Genotype",
     "protein": "Protein",
+    "animal": "Animal",
     "sample": "Slide / section",
     "roi_name": "ROI (the measurement)",
     "axon_name": "Axon",
@@ -54,6 +63,10 @@ FIELD_LABELS: Dict[str, str] = {
 FIELD_HINTS: Dict[str, str] = {
     "genotype": "KO or WT, for the protein below. The nerve's genotype.",
     "protein": "Which knockout this nerve is: alpha-adducin or 4.1B.",
+    "animal": "The mouse this nerve came from. The knockout is done to an "
+              "animal, so KO against WT compares animals: axons of one "
+              "animal are not independent. Typed here -- it is never read "
+              "off a folder name unless you write a pattern for it.",
     "sample": "The slide, or the section of the nerve on it.",
     "roi_name": "One measurement. A slide may hold several.",
     "axon_name": "The axon within the ROI. Its number is the order it was "
@@ -70,6 +83,10 @@ FIELD_HINTS: Dict[str, str] = {
 DEFAULT_PATTERNS: Dict[str, str] = {
     "genotype": r"\b(KO|WT)\b",
     "protein": r"(aducina|adducina|adducin|4\.1B)",
+    # Empty, and it must stay so: no folder of this user's names the
+    # animal, and an animal guessed from a folder name decides the n of a
+    # KO-WT comparison silently.
+    "animal": "",
     # Empty: the slide is taken as the folder that holds the ROI folder,
     # which is where it sits in the test data. A pattern typed here wins.
     "sample": "",
@@ -93,6 +110,7 @@ class AxonIdentity:
 
     genotype: str = ""
     protein: str = ""
+    animal: str = ""
     sample: str = ""
     roi_name: str = ""
     axon_name: str = ""
@@ -227,7 +245,7 @@ def propose(
     remembered_folder: str = "",
 ) -> Proposal:
     """
-    Read the five fields off ``path`` with the user's patterns.
+    Read the fields off ``path`` with the user's patterns.
 
     Nothing is invented: a field whose pattern does not match is returned
     empty, with the reason, for the user to type before exporting. Values

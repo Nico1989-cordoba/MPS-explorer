@@ -322,6 +322,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.paint_window: Optional[Any] = None
         self.two_channel_window: Optional[Any] = None
         self.axoplasm_window: Optional[Any] = None
+        # The batch: a folder of axons at once (tools/batch_window.py).
+        self.batch_window: Optional[Any] = None
         # The ROI shape and axial range the current channel-1 selection was
         # made with. The ROI widget can move without being applied (a
         # redraw puts a default one up), so this, not the widget, describes
@@ -724,11 +726,21 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.action_export_axon.triggered.connect(self._on_export_axon)
         toolbar.addAction(self.action_export_axon)
 
+        self.action_batch = QtWidgets.QAction("Batch", self)
+        self.action_batch.setToolTip(
+            "Analyse every picked axon under a folder at once, with the\n"
+            "settings of this window, and write them to the same table\n"
+            "'Export axon' writes. It also compares groups -- per axon and\n"
+            "per animal -- from a batch or from any exported table."
+        )
+        self.action_batch.triggered.connect(self._on_batch)
+        toolbar.addAction(self.action_batch)
+
         self.action_identity = QtWidgets.QAction("Axon identity", self)
         self.action_identity.setToolTip(
-            "Which genotype, protein, slide, ROI and axon the exported rows\n"
-            "say this is. Proposed from the path; what the path does not\n"
-            "say stays empty until you type it."
+            "Which genotype, protein, animal, slide, ROI and axon the\n"
+            "exported rows say this is. Proposed from the path; what the\n"
+            "path does not say stays empty until you type it."
         )
         self.action_identity.triggered.connect(self._on_edit_identity)
         toolbar.addAction(self.action_identity)
@@ -823,6 +835,24 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
     def _on_export_axon(self) -> None:
         self.export_axon()
+
+    def _on_batch(self) -> None:
+        self.open_batch()
+
+    def open_batch(self) -> Any:
+        """Show the batch window, keeping it between openings: a batch
+        that is running goes on while the window is hidden behind this
+        one."""
+        from tools.batch_window import BatchWindow
+
+        if self.batch_window is None:
+            self.batch_window = BatchWindow(
+                self.mps_settings, save=save_settings,
+                sync=self._persist_mps_settings, parent=self)
+        self.batch_window.show()
+        self.batch_window.raise_()
+        self.batch_window.activateWindow()
+        return self.batch_window
 
     # ------------------------------------------------------------------
     # Which axon this is

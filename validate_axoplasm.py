@@ -564,6 +564,10 @@ def test_classification() -> None:
         with_clusters = ax.summary_row(located=located, n_clusters=2,
                                        **kwargs)
         assert list(without) == list(with_clusters)
+        # The axon table writes exactly these for every axon, the panel's
+        # or not: a column missing from the list would fall out of it.
+        assert tuple(without) == ax.SUMMARY_COLUMNS, (
+            set(without) ^ set(ax.SUMMARY_COLUMNS))
         assert without["n_clusters"] is None
         assert without["n_localizations_inside"] is None
         assert without["fraction_inside"] is None
@@ -1023,6 +1027,8 @@ def test_anchored() -> None:
         with_ = ax.summary_row(**common, spectrin=inner, anchored=found,
                                spectrin_image="s2.tif")
         assert list(without) == list(with_)
+        assert tuple(with_) == ax.SUMMARY_COLUMNS, (
+            set(with_) ^ set(ax.SUMMARY_COLUMNS))
         assert with_["n_clusters_discarded"] == 0
         assert without["n_clusters_discarded"] is None
         # The image the interior came from, which need not be the one the
