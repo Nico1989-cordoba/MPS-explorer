@@ -148,11 +148,22 @@ class WidefieldImage:
     # Where the pixel size was read from, for the messages.
     pixel_size_source: str = ""
     notes: List[str] = field(default_factory=list)
+    # Drawn from localizations acquired together with the movie, on the
+    # movie's own camera-pixel grid, rather than read from a widefield
+    # image taken at another moment. Such an image is placed on the
+    # localizations by construction: no camera offset, no shift.
+    from_localizations: bool = False
+    n_localizations: int = 0
 
     @property
     def shape(self) -> Tuple[int, int]:
         rows, cols = self.image.shape
         return int(rows), int(cols)
+
+    @property
+    def source(self) -> str:
+        """What the image is, in the words the table uses."""
+        return "localizations" if self.from_localizations else "widefield image"
 
 
 def _parse_region(value: Any) -> Optional[CameraRegion]:
@@ -243,6 +254,67 @@ def load_widefield(path: str) -> WidefieldImage:
         pixel_size_source="" if recorded is None else recorded.source,
         notes=notes,
     )
+
+
+def image_from_localizations(
+    path: str,
+    movie_pixel_nm: float,
+    *,
+    min_extent_px: Tuple[float, float] = (0.0, 0.0),
+) -> WidefieldImage:
+    """
+    An image of localizations acquired together with the movie.
+
+    Each localization is counted in the camera pixel it was localized in
+    -- its own pixel coordinates, the file's nm divided by the file's own
+    pixel size -- so the image sits on the movie's camera grid exactly as
+    a pixel of the movie does, and a position of the movie in nm maps to
+    it by the movie's pixel size alone. Counting by the file's own pixel
+    and not by nm matters: two channels of one dual-view camera are
+    registered to each other in camera pixels, and the 2023 data carries
+    files of one acquisition localized with 133 and with 135 nm. Placing
+    them by nm would move one against the other by 1.5 % of the distance
+    from the origin -- 225 nm at 15 um, the size of the default margin.
+
+    Every localization is counted, whatever its z, as a widefield image
+    would: a microtubule runs along the axon, and the cross-section it
+    draws is the same through the section.
+
+    ``min_extent_px`` makes the image at least that large (columns,
+    rows), so that every position of the movie falls inside it.
+    """
+    from tools import mps_io
+
+    loc = mps_io.load_localizations(path)
+    own = loc.pixel_size_nm
+    notes: List[str] = []
+    if own is None:
+        # Already in nm (a CSV): the movie's pixel is the only grid there
+        # is, and the file is taken to share its frame.
+        own = float(movie_pixel_nm)
+        notes.append(
+            f"{os.path.basename(path)} is in nanometres with no pixel size "
+            f"of its own; it is counted on the movie's {own:g} nm grid.")
+    elif abs(float(own) - float(movie_pixel_nm)) > 1e-6:
+        notes.append(
+            f"{os.path.basename(path)} was localized with a {float(own):g} "
+            f"nm pixel and the movie with {float(movie_pixel_nm):g} nm. The "
+            f"mask is placed by camera pixel, which is how the two halves of "
+            f"one camera are registered, so this does not move it; but one "
+            f"of the two pixel sizes is wrong, and every distance in nm of "
+            f"that channel with it.")
+    x_px = np.asarray(loc.x_nm, dtype=float) / float(own)
+    y_px = np.asarray(loc.y_nm, dtype=float) / float(own)
+    if x_px.size == 0:
+        raise ValueError(f"{os.path.basename(path)} holds no localizations.")
+    cols = int(np.ceil(max(float(np.max(x_px)), min_extent_px[0]))) + 2
+    rows = int(np.ceil(max(float(np.max(y_px)), min_extent_px[1]))) + 2
+    image = render_counts(x_px, y_px, (rows, cols))
+    return WidefieldImage(
+        path=str(path), image=image, n_planes=1, camera_region=None,
+        binning=None, pixel_size_nm=float(movie_pixel_nm), acquired=None,
+        pixel_size_source="the movie's", notes=notes,
+        from_localizations=True, n_localizations=int(x_px.size))
 
 
 def movie_geometry(
@@ -1138,6 +1210,8 @@ def summary_row(
     spectrin: Optional[AxoplasmMask] = None,
     anchored: Optional[AnchoredClusters] = None,
     spectrin_image: str = "",
+    tubulin_source: str = "widefield image",
+    spectrin_source: str = "",
     located: Optional[NDArray[np.object_]] = None,
     n_clusters: Optional[int] = None,
     z_range: Optional[Tuple[float, float]] = None,
@@ -1255,6 +1329,10 @@ def summary_row(
     return {
         "source_localizations": localizations,
         "tubulin_image": tubulin,
+        # A widefield image placed by a measured shift, or localizations
+        # acquired with the movie and placed by construction.
+        "tubulin_source": tubulin_source,
+        "spectrin_interior_source": spectrin_source or None,
         "registration_reference_image": reference,
         "registration_localizations": registration_file,
         "roi": roi,

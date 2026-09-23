@@ -1533,6 +1533,82 @@ def anchored_on(axon_path, tub_path, spec_path, shift_px,
     return found, found.contour_anchored, lengths
 
 
+
+def test_from_localizations() -> None:
+    """Dual view: masks drawn from localizations acquired with the movie."""
+    print("\n" + "=" * 78)
+    print("MASKS FROM LOCALIZATIONS (dual view, no widefield, no shift)")
+    print("=" * 78)
+    import h5py
+
+    tmp = tempfile.mkdtemp(prefix="mps_locs_mask_")
+
+    def write(name, x_px, y_px, pixel):
+        path = os.path.join(tmp, name)
+        rows = np.zeros(len(x_px), dtype=[
+            ("frame", "u4"), ("x", "f4"), ("y", "f4"), ("z", "f4"),
+            ("photons", "f4"), ("sx", "f4"), ("sy", "f4"), ("bg", "f4"),
+            ("lpx", "f4"), ("lpy", "f4")])
+        rows["x"], rows["y"] = x_px, y_px
+        rows["lpx"] = rows["lpy"] = 0.1
+        with h5py.File(path, "w") as h:
+            h.create_dataset("locs", data=rows)
+        with open(os.path.splitext(path)[0] + ".yaml", "w",
+                  encoding="utf-8") as f:
+            f.write(f"Frames: 10\nWidth: 64\nHeight: 64\n---\n"
+                    f"Pixelsize: {pixel}\n")
+        return path
+
+    def counted_in_its_pixel():
+        one = np.zeros(1)
+        img = ax.image_from_localizations(
+            write("one.hdf5", one + 10.0, one + 7.0, 135.0), 135.0)
+        assert img.from_localizations and img.source == "localizations"
+        assert img.image[7, 10] == 1 and img.image.sum() == 1, \
+            np.argwhere(img.image)
+        return "a localization at pixel (10, 7): column 10, row 7"
+    check("each localization counts in the camera pixel it was found in",
+          counted_in_its_pixel)
+
+    def placed_by_pixel_not_nm():
+        rng = np.random.default_rng(0)
+        xp, yp = rng.uniform(5, 50, 400), rng.uniform(5, 30, 400)
+        a = ax.image_from_localizations(write("a.hdf5", xp, yp, 133.0), 135.0)
+        b = ax.image_from_localizations(write("b.hdf5", xp, yp, 135.0), 135.0)
+        assert a.shape == b.shape and np.array_equal(a.image, b.image)
+        assert any("133" in n and "135" in n for n in a.notes), a.notes
+        assert not b.notes, b.notes
+        return ("the same camera positions at 133 and 135 nm give the same "
+                "image; the disagreement is said")
+    check("placed by camera pixel, so a pixel-size clash does not move it",
+          placed_by_pixel_not_nm)
+
+    def covers_the_movie():
+        one = np.zeros(1)
+        img = ax.image_from_localizations(
+            write("small.hdf5", one + 3.0, one + 3.0, 135.0), 135.0,
+            min_extent_px=(80.0, 40.0))
+        assert img.shape[1] > 80 and img.shape[0] > 40, img.shape
+        return f"{img.shape[1]} x {img.shape[0]} px for a movie of 80 x 40"
+    check("the image reaches as far as the movie does", covers_the_movie)
+
+    def the_mask_follows():
+        # A disc of localizations: the mask drawn from it is a disc.
+        rng = np.random.default_rng(1)
+        r = 12.0 * np.sqrt(rng.uniform(0, 1, 20000))
+        t = rng.uniform(0, 2 * np.pi, 20000)
+        path = write("disc.hdf5", 30 + r * np.cos(t), 25 + r * np.sin(t),
+                     135.0)
+        img = ax.image_from_localizations(path, 135.0)
+        mask = ax.build_mask(img.image, (30.0, 25.0), 12.0, 135.0,
+                             reach_px=14.0)
+        want = np.pi * (12.0 * 0.135) ** 2
+        assert abs(mask.area_um2 - want) / want < 0.15, (mask.area_um2, want)
+        return (f"a disc of {want:.2f} um2 of localizations gives a mask of "
+                f"{mask.area_um2:.2f} um2")
+    check("a mask drawn from it has the shape of the localizations",
+          the_mask_follows)
+
 def main() -> int:
     print("=" * 72)
     print("AXOPLASM MASK CHECKS")
@@ -1544,6 +1620,7 @@ def main() -> int:
     test_classification()
     test_anchored()
     test_without_clusters()
+    test_from_localizations()
     test_real_data()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")

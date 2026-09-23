@@ -17,6 +17,21 @@ Top to bottom:
      rebuilt without them. The main window is told, and repeats the whole
      MPS analysis without them beside the original.
 
+Dual view (2026-09-22). Either image can instead be a localization file
+of that protein acquired AT THE SAME TIME as the movie, on the other half
+of one camera -- the 2023 sciatic-nerve stainings of betaII-spectrin with
+betaIII-tubulin are like that. Its localizations are counted on the
+movie's own camera grid, so it is placed by construction: no widefield
+image, no shift, and section 5 runs without one; the table records
+"same acquisition". For the spectrin, that can be the movie's own file.
+Measured on five picked axons of 230911 ROI 1, the tubulin mask drawn
+from localizations and the one drawn from the widefield image of the
+same axons overlap with an IoU of 0.53 to 0.70, and the widefield one is
+larger -- its edge a median 246 nm further out in effective radius,
+86 to 356 nm -- so the same margin discards less against a mask drawn
+from localizations. Which to use is the user's call; the table says
+which it was.
+
 The calculations are in ``tools.mps_axoplasm``.
 
 @author: Nicolas (ngomez) + Claude
@@ -233,7 +248,8 @@ class _Relay(QtCore.QObject):
 
 
 class AxoplasmWindow(QtWidgets.QMainWindow):
-    """Membrane or interior, from widefield tubulin and spectrin images."""
+    """Membrane or interior, from tubulin and spectrin images -- widefield,
+    or drawn from localizations acquired with the movie."""
 
     def __init__(self, inputs: AxoplasmInputs,
                  parent: Optional[QtWidgets.QWidget] = None,
@@ -561,14 +577,21 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.edit_reference = QtWidgets.QLineEdit()
         self.edit_movie = QtWidgets.QLineEdit(str(self.inputs.movie.path))
         images = mps_file_drop.IMAGE_SUFFIXES
+        # A widefield image, or -- dual view -- the localizations of the
+        # same protein acquired together with the movie, which need no
+        # alignment at all.
+        either = (tuple(mps_file_drop.IMAGE_SUFFIXES)
+                  + tuple(mps_file_drop.LOCALIZATION_SUFFIXES))
+        pattern = ("Widefield image or localizations "
+                   "(*.tif *.tiff *.hdf5 *.h5 *.csv)")
         rows = (
-            ("betaIII-tubulin, widefield:", self.edit_tubulin,
-             "Widefield betaIII-tubulin", "TIFF (*.tif *.tiff)",
-             self._load_tubulin, images),
-            ("betaII-spectrin, widefield (to align; section 5 needs it):",
-             self.edit_reference,
-             "Widefield betaII-spectrin", "TIFF (*.tif *.tiff)",
-             self._load_reference, images),
+            ("betaIII-tubulin, widefield image or localizations:",
+             self.edit_tubulin, "betaIII-tubulin", pattern,
+             self._load_tubulin, either),
+            ("betaII-spectrin, widefield image or localizations (to align; "
+             "section 5 needs it):",
+             self.edit_reference, "betaII-spectrin", pattern,
+             self._load_reference, either),
             ("Localizations of the whole movie (to align):", self.edit_movie,
              "Localizations of the whole movie",
              "Localizations (*.hdf5 *.h5 *.csv)", None,
@@ -593,6 +616,16 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.edit_movie.setToolTip(
             "The alignment needs the whole field of the movie the selection "
             "was picked from: one picked axon alone rarely aligns.")
+        for edit in (self.edit_tubulin, self.edit_reference):
+            edit.setToolTip(
+                "A widefield image taken with the movie, placed on the "
+                "localizations by the shift of section 2.\n\n"
+                "Or, for dual-view data, a localization file of the same "
+                "protein acquired AT THE SAME TIME as the movie, on the "
+                "other half of the camera: its localizations are counted on "
+                "the movie's own camera grid, so it needs no shift and no "
+                "widefield image. For the spectrin, that can be the movie's "
+                "own file.")
         return box
 
     def _build_alignment(self) -> QtWidgets.QWidget:
@@ -786,9 +819,21 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         if not path:
             return None, (0.0, 0.0), []
         try:
-            image = ax.load_widefield(path)
-            offset, notes = ax.camera_offset(image, self.inputs.loc.info,
-                                             self.pixel_nm)
+            if path.lower().endswith(tuple(
+                    mps_file_drop.LOCALIZATION_SUFFIXES)):
+                movie = self.inputs.movie
+                extent = (0.0, 0.0)
+                if movie is not None and len(movie.x_nm):
+                    extent = (float(np.max(movie.x_nm)) / self.pixel_nm,
+                              float(np.max(movie.y_nm)) / self.pixel_nm)
+                image = ax.image_from_localizations(
+                    path, self.pixel_nm, min_extent_px=extent)
+                offset = (0.0, 0.0)
+                notes: List[str] = []
+            else:
+                image = ax.load_widefield(path)
+                offset, notes = ax.camera_offset(
+                    image, self.inputs.loc.info, self.pixel_nm)
         except (OSError, ValueError) as error:
             QtWidgets.QMessageBox.critical(
                 self, "Axoplasm", f"The {what} image was not loaded:\n{error}")
@@ -833,6 +878,11 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
 
     def registration(self) -> ax.ImageRegistration:
         """The shift in use, with the measurement it came from."""
+        if self._placed_by_construction():
+            # Every image is the movie's own kind of data, acquired with it:
+            # nothing was measured and nothing needs to be.
+            return ax.ImageRegistration(shift_px=(0.0, 0.0),
+                                        source="same acquisition")
         shift = self._shift_px()
         measured = self.measured.registration if self.measured else None
         if measured is None:
@@ -964,7 +1014,32 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
     def _coordinates(self, x_nm: np.ndarray, y_nm: np.ndarray
                      ) -> Tuple[np.ndarray, np.ndarray]:
         """Tubulin-image pixel coordinates of positions in nm."""
-        return self._coordinates_in(self.tubulin_offset, x_nm, y_nm)
+        return self._coordinates_for(self.tubulin, self.tubulin_offset,
+                                     x_nm, y_nm)
+
+    def _coordinates_for(self, image: Optional[ax.WidefieldImage],
+                         offset: Tuple[float, float], x_nm: np.ndarray,
+                         y_nm: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Pixel coordinates in ``image`` of positions in nm.
+
+        An image drawn from localizations acquired with the movie sits on
+        the movie's own camera grid: no camera offset and no shift, which
+        belong to widefield images taken at another moment.
+        """
+        if image is not None and image.from_localizations:
+            return (np.asarray(x_nm, float) / self.pixel_nm,
+                    np.asarray(y_nm, float) / self.pixel_nm)
+        return self._coordinates_in(offset, x_nm, y_nm)
+
+    def _placed_by_construction(self) -> bool:
+        """Every image loaded was drawn from localizations of the movie."""
+        loaded = [i for i in (self.tubulin, self.reference) if i is not None]
+        return bool(loaded) and all(i.from_localizations for i in loaded)
+
+    def _needs_shift(self) -> bool:
+        """Some image in use is a widefield image placed by a shift."""
+        return any(i is not None and not i.from_localizations
+                   for i in (self.tubulin, self.reference))
 
     def _coordinates_in(self, offset: Tuple[float, float], x_nm: np.ndarray,
                         y_nm: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -1064,7 +1139,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         reg = self.registration()
         words = {"none": "no shift", "manual": "set by hand",
                  "measured": "measured",
-                 "adjusted": "measured, then adjusted by hand"}
+                 "adjusted": "measured, then adjusted by hand",
+                 "same acquisition": "placed by construction: every image "
+                                     "drawn from localizations acquired "
+                                     "with the movie"}
         state = words.get(reg.source, reg.source)
         if reg.score is not None:
             state += f", score {reg.score:.1f}"
@@ -1082,18 +1160,22 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         # contour against 5 and 18.48 um once the shift was measured.
         # Sorting them before anything is placed would hand the results
         # window, and the tables, a discard measured on an unplaced image.
-        if self.registration().source == "none":
+        # Only a widefield image needs placing. Localizations acquired with
+        # the movie are placed by construction, and asking for a shift
+        # there would block the one case that needs none.
+        if self._needs_shift() and self.registration().source == "none":
             self.anchored_notes = [
                 "The widefield images are not placed on the localizations "
                 "yet: measure the shift in section 2 (or set one by hand) "
                 "before the clusters can be sorted."]
             return
         offset = self.reference_offset
-        col, row = self._coordinates_in(offset, self.inputs.loc.x_nm,
-                                        self.inputs.loc.y_nm)
+        col, row = self._coordinates_for(self.reference, offset,
+                                         self.inputs.loc.x_nm,
+                                         self.inputs.loc.y_nm)
         centre, radius, reach = ax.axon_centre(col, row)
-        scol, srow = self._coordinates_in(offset, centroids[:, 0],
-                                          centroids[:, 1])
+        scol, srow = self._coordinates_for(self.reference, offset,
+                                           centroids[:, 0], centroids[:, 1])
         try:
             interior = ax.build_ring_interior(
                 self.reference.image, centre, radius, self.pixel_nm,
@@ -1178,7 +1260,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
     def _refresh(self) -> None:
         self.btn_measure.setEnabled(
             self.reference is not None
+            and not self.reference.from_localizations
             and not (self._thread is not None and self._thread.is_alive()))
+        for widget in (self.spin_dx, self.spin_dy):
+            widget.setEnabled(self._needs_shift())
         self.btn_back.setEnabled(self.measured is not None)
         self.btn_export.setEnabled(self.result is not None)
         for widget in (self.slider_threshold, self.spin_threshold,
@@ -1189,7 +1274,9 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         if self.tubulin is None:
             self.findings.addWidget(_label(marked(
                 "dim",
-                "Choose the widefield betaIII-tubulin image."), _DIM))
+                "Choose the betaIII-tubulin widefield image, or its "
+                "localizations when they were acquired with the movie."),
+                _DIM))
         elif not messages:
             self.findings.addWidget(_label(
                 marked("good", "No warnings."), _TEXT_OK))
@@ -1279,7 +1366,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         sx, sy = reg.shift_nm(self.pixel_nm)
         words = {"none": "no shift", "manual": "set by hand",
                  "measured": "as measured", "adjusted": "measured, then "
-                 "adjusted by hand"}[reg.source]
+                 "adjusted by hand",
+                 "same acquisition": "none needed: the images are drawn "
+                                     "from localizations acquired with the "
+                                     "movie"}.get(reg.source, reg.source)
         lines = [f"Shift in use: x {sx:+.0f} nm, y {sy:+.0f} nm ({words})."]
         if self.measured is not None:
             m = self.measured.registration
@@ -1506,6 +1596,12 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             registration=self.registration(),
             mask=self.axoplasm, result=self.result,
             spectrin=self.spectrin_interior, anchored=self.anchored,
+            tubulin_source=(self.tubulin.source if self.tubulin
+                            else "widefield image"),
+            spectrin_source=(self.reference.source
+                             if self.reference is not None
+                             and self.spectrin_interior is not None
+                             else ""),
             spectrin_image=self._interior_image(), located=self.located,
             n_clusters=self._n_clusters(),
             z_range=self.inputs.z_range,
