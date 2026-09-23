@@ -150,6 +150,27 @@ ANALYSIS: Dict[str, str] = {
     "contour_hull_radius_nm": "Radius of that hull, which is what 'deep' is "
                               "measured against.",
     "contour_deep_limit_nm": "How deep a centre had to be to be counted.",
+    "contour_scatter_nm": "How far this axon's centres scatter off a smooth "
+                          "outline, estimated from the centres themselves. "
+                          "Rough: from one ring it can be off by a factor "
+                          "of two.",
+    "contour_scatter_percent": "The same scatter as a percentage of the "
+                               "hull radius: how rough this ring is for its "
+                               "size. The deep-centre count is calibrated "
+                               "for up to 5 %; the April axons measured 6 "
+                               "to 16 %.",
+    "contour_scatter_depth_limit_nm": "How deep a healthy ring with that "
+                                      "scatter and this many centres "
+                                      "reaches, 99 times in 100. The deep "
+                                      "count above is calibrated for 5 % "
+                                      "scatter; this is the depth for this "
+                                      "axon's own.",
+    "contour_n_deep_beyond_scatter": "Deep centres that are deeper than a "
+                                     "healthy ring with this axon's own "
+                                     "scatter reaches, too: the ones scatter "
+                                     "does not explain. Zero with a deep "
+                                     "count above zero means the flagged "
+                                     "centres may be scatter.",
     "contour_max_depth_nm": "The deepest of them.",
     "contour_length_in_long_edges": "Share of the contour spent on its "
                                     "longest steps.",

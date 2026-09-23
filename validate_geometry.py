@@ -342,6 +342,96 @@ def contour_health_checks() -> None:
     check("a manual contour order is checked too",
           a_manual_order_is_checked_too)
 
+    # ------------------------------------------------------------------
+    # The same depth, read against the axon's own scatter (2026-09-22).
+    # The 0.40 count is calibrated for centres that scatter by up to 5 %
+    # of the radius; the April axons scatter a median of ~10 %, and at
+    # that a healthy ring reaches 0.41-0.50. These hold the recalibrated
+    # reading to what it claims.
+
+    def scatter_estimate_is_in_the_right_range():
+        from tools.mps_geometry import radial_scatter
+        rng = np.random.default_rng(41)
+        ratios = []
+        for s_frac in (0.05, 0.10, 0.15):
+            for _ in range(40):
+                pts = make_ring(rng, k=90, scatter_nm=s_frac * RING_RADIUS_NM)
+                ratios.append(radial_scatter(pts) / (s_frac * RING_RADIUS_NM))
+        med = float(np.median(ratios))
+        # Corrected for its measured median bias, so centred on the truth;
+        # one ring's estimate stays rough, which is why it only qualifies.
+        assert 0.85 < med < 1.15, med
+        return (f"estimate / truth: median {med:.2f}, "
+                f"{np.percentile(ratios, 5):.2f}-{np.percentile(ratios, 95):.2f}")
+    check("a ring's own scatter is estimated about right",
+          scatter_estimate_is_in_the_right_range)
+
+    def noisy_healthy_rings_are_not_called_interior():
+        # At the scatter the April axons have, the 0.40 count fires on
+        # healthy rings; the claim that the centres are NOT scatter must
+        # not.
+        rng = np.random.default_rng(43)
+        counted, claimed, total = 0, 0, 0
+        for s_frac in (0.10, 0.15):
+            for k in (40, 90):
+                for _ in range(40):
+                    total += 1
+                    h = contour_health(reconstruct_perimeter(make_ring(
+                        rng, k=k, scatter_nm=s_frac * RING_RADIUS_NM)).contour)
+                    counted += h.n_deep_vertices > 0
+                    claimed += bool(h.n_deep_beyond_scatter)
+        assert counted > total // 4, (
+            f"the premise: 0.40 should fire on noisy rings, fired {counted}")
+        assert claimed <= 0.03 * total, (
+            f"{claimed}/{total} healthy noisy rings called interior")
+        return (f"{total} healthy rings at 10-15 % scatter: 0.40 fires on "
+                f"{counted}, 'beyond its own scatter' on {claimed}")
+    check("a noisy healthy ring is not called interior",
+          noisy_healthy_rings_are_not_called_interior)
+
+    def a_centre_near_the_middle_is_still_called():
+        rng = np.random.default_rng(47)
+        caught, total = 0, 0
+        for s_frac in (0.05, 0.10, 0.15):
+            for _ in range(30):
+                total += 1
+                ring = make_ring(rng, k=70, scatter_nm=s_frac * RING_RADIUS_NM)
+                a = rng.uniform(0, 2 * np.pi)
+                inside = 0.15 * RING_RADIUS_NM
+                pts = np.vstack([ring, [[inside * np.cos(a),
+                                          inside * np.sin(a)]]])
+                h = contour_health(reconstruct_perimeter(pts).contour)
+                caught += bool(h.n_deep_beyond_scatter)
+        assert caught >= 0.9 * total, f"{caught}/{total}"
+        return (f"one centre at 0.15 R from the middle, 5-15 % scatter: "
+                f"called in {caught}/{total}")
+    check("a centre near the middle is still called interior",
+          a_centre_near_the_middle_is_still_called)
+
+    def the_warning_says_which():
+        rng = np.random.default_rng(53)
+        texts = {"beyond": None, "within": None}
+        for _ in range(200):
+            if all(texts.values()):
+                break
+            noisy = make_ring(rng, k=90, scatter_nm=0.14 * RING_RADIUS_NM)
+            h = contour_health(reconstruct_perimeter(noisy).contour)
+            if h.n_deep_vertices and not h.n_deep_beyond_scatter:
+                texts["within"] = " ".join(h.warnings)
+            mid = np.vstack([make_ring(rng, k=70, scatter_nm=80.0),
+                             [[0.0, 0.0]]])
+            h = contour_health(reconstruct_perimeter(mid).contour)
+            if h.n_deep_beyond_scatter:
+                texts["beyond"] = " ".join(h.warnings)
+        assert texts["within"] and "may be scatter" in texts["within"], \
+            texts["within"]
+        assert texts["beyond"] and "probably not on the membrane" \
+            in texts["beyond"], texts["beyond"]
+        for text in texts.values():
+            assert "convex hull" in text
+        return "within its scatter: 'may be scatter'; beyond: 'probably not'"
+    check("the warning says which of the two it is", the_warning_says_which)
+
 
 def two_opt_checks() -> None:
     print(f"\n{'=' * 78}\n2-OPT FROM EVERY START\n{'=' * 78}")

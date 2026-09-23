@@ -72,6 +72,9 @@ _C_TEXT_DIM = verdict("dim", dark=False)
 # The contour plot's title, which gains what it is drawing when there is
 # more than one thing it could be drawing.
 CONTOUR_TITLE = "Clusters, reconstructed perimeter and its centre (+)"
+# The radial profile plot's title; gains the measured scatter when there is
+# one.
+SCATTER_TITLE = "Scatter of the centres off a smooth outline"
 
 # Columns of the parameter table.
 (_COL_NAME, _COL_MEASURED, _COL_EVERY, _COL_DISCARD, _COL_PAPER,
@@ -424,11 +427,25 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.plot_cdf.addLegend(offset=(-10, 10), labelTextColor=AXIS_FG)
         grid.addWidget(self.plot_cdf, 2, 1)
 
+        # Each centre's distance from the centres' mean against its
+        # angle, with the smooth outline fitted to them and a band of the
+        # scatter either side: how rough the ring is for its size, and
+        # which centres sit far inside it.
+        self.plot_scatter = pg.PlotWidget()
+        style_dark(self.plot_scatter)
+        set_title(self.plot_scatter, SCATTER_TITLE)
+        self.plot_scatter.setLabels(
+            bottom="angle about the centres' mean [deg]",
+            left="distance from it [nm]")
+        self.plot_scatter.setXRange(0.0, 360.0, padding=0.0)
+        grid.addWidget(self.plot_scatter, 3, 0, 1, 2)
+
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         grid.setRowStretch(0, 2)
         grid.setRowStretch(1, 2)
         grid.setRowStretch(2, 2)
+        grid.setRowStretch(3, 2)
         return w
 
     # ------------------------------------------------------------------
@@ -452,6 +469,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._draw_area()
         self._draw_nn()
         self._draw_cdf()
+        self._draw_scatter()
 
     def _ask_discard(self) -> Optional[DiscardComparison]:
         if self.discard_callback is None:
@@ -474,7 +492,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 "Axial distribution": self.plot_z,
                 "Cluster area": self.plot_area,
                 "1NN distance": self.plot_nn,
-                "1NN CDF": self.plot_cdf}
+                "1NN CDF": self.plot_cdf,
+                "Scatter off the outline": self.plot_scatter}
 
     def _apply_background(self) -> None:
         """Style every plot for the background in use, and redraw."""
@@ -935,6 +954,69 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             pen=pg.mkPen(role("paper"), width=2, style=QtCore.Qt.DashLine),
             label="paper 260 nm",
             labelOpts={"position": 0.75, "color": role("paper")}))
+
+    def _draw_scatter(self) -> None:
+        """Each centre against the smooth outline, with the scatter band."""
+        from tools.mps_geometry import (
+            DEEP_VERTEX_FRACTION, radial_profile, vertex_depths)
+
+        a = self._shown()
+        self.plot_scatter.clear()
+        contour = None if a.perimeter is None else a.perimeter.contour
+        profile = None if contour is None else radial_profile(contour)
+        h = a.contour_health
+        if profile is None or h is None:
+            set_title(self.plot_scatter,
+                      SCATTER_TITLE + ": too few centres to fit one",
+                      dark=self.dark)
+            return
+        deg = np.degrees(np.mod(profile.theta, 2 * np.pi))
+        dense = np.linspace(0.0, 2 * np.pi, 361)
+        line = profile.outline_at(dense)
+        s = profile.scatter_nm
+        band_hi = pg.PlotDataItem(np.degrees(dense), line + s,
+                                  pen=pg.mkPen(None))
+        band_lo = pg.PlotDataItem(np.degrees(dense), line - s,
+                                  pen=pg.mkPen(None))
+        self.plot_scatter.addItem(band_hi)
+        self.plot_scatter.addItem(band_lo)
+        self.plot_scatter.addItem(pg.FillBetweenItem(
+            band_lo, band_hi, brush=pg.mkBrush(*rgba("occupied", 60))))
+        self.plot_scatter.addItem(pg.PlotDataItem(
+            np.degrees(dense), line, pen=pg.mkPen(self._neutral(), width=2)))
+
+        depth, radius = vertex_depths(contour)
+        deep = depth > DEEP_VERTEX_FRACTION * radius
+        beyond = np.zeros_like(deep)
+        if h.healthy_depth_fraction is not None:
+            beyond = depth > max(DEEP_VERTEX_FRACTION,
+                                 h.healthy_depth_fraction) * radius
+        plain = ~deep
+        self.plot_scatter.addItem(pg.ScatterPlotItem(
+            deg[plain], profile.r[plain], size=7,
+            brush=pg.mkBrush(role("centroid")), pen=pg.mkPen(None)))
+        # Deep by the 0.40 count but within this axon's own scatter:
+        # hollow, because the claim about them is the weak one.
+        within = deep & ~beyond
+        if within.any():
+            self.plot_scatter.addItem(pg.ScatterPlotItem(
+                deg[within], profile.r[within], size=11, symbol="s",
+                brush=pg.mkBrush(None),
+                pen=pg.mkPen(verdict("warn"), width=2)))
+        # Deeper than a healthy ring with this scatter reaches: filled,
+        # a different shape, the strong claim.
+        if beyond.any():
+            self.plot_scatter.addItem(pg.ScatterPlotItem(
+                deg[beyond], profile.r[beyond], size=12, symbol="t",
+                brush=pg.mkBrush(verdict("bad")), pen=pg.mkPen(None)))
+        set_title(
+            self.plot_scatter,
+            f"{SCATTER_TITLE}: {s:,.0f} nm = {h.scatter_percent:.1f} % of "
+            f"the hull radius"
+            + ("" if not deep.any() else
+               f"; {int(beyond.sum())} deeper than that scatter explains "
+               f"(filled), {int(within.sum())} within it (hollow)"),
+            dark=self.dark)
 
     def _draw_cdf(self) -> None:
         """Observed vs randomized 1NN cumulative distributions (Fig. 4E)."""
