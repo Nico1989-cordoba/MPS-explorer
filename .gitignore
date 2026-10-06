@@ -48,3 +48,6 @@ test_*.py
 
 # Per-user runtime settings written by tools/mps_settings.py
 mps_analysis_settings.json
+
+# Per-axon lumen review sessions written by the H-ECL columns review (tools/mps_lumen.py LumenReviewStore)
+lumen_review_sessions/
