@@ -67,8 +67,9 @@ __all__ = [
 TAU_LABEL_TEXT = "Tolerance tau:"
 FREE_TEXT = "Free"
 RESET_TEXT = "Back to tau_0"
-TAU_NOTE_TEXT = ("tau is how close (in nm) two clusters of adjacent rings must sit to count as eclipsed; tau_0 was "
-                 "fixed before any data were seen, and any other value is exploratory.")
+TAU_NOTE_TEXT = ("tau is how close (in nm) two clusters of adjacent rings must sit to count as eclipsed. tau_0 comes "
+                 "from the cluster sizes and position errors of one exploratory axon and was frozen before any other "
+                 "axon was analysed; any other value is exploratory.")
 UNAVAILABLE_NOTE = "The tolerance control is off here ({reason}): the column tests run at the pre-registered tau_0."
 
 
@@ -185,7 +186,8 @@ TAU_UI_TOOLTIPS: Dict[str, str] = {
         "The tolerance tau of the column tests of THIS window: the arc test on the centroid membrane (primary), the "
         "2D test (sensitivity) and the arc test on the localization membrane (diagnostic) all run at the value chosen "
         "here.\n\n"
-        "tau_0 is the pre-registered value, fixed before any data were seen. The other entries are the 2D test's "
+        "tau_0 is the pre-registered value: it comes from the cluster sizes and position errors of one exploratory "
+        "axon and was frozen before any other axon was analysed. The other entries are the 2D test's "
         "pre-registered sensitivity values: chosen here they are exploratory, like a free value. Every result, log "
         "row and export computed at another value than tau_0 says EXPLORATORY.\n\n"
         "The batch runner and the simulated null always use tau_0, and the parameters file is never written from "
