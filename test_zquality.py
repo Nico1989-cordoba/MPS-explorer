@@ -14,6 +14,7 @@ Run: ``py -3 -m pytest test_zquality.py -q``.
 from __future__ import annotations
 
 import math
+import pathlib
 from types import SimpleNamespace
 from typing import List, Optional, Sequence
 
@@ -214,13 +215,52 @@ def test_roi2_flag(label: str, flagged: bool, monkeypatch: pytest.MonkeyPatch) -
         assert flags == (ap.ROI2_FLAG,)
 
 
-def test_roi2_flag_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def _settings_in(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, data: Optional[dict] = None) -> None:
+    """Point the local settings file at tmp_path (never the program folder's own file), optionally writing it."""
+    import json
+    from tools import mps_settings as ms
+    path = tmp_path / ms.SETTINGS_FILENAME
+    monkeypatch.setattr(ms, "settings_path", lambda directory=None: path)
+    if data is not None:
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_roi2_flag_off_by_default(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(ap.UNCALIBRATED_LABELS_ENV, raising=False)
+    _settings_in(tmp_path, monkeypatch)              # no settings file: the defaults
     assert ap.ROI2_PATTERN is None and ap.uncalibrated_label_pattern() is None
     assert ap.calibration_range_flags("sample_ROI 2_cellB.csv", None) == ()
     monkeypatch.setenv(ap.UNCALIBRATED_LABELS_ENV, "(unclosed")
     with pytest.raises(ValueError):
         ap.calibration_range_flags("x", None)
+
+
+def test_roi2_flag_from_the_settings_file(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The pattern can live in the local settings file; the environment variable, when set (even empty), wins."""
+    monkeypatch.delenv(ap.UNCALIBRATED_LABELS_ENV, raising=False)
+    _settings_in(tmp_path, monkeypatch, {"eps_nm": 25.0, "uncalibrated_labels": EXAMPLE_PATTERN})
+    assert ap.calibration_range_flags("sample_ROI 2_cellB.csv", None) == (ap.ROI2_FLAG,)
+    assert ap.calibration_range_flags("ROI 12", None) == ()
+    monkeypatch.setenv(ap.UNCALIBRATED_LABELS_ENV, "")                 # set but empty: nothing is flagged
+    assert ap.calibration_range_flags("sample_ROI 2_cellB.csv", None) == ()
+    monkeypatch.setenv(ap.UNCALIBRATED_LABELS_ENV, r"(?i)cellB")       # set: the variable's pattern, not the file's
+    assert ap.calibration_range_flags("sample_ROI 1_cellB.csv", None) == (ap.ROI2_FLAG,)
+    assert ap.calibration_range_flags("ROI2", None) == ()
+
+
+def test_roi2_flag_settings_file_kept_and_checked(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A save keeps the pattern; one that does not compile flags nothing (a warning, no exception)."""
+    from tools import mps_settings as ms
+    monkeypatch.delenv(ap.UNCALIBRATED_LABELS_ENV, raising=False)
+    _settings_in(tmp_path, monkeypatch)
+    assert ms.save_settings(ms.MPSSettings(uncalibrated_labels=EXAMPLE_PATTERN))
+    assert ms.load_settings().uncalibrated_labels == EXAMPLE_PATTERN
+    assert ap.calibration_range_flags("roi_02_picked.hdf5", None) == (ap.ROI2_FLAG,)
+    _settings_in(tmp_path, monkeypatch, {"uncalibrated_labels": "(unclosed"})
+    assert ms.load_settings().uncalibrated_labels == ""
+    assert ap.uncalibrated_label_pattern() is None and ap.calibration_range_flags("ROI2", None) == ()
+    _settings_in(tmp_path, monkeypatch, {"uncalibrated_labels": 12})
+    assert ms.load_settings().uncalibrated_labels == "" and ap.uncalibrated_label_pattern() is None
 
 
 def test_envelope_flag(monkeypatch: pytest.MonkeyPatch) -> None:

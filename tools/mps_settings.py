@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -109,6 +110,13 @@ class MPSSettings:
     # tell those apart, so the name changes and the old one is ignored.
     channel2_clustering_by_folder: Dict[str, Dict[str, float]] = field(
         default_factory=dict)
+    # Which inputs come from an acquisition outside the calibrated range of
+    # the column analysis (a regular expression matched against the file
+    # label / path; tools.mps_axial_precision.uncalibrated_label_pattern).
+    # Site knowledge, so it lives here and not in the code; empty flags
+    # nothing. The MPS_UNCALIBRATED_LABELS environment variable, when set,
+    # takes precedence.
+    uncalibrated_labels: str = ""
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -223,6 +231,20 @@ class MPSSettings:
                 "Stored identity pattern for %s is not a valid regular "
                 "expression (%s); using the default", field_name, reason)
             self.identity_patterns.pop(field_name, None)
+        # The same for the uncalibrated-acquisition pattern: one that does
+        # not compile flags nothing (with a warning) instead of stopping a
+        # batch halfway.
+        if not isinstance(self.uncalibrated_labels, str):
+            self.uncalibrated_labels = ""
+        elif self.uncalibrated_labels.strip():
+            try:
+                re.compile(self.uncalibrated_labels.strip())
+            except re.error as exc:
+                logger.warning(
+                    "Stored uncalibrated_labels %r is not a valid regular "
+                    "expression (%s); no input will be flagged",
+                    self.uncalibrated_labels, exc)
+                self.uncalibrated_labels = ""
         return self
 
 

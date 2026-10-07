@@ -712,7 +712,9 @@ Z_SELECTION_MODES = ("viable", "viable+marginal")
 # shown next to the result. Which inputs those are is site knowledge, not
 # code: a regular expression matched against the label / source path, from
 # ``ROI2_PATTERN`` when a caller sets it, else from the environment
-# variable ``UNCALIBRATED_LABELS_ENV``; neither set (the default): no flag.
+# variable ``UNCALIBRATED_LABELS_ENV`` when it is set (even empty), else
+# from ``uncalibrated_labels`` in the local settings file
+# (tools.mps_settings); none of them (the default): no flag.
 UNCALIBRATED_LABELS_ENV = "MPS_UNCALIBRATED_LABELS"
 ROI2_PATTERN: Optional["re.Pattern[str]"] = None
 ROI2_FLAG = "fuera del rango calibrado (adquisicion marcada)"
@@ -724,11 +726,17 @@ CALIBRATED_ENVELOPE: Optional[Dict[str, float]] = None
 
 def uncalibrated_label_pattern() -> Optional["re.Pattern[str]"]:
     """The pattern of ``calibration_range_flags``' acquisition flag: ``ROI2_PATTERN`` when set, else the regular
-    expression in the ``MPS_UNCALIBRATED_LABELS`` environment variable (read at call time, so worker processes see
-    it), else None (no input is flagged). An invalid expression raises ValueError naming the variable."""
+    expression in the ``MPS_UNCALIBRATED_LABELS`` environment variable when it is set (an empty value flags nothing),
+    else ``uncalibrated_labels`` of the local settings file (``tools.mps_settings``, next to the program), else None
+    (no input is flagged). Both are read at call time, so worker processes see them. An invalid expression in the
+    variable raises ValueError naming it; one in the settings file was already dropped, with a warning, on loading."""
     if ROI2_PATTERN is not None:
         return ROI2_PATTERN
-    text = os.environ.get(UNCALIBRATED_LABELS_ENV, "").strip()
+    if UNCALIBRATED_LABELS_ENV in os.environ:
+        text = os.environ[UNCALIBRATED_LABELS_ENV].strip()
+    else:
+        from tools.mps_settings import load_settings     # lazy: no settings import for callers that set the pattern
+        text = load_settings().uncalibrated_labels.strip()
     if not text:
         return None
     try:
@@ -1076,9 +1084,9 @@ def calibration_range_flags(label: str, zq: Optional[ZQuality]) -> Tuple[str, ..
     D-38 f). Never blocks.
 
     An acquisition whose closure defect was not calibrated: the label or
-    source path matches ``uncalibrated_label_pattern()`` (``ROI2_PATTERN``
-    or the ``MPS_UNCALIBRATED_LABELS`` regular expression; none by
-    default). After H5-E S5 fills
+    source path matches ``uncalibrated_label_pattern()`` (``ROI2_PATTERN``,
+    the ``MPS_UNCALIBRATED_LABELS`` regular expression or the settings
+    file's ``uncalibrated_labels``; none by default). After H5-E S5 fills
     ``CALIBRATED_ENVELOPE``, also a viable or marginal pair with d_sep
     below, or exp_spur_frac above, the range of the accepted S4
     originals.

@@ -339,8 +339,10 @@ and its grid, the null size and seed, the DBSCAN `eps_nm` / `min_samples`, the e
 (an unknown key is an error); changing a value is a deviation from the pre-registration and should be recorded.
 
 Optional site setting: inputs from an acquisition known to lie outside the calibrated range can be flagged (never
-blocked) by setting the environment variable `MPS_UNCALIBRATED_LABELS` to a regular expression matched against the
-file label / path. Nothing is flagged by default.
+blocked) by a regular expression matched against the file label / path, written as `"uncalibrated_labels"` in the
+local `mps_analysis_settings.json` (next to the program; not tracked) or in the environment variable
+`MPS_UNCALIBRATED_LABELS`, which takes precedence when set (an empty value flags nothing). Nothing is flagged by
+default.
 
 ### Tests
 

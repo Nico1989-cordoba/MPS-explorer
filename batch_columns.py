@@ -32,7 +32,8 @@ Every p in the output is labelled UNCALIBRATED (columns ``*_uncalibrated``
 and ``calibration``): the H5-E calibration of the simulated null was closed
 as NOT ACCEPTED (D-41, Q-33; reopened when data with viable pairs exist), so
 the p-values are Monte Carlo p-values against the plain rotation null. Inputs of an acquisition outside the
-calibrated range (a site pattern, ``MPS_UNCALIBRATED_LABELS``; none by default) carry
+calibrated range (a site pattern: ``MPS_UNCALIBRATED_LABELS`` or ``uncalibrated_labels`` in
+mps_analysis_settings.json; none by default) carry
 ``calibration_range_flags`` (``roi2_flag``, ``calibration_flags``). A
 calibrated mode does not exist yet: ``ColumnBatchSettings.calibrated=True``
 raises.
