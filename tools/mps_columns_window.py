@@ -140,10 +140,11 @@ from tools.mps_lumen import (
 )
 from tools.mps_layer_panel import LayerPanel, Swatch
 from tools.mps_plot_style import (
-    OKABE_ITO, ROLES, marked, neutral, segment_colour, set_title, style_dark, verdict)
+    OKABE_ITO, ROLES, marked, neutral, rgba, segment_colour, set_title, style_dark, verdict)
 from tools import mps_selection as msel
-from tools.mps_selection_ui import (
-    SelectionWidget, app_log_path, counter_line, exploratory_banner, git_head, variants_tried)
+from tools import mps_tau as mtau
+from tools import mps_tau_ui as mtui
+from tools.mps_selection_ui import SelectionWidget, app_log_path, exploratory_banner, git_head
 from tools.mps_tooltips import apply_tooltips
 from tools.results_table import append_rows, cell_text, check_appendable, refuse_other_analysis, replace_rows
 
@@ -275,6 +276,19 @@ NO_VIABLE_PAIR_TEXT = ("No ring pair of this axon passes the viability rule v2 (
 NO_SELECTED_PAIR_TEXT = ("No ring pair of this axon passes the exploratory selection {label} #{hash}: no column "
                          "statistic is shown. The reasons, pair by pair:")
 LIVE_DEBOUNCE_MS = 300
+# UI stage 1 (D-44): the analyses kept per (cluster set, tau), so that going back to a tau or a cluster set already
+# analysed re-draws at once
+ANALYSES_CACHE_SIZE = 8
+# The matches on the map (T5): between the membranes (z -5, -4) and the markers (z 0 and up), the arc test on top.
+MATCH_ARC_Z = -2.0
+MATCH_2D_Z = -3.0
+# The E(tau) curve's plot: never shorter than this (the section scrolls instead on a short screen).
+CURVE_PLOT_MIN_HEIGHT = 150
+# How the left column is shared between the map and the curve under it, until the user drags the handle: the curve
+# up to 2/5 of the column (3:2), and the map -- the review's main surface, where clusters are clicked -- never less
+# than this share of the window's height (on a short screen the curve section starts small and scrolls).
+LEFT_CURVE_SHARE = 0.4
+MAP_MIN_WINDOW_SHARE = 0.55
 
 
 # ============================================================================
@@ -360,6 +374,9 @@ class ReviewRun:
     # selection change started it ("Live update") rather than the button
     fp: Any = None
     live: bool = False
+    # UI stage 1 (D-44): the tolerance the analyses ran at (the window's control); None = the pre-registered tau_0
+    # (a run built outside the window)
+    tau_nm: Optional[float] = None
 
     @property
     def ran(self) -> bool:
@@ -945,6 +962,7 @@ def results_row(
     res_before: Optional[RingsResult] = None,
     tau0_nm: Optional[float] = None,
     run: Optional[ReviewRun] = None,
+    variant: Optional[mtau.AnalysisVariant] = None,
 ) -> Dict[str, Any]:
     """
     The results of one run as one row (``RESULTS_TABLE_COLUMNS``): the
@@ -959,6 +977,13 @@ def results_row(
     warnings of the run. With ``run`` (rule v2, D-41) only the selected
     pairs keep their per-pair statistics, and a test's joint over all of
     its pairs is written only when all of them are VIABLE.
+
+    ``variant`` (UI stage 1, D-44: a ``tools.mps_tau.AnalysisVariant``,
+    the run's selection and tolerance): at another tau than tau_0,
+    ``tau0_nm`` holds the run's tau (an analysis column: rows of two
+    tolerances never share a table) and ``analysis`` carries the
+    EXPLORATORY tag (``tools.mps_tau.analysis_with_tau``). At tau_0, or
+    without it, the row is the pre-registered one.
     """
     from tools.mps_unroll import CENTROID_MEMBRANE_RECIPE
 
@@ -1015,6 +1040,10 @@ def results_row(
     })
     if cm is None and arc_c is not None:
         row["arcc_recipe"] = f"{CENTROID_MEMBRANE_RECIPE} (no fit recorded)"
+    if variant is not None and not variant.tau_is_default:
+        # UI stage 1 (D-44): the tolerance the tests ran at, and the tag that says it is not tau_0
+        row["tau0_nm"] = _num(variant.tau_nm)
+        row["analysis"] = mtau.analysis_with_tau(_ANALYSIS_NAME, variant)
     row["calibration_note"] = NOT_CALIBRATED_DETAIL
     if run is not None:
         v = run.viability
@@ -1302,6 +1331,32 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self.lpz_nm = None if lpz_nm is None else np.asarray(lpz_nm, dtype=np.float64)
         self.columns_params = columns_params
         self.n_null = None if n_null is None else int(n_null)
+        # UI stage 1 (D-44): the tolerance control. ``base_columns_params``: the parameters it reads its choices from
+        # (the window's own, or the pre-registered file, read once); a run at tau_0 still passes ``columns_params``
+        # exactly as before, a run at another tau a copy of these with that tau (tools.mps_tau.params_at_tau). The
+        # control starts at tau_0 in every window and is never saved.
+        self.base_columns_params: Optional[ColumnsParams] = None
+        self.tau_unavailable = ""
+        try:
+            base = columns_params if columns_params is not None else default_columns_params()
+            mtau.tau_choices(base)
+            self.base_columns_params = base
+        except Exception as exc:  # noqa: BLE001 - the control is off, with the reason; the rest works as before
+            self.tau_unavailable = f"the column parameters could not be read ({type(exc).__name__}: {exc})"
+        self.tau0_nm: Optional[float] = (None if self.base_columns_params is None
+                                         else float(self.base_columns_params.tau0_nm))
+        self.tau_nm: Optional[float] = self.tau0_nm
+        self._run_tau: Optional[float] = self.tau0_nm
+        self._cancel_reason = ""
+        # the results at the current tau are being computed (or wait for the button): no p of another tau is shown,
+        # and ``_pending_keep`` holds the analyses they replace for what does not depend on tau (the curve, the
+        # membrane after the cleaning)
+        self._tau_pending = False
+        self._pending_keep: Optional[CleanedAnalyses] = None
+        self._counter_line_text = ""
+        self.curve_shown: Optional[mtau.CurveView] = None
+        self._tau_rerun_wanted = False
+        self._left_split_by_user = False       # the user dragged the map / curve handle: their split is kept
         self.widefield_images = widefield_images
         self.identity = identity
         self.widefield_note = str(widefield_note or "")
@@ -1347,7 +1402,21 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self.selection_widget.state.changed.connect(self._on_selection)
         root.addWidget(self.selection_widget)
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
-        splitter.addWidget(self._build_plot_column())
+        # UI stage 1: the map on top of the E(tau) curve of the 2D test (a vertical splitter; the split follows the
+        # window, _fit_left_split, until the user drags its handle)
+        self.left_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        self.left_splitter.setObjectName("left_splitter")
+        self.left_splitter.setChildrenCollapsible(False)
+        self.left_splitter.addWidget(self._build_plot_column())
+        # the curve section scrolls on a short screen instead of squeezing its plot and texts
+        self.curve_scroll = _ColumnScroll(self._build_curve_section())
+        self.curve_scroll.setObjectName("curve_scroll")
+        self.left_splitter.addWidget(self.curve_scroll)
+        self.left_splitter.setStretchFactor(0, 3)
+        self.left_splitter.setStretchFactor(1, 2)
+        self.left_splitter.setSizes([540, 360])
+        self.left_splitter.splitterMoved.connect(self._on_left_split_moved)
+        splitter.addWidget(self.left_splitter)
         # H6 toggles: the side column scrolls on a short screen instead of drawing its rows over each other
         self.side_scroll = _ColumnScroll(self._build_side_column())
         splitter.addWidget(self.side_scroll)
@@ -1356,6 +1425,8 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         missing = apply_tooltips(self, COLUMNS_WINDOW_TOOLTIPS)
         if missing:  # a renamed widget; never silent
             self.extra_warnings.append(f"(window) no widget for the tooltips of {missing}")
+        # UI stage 1: the control's and the curve's tooltips (tools/mps_tau_ui.py; must stay empty, a test checks)
+        self.tau_missing_tooltips: List[str] = apply_tooltips(self, mtui.TAU_UI_TOOLTIPS)
 
         self._fill_header()
         self._fill_widefield_warning()
@@ -1368,6 +1439,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self._fill_warnings()
         if self.membrane_before is None:
             self._fit_membrane_before()
+        self._refresh_tau_views()
         self._compute_viability()
 
     # ------------------------------------------------------------ construction
@@ -1398,6 +1470,18 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self.membrane_after_item.setZValue(-4)
         self.plot_widget.addItem(self.membrane_before_item)
         self.plot_widget.addItem(self.membrane_after_item)
+        # UI stage 1 (T5): the clusters each column test matched at the current tau for the curve's pair, as thin
+        # segments between the membranes and the markers; they never take a click (the markers above them do)
+        self.match_items: Dict[str, pg.PlotDataItem] = {}
+        for key, pen, z in (
+                ("matches_arc", pg.mkPen(ROLES["matched"], width=2.0), MATCH_ARC_Z),
+                ("matches_2d", pg.mkPen(ROLES["matched"], width=1.5, style=QtCore.Qt.PenStyle.DashLine), MATCH_2D_Z)):
+            item = pg.PlotDataItem(pen=pen, connect="pairs")
+            item.setZValue(z)
+            for part in (item, item.curve, item.scatter):
+                part.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)
+            self.plot_widget.addItem(item)
+            self.match_items[key] = item
         # UI stage 0: one marker item per class, stacked in _DRAW_ORDER (bottom to top), so the layer panel hides the
         # REAL markers of a class. Qt delivers no click or hover to a hidden item (a hidden class cannot be clicked),
         # and pyqtgraph hands a click no point of an item claims to the item underneath, so the topmost VISIBLE
@@ -1485,7 +1569,106 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         panel.set_enabled("underlay", has_images, "no widefield image for this axon")
         self.underlay_combo.setVisible(has_images)     # an empty, greyed combo says nothing
         self.underlay_combo.currentIndexChanged.connect(lambda _i: self._draw_underlay())
+        # UI stage 1 (T5): what each column test matched at the current tau, for the pair of the curve below
+        panel.add_group(mtui.MATCH_GROUP_TITLE)
+        panel.add_layer("matches_arc", mtui.MATCH_LABELS["matches_arc"], Swatch("line", ROLES["matched"], width=2.0),
+                        items=[self.match_items["matches_arc"]], tip=mtui.MATCH_TIPS["matches_arc"], visible=True)
+        panel.add_layer("matches_2d", mtui.MATCH_LABELS["matches_2d"],
+                        Swatch("line", ROLES["matched"], dash=True, width=1.5), items=[self.match_items["matches_2d"]],
+                        tip=mtui.MATCH_TIPS["matches_2d"], visible=False)
         return panel
+
+    def _build_curve_section(self) -> QtWidgets.QWidget:
+        """UI stage 1 (T4): the E(tau) curve of the 2D test for one selected pair, as every run computes it (it does
+        not depend on tau: changing tau moves the marker only), with its layer panel beside it, its global p, the
+        counter and a note that always says what the curve is not."""
+        w = QtWidgets.QWidget()
+        w.setObjectName("curve_section")
+        lay = QtWidgets.QVBoxLayout(w)
+        lay.setContentsMargins(0, 4, 0, 0)
+        lay.setSpacing(3)
+        head = QtWidgets.QHBoxLayout()
+        self.curve_head_label = QtWidgets.QLabel(mtui.CURVE_HEAD_TEXT)
+        f = self.curve_head_label.font()
+        f.setBold(True)
+        self.curve_head_label.setFont(f)
+        head.addWidget(self.curve_head_label)
+        self.curve_pair_combo = QtWidgets.QComboBox()
+        self.curve_pair_combo.setObjectName("curve_pair_combo")
+        self.curve_pair_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
+        self.curve_pair_combo.currentIndexChanged.connect(self._on_curve_pair)
+        head.addWidget(self.curve_pair_combo)
+        head.addStretch(1)
+        lay.addLayout(head)
+        self.curve_plot = pg.PlotWidget()
+        self.curve_plot.setObjectName("curve_plot")
+        style_dark(self.curve_plot)
+        set_title(self.curve_plot, mtui.CURVE_TITLE)
+        self.curve_plot.setLabels(bottom="tau [nm]", left="E (matched fraction)")
+        self.curve_plot.setMouseEnabled(x=False, y=False)
+        self.curve_plot.setMenuEnabled(False)
+        self.curve_plot.hideButtons()
+        self.curve_plot.setMinimumHeight(CURVE_PLOT_MIN_HEIGHT)
+        dark_neutral = neutral(dark=True)
+        self.curve_band_lo = pg.PlotCurveItem()
+        self.curve_band_hi = pg.PlotCurveItem()
+        self.curve_band_item = pg.FillBetweenItem(self.curve_band_lo, self.curve_band_hi,
+                                                  brush=pg.mkBrush(rgba("randomized", 60)))
+        self.curve_band_item.setZValue(-10)
+        self.curve_mean_item = pg.PlotDataItem(
+            pen=pg.mkPen(ROLES["randomized"], width=1.5, style=QtCore.Qt.PenStyle.DashLine))
+        self.curve_mean_item.setZValue(-5)
+        self.curve_observed_item = pg.PlotDataItem(
+            pen=pg.mkPen(ROLES["observed"], width=2.0), symbol="o", symbolSize=6,
+            symbolBrush=pg.mkBrush(ROLES["observed"]), symbolPen=pg.mkPen(dark_neutral, width=0.8))
+        self.curve_tau0_line = pg.InfiniteLine(
+            angle=90, movable=False, pen=pg.mkPen(dark_neutral, width=1.5, style=QtCore.Qt.PenStyle.DashLine))
+        self.curve_tau_line = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(ROLES["warn"], width=2.0))
+        for item in (self.curve_band_item, self.curve_mean_item, self.curve_observed_item, self.curve_tau0_line,
+                     self.curve_tau_line):
+            self.curve_plot.addItem(item)
+        self.curve_tau0_line.setVisible(self.tau0_nm is not None)
+        self.curve_tau_line.setVisible(False)
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.curve_plot, stretch=1)
+        layers = LayerPanel()
+        layers.setObjectName("curve_layers")
+        self.curve_layers = layers
+        labels, tips = mtui.CURVE_LAYER_LABELS, mtui.CURVE_LAYER_TIPS
+        layers.add_layer("observed", labels["observed"], Swatch("symbol", ROLES["observed"], symbol="o"),
+                         items=[self.curve_observed_item], tip=tips["observed"])
+        layers.add_layer("null_mean", labels["null_mean"], Swatch("line", ROLES["randomized"], dash=True),
+                         items=[self.curve_mean_item], tip=tips["null_mean"])
+        layers.add_layer("null_band", labels["null_band"], Swatch("bar", rgba("randomized", 60)),
+                         items=[self.curve_band_item], tip=tips["null_band"])
+        layers.add_layer("tau0", labels["tau0"], Swatch("line", dark_neutral, dash=True),
+                         items=[self.curve_tau0_line], tip=tips["tau0"])
+        # the chosen tau's line is hidden at tau_0 whatever the row says: the window owns its visibility
+        layers.add_layer("tau", labels["tau"], Swatch("line", ROLES["warn"]), items=(),
+                         on_toggle=lambda _on: self._update_curve_marker(), tip=tips["tau"])
+        if self.tau0_nm is None:
+            layers.set_enabled("tau0", False, "the column parameters could not be read")
+            layers.set_enabled("tau", False, "the column parameters could not be read")
+        row.addWidget(layers)
+        lay.addLayout(row, stretch=1)
+        self.curve_p_label = QtWidgets.QLabel(mtui.CURVE_NO_RUN_TEXT)
+        self.curve_p_label.setObjectName("curve_p_label")
+        self.curve_p_label.setWordWrap(True)
+        self.curve_p_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        lay.addWidget(self.curve_p_label)
+        self.curve_counter_label = QtWidgets.QLabel()
+        self.curve_counter_label.setObjectName("curve_counter_label")
+        self.curve_counter_label.setWordWrap(True)
+        self.curve_counter_label.setStyleSheet(f"color: {verdict('warn', dark=False)};")
+        self.curve_counter_label.setVisible(False)
+        lay.addWidget(self.curve_counter_label)
+        self.curve_note = QtWidgets.QLabel(mtui.CURVE_NOTE_TEXT)
+        self.curve_note.setObjectName("curve_note")
+        self.curve_note.setWordWrap(True)
+        self.curve_note.setStyleSheet(f"color: {verdict('dim', dark=False)};")
+        lay.addWidget(self.curve_note)
+        return w
 
     def _build_side_column(self) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()
@@ -1581,6 +1764,11 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self.advanced_box.setVisible(False)
         lay.addWidget(self.advanced_box)
         self.advanced_toggle.toggled.connect(self._on_advanced_toggled)
+
+        # UI stage 1 (D-44): the tolerance of the column tests, always in view right above the run
+        self.tau_control = mtui.TauControl(self.base_columns_params, unavailable=self.tau_unavailable)
+        self.tau_control.changed.connect(self._on_tau_changed)
+        lay.addWidget(self.tau_control)
 
         run_row = QtWidgets.QHBoxLayout()
         self.run_button = QtWidgets.QPushButton("Apply and re-run analyses")
@@ -1941,7 +2129,8 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         else:
             self.membrane_before_item.setData(before[0], before[1])
         after = None
-        r = self.last_result
+        # the membrane after the cleaning does not depend on tau: it stays while results at a new tau are computed
+        r = self._tau_free_analyses()
         if r is not None and r.arc_centroid is not None:
             after = self._path_xy(getattr(r.arc_centroid, "centroid_membrane", None))
         if after is None:
@@ -2152,6 +2341,11 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         snapshot = self.decisions.snapshot()
         fp = msel.lumen_fp(snapshot)
         res, lpz, cp, n_null = self.res, self.lpz_nm, self.columns_params, self.n_null
+        # UI stage 1 (D-44): the tau of the control. At tau_0 the window's own parameters go to the analyses exactly as
+        # before (None: the pre-registered file); at another tau a copy of them with that tau, in memory only
+        run_tau = self._tau_key(self.tau_nm)
+        if not self._at_tau0() and self.base_columns_params is not None:
+            cp = mtau.params_at_tau(self.base_columns_params, run_tau)
         relay = self._relay
         gen = self._generation
         self._run_seq += 1
@@ -2173,8 +2367,8 @@ class ColumnsWindow(QtWidgets.QMainWindow):
                 viab = known if known is not None else vfn(res, xyz)
                 viable, marginal = viab.viable, viab.marginal
                 if not viable and not marginal:
-                    relay.finished.emit(gen, ReviewRun(viab, None, seconds=time.perf_counter() - t0, fp=fp, live=live),
-                                        None)
+                    relay.finished.emit(gen, ReviewRun(viab, None, seconds=time.perf_counter() - t0, fp=fp, live=live,
+                                                       tau_nm=run_tau), None)
                     return
                 result = run_cleaned_analyses(res, snapshot, columns_params=cp, n_null=n_null, lpz_nm=lpz, progress=report)
                 primary = sensitivity = None
@@ -2191,12 +2385,22 @@ class ColumnsWindow(QtWidgets.QMainWindow):
                 relay.finished.emit(gen, None, exc)
                 return
             relay.finished.emit(gen, ReviewRun(viab, result, primary, sensitivity, time.perf_counter() - t0, fp=fp,
-                                               live=live), None)
+                                               live=live, tau_nm=run_tau), None)
 
         self._live_armed = True
         self._run_fp = fp
         self._run_live = bool(live)
-        if live:
+        self._run_tau = run_tau
+        pending_tau = self.tau_nm if self._tau_pending else None
+        if pending_tau is not None:
+            # UI stage 1: the results view says which tau is computed (the button pressed after a change of tau, or
+            # the live run that change started)
+            self.results_view.setPlainText(mtui.pending_live_text(pending_tau))
+        if live and pending_tau is not None:
+            self.n_live_runs += 1
+            self.selection_note.setText(mtui.pending_run_note(pending_tau))
+            self.selection_note.setVisible(True)
+        elif live:
             self.n_live_runs += 1
             self.selection_note.setText("Live update: computing the analyses of this cluster set in the background "
                                         "(the selection does not change them; later changes re-draw at once)...")
@@ -2232,21 +2436,42 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self._thread = None
         self.progress_bar.setVisible(False)
         if isinstance(result, _SupersededRun):
-            # H6 toggles: a live run stopped because nobody needed it any more; the screen already shows the state
+            # H6 toggles: a live run stopped because nobody needed it any more; the screen already shows the state.
+            # UI stage 1: or a run (live or not) stopped because tau changed before it finished
             self._refresh_state()
             self._pending_live = False
-            self.selection_note.setText("A background run was stopped: the selection did not need it any more.")
-            self.selection_note.setVisible(True)
+            reason, self._cancel_reason = self._cancel_reason, ""
+            if reason != "tau":
+                self.selection_note.setText("A background run was stopped: the selection did not need it any more.")
+                self.selection_note.setVisible(True)
+            elif self.viability is None:
+                self._tau_rerun_wanted = True       # re-rendered when the viability comes (_on_viability)
             self._rerender_for_selection()      # the current selection's state (a new request if it needs one)
+            if reason == "tau":
+                # UI stage 1: said after the re-render (which hides the selection's notes), until the next run starts
+                self.selection_note.setText(mtui.TAU_STOPPED_NOTE)
+                self.selection_note.setVisible(True)
             return
         if error is None and result is not None:
             run: ReviewRun = result
             try:
                 if run.analyses is not None and run.fp is not None:
-                    # the analyses of this cluster set, for every later selection (H6 toggles)
-                    self._analyses[run.fp] = run.analyses
-                    while len(self._analyses) > 4:
+                    # the analyses of this cluster set, for every later selection (H6 toggles) and, UI stage 1, at
+                    # the tau they ran at
+                    self._analyses[self._cache_key(run.fp, run.tau_nm)] = run.analyses
+                    while len(self._analyses) > ANALYSES_CACHE_SIZE:
                         self._analyses.pop(next(iter(self._analyses)))
+                if not self._tau_is_current(run.tau_nm):
+                    # UI stage 1 (D-44): computed at a tau the control has left (the run ended before a step that
+                    # could stop it): kept for that tau, never shown, no signal; the current tau's state follows
+                    if self.viability is None:
+                        self.viability = run.viability
+                        self._fill_viability()
+                    self._cancel_reason = ""
+                    self._pending_live = False
+                    self._refresh_state()
+                    self._rerender_for_selection(tau_change=True)
+                    return
                 if self.viability is not None and run.viability is not self.viability:
                     # the selection changed while the run was computing: show the CURRENT selection's tiers
                     run = self._run_under_current(run)
@@ -2269,10 +2494,12 @@ class ColumnsWindow(QtWidgets.QMainWindow):
                         # this window and, through the review store, in every later review of this axon.
                         self.decisions.mark_results_shown()
                         self._persist()
+                self._clear_tau_pending()       # UI stage 1: what is on screen is at the current tau
                 self._draw_membranes()
                 self._refresh_state()
                 self._fill_warnings()
                 self._selection_texts(run)
+                self._refresh_tau_views()
             except Exception as exc:  # noqa: BLE001 - reported in the window
                 error = exc
             else:
@@ -2288,11 +2515,13 @@ class ColumnsWindow(QtWidgets.QMainWindow):
                                                      "The previous results, if any, are no longer shown."))
         self.last_result = None
         self.last_run = None
+        self._clear_tau_pending()
         self.leak_banner.setVisible(False)
         self._selection_texts(None)
         self._draw_membranes()
         self._refresh_state()
         self._fill_warnings()
+        self._refresh_tau_views()
 
     def _show_results(self, r: CleanedAnalyses) -> None:
         self.results_view.setPlainText(self._results_lines(r, self.last_run))
@@ -2342,7 +2571,11 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         when = datetime.now().strftime("%H:%M:%S")
         spec = None if run is None else getattr(run.viability, "spec", None)
         exploratory = spec is not None and not spec.is_default
-        if exploratory:
+        variant = self._tau_variant(run)
+        if variant is not None:
+            # UI stage 1 (D-44): at another tau than tau_0 the first line names the analysis (selection and tau)
+            lines.append(mtau.tau_banner(variant))
+        elif exploratory:
             # H6 toggles (D-43): the first line of a result under an exploratory selection says so
             lines.append(exploratory_banner(spec))
         lines.append(f"Results on the cleaned rings (run finished {when}, {r.seconds:.1f} s, null size {r.n_null})")
@@ -2415,7 +2648,11 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         if cols is None:
             lines.append("   failed (see the warnings)")
         else:
-            lines.append(f"   tau_0 {_fmt(cols.tau0_nm, '.1f')} nm")
+            if variant is not None and self.tau0_nm is not None:
+                # UI stage 1 (D-44): the 2D test ran at the chosen tau, not at tau_0
+                lines.append(mtau.tau_2d_line(cols.tau0_nm, self.tau0_nm))
+            else:
+                lines.append(f"   tau_0 {_fmt(cols.tau0_nm, '.1f')} nm")
             lines.extend(joint_lines(cols))
             lines.extend(pair_lines(cols.adjacent))
         lines.append("")
@@ -2442,6 +2679,257 @@ class ColumnsWindow(QtWidgets.QMainWindow):
             if len(notes) > 6:
                 lines.append(f"   ... {len(notes) - 6} more in the warnings list")
         return "\n".join(lines)
+
+    # ------------------------------------------------------------ the tolerance tau (UI stage 1, D-44)
+    def _tau_key(self, tau: Optional[float]) -> Optional[float]:
+        """A tau as the window holds it: tau_0 itself (None counts as tau_0: a run built outside the window), else
+        rounded to 0.01 nm (``tools.mps_tau.normalize_tau``); None without the control."""
+        t0 = self.tau0_nm
+        if t0 is None:
+            return None
+        if tau is None or mtau.is_tau0(tau, t0):
+            return float(t0)
+        return mtau.normalize_tau(tau)
+
+    def _tau_is_current(self, tau: Optional[float]) -> bool:
+        """A run's tau is the control's (always, without the control: every run is then at tau_0)."""
+        return self._tau_key(tau) == self._tau_key(self.tau_nm)
+
+    def _at_tau0(self) -> bool:
+        """The control is at the pre-registered tau_0 (or there is no control)."""
+        return self.tau0_nm is None or self.tau_nm is None or mtau.is_tau0(self.tau_nm, self.tau0_nm)
+
+    def _cache_key(self, fp: Any, tau: Optional[float]) -> Tuple[Any, Optional[float]]:
+        """The key of the analyses kept per cluster set (lumen fingerprint) and tau."""
+        return fp, self._tau_key(tau)
+
+    def _variant(self, spec: Any, tau: Optional[float]) -> Optional[mtau.AnalysisVariant]:
+        """The analysis variant (``tools.mps_tau.AnalysisVariant``) of a selection at a tau; None without the
+        control."""
+        if self.tau0_nm is None or not isinstance(spec, msel.SelectionSpec):
+            return None
+        key = self._tau_key(tau)
+        try:
+            return mtau.AnalysisVariant(spec, float(self.tau0_nm if key is None else key), self.tau0_nm)
+        except ValueError:
+            return None
+
+    def _tau_variant(self, run: Optional[ReviewRun]) -> Optional[mtau.AnalysisVariant]:
+        """The variant of a run computed at another tau than tau_0 (its selection: the run's own, the pre-specified
+        rule when it has none); None at tau_0, without a run or without the control (the texts are then the
+        pre-registered ones)."""
+        if run is None:
+            return None
+        spec = getattr(run.viability, "spec", None)
+        v = self._variant(spec if spec is not None else msel.DEFAULT_SELECTION, run.tau_nm)
+        return v if v is not None and not v.tau_is_default else None
+
+    def _on_tau_changed(self, tau: float) -> None:
+        # A slot of the control: never raises (an exception escaping a slot aborts the application)
+        try:
+            self.apply_tau(tau)
+        except RuntimeError:        # the window is being destroyed
+            return
+        except Exception as exc:  # noqa: BLE001 - shown
+            self.selection_note.setText(marked("bad", f"tau could not be applied: {type(exc).__name__}: {exc}"))
+            self.selection_note.setVisible(True)
+
+    def apply_tau(self, tau: float) -> None:
+        """
+        The control moved to ``tau`` (UI stage 1, D-44). At once: the simulated-null button (tau_0 only) and the
+        curve's marker. A run in flight at another tau is stopped (between two steps of the analyses: its result is
+        never shown). After the first run of the window: the results of this cluster set at the new tau re-drawn when
+        they were computed before; otherwise no p of another tau stays on screen, and with 'Live update' a run starts
+        after the usual wait (quick changes give one run, at the last value). Before the first run only the control
+        changes: the button then runs at it.
+        """
+        if self.tau0_nm is None:
+            return
+        new = self._tau_key(tau)
+        if new == self.tau_nm:
+            return
+        self.tau_nm = new
+        self._refresh_tools()
+        self._update_curve_marker()
+        if self._running and not self._tau_is_current(self._run_tau) and self._cancel_seq < self._run_seq:
+            self._cancel_seq = self._run_seq        # stopped between two steps; reported as superseded
+            self._cancel_reason = "tau"
+        if not self._live_armed:
+            return
+        self._rerender_for_selection(tau_change=True)
+
+    def _clear_tau_pending(self) -> None:
+        self._tau_pending = False
+        self._pending_keep = None
+
+    def _tau_free_analyses(self) -> Optional[CleanedAnalyses]:
+        """The analyses of the cluster set on screen for what does not depend on tau (the E(tau) curve, the membrane
+        after the cleaning): the results on screen, or, while the results at a new tau are pending, the ones they
+        replace."""
+        if self.last_result is not None:
+            return self.last_result
+        return self._pending_keep if self._tau_pending else None
+
+    def _show_tau_pending(self, fp: Any) -> None:
+        """No analyses of this cluster set at the current tau yet: the results view says they are being computed (or
+        that the button computes them); no p of another tau stays on screen -- the results, the leak banner, the
+        counter (the analysis' head only) and the matches on the map; the curve and the membrane, which do not depend
+        on tau, stay. The export then writes the decisions only."""
+        tau = self.tau_nm
+        if tau is None or self.viability is None:
+            return
+        if self.last_result is not None:
+            self._pending_keep = self.last_result
+        self._tau_pending = True
+        prev = self.last_run
+        self.last_run = ReviewRun(self.viability, None, seconds=0.0 if prev is None else prev.seconds, fp=fp,
+                                  tau_nm=self._tau_key(tau))
+        self.last_result = None
+        running_here = self._running and self._tau_is_current(self._run_tau) and self._cancel_seq < self._run_seq
+        computing = running_here or self.live_update_check.isChecked()
+        self.results_view.setPlainText(mtui.pending_live_text(tau) if computing else mtui.pending_press_text(tau))
+        self.leak_banner.setVisible(False)
+        self._selection_texts(self.last_run)
+        self._draw_membranes()
+        self._refresh_state()
+        self._refresh_tau_views()
+
+    def is_tau_pending(self) -> bool:
+        """True while the results at the current tau are not on screen yet (being computed, or waiting for the
+        button)."""
+        return bool(self._tau_pending)
+
+    # ------------------------------------------------------------ the E(tau) curve and the matches (UI stage 1)
+    def _curve_pair(self) -> Optional[Tuple[int, int]]:
+        data = self.curve_pair_combo.currentData()
+        if data is None:
+            return None
+        try:
+            return int(data[0]), int(data[1])
+        except (TypeError, ValueError, IndexError):
+            return None
+
+    def _fill_curve_pairs(self) -> None:
+        """The curve's pair combo: the pairs the selection selects (VIABLE first, then MARGINAL); the pair shown stays
+        when it is still selected."""
+        v = self.viability
+        combo = self.curve_pair_combo
+        current = self._curve_pair()
+        entries = mtui.curve_pairs(v.viable, v.marginal) if v is not None else []
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            for text, pair in entries:
+                combo.addItem(text, pair)
+            index = next((i for i, (_t, p) in enumerate(entries) if p == current), 0 if entries else -1)
+            combo.setCurrentIndex(index)
+        finally:
+            combo.blockSignals(False)
+        combo.setEnabled(bool(entries))
+        self._refresh_tau_views()
+
+    def _on_curve_pair(self, _index: int = 0) -> None:
+        # a slot: never raises
+        try:
+            self._refresh_tau_views()
+        except RuntimeError:        # the window is being destroyed
+            return
+
+    def _refresh_tau_views(self) -> None:
+        """The curve of the chosen pair, its tau marker and the matches on the map, from what is on screen. A drawing:
+        never raises (a failure is said under the curve)."""
+        try:
+            self._draw_curve()
+            self._update_curve_marker()
+            self._draw_matches()
+        except RuntimeError:        # the window is being destroyed
+            return
+        except Exception as exc:  # noqa: BLE001 - a drawing aid; said, never fatal
+            self.curve_p_label.setText(marked("bad", f"The curve could not be drawn: {type(exc).__name__}: {exc}"))
+
+    def _draw_curve(self) -> None:
+        pair = self._curve_pair()
+        a = self._tau_free_analyses()
+        cv: Optional[mtau.CurveView] = None
+        if pair is None:
+            text = mtui.CURVE_NO_PAIR_TEXT if self.viability is not None else mtui.CURVE_NO_RUN_TEXT
+        elif a is None:
+            text = mtui.CURVE_NO_RUN_TEXT
+        elif a.columns_2d is None:
+            text = mtui.CURVE_2D_FAILED_TEXT
+        else:
+            cv = mtau.curve_view(a, pair)
+            text = mtui.curve_pair_missing_text(*pair) if cv is None else ""
+        self.curve_shown = cv
+        if cv is None:
+            self.curve_observed_item.setData([], [])
+            self.curve_mean_item.setData([], [])
+            self.curve_band_lo.setData([], [])
+            self.curve_band_hi.setData([], [])
+            self.curve_p_label.setText(text)
+            self.curve_counter_label.setVisible(False)
+            return
+        x = cv.tau_grid_nm
+        self.curve_observed_item.setData(x, cv.E_dir_obs)
+        self.curve_mean_item.setData(x, cv.E_star)
+        self.curve_band_lo.setData(x, cv.envelope_lo)
+        self.curve_band_hi.setData(x, cv.envelope_hi)
+        v = self.viability
+        marginal = v is not None and pair in set(v.marginal) and pair not in set(v.viable)
+        spec = self.selection_widget.spec
+        sel_hash = spec.hash if self.criteria is not None and spec.exploratory else ""
+        self.curve_p_label.setText(mtui.curve_p_text(cv, marginal=marginal, selection_hash=sel_hash))
+        # the counter next to every p (D-43): the side column's, as last counted when a p was shown
+        self.curve_counter_label.setText(self._counter_line_text)
+        self.curve_counter_label.setVisible(bool(self._counter_line_text) and cv.has_global_test)
+
+    def _update_curve_marker(self) -> None:
+        """tau_0 and the chosen tau on the curve's axis (the chosen one hidden at tau_0); the x range covers the grid
+        and both."""
+        t0, tau = self.tau0_nm, self.tau_nm
+        if t0 is None or tau is None:
+            self.curve_tau0_line.setVisible(False)
+            self.curve_tau_line.setVisible(False)
+            return
+        self.curve_tau0_line.setPos(float(t0))
+        self.curve_tau_line.setPos(float(tau))
+        self.curve_tau_line.setVisible(self.curve_layers.is_visible("tau") and not self._at_tau0())
+        cp = self.base_columns_params
+        grid = [float(g) for g in (cp.tau_grid_nm if cp is not None else ())]
+        lo, hi = min(grid + [float(t0), float(tau)]), max(grid + [float(t0), float(tau)])
+        pad = 0.03 * max(hi - lo, 1.0)
+        self.curve_plot.setXRange(lo - pad, hi + pad, padding=0.0)
+        self.curve_plot.setYRange(0.0, 1.0, padding=0.03)
+
+    def _draw_matches(self) -> None:
+        """The clusters each test matched for the curve's pair, from the analyses on screen (at the current tau);
+        empty and greyed while the results at the current tau are not on screen."""
+        a = self.last_result
+        pair = self._curve_pair()
+        shown = a is not None and pair is not None and not self._tau_pending
+        for key, test in (("matches_arc", "arc"), ("matches_2d", "2d")):
+            item = self.match_items[key]
+            seg = np.zeros((0, 2, 2), dtype=np.float64)
+            if shown and pair is not None:
+                try:
+                    seg = mtau.match_segments(a, pair, test)
+                except ValueError:
+                    seg = np.zeros((0, 2, 2), dtype=np.float64)
+            if seg.shape[0]:
+                xy = seg.reshape(-1, 2)
+                item.setData(xy[:, 0], xy[:, 1], connect="pairs")
+            else:
+                item.setData([], [])
+            self.layer_panel.set_count(key, int(seg.shape[0]) if shown else None)
+            self.layer_panel.set_enabled(key, shown, mtui.NO_RESULTS_AT_TAU)
+
+    def match_counts(self) -> Dict[str, int]:
+        """How many segments each match layer draws now (for scripts and tests)."""
+        out: Dict[str, int] = {}
+        for key, item in self.match_items.items():
+            x, _y = item.getData()
+            out[key] = 0 if x is None else int(len(x)) // 2
+        return out
 
     # ------------------------------------------------------------ rule v2 and the tools beside the run
     def _compute_viability(self) -> None:
@@ -2508,6 +2996,11 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self.base_viability = v
         self.viability = self._selected_viability()
         self._fill_viability()
+        if self._tau_rerun_wanted and not self._running:
+            # UI stage 1: the first run was stopped by a change of tau before the viability was known: the run at
+            # the current tau follows now
+            self._tau_rerun_wanted = False
+            self._rerender_for_selection(tau_change=True)
 
     # ------------------------------------------------------------ the criteria switches (H6 toggles, D-43)
     def _selected_viability(self) -> Optional[ReviewViability]:
@@ -2553,64 +3046,92 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self._rerender_for_selection()
 
     def _run_under_current(self, run: ReviewRun) -> ReviewRun:
-        """``run``'s analyses under the CURRENT selection: its tiers recomputed (``restricted_joint``, sub-ms)."""
+        """``run``'s analyses under the CURRENT selection: its tiers recomputed (``restricted_joint``, sub-ms); its tau
+        is kept (UI stage 1)."""
         v = self.viability if self.viability is not None else run.viability
         if run.analyses is None or not (v.viable or v.marginal):
-            return ReviewRun(v, None, seconds=run.seconds, fp=run.fp, live=run.live)
+            return ReviewRun(v, None, seconds=run.seconds, fp=run.fp, live=run.live, tau_nm=run.tau_nm)
         primary, sensitivity = msel.selection_tiers(run.analyses.arc_centroid, v)
-        return ReviewRun(v, run.analyses, primary, sensitivity, run.seconds, fp=run.fp, live=run.live)
+        return ReviewRun(v, run.analyses, primary, sensitivity, run.seconds, fp=run.fp, live=run.live,
+                         tau_nm=run.tau_nm)
 
-    def _rerender_for_selection(self) -> None:
-        """After a change of the selection (or of 'Live update'): nothing before the first run of this window; then
-        the results of the analysed cluster set re-drawn under the new selection, or 'nothing selected', or a live
-        run when the cluster set was never analysed (the last run computed nothing)."""
-        if self._closed or not self._live_armed or self.criteria is None or self.viability is None:
+    def _rerender_for_selection(self, tau_change: bool = False) -> None:
+        """After a change of the selection (or of 'Live update', or -- UI stage 1, ``tau_change`` -- of tau): nothing
+        before the first run of this window; then the results of the analysed cluster set re-drawn under the new
+        selection at the current tau, or 'nothing selected', or a live run when the cluster set was never analysed
+        at this tau. A change of tau never leaves a p of another tau on screen: until the results at the new tau are
+        there, the window says they are being computed (or that the button computes them)."""
+        if self._closed or not self._live_armed or self.viability is None:
+            return
+        # UI stage 1: a change of tau re-renders whether or not the criteria switches are on (a custom viability
+        # function turns the switches off, never the tau control)
+        if self.criteria is None and not (tau_change or self._tau_pending):
             return
         v = self.viability
         run = self.last_run
         fp = run.fp if run is not None and run.fp is not None else msel.lumen_fp(self.decisions)
-        analyses = self._analyses.get(fp)
-        if analyses is None and run is not None and run.analyses is not None:
+        tau = self._tau_key(self.tau_nm)
+        analyses = self._analyses.get(self._cache_key(fp, tau))
+        if analyses is None and run is not None and run.analyses is not None and self._tau_is_current(run.tau_nm):
             analyses = run.analyses
         if not v.viable and not v.marginal:
+            if tau_change:
+                # UI stage 1: no pair is selected, so nothing on screen depends on tau (nothing is computed)
+                return
             self._debounce.stop()
             if self._running and self._run_live:
                 self._cancel_seq = self._run_seq        # nobody needs that run any more
             # (final review F1) at once, even with a run in flight: no p of the previous selection stays on screen
             # (a button run still ends, and is then shown under the selection current at that moment)
-            new = ReviewRun(v, None, seconds=0.0 if run is None else run.seconds, fp=fp)
+            new = ReviewRun(v, None, seconds=0.0 if run is None else run.seconds, fp=fp, tau_nm=tau)
             self.last_run = new
             self.last_result = None
+            self._clear_tau_pending()
             self.results_view.setPlainText(self._not_run_lines(new))
             self.leak_banner.setVisible(False)
             self._draw_membranes()
             self._refresh_state()
             self._selection_texts(new)
+            self._refresh_tau_views()
             return
         if analyses is not None:
             # (final review F1) also while a button run is in flight: the analyses on screen re-drawn under the new
-            # selection at once (they do not depend on it); the run is shown under the selection current when it ends
+            # selection at once (they do not depend on it); the run is shown under the selection current when it ends.
+            # UI stage 1: the analyses of this cluster set at the current tau (a tau already computed comes back at
+            # once)
             self._debounce.stop()
             base = run if run is not None else ReviewRun(v, analyses, fp=fp)
-            new = self._run_under_current(ReviewRun(base.viability, analyses, seconds=base.seconds, fp=fp))
+            new = self._run_under_current(ReviewRun(base.viability, analyses, seconds=base.seconds, fp=fp,
+                                                    tau_nm=tau))
             self.last_run = new
             self.last_result = analyses
+            self._clear_tau_pending()
             self._show_results(analyses)
             self._draw_membranes()
             self._refresh_state()
             self._selection_texts(new)
             self.selection_note.setVisible(False)
+            self._refresh_tau_views()
             return
+        if tau_change or self._tau_pending:
+            # UI stage 1: this cluster set has no analyses at this tau yet: no p of another tau stays on screen
+            self._show_tau_pending(fp)
         if self._running:
-            # the run in flight analyses every pair: it is shown under the selection current when it finishes
+            # the run in flight analyses every pair: it is shown under the selection current when it finishes (UI
+            # stage 1: a run at another tau was stopped by the change of tau, and its report comes back here)
             if self._run_live and self._run_fp != msel.lumen_fp(self.decisions):
                 self._pending_live = True
             return
         if self.live_update_check.isChecked():
-            self.selection_note.setText(f"Live update: the analyses of this cluster set start in "
-                                        f"{LIVE_DEBOUNCE_MS / 1000:.1f} s (a further change restarts the wait)...")
-            self.selection_note.setVisible(True)
+            if self._tau_pending:
+                self.selection_note.setVisible(False)      # the results view says what is coming
+            else:
+                self.selection_note.setText(f"Live update: the analyses of this cluster set start in "
+                                            f"{LIVE_DEBOUNCE_MS / 1000:.1f} s (a further change restarts the wait)...")
+                self.selection_note.setVisible(True)
             self._debounce.start()
+        elif self._tau_pending:
+            self.selection_note.setVisible(False)          # the results view says to press the button
         else:
             self.selection_note.setText("This selection needs the analyses of the cluster set, which the last run did "
                                         "not compute: press 'Apply and re-run analyses' (or tick 'Live update').")
@@ -2640,9 +3161,17 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         shows_p = run is not None and run.analyses is not None and self.criteria is not None
         # short: the results' first line carries the whole sentence
         exploratory = run is not None and self.criteria is not None and spec.exploratory
-        banner = (f"<b style='color:{verdict('bad', dark=False)}'>EXPLORATORY SELECTION {spec.label} #{spec.hash}"
-                  "</b>" if exploratory else "")
-        self.selection_banner_text = exploratory_banner(spec) if exploratory else ""
+        # UI stage 1 (D-44): at another tau than tau_0 the head names the analysis (selection and tau) while its
+        # results are on screen or being computed; otherwise the selection's own head, as before
+        tau_variant = (self._tau_variant(run)
+                       if run is not None and (run.analyses is not None or self._tau_pending) else None)
+        if tau_variant is not None:
+            head = mtau.counter_banner_text(tau_variant)
+            self.selection_banner_text = mtau.tau_banner(tau_variant)
+        else:
+            head = f"EXPLORATORY SELECTION {spec.label} #{spec.hash}" if exploratory else ""
+            self.selection_banner_text = exploratory_banner(spec) if exploratory else ""
+        banner = f"<b style='color:{verdict('bad', dark=False)}'>{head}</b>" if head else ""
         if not shows_p or run is None:
             if banner:
                 self.selection_counter_label.setText(banner)
@@ -2662,20 +3191,33 @@ class ColumnsWindow(QtWidgets.QMainWindow):
                 for q in (a.arc_centroid.adjacent if a is not None and a.arc_centroid is not None else [])
                 if (int(q.ring_a), int(q.ring_b)) in selected)
             lumen = msel.lumen_fp_text(run.fp) if run.fp is not None else ""
-            row = msel.log_row(source="review", spec=spec, axon_id=self.axon_id, lumen=lumen, viable=v.viable,
-                               marginal=v.marginal, primary=run.primary, sensitivity=run.sensitivity, pair_p=pair_p,
-                               n_null=None if a is None else a.n_null, git_head=git_head())
-            log.log_once(("review", self.axon_id, lumen, spec.hash), row)
-            n = variants_tried(log, [self.axon_id, os.path.splitext(os.path.basename(self.source_name))[0]])
+            kw: Dict[str, Any] = dict(source="review", axon_id=self.axon_id, lumen=lumen, viable=v.viable,
+                                      marginal=v.marginal, primary=run.primary, sensitivity=run.sensitivity,
+                                      pair_p=pair_p, n_null=None if a is None else a.n_null, git_head=git_head())
+            # UI stage 1: the row of the analysis variant (the selection at the run's tau; at tau_0 the selection's
+            # own row exactly), so that every (selection, tau) a p was shown under is logged once and counted
+            variant = self._variant(spec, run.tau_nm)
+            if variant is None:
+                row = msel.log_row(spec=spec, **kw)
+                key_hash = spec.hash
+            else:
+                row = mtau.variant_log_row(variant, **kw)
+                key_hash = variant.hash
+            log.log_once(("review", self.axon_id, lumen, key_hash), row)
+            n, n_tau = mtau.variant_counts(log, [self.axon_id, os.path.splitext(os.path.basename(self.source_name))[0]])
+            line = mtau.variant_counter_line(max(n, 1), n_tau)
+            self._counter_line_text = line
             self.exploration_log_error = ""
-            self.selection_counter_label.setText((banner + " &mdash; " if banner else "") + counter_line(max(n, 1)))
+            self.selection_counter_label.setText((banner + " &mdash; " if banner else "") + line)
             self.selection_counter_label.setToolTip(COLUMNS_WINDOW_TOOLTIPS["selection_counter_label"]
                                                     + f"\n\nLog: {log.path}")
         except Exception as exc:  # noqa: BLE001 - the counter says it could not count; never fatal
             self.exploration_log_error = f"{type(exc).__name__}: {exc}"
-            self.selection_counter_label.setText(banner + " " + marked(
+            failed = marked(
                 "bad", f"The exploration log could not be written ({self.exploration_log_error}): the selections "
-                       "tried are NOT counted. p values are not corrected for trying several selections."))
+                       "tried are NOT counted. p values are not corrected for trying several selections.")
+            self._counter_line_text = failed
+            self.selection_counter_label.setText(banner + " " + failed)
         self.selection_counter_label.setVisible(True)
 
     def _fill_viability(self) -> None:
@@ -2732,6 +3274,8 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         t.resizeColumnToContents(0)
         t.resizeColumnToContents(1)
         self._refresh_tools()
+        # UI stage 1: the curve's pairs follow the selection
+        self._fill_curve_pairs()
 
     def _refresh_tools(self) -> None:
         v = self.viability
@@ -2753,6 +3297,10 @@ class ColumnsWindow(QtWidgets.QMainWindow):
             self.simnull_button.setToolTip("Waiting for the ring-pair viability.\n\n" + SIMNULL_BUTTON_TIP)
         else:
             self.simnull_button.setToolTip(SIMNULL_BUTTON_TIP)
+        if not self._at_tau0():
+            # UI stage 1 (D-44): the simulated null runs at the pre-registered tau_0 only
+            self.simnull_button.setEnabled(False)
+            self.simnull_button.setToolTip(mtui.SIMNULL_TAU_TIP)
 
     def _on_advanced_toggled(self, on: bool) -> None:
         self.advanced_box.setVisible(bool(on))
@@ -2776,6 +3324,8 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         from tools.mps_simnull_ui import SimnullDialog
         if self.review_inputs is None or self.viability is None or not self.viability.viable:
             return
+        if not self._at_tau0():
+            return      # UI stage 1: the simulated null runs at tau_0 only (the button is disabled meanwhile)
         d = self.simnull_dialog
         if d is not None and d.isVisible():
             d.raise_()
@@ -2848,8 +3398,9 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         tables: List[Tuple[str, List[Dict[str, Any]], Tuple[str, ...], Tuple[str, ...], Tuple[str, ...]]] = [
             (path, dec_rows, DECISION_TABLE_KEY, DECISION_TABLE_ANALYSIS, DECISION_TABLE_COLUMNS)]
         if self.last_result is not None:
+            # UI stage 1 (D-44): a run at another tau than tau_0 writes its tau and the EXPLORATORY tag (results_row)
             row = results_row(self.last_result, self.decisions, head, res_before=self.res, tau0_nm=self._tau0(),
-                              run=self.last_run)
+                              run=self.last_run, variant=self._tau_variant(self.last_run))
             tables.append((results_path, [row], RESULTS_TABLE_KEY, RESULTS_TABLE_ANALYSIS, RESULTS_TABLE_COLUMNS))
         for target, rows, _key, analysis, columns in tables:
             check_appendable(target, rows, columns)
@@ -2882,8 +3433,16 @@ class ColumnsWindow(QtWidgets.QMainWindow):
             return
         if not written:
             return
-        extra = "" if self.last_result is not None else "\n\nNo run has finished yet: only the decisions were written."
-        QtWidgets.QMessageBox.information(self, "Exported", "Written:\n" + "\n".join(written) + extra)
+        QtWidgets.QMessageBox.information(self, "Exported", "Written:\n" + "\n".join(written) + self.export_note())
+
+    def export_note(self) -> str:
+        """What the export message adds after the files written: why only the decisions were written, if so."""
+        if self.last_result is not None:
+            return ""
+        if self._tau_pending and self.tau_nm is not None:
+            # UI stage 1: the results at the current tau are still being computed
+            return "\n\n" + mtau.pending_export_message(self.tau_nm)
+        return "\n\nNo run has finished yet: only the decisions were written."
 
     def load_decisions(self, path: str) -> int:
         """
@@ -2957,6 +3516,32 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self._refresh_state()
         self._persist()
         super().closeEvent(event)
+
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
+        # UI stage 1: the map / curve split follows the window until the user drags the handle (after the layout)
+        if not self._left_split_by_user:
+            QtCore.QTimer.singleShot(0, self._fit_left_split)
+
+    def _on_left_split_moved(self, _pos: int = 0, _index: int = 0) -> None:
+        self._left_split_by_user = True
+
+    def _fit_left_split(self) -> None:
+        """The curve gets up to ``LEFT_CURVE_SHARE`` of the left column and the map at least
+        ``MAP_MIN_WINDOW_SHARE`` of the window's height (each widget's own minimum still wins)."""
+        if self._left_split_by_user:
+            return
+        try:
+            sizes = self.left_splitter.sizes()
+            total = int(sum(sizes))
+            if total <= 0:
+                return
+            curve = int(min(round(LEFT_CURVE_SHARE * total), total - MAP_MIN_WINDOW_SHARE * self.height()))
+            want = [total - max(curve, 0), max(curve, 0)]
+            if want != list(sizes):
+                self.left_splitter.setSizes(want)
+        except RuntimeError:        # being destroyed
+            return
 
     def showEvent(self, event: Any) -> None:
         if self._closed:
