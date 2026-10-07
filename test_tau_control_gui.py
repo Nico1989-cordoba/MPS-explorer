@@ -39,6 +39,14 @@ What it checks (G1-G15 of the specification; I1-I5 are the invariants the checks
   G14 'Live update' off: the window says to press the button and runs nothing; the export writes the decisions only;
       ticked again, the run follows.
   G15 a custom viability function (the criteria switches off): tau still re-runs.
+Found by the review of the stage (each failed before its fix):
+  G16 the warnings list follows the analyses on screen: back at tau_0 from the cache it is tau_0's list, and while
+      the results at a new tau are pending no note of another tau's run stays in it.
+  G17 analyses kept from a run that ended at a tau the control had left, then shown from the cache, mark the axon:
+      the next edit is flagged (D-35b) and saved.
+  G18 a request to stop a run never outlives that run (a run that ended normally leaves no stop reason behind).
+  G19 without the criteria (switches off) a p at another tau is logged and counted, under rule v2's own label, with
+      the tau_0 result shown before it; at tau_0 alone nothing is logged, as before.
 
 Run:  venv\\Scripts\\python.exe test_tau_control_gui.py      (offscreen; about 2-3 min)
 
@@ -923,6 +931,174 @@ def main() -> int:
         return "switches off (custom viability function); tau re-ran and came back"
 
     check("G15 a custom viability function (switches off): tau still re-runs", g15_custom)
+
+    # ------------------------------------------------------------------ G16-G19: found by the review of stage 1
+    print("\nG16-G19. Review of stage 1: the warnings list, the D-35b flag, the stop reason, no criteria")
+
+    def listed(w: Any) -> List[str]:
+        return [w.warnings_list.item(i).text() for i in range(w.warnings_list.count())]
+
+    def g16_warnings() -> str:
+        launcher, w = open_review("viable")
+        try:
+            run_default(w)
+            at0 = listed(w)
+            assert any("run: " in x for x in at0), at0
+            lo = int(mt.TAU_FREE_MIN_NM)
+            choose_free(w, lo)
+            wait_idle(w)
+            at_lo = listed(w)
+            # this demo's notes at the smallest free tau are not tau_0's: otherwise the check below proves nothing
+            assert at_lo != at0, "the notes do not depend on tau here"
+            # back to tau_0 from the cache: the list is tau_0's again, item for item
+            w.tau_control.reset()
+            pump(0.1)
+            assert not w.is_running() and not w.is_tau_pending() and w.last_run.tau_nm == TAU0
+            assert listed(w) == at0, [x[:90] for x in listed(w) if x not in at0][:2]
+            # a tau not computed yet, Live update off: no note of another tau's run stays while its results are pending
+            w.live_update_check.setChecked(False)
+            choose(w, "preset", presets[0])
+            pump(0.1)
+            assert w.is_tau_pending() and not w.is_running()
+            stale = [x for x in listed(w) if "run: " in x]
+            assert not stale, [x[:90] for x in stale][:2]
+            w.live_update_check.setChecked(True)
+            wait_idle(w)
+            run_notes = [x for x in listed(w) if "run: " in x]
+            assert [x.split("run: ", 1)[1] for x in run_notes] == list(w.last_result.warnings), run_notes[:2]
+            w.tau_control.reset()
+            pump(0.1)
+            assert listed(w) == at0
+        finally:
+            w.close()
+            launcher.close()
+            pump(0.1)
+        return (f"{len(at0)} notes at tau_0, {len(at_lo)} at {lo} nm; back from the cache: tau_0's list; pending: no "
+                "'run:' note of another tau")
+
+    check("G16 the warnings list follows the analyses on screen: back to tau_0 from the cache, and while pending",
+          g16_warnings)
+
+    def gated_run(w: Any, change: Callable[[], None]) -> None:
+        """One button run held after its last step (it can no longer be stopped) while ``change`` runs, then
+        released."""
+        import threading
+        reached, gate = threading.Event(), threading.Event()
+        inner = mcw.run_cleaned_analyses
+
+        def gated(*a: Any, **k: Any) -> Any:
+            result = inner(*a, **k)
+            reached.set()
+            gate.wait(120)
+            return result
+
+        mcw.run_cleaned_analyses = gated
+        try:
+            assert w.start_run(), "start_run refused"
+            t_end = time.perf_counter() + 300
+            while not reached.is_set() and time.perf_counter() < t_end:
+                pump(0.02)
+            assert reached.is_set(), "the run never reached its end"
+            change()
+            gate.set()
+            wait_idle(w)
+        finally:
+            gate.set()
+            mcw.run_cleaned_analyses = inner
+
+    def g17_flag() -> str:
+        store = L.LumenReviewStore(os.path.join(WORK, "store_g17"))
+        launcher, w = open_review("marginal", store)
+        st["launcher_g17"], st["g17"] = launcher, w
+        w.live_update_check.setChecked(False)
+        assert not w.decisions.results_shown
+        hi = presets[-1]
+        gated_run(w, lambda: choose(w, "preset", hi))
+        # the run ended at tau_0, which the control had left: kept, never shown
+        assert w.is_tau_pending() and w.last_result is None and not w.decisions.results_shown
+        w.tau_control.reset()                      # tau_0 from the cache: a column result is on screen now
+        pump(0.1)
+        assert not w.is_running() and not w.is_tau_pending() and w.last_result is not None
+        assert normalize_text(w.results_text(), WORK) == golden["cases"]["marginal"]["results_text"]
+        assert w.decisions.results_shown, "a column result is on screen but the axon is not marked (D-35b)"
+        with open(store.path_for(w.axon_id), encoding="utf-8") as fh:
+            assert json.load(fh)["results_shown"] is True
+        key = w.decisions.stable_keys[0]
+        w.decisions.toggle(key, via="click")
+        w._after_edit()
+        assert w.decisions.results_shown_before_edit and w.edited_label.isVisible()
+        with open(store.path_for(w.axon_id), encoding="utf-8") as fh:
+            assert json.load(fh)["results_shown_before_edit"] is True
+        return "a run kept for tau_0 and shown from the cache marks the axon; the next edit is flagged and saved"
+
+    check("G17 analyses shown from the cache (never shown when their run ended) mark the axon (D-35b)", g17_flag)
+
+    def g18_reason() -> str:
+        w = need(st, "g17")
+        hi = presets[-1]
+
+        def there_and_back() -> None:
+            choose(w, "preset", hi)                # asks the run to stop (too late: it is past its last step)
+            assert w._cancel_reason == "tau"
+            w.tau_control.reset()                  # the run's tau is the current one again
+
+        gated_run(w, there_and_back)
+        assert w.last_run.tau_nm == TAU0 and w.last_result is not None and not w.is_tau_pending()
+        assert w._cancel_reason == "", f"the stop request outlived its run: {w._cancel_reason!r}"
+        assert w.selection_note.text() != mtui.TAU_STOPPED_NOTE or not w.selection_note.isVisible()
+        w.close()
+        st["launcher_g17"].close()
+        pump(0.1)
+        return "a run asked to stop that ended normally leaves no stop reason for the next run"
+
+    check("G18 a stop request never outlives its run (the next stopped run is reported for its own reason)",
+          g18_reason)
+
+    def g19_no_criteria() -> str:
+        import batch_columns as bc3
+
+        def all_pairs_viable(res: Any, xyz_lab_nm: Any = None) -> Any:
+            rings = sorted(int(r.index) for r in res.rings)
+            return mcw.ReviewViability(rule="test stub: every pair viable",
+                                       pairs=tuple(bc3.PairVerdict(a, b, "viable") for a, b in zip(rings, rings[1:])))
+
+        log_dir = os.environ["MPS_SELECTION_LOG_DIR"]
+        os.environ["MPS_SELECTION_LOG_DIR"] = os.path.join(WORK, "selection_log_g19")
+        mcw.DEFAULT_VIABILITY_FN = all_pairs_viable
+        state.set_label("v2[]")          # the program's selection is exploratory; this window cannot apply it
+        try:
+            launcher, w = open_review("marginal")
+            assert w.criteria is None, "the switches should be off"
+            run_default(w)
+            # as before this stage: without the criteria nothing is logged or counted at tau_0
+            assert log_rows(w) == [] and not w.selection_counter_label.isVisible()
+            hi = presets[-1]
+            choose(w, "preset", hi)
+            wait_idle(w)
+            v = variant(ms.DEFAULT_SELECTION, hi)
+            assert first_line(w) == mt.tau_banner(v), first_line(w)
+            rows = log_rows(w)
+            assert [(r["selection_label"], r["selection_hash"], r["is_default"]) for r in rows] == [
+                (ms.DEFAULT_SELECTION.label, ms.DEFAULT_SELECTION.hash, "True"), (v.label, v.hash, "False")], rows
+            assert counts_now(w) == (2, 1)
+            want = mt.variant_counter_line(2, 1)
+            assert w.selection_counter_label.isVisible() and w.selection_counter_label.text().endswith(want), \
+                w.selection_counter_label.text()
+            assert w.curve_counter_label.text() == want
+            w.tau_control.reset()
+            pump(0.1)
+            assert not first_line(w).startswith("EXPLORATORY") and len(log_rows(w)) == 2
+            assert w.selection_counter_label.text() == want
+            w.close()
+            launcher.close()
+        finally:
+            mcw.DEFAULT_VIABILITY_FN = orig_viability_fn
+            os.environ["MPS_SELECTION_LOG_DIR"] = log_dir
+            state.reset()
+        return "switches off: the p shown at another tau is logged and counted, with the tau_0 result before it"
+
+    check("G19 no criteria (switches off): a p at another tau is logged and counted, under rule v2's own label",
+          g19_no_criteria)
 
     # ------------------------------------------------------------------ the end
     state.reset()

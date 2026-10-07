@@ -1356,6 +1356,9 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self._counter_line_text = ""
         self.curve_shown: Optional[mtau.CurveView] = None
         self._tau_rerun_wanted = False
+        # the control has left tau_0 at least once in this window (review of UI stage 1): from then on every p shown is
+        # logged and counted, also without the criteria of the selection (_selection_texts)
+        self._tau_touched = False
         self._left_split_by_user = False       # the user dragged the map / curve handle: their split is kept
         self.widefield_images = widefield_images
         self.identity = identity
@@ -2391,6 +2394,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self._run_fp = fp
         self._run_live = bool(live)
         self._run_tau = run_tau
+        self._cancel_reason = ""        # UI stage 1 (review): a new run starts with no request to stop it
         pending_tau = self.tau_nm if self._tau_pending else None
         if pending_tau is not None:
             # UI stage 1: the results view says which tau is computed (the button pressed after a change of tau, or
@@ -2435,12 +2439,14 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self._running = False
         self._thread = None
         self.progress_bar.setVisible(False)
+        # UI stage 1 (review): why this run was asked to stop, if it was; consumed by every run that ends, so a reason
+        # never outlives its run (a run that ended normally after the request leaves none for the next one)
+        reason, self._cancel_reason = self._cancel_reason, ""
         if isinstance(result, _SupersededRun):
             # H6 toggles: a live run stopped because nobody needed it any more; the screen already shows the state.
             # UI stage 1: or a run (live or not) stopped because tau changed before it finished
             self._refresh_state()
             self._pending_live = False
-            reason, self._cancel_reason = self._cancel_reason, ""
             if reason != "tau":
                 self.selection_note.setText("A background run was stopped: the selection did not need it any more.")
                 self.selection_note.setVisible(True)
@@ -2748,6 +2754,13 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         new = self._tau_key(tau)
         if new == self.tau_nm:
             return
+        if not self._tau_touched and not mtau.is_tau0(new, self.tau0_nm):
+            # UI stage 1 (review): the control leaves tau_0 for the first time. Without the criteria of the selection
+            # (switches off) the window logged and counted nothing, as before this stage; from now on it does, so the
+            # pre-registered result on screen is logged first and counted with the tau variants that follow
+            self._tau_touched = True
+            if self.criteria is None and self.last_run is not None and self.last_run.analyses is not None:
+                self._selection_texts(self.last_run)
         self.tau_nm = new
         self._refresh_tools()
         self._update_curve_marker()
@@ -2792,6 +2805,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self._selection_texts(self.last_run)
         self._draw_membranes()
         self._refresh_state()
+        self._fill_warnings()       # UI stage 1 (review): the 'run:' notes of another tau leave with its results
         self._refresh_tau_views()
 
     def is_tau_pending(self) -> bool:
@@ -3103,10 +3117,21 @@ class ColumnsWindow(QtWidgets.QMainWindow):
             base = run if run is not None else ReviewRun(v, analyses, fp=fp)
             new = self._run_under_current(ReviewRun(base.viability, analyses, seconds=base.seconds, fp=fp,
                                                     tau_nm=tau))
+            shown_before = self.last_result
             self.last_run = new
             self.last_result = analyses
             self._clear_tau_pending()
             self._show_results(analyses)
+            if analyses is not shown_before:
+                # UI stage 1 (review): other analyses than the ones on screen (another tau): the warnings list
+                # follows them, so no note of another tau stays beside these results
+                self._fill_warnings()
+            if not self.decisions.results_shown and any(
+                    t is not None for t in (analyses.arc_centroid, analyses.columns_2d, analyses.arc_localization)):
+                # UI stage 1 (review): analyses kept from a run that ended at a tau the control had left were never
+                # shown; shown now, they flag every later edit (D-35b) exactly as _on_run_finished does
+                self.decisions.mark_results_shown()
+                self._persist()
             self._draw_membranes()
             self._refresh_state()
             self._selection_texts(new)
@@ -3158,7 +3183,11 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         """The banner of an exploratory selection and the counter next to the p values; logs the selection the p
         values on screen were computed under (once per axon, cluster set and selection in this session)."""
         spec = self.selection_widget.spec
-        shows_p = run is not None and run.analyses is not None and self.criteria is not None
+        # UI stage 1 (review): without the criteria (switches off) nothing is logged or counted, as before this stage,
+        # until the tau control leaves tau_0; from then on every p shown is, under the selection the window applies
+        # (rule v2's own: the switches are off), so that no p of another tau goes unlogged or uncounted
+        counting = self.criteria is not None or self._tau_touched
+        shows_p = run is not None and run.analyses is not None and counting
         # short: the results' first line carries the whole sentence
         exploratory = run is not None and self.criteria is not None and spec.exploratory
         # UI stage 1 (D-44): at another tau than tau_0 the head names the analysis (selection and tau) while its
@@ -3196,10 +3225,11 @@ class ColumnsWindow(QtWidgets.QMainWindow):
                                       pair_p=pair_p, n_null=None if a is None else a.n_null, git_head=git_head())
             # UI stage 1: the row of the analysis variant (the selection at the run's tau; at tau_0 the selection's
             # own row exactly), so that every (selection, tau) a p was shown under is logged once and counted
-            variant = self._variant(spec, run.tau_nm)
+            applied = spec if self.criteria is not None else (getattr(v, "spec", None) or msel.DEFAULT_SELECTION)
+            variant = self._variant(applied, run.tau_nm)
             if variant is None:
-                row = msel.log_row(spec=spec, **kw)
-                key_hash = spec.hash
+                row = msel.log_row(spec=applied, **kw)
+                key_hash = applied.hash
             else:
                 row = mtau.variant_log_row(variant, **kw)
                 key_hash = variant.hash
