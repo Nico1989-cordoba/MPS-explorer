@@ -304,6 +304,11 @@ and to judge first whether the z profile of the axon can answer that at all.
 - **Columns: lumen review...** — the clusters of each ring in the axon frame, the automatic lumen rule (REMOVE /
   DOUBTFUL, with or without widefield images), the user's own decisions (saved per axon), and the arc test of the
   column hypothesis on the cleaned rings, run in a worker thread.
+  - Its tolerance tau: the pre-registered tau_0 of `config/columns_params.yaml` by default, the 2D test's two
+    sensitivity values or a free value; anything but tau_0 makes every result, log row and export of the window
+    EXPLORATORY. Under the map, the 2D test's E(tau) curve of the chosen pair (descriptive; its global p is not
+    calibrated), and on the map the clusters each test matched at the current tau. The batch runner and the
+    simulated null always run at tau_0.
 - **Z quality...** — the axial profile of the axon, ring by ring and pair by pair: the viability rule v2 (SiZer peak
   and valley, localization minimum, expected leak copies), the exploratory cluster-level variant, switches for each
   criterion, the limiting factors in plain words, and an export of the report.
@@ -334,14 +339,16 @@ and its grid, the null size and seed, the DBSCAN `eps_nm` / `min_samples`, the e
 (an unknown key is an error); changing a value is a deviation from the pre-registration and should be recorded.
 
 Optional site setting: inputs from an acquisition known to lie outside the calibrated range can be flagged (never
-blocked) by setting the environment variable `MPS_UNCALIBRATED_LABELS` to a regular expression matched against the
-file label / path. Nothing is flagged by default.
+blocked) by a regular expression matched against the file label / path, written as `"uncalibrated_labels"` in the
+local `mps_analysis_settings.json` (next to the program; not tracked) or in the environment variable
+`MPS_UNCALIBRATED_LABELS`, which takes precedence when set (an empty value flags nothing). Nothing is flagged by
+default.
 
 ### Tests
 
 ```bash
 py -3 -m pytest test_viability_v2.py test_viability_v2c.py test_zquality.py test_selection.py test_h5e_selection.py \
-    test_batch_columns.py test_batch_selection.py test_simnull_selection.py
+    test_batch_columns.py test_batch_selection.py test_simnull_selection.py test_tau_control.py
 python test_zquality_gui.py          # GUI checks run offscreen (QT_QPA_PLATFORM=offscreen); one script per window
 python validate_simulate_axon.py     # validate_*.py: harnesses on simulated axons of known truth
 ```

@@ -308,7 +308,7 @@ def main() -> int:
         assert not any(isinstance(it, pg.LegendItem) for it in w.plot_widget.scene().items()), "a LegendItem in the map"
         panel = w.layer_panel
         assert panel.objectName() == "layer_panel" and w.findChild(QtWidgets.QWidget, "layer_panel") is panel
-        want = list(mcw.DISPLAY_CLASSES) + ["membrane_before", "membrane_after", "underlay"]
+        want = list(mcw.DISPLAY_CLASSES) + ["membrane_before", "membrane_after", "underlay", "matches_arc", "matches_2d"]
         assert panel.keys() == want, panel.keys()
         assert panel.checkbox("underlay") is w.underlay_check and w.underlay_check.objectName() == "underlay_check"
         assert panel.toolTip() and "cannot be clicked" in panel.toolTip()

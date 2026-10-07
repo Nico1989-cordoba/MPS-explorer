@@ -175,6 +175,16 @@ ROLES: Dict[str, str] = {
     "sizer_rise": OKABE_ITO["blue"],
     "sizer_fall": OKABE_ITO["vermillion"],
     "sizer_flat": "#9a9a9a",
+    # --- the columns review's map (tools/mps_columns_window.py, UI stage 1)
+    # The clusters of two adjacent rings that a column test matched at the
+    # current tau, joined by a thin segment (the arc test solid, the 2D
+    # test dashed). Reddish purple: the map's classes, its membrane and
+    # its ring outlines use every other chromatic hue of the eight but
+    # yellow. It comes close to the grey x, the green circles, the orange
+    # triangles, the sky-blue squares and the blue membrane under one
+    # dichromacy or another, which is why a match is a line between two
+    # markers and never a marker (validate_plot_colours.py, BY_SHAPE).
+    "matched": OKABE_ITO["reddish_purple"],
 }
 
 # What a finding of each kind is prefixed with. Colour says it twice; the

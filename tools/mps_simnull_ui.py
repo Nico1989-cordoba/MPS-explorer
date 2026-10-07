@@ -60,7 +60,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from tools import mps_selection as msel
 from tools.mps_background_process import REPO_ROOT, BackgroundRun, is_inside, open_folder, python_executable, tail
 from tools.mps_plot_style import marked, verdict
-from tools.mps_selection_ui import SelectionWidget, app_log_path, counter_line, variants_tried
+from tools.mps_selection_ui import SelectionWidget, app_log_path
+from tools.mps_tau import variant_counter_line, variant_counts
 from tools.mps_tooltips import apply_tooltips
 
 __all__ = ["SIMNULL_EXPLANATION", "SIMNULL_RESULT_LABEL", "SIMNULL_UI_TOOLTIPS", "SimnullDialog", "SimnullResult",
@@ -774,8 +775,9 @@ class SimnullDialog(QtWidgets.QDialog):
             f"selection {res.key or 'n/a'} ({res.mode}); {res.message}. NOT calibrated: exploratory only (D-41).")
         self.status_label.setText(f"Done: report {self.name}_simnull.md in {self.out_dir}.")
         try:
-            n = variants_tried(msel.ExplorationLog(self.log_path), self.axon_ids + [self.name])
-            self.counter_label.setText(counter_line(max(n, 1)) + f" (log: {self.log_path})")
+            # UI stage 1 (D-44): the review's counter, which counts every (selection, tau) once a tau was tried
+            n, n_tau = variant_counts(msel.ExplorationLog(self.log_path), self.axon_ids + [self.name])
+            self.counter_label.setText(variant_counter_line(max(n, 1), n_tau) + f" (log: {self.log_path})")
         except Exception as exc:  # noqa: BLE001 - shown; never fatal
             self.counter_label.setText(marked("bad", f"The exploration log could not be read ({exc}): the selections "
                                                      "tried are NOT counted; p values are not corrected for trying "

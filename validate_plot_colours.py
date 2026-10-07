@@ -260,7 +260,9 @@ TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
     # (LUMEN_CLASS_STYLE), its outline the ring (the segment colours, checked
     # below with the segments), and the centroid membrane after the cleaning.
     # The membrane before the cleaning is the neutral line, dashed, which is
-    # structural like the MPS window's contour and not a role.
+    # structural like the MPS window's contour and not a role. UI stage 1:
+    # the clusters a column test matched at the current tau, joined by a
+    # thin segment (the arc test solid, the 2D test dashed).
     "the lumen review plot": (
         ("centroid", 255, "circle"),
         ("discarded", 255, "diamond"),
@@ -268,6 +270,17 @@ TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
         ("curated", 255, "x"),
         ("locs", 255, "square"),
         ("contour_kept", 255, "line"),
+        ("matched", 255, "a thin segment between two markers"),
+    ),
+    # The E(tau) curve of the 2D test under the review's map (UI stage 1):
+    # the observed matched fraction against the null's mean and its 95 %
+    # band, and the tau the control has chosen. tau_0 is the neutral line,
+    # dashed, which is structural and not a role.
+    "the E(tau) curve": (
+        ("observed", 255, "line with circles"),
+        ("randomized", 255, "dashed line"),
+        ("randomized", 60, "band"),
+        ("warn", 255, "vertical line"),
     ),
     # The z-quality view (tools/mps_zquality_window.py, D-41): the axial
     # profile (histogram and its kernel density; the ring centres are the
@@ -389,6 +402,29 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
         "in the lumen review, circles (kept clusters) against one closed "
         "line through them (the membrane after the cleaning); apart for "
         "everyone but a tritanope",
+    # --- the matches on the lumen review's map (UI stage 1) -----------------
+    # A match is never a marker: it is a thin segment from a cluster of one
+    # ring to a cluster of the next, drawn between the membranes and the
+    # markers, so it is told from every class by being a line.
+    ("curated", "matched"):
+        "in the lumen review, a thin segment joining two markers against an "
+        "x (removed by hand, which no test matches): the closest pair on that "
+        "map for a deuteranope, close for a protanope too; a line against a "
+        "marker",
+    ("centroid", "matched"):
+        "in the lumen review, a thin segment joining two markers against "
+        "circles (kept clusters); apart for everyone but a deuteranope",
+    ("warn", "matched"):
+        "in the lumen review, a thin segment joining two markers against "
+        "triangles (doubtful clusters); apart for everyone but a tritanope",
+    ("locs", "matched"):
+        "in the lumen review, a thin segment joining two markers against "
+        "squares (restored by hand); apart for everyone but a protanope",
+    ("contour_kept", "matched"):
+        "in the lumen review, short straight segments from a cluster of one "
+        "ring to a cluster of the next against one closed line around the "
+        "axon (the membrane after the cleaning); apart for everyone but a "
+        "protanope",
 }
 
 
