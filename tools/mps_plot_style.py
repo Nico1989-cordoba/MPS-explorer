@@ -165,6 +165,16 @@ ROLES: Dict[str, str] = {
     # is the colour of channel_b for that same reason, and the two never
     # appear in one plot.
     "paired": OKABE_ITO["vermillion"],
+    # --- the z-quality view (tools/mps_zquality_window.py, D-41) -------
+    # The SiZer significance strip under the axial profile: where the
+    # smoothed density rises significantly, falls significantly, or
+    # neither. Blue against vermillion, the pair that survives every
+    # dichromacy; "nothing to see" is the neutral grey. The strip also
+    # draws them at three heights (upper half, lower half, a thin middle
+    # line), so a photocopy keeps them apart too.
+    "sizer_rise": OKABE_ITO["blue"],
+    "sizer_fall": OKABE_ITO["vermillion"],
+    "sizer_flat": "#9a9a9a",
 }
 
 # What a finding of each kind is prefixed with. Colour says it twice; the

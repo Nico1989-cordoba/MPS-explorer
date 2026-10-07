@@ -38,8 +38,9 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from tools import export_ui
 from tools.mps_gaps import RingAnalysis, analyze_rings
 from tools.mps_identity import AxonIdentity, axon_id
+from tools.mps_layer_panel import LayerPanel, Swatch
 from tools.mps_plot_style import (
-    AXIS_FG, PLOT_BG, marked, neutral, rgba, role, segment_colour,
+    PLOT_BG, marked, neutral, rgba, role, segment_colour,
     segment_glyph, segment_symbol, set_title, style_dark, verdict)
 from tools.results_table import (
     append_rows, cell_text, check_appendable, refuse_other_analysis,
@@ -82,6 +83,10 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         rerun_callback: Optional[Callable[..., Any]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
         identity_callback: Optional[Callable[[], Optional[Any]]] = None,
+        columns_callback: Optional[Callable[[], Any]] = None,
+        zquality_callback: Optional[Callable[[], Any]] = None,
+        batch_callback: Optional[Callable[[], Any]] = None,
+        explorer_callback: Optional[Callable[[], Any]] = None,
     ):
         """
         Parameters
@@ -94,12 +99,31 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         identity_callback : which axon this is, in the experiment's own
             terms (tools.mps_identity). Its columns go into both tables,
             since a ring is an observation of an axon of a genotype.
+        columns_callback : called when the user presses "Columns: lumen
+            review...", to open the H-ECL column analysis of this ROI with
+            its lumen review (tools.mps_columns_window, H5-D). None (the
+            default) adds no such button.
+        zquality_callback : called when the user presses "Z quality...",
+            to open the z-quality view of this ROI (rule v2, D-41:
+            tools.mps_zquality_window). None adds no such button.
+        batch_callback : called when the user presses "Columns batch...",
+            the column test on many axons (tools.mps_columns_batch_ui).
+            None adds no such button.
+        explorer_callback : called when the user presses "Viability
+            explorer...", how many ring pairs every combination of the
+            viability criteria selects on many axons (H6 toggles, D-43:
+            tools.mps_viability_explorer; geometry only). None adds no
+            such button.
         """
         super().__init__(parent)
         self.ms = ms
         self.rings = rings if rings is not None else analyze_rings(ms)
         self.rerun_callback = rerun_callback
         self.identity_callback = identity_callback
+        self.columns_callback = columns_callback
+        self.zquality_callback = zquality_callback
+        self.batch_callback = batch_callback
+        self.explorer_callback = explorer_callback
         # Target (x, y) range shared by the overlay and the small multiples,
         # re-applied whenever one of them is resized. See _build_spatial_tab.
         self._spatial_range: Optional[Tuple[Tuple[float, float],
@@ -172,6 +196,58 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.spin_guard)
 
         lay.addStretch(1)
+
+        # The H-ECL column analysis of the same ROI, with the review of its
+        # lumen clusters (H5-D). Only when the main window can build it.
+        if self.columns_callback is not None:
+            self.btn_columns = QtWidgets.QPushButton("Columns: lumen review...")
+            self.btn_columns.setToolTip(
+                "Open the H-ECL column analysis of this ROI: do the clusters\n"
+                "of consecutive rings stack in columns?\n\n"
+                "Its rings are built again from the ROI's localizations with\n"
+                "the pre-registered parameters (not the segmentation above),\n"
+                "the clusters inside the axon are marked by the lumen rule,\n"
+                "and you decide on the doubtful ones before the analyses run.\n"
+                "The widefield images of the Axoplasm panel are used when it\n"
+                "shows this selection.")
+            self.btn_columns.clicked.connect(self._on_columns)
+            lay.addWidget(self.btn_columns)
+
+        # D-41: can the rings of this ROI be compared at all? The z profile,
+        # SiZer, and rule v2's verdict of every ring pair.
+        if self.zquality_callback is not None:
+            self.btn_zquality = QtWidgets.QPushButton("Z quality...")
+            self.btn_zquality.setToolTip(
+                "Open the z-quality view of this ROI: the axial profile with\n"
+                "the SiZer significance strip, every ring's share of the\n"
+                "central ring, and the verdict of rule v2 (D-41) for every\n"
+                "pair of consecutive rings: VIABLE, MARGINAL or NOT VIABLE,\n"
+                "with the reasons and what limits the z quality.\n\n"
+                "Geometry only: no column statistic is computed. The rings\n"
+                "are built as the column review builds them.")
+            self.btn_zquality.clicked.connect(self._on_zquality)
+            lay.addWidget(self.btn_zquality)
+        if self.batch_callback is not None:
+            self.btn_columns_batch = QtWidgets.QPushButton("Columns batch...")
+            self.btn_columns_batch.setToolTip(
+                "Run the column test on many axons in a separate process\n"
+                "(batch_columns.py): files or a folder, an output folder,\n"
+                "live progress, Cancel and Resume. Rule v2 chooses the\n"
+                "pairs; every p-value is NOT calibrated.")
+            self.btn_columns_batch.clicked.connect(self._on_columns_batch)
+            lay.addWidget(self.btn_columns_batch)
+        # H6 toggles (D-43): which ring pairs each combination of the criteria selects, on many axons
+        if self.explorer_callback is not None:
+            self.btn_viability_explorer = QtWidgets.QPushButton("Viability explorer...")
+            self.btn_viability_explorer.setToolTip(
+                "How many ring pairs (and axons) each combination of the four\n"
+                "viability criteria selects, under rule v2 (localizations)\n"
+                "and rule v2c (clusters, A / B / C), on many picked axons at\n"
+                "once; check and uncheck the criteria and every count follows.\n\n"
+                "Geometry only: no column statistic is computed, so real\n"
+                "axons are allowed.")
+            self.btn_viability_explorer.clicked.connect(self._on_viability_explorer)
+            lay.addWidget(self.btn_viability_explorer)
 
         self.btn_export = QtWidgets.QPushButton("Export CSV...")
         self.btn_export.setToolTip(
@@ -296,11 +372,16 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
         self.plot_overlay = pg.PlotWidget()
         style_dark(self.plot_overlay)
-        # Built once: a legend added on every redraw would stack up. It
-        # is what names the segments in the one plot that draws them all
-        # together, where neither a title nor an axis tick can.
-        self.overlay_legend = self.plot_overlay.addLegend(
-            labelTextColor=AXIS_FG, offset=(-10, 10))
+        # The segments are named in a panel BESIDE the plot (UI stage 0:
+        # a legend inside it covered the localizations): one row per
+        # segment, rebuilt on every redraw, that hides or shows that
+        # segment here (never in the small multiples underneath). What
+        # was hidden stays hidden through a redraw.
+        self.overlay_layers = LayerPanel()
+        self.overlay_layers.setObjectName("overlay_layers")
+        self.overlay_layers.setToolTip(
+            "Tick the segments the superimposed plot draws. The plots of "
+            "each segment underneath always draw theirs.")
         set_title(self.plot_overlay,
                    "Every segment's localizations, superimposed")
         self.plot_overlay.setAspectLocked(True)
@@ -315,7 +396,11 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         # does not fight the user.
         self.plot_overlay.getViewBox().sigResized.connect(
             self._reapply_spatial_range)
-        lay.addWidget(self.plot_overlay, stretch=3)
+        overlay_row = QtWidgets.QHBoxLayout()
+        overlay_row.setContentsMargins(0, 0, 0, 0)
+        overlay_row.addWidget(self.plot_overlay, stretch=1)
+        overlay_row.addWidget(self.overlay_layers)
+        lay.addLayout(overlay_row, stretch=3)
 
         lay.addWidget(QtWidgets.QLabel(
             "Each segment on its own, in nm, same x/y range as above "
@@ -628,7 +713,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
     def _draw_spatial(self) -> None:
         self.plot_overlay.clear()
-        self.overlay_legend.clear()
+        self.overlay_layers.clear_layers(keep_state=True)
+        self.overlay_layers.add_group("Segments")
         self.spatial_grid.clear()
         self._spatial_range = None
         self._spatial_viewboxes = []
@@ -656,10 +742,17 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             # A symbol as well as a colour: five segments is more than the
             # palette can keep apart by hue, and this is the only plot
             # where they are superimposed rather than side by side.
-            self.plot_overlay.addItem(pg.ScatterPlotItem(
+            scatter = pg.ScatterPlotItem(
                 an.x_slab, an.y_slab, pen=pg.mkPen(segment_colour(k), width=1),
-                brush=None, size=5, symbol=segment_symbol(k),
-                name=f"segment {seg.index}"))
+                brush=None, size=5, symbol=segment_symbol(k))
+            self.plot_overlay.addItem(scatter)
+            self.overlay_layers.add_layer(
+                f"seg{seg.index}", f"Segment {seg.index}",
+                Swatch("symbol", segment_colour(k), symbol=segment_symbol(k),
+                       hollow=True),
+                items=[scatter], count=int(np.asarray(an.x_slab).size),
+                tip=f"Draw segment {seg.index}'s localizations in the "
+                    "superimposed plot (the number is how many).")
 
         # setXLink/setYLink only sync FUTURE range changes (they fire off
         # the linked view's sigRangeChanged), not the range already in
@@ -764,6 +857,26 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self._guard_nm = guard
         self.rings = analyze_rings(ms)
         self.refresh()
+
+    def _on_columns(self) -> None:
+        """Open the H-ECL columns review of this ROI (H5-D)."""
+        if self.columns_callback is not None:
+            self.columns_callback()
+
+    def _on_zquality(self) -> None:
+        """Open the z-quality view of this ROI (D-41)."""
+        if self.zquality_callback is not None:
+            self.zquality_callback()
+
+    def _on_columns_batch(self) -> None:
+        """Open the column batch dialog (H6)."""
+        if self.batch_callback is not None:
+            self.batch_callback()
+
+    def _on_viability_explorer(self) -> None:
+        """Open the viability explorer (H6 toggles, D-43)."""
+        if self.explorer_callback is not None:
+            self.explorer_callback()
 
     def _identity_columns(self) -> Dict[str, Any]:
         """Which axon these rings are of: the same columns as the axon

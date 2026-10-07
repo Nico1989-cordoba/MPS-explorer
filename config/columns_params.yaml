@@ -1,0 +1,24 @@
+# Pre-registered parameters of the column analysis (MPS Explorer, H2).
+# tau0_nm is the median pair tolerance measured on the exploratory axon
+# (DECISIONES D-03, D-05); the other keys are what build_rings and the
+# H3+ steps must run with so that both agree (rings_params_from).
+# Written by tools.mps_columns.write_columns_params; read it back with
+# load_columns_params, which rejects unknown keys. Frozen once committed.
+# The measurement record of tau0_nm (its provenance) is kept with the research notes.
+tau0_nm: 80.57564059152288
+tau_grid_nm: [20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0,
+  160.0, 170.0, 180.0, 190.0, 200.0]
+tau_sensitivity_nm: [30.0, 80.57564059152288, 100.0]
+n_null: 1999
+random_seed: 0
+min_shift_fraction: 0.5
+guard_nm: 0.0
+posterior_min: null
+segment_mode: valley
+eps_nm: 25.0
+min_samples: 10
+link_radius_factor: 5.0
+link_max_dark_time: 1
+n_bootstrap: 200
+min_events_per_cluster: 3
+sigma_d_nm: 0.0

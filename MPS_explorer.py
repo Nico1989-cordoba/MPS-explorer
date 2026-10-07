@@ -318,6 +318,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # ROI and the axial cut; set by _apply_z_range. The cluster labels
         # index the same subset.
         self.roi_indices: Optional[NDArray[np.int64]] = None
+        # The same BEFORE the axial cut, in the order of the *_unfiltered
+        # arrays: the ring analysis segments z itself (tools.mps_columns).
+        self.roi_indices_unfiltered: Optional[NDArray[np.int64]] = None
         self.quality_window: Optional[Any] = None
         self.paint_window: Optional[Any] = None
         self.two_channel_window: Optional[Any] = None
@@ -432,6 +435,27 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self._discard_cache_base: Any = None
         self.mps_window: Optional[Any] = None        # results window (kept alive)
         self.rings_window: Optional[Any] = None      # multi-segment panel
+        # The H-ECL columns review (tools/mps_columns_window.py, H5-D): the
+        # launcher that builds the rings, and through it the review window.
+        self.columns_review: Optional[Any] = None
+        # The z-quality view (rule v2, D-41: tools/mps_zquality_window.py)
+        # and the column batch dialog (tools/mps_columns_batch_ui.py).
+        self.zquality_window: Optional[Any] = None
+        self.columns_batch_dialog: Optional[Any] = None
+        # Where the review keeps each axon's decisions between sessions
+        # (tools.mps_lumen.LumenReviewStore; next to the settings file), so
+        # that "edited after results were shown" belongs to the axon (D-35b).
+        # None keeps nothing (tests may point it at a temporary folder).
+        self.columns_review_store_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "lumen_review_sessions")
+        # H6 toggles (D-43): the exploration log of the criteria switches
+        # lives beside the review sessions (selection_log/), and the batch /
+        # simulated-null processes started from here log under this session.
+        self.viability_explorer: Optional[Any] = None
+        from tools.mps_selection import ensure_session_env
+        from tools.mps_selection_ui import set_app_store_dir
+        ensure_session_env()
+        set_app_store_dir(self.columns_review_store_dir)
         # Which axon the loaded file is, in the experiment's own terms, and
         # the file it was confirmed for. Proposed from the path and
         # confirmed by the user before the first export (tools.mps_identity).
@@ -552,6 +576,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if ind_inside_roi is None
             else np.asarray(ind_inside_roi)
         )
+        # The spatial selection's indices before the axial cut, aligned with
+        # xroi_unfiltered/yroi_unfiltered/zroi_unfiltered (a copy: base is
+        # the caller's array).
+        self.roi_indices_unfiltered = base.copy()
 
         # Both bounds are required: filtering on one alone silently kept the
         # other side unbounded, and comparing against None raised a TypeError.
@@ -2141,7 +2169,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if self.rings_window is None:
             self.rings_window = MPSRingsWindow(
                 ms, rerun_callback=rerun, parent=self,
-                identity_callback=self.current_identity)
+                identity_callback=self.current_identity,
+                columns_callback=self.open_columns_review,
+                zquality_callback=self.open_z_quality,
+                batch_callback=self.open_columns_batch,
+                explorer_callback=self.open_viability_explorer)
         else:
             self.rings_window.ms = ms
             self.rings_window.rings = analyze_rings(ms)
@@ -2150,6 +2182,265 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.rings_window.show()
         self.rings_window.raise_()
         self.rings_window.activateWindow()
+
+    def _columns_review_inputs(self, title: str = "H-ECL columns") -> Optional[Any]:
+        """
+        The current ROI as the column review and the z-quality view take it
+        (a ColumnsReviewInputs): every localization of the ROI BEFORE the
+        axial cut with frames and precisions, the rings built WITHOUT the
+        ROI's edge, the Axoplasm panel's widefield state when it shows this
+        selection. None (after telling the user why) without a usable ROI.
+        """
+        from tools.cluster_quality import describe_roi
+        from tools.mps_columns_window import (
+            ColumnsReviewInputs, widefield_from_axoplasm_panel)
+
+        loc = self.locs1
+        if (loc is None or self.roi_indices_unfiltered is None
+                or self.xroi_unfiltered is None
+                or self.yroi_unfiltered is None
+                or self.zroi_unfiltered is None):
+            QtWidgets.QMessageBox.information(
+                self, title,
+                "Load a file, draw the scatter plot and select one axon "
+                "with an ROI first.")
+            return None
+        index = np.asarray(self.roi_indices_unfiltered, dtype=np.intp)
+        x = np.asarray(self.xroi_unfiltered, dtype=float)
+        y = np.asarray(self.yroi_unfiltered, dtype=float)
+        z = np.asarray(self.zroi_unfiltered, dtype=float)
+        if x.size == 0 or not (x.size == y.size == z.size == index.size):
+            QtWidgets.QMessageBox.warning(
+                self, title,
+                "The selection is empty or out of step with the file: "
+                "apply the ROI again.")
+            return None
+
+        def take(values: Optional[Any]) -> Optional[Any]:
+            return None if values is None else np.asarray(values)[index]
+
+        widefield: Optional[Any] = None
+        note = "the Axoplasm panel is not open"
+        panel = self.axoplasm_window
+        if panel is not None:
+            if (panel.inputs.movie is not loc
+                    or panel.inputs.selection_key is not self.roi_indices):
+                note = ("the Axoplasm panel shows another selection: open "
+                        "it on this one first")
+            else:
+                widefield, note = widefield_from_axoplasm_panel(panel)
+        pixel, pixel_source = self._channel1_pixel_size()
+        inputs = ColumnsReviewInputs(
+            x_nm=x, y_nm=y, z_nm=z, frame=take(loc.frame),
+            lp_lateral_nm=take(loc.lp_lateral_nm), lpz_nm=take(loc.lpz_nm),
+            n_frames=loc.n_frames,
+            source_name=self.ui.lineEdit_filename.text(),
+            # Not the drawn ROI's edge: the rings are built as simnull
+            # builds them (roi_text still names the axon in the tables).
+            roi=None,
+            roi_text=describe_roi(self._applied_roi_shape),
+            pixel_size_nm=pixel, pixel_size_source=pixel_source,
+            widefield=widefield, widefield_note=note,
+            identity=self.current_identity)
+        return inputs
+
+    def open_columns_review(self) -> Optional[Any]:
+        """
+        Open the H-ECL column analysis of the current ROI with the review
+        of its lumen clusters (tools/mps_columns_window.py; H5-D, D-35b).
+
+        The rings are built once, in the background, from the ROI's
+        localizations BEFORE the axial cut (roi_indices_unfiltered, the H1
+        hook) with their frames and precisions and the pre-registered
+        parameters, WITHOUT the ROI's edge (roi=None), exactly as simnull
+        and the certified classification build them (the orchestrator's
+        decision for H5-D): the window's clusters are then the ones
+        simnull --lumen-edits finds. The widefield part of the lumen rule
+        reads the Axoplasm panel's masks and registration when the panel
+        shows this selection with both images; otherwise the rule is
+        isolation only and the review window says so.
+
+        Pressing the button again for the same selection and the same
+        Axoplasm state brings the open review (or its build) forward
+        instead of building it again; a review closed by the user is shown
+        again as it was. Otherwise a new review is built, and the axon's
+        decisions come back from the review store
+        (columns_review_store_dir), with the fact that its results were
+        shown (D-35b). Returns the launcher, or None.
+        """
+        from tools.mps_columns_window import (
+            review_signature, start_columns_review)
+        from tools.mps_lumen import LumenReviewStore
+
+        inputs = self._columns_review_inputs("H-ECL columns")
+        if inputs is None:
+            return None
+        x = inputs.x_nm
+        widefield, note = inputs.widefield, inputs.widefield_note
+        signature = review_signature(inputs)
+        current = self.columns_review
+        if (current is not None
+                and getattr(current, "review_signature", None) == signature):
+            window = getattr(current, "window", None)
+            if window is not None:
+                # The same review: show it as it is (edits, results, log).
+                window.show()
+                window.raise_()
+                window.activateWindow()
+                return current
+            if current.is_running():
+                # Still building the same rings: wait for that build.
+                current.show()
+                current.raise_()
+                return current
+        store = (LumenReviewStore(self.columns_review_store_dir)
+                 if self.columns_review_store_dir else None)
+        self._close_columns_review()
+        try:
+            self.columns_review = start_columns_review(
+                inputs, parent=self, review_store=store,
+                zquality_callback=self.open_z_quality,
+                batch_callback=self.open_columns_batch)
+            self.columns_review.review_signature = signature
+        except Exception as error:     # noqa: BLE001 - surfaced to the user
+            self.logger.error(f"H-ECL columns review failed: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "H-ECL columns", f"Could not start the review:\n{error}")
+            return None
+        self.logger.info(
+            f"H-ECL columns review: building the rings of {x.size:,} ROI "
+            f"localizations"
+            + ("" if widefield is not None else f" (isolation only: {note})"))
+        return self.columns_review
+
+    def open_z_quality(self, inputs: Optional[Any] = None) -> Optional[Any]:
+        """
+        Open the z-quality view of the current ROI (rule v2, D-41;
+        tools/mps_zquality_window.py): the axial profile with SiZer, every
+        ring's share of the central ring and the verdict of every ring pair,
+        for the microscopy team. Geometry only (no column statistic), so it
+        may be opened on any axon. When the column review of the same
+        selection is open its rings are reused; otherwise they are built in
+        the background exactly as the review builds them. Pressing it again
+        for the same selection brings the open view forward.
+
+        One view for the whole program (UI stage 0): ``inputs`` (a
+        ColumnsReviewInputs, e.g. the review window's own axon) replaces
+        the current ROI; the view of another axon is closed and replaced.
+        """
+        from tools.mps_columns_window import review_signature
+        from tools.mps_zquality_window import (
+            open_z_quality_for_inputs, open_z_quality_for_rings)
+
+        if inputs is None:
+            inputs = self._columns_review_inputs("Z quality")
+        if inputs is None:
+            return None
+        signature = review_signature(inputs)
+        current = self.zquality_window
+        if (current is not None
+                and getattr(current, "signature", None) == signature):
+            current.show()
+            current.raise_()
+            current.activateWindow()
+            return current
+        if current is not None:
+            current.close()
+            current.deleteLater()
+        review = self.columns_review
+        window = getattr(review, "window", None) if review is not None else None
+        try:
+            if (window is not None
+                    and getattr(review, "review_signature", None) == signature):
+                view = open_z_quality_for_rings(
+                    window.res, window.xyz_lab_nm, parent=self,
+                    source_name=inputs.source_name, roi_text=inputs.roi_text,
+                    columns_callback=self._columns_callback_for(signature))
+            else:
+                view = open_z_quality_for_inputs(
+                    inputs, parent=self,
+                    columns_callback=self._columns_callback_for(signature))
+        except Exception as error:     # noqa: BLE001 - surfaced to the user
+            self.logger.error(f"Z quality failed: {error}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "Z quality", f"Could not open the z-quality view:\n{error}")
+            return None
+        view.signature = signature
+        self.zquality_window = view
+        self.logger.info(
+            f"Z quality: {np.asarray(inputs.x_nm).size:,} ROI localizations "
+            "(rule v2, D-41; geometry only)")
+        return view
+
+    def open_columns_batch(self) -> Optional[Any]:
+        """Open the column batch dialog (tools/mps_columns_batch_ui.py):
+        batch_columns.py on many axons in a separate process, with live
+        progress, Cancel and Resume. The user chooses the axons (picked
+        files or folders): nothing is pre-filled."""
+        from tools.mps_columns_batch_ui import ColumnsBatchDialog
+
+        current = self.columns_batch_dialog
+        if current is not None and current.isVisible():
+            current.raise_()
+            current.activateWindow()
+            return current
+        dialog = ColumnsBatchDialog(
+            self, explorer_callback=self.open_viability_explorer)
+        dialog.show()
+        self.columns_batch_dialog = dialog
+        return dialog
+
+    def open_viability_explorer(
+            self, inputs: Optional[Sequence[str]] = None) -> Optional[Any]:
+        """Open the viability explorer (H6 toggles, D-43;
+        tools/mps_viability_explorer.py): on many picked axons, how many
+        ring pairs every combination of the viability criteria selects.
+        Geometry only (R8). The user chooses the axons; ``inputs`` (the
+        batch dialog's list) are added to it. One explorer for the whole
+        program (UI stage 0): an open one is brought forward."""
+        from tools.mps_viability_explorer import ViabilityExplorer
+
+        current = self.viability_explorer
+        if current is not None and current.isVisible():
+            for path in inputs or []:
+                current.add_input(path)
+            current.raise_()
+            current.activateWindow()
+            return current
+        explorer = ViabilityExplorer(inputs=list(inputs or []), parent=None)
+        explorer.show()
+        self.viability_explorer = explorer
+        return explorer
+
+    def _columns_callback_for(self, signature: Any) -> Callable[[], Any]:
+        """What "Columns review..." of a z-quality view does: bring the
+        review of THAT axon forward when it is open, else open the review
+        of the current ROI (as before UI stage 0)."""
+        def show_review() -> Optional[Any]:
+            review = self.columns_review
+            window = getattr(review, "window", None) if review is not None else None
+            if (window is not None
+                    and getattr(review, "review_signature", None) == signature):
+                window.show()
+                window.raise_()
+                window.activateWindow()
+                return review
+            return self.open_columns_review()
+        return show_review
+
+    def _close_columns_review(self) -> None:
+        """Close the columns review, its launcher and its window."""
+        launcher = self.columns_review
+        self.columns_review = None
+        if launcher is None:
+            return
+        window = getattr(launcher, "window", None)
+        if window is not None:
+            window.close()
+            window.deleteLater()
+        launcher.close()
+        launcher.deleteLater()
 
     # ------------------------------------------------------------------
     #  Getting a file in: the dialog, and dragging one onto the window
@@ -2301,6 +2592,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.xroi_unfiltered = self.yroi_unfiltered = None
         self.zroi_unfiltered = None
         self.roi_indices = None
+        self.roi_indices_unfiltered = None
         self._applied_roi_shape = None
         self._applied_slab = None
         self.cluster_labels = None
@@ -2322,6 +2614,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                        self.two_channel_window, self.axoplasm_window):
             if window is not None:
                 window.close()
+        # Its rings were built from the previous file's rows.
+        self._close_columns_review()
         if self.axoplasm_window is not None:
             # It is reopened only on the file it was built for, and its
             # widefield images are large: free it.
@@ -4725,6 +5019,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.two_channel_window.close()
         if self.axoplasm_window is not None:
             self.axoplasm_window.close()
+        self._close_columns_review()
         self.picasso_tools.shutdown()
 
         self.logger.info("=" * 80)

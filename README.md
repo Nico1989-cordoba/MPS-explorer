@@ -286,6 +286,72 @@ pytest test_mps_explorer.py -v
 
 ---
 
+## 🧭 Column analysis within one axon (exploratory)
+
+Tools to ask, axon by axon, whether the spectrin clusters of consecutive rings line up along the axon ("columns"),
+and to judge first whether the z profile of the axon can answer that at all.
+
+- **Status.** The geometry views (rings, z profile, pair viability, lumen review) can be used on any axon. The column
+  statistic is **exploratory**: its p-values are Monte Carlo p-values against a rotation null and are **not
+  calibrated** for the axial leak between rings (the calibration by simulation was closed as not accepted). Every
+  output says so.
+- **Policy on real data (R8).** The batch runner refuses real axons unless `--allow-real` is given, and then marks
+  every row EXPLORATORY. Simulated inputs are NPZ files carrying a `simulated` marker
+  (`batch_columns.write_simulated_input`).
+
+### Windows (buttons of the Rings panel)
+
+- **Columns: lumen review...** — the clusters of each ring in the axon frame, the automatic lumen rule (REMOVE /
+  DOUBTFUL, with or without widefield images), the user's own decisions (saved per axon), and the arc test of the
+  column hypothesis on the cleaned rings, run in a worker thread.
+- **Z quality...** — the axial profile of the axon, ring by ring and pair by pair: the viability rule v2 (SiZer peak
+  and valley, localization minimum, expected leak copies), the exploratory cluster-level variant, switches for each
+  criterion, the limiting factors in plain words, and an export of the report.
+- **Columns batch...** — runs `batch_columns.py` in a separate process with live progress.
+- **Viability explorer...** — rule v2 over many picked axons at once (computed in worker processes and cached), with
+  the criteria switches and a combination table.
+- A layer (legend) panel for the plots, and a dialog that starts a per-axon simulated null (`power_columns.py
+  simnull`) in the background.
+
+### Command line
+
+```bash
+# resumable batch of the column test (tables column_pairs.csv, column_axons.csv, batch_meta.json; journals + resume)
+python batch_columns.py --out OUT --inputs SIM_DIR --workers 4
+# measure nuisance parameters, run a power grid, summarize it, or simulate the null of one axon
+python power_columns.py measure | run | summarize | simnull ...
+# stand-alone demonstrations on SIMULATED axons (tools/mps_sim_harness.py, synthetic inputs only)
+python -m tools.mps_zquality_window --demo viable      # or marginal / none
+python -m tools.mps_viability_explorer --demo
+```
+
+Power grids are YAML files written by the user; none is shipped.
+
+### Parameters
+
+`config/columns_params.yaml` holds the pre-registered parameters of the column analysis (the pair tolerance `tau0_nm`
+and its grid, the null size and seed, the DBSCAN `eps_nm` / `min_samples`, the event linking). It is loaded strictly
+(an unknown key is an error); changing a value is a deviation from the pre-registration and should be recorded.
+
+Optional site setting: inputs from an acquisition known to lie outside the calibrated range can be flagged (never
+blocked) by setting the environment variable `MPS_UNCALIBRATED_LABELS` to a regular expression matched against the
+file label / path. Nothing is flagged by default.
+
+### Tests
+
+```bash
+py -3 -m pytest test_viability_v2.py test_viability_v2c.py test_zquality.py test_selection.py test_h5e_selection.py \
+    test_batch_columns.py test_batch_selection.py test_simnull_selection.py
+python test_zquality_gui.py          # GUI checks run offscreen (QT_QPA_PLATFORM=offscreen); one script per window
+python validate_simulate_axon.py     # validate_*.py: harnesses on simulated axons of known truth
+```
+
+Set `MPS_SELECTION_LOG_DIR` to a temporary folder when running the tests, so that the exploration log is not written
+to your user folder. Checks against unpublished data run only when `MPS_PRIVATE_DATA` points to the folder that holds
+them; otherwise they are skipped with a note.
+
+---
+
 ## 📁 Project Structure
 
 ```

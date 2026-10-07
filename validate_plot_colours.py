@@ -255,6 +255,37 @@ TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
         ("locs", 255, "cumulative curve"),
         ("fit", 255, "dashed curve"),
     ),
+    # The lumen review of the H-ECL rings (tools/mps_columns_window.py,
+    # H5-D): one marker per ring cluster, its fill and shape the class
+    # (LUMEN_CLASS_STYLE), its outline the ring (the segment colours, checked
+    # below with the segments), and the centroid membrane after the cleaning.
+    # The membrane before the cleaning is the neutral line, dashed, which is
+    # structural like the MPS window's contour and not a role.
+    "the lumen review plot": (
+        ("centroid", 255, "circle"),
+        ("discarded", 255, "diamond"),
+        ("warn", 255, "triangle"),
+        ("curated", 255, "x"),
+        ("locs", 255, "square"),
+        ("contour_kept", 255, "line"),
+    ),
+    # The z-quality view (tools/mps_zquality_window.py, D-41): the axial
+    # profile (histogram and its kernel density; the ring centres are the
+    # neutral line, dashed, thick and solid for the central ring: a segment
+    # colour there would repeat the sky blue of the bars or the orange of the
+    # density, so the ring number in the label says which ring it is) and,
+    # under it, the SiZer
+    # strip: significantly rising, falling, or neither, each at its own
+    # height so the three survive a photocopy.
+    "the z-quality profile": (
+        ("locs", 170, "bars"),
+        ("fit", 255, "line"),
+    ),
+    "the SiZer strip": (
+        ("sizer_rise", 255, "an upper bar"),
+        ("sizer_fall", 255, "a lower bar"),
+        ("sizer_flat", 255, "a thin middle bar"),
+    ),
 }
 
 # What each plot is drawn on. Anything not named here is on black.
@@ -263,6 +294,10 @@ BACKGROUNDS: Dict[str, str] = {
     # The quality and DNA-PAINT panels paint their own window, and the
     # findings are read on that rather than on a plot's black.
     "the findings list": PANEL_BG,
+    # A widefield image can be drawn under the markers, dimmed so that its
+    # brightest pixel is this grey (UNDERLAY_MAX_GREY): the marks have to
+    # stand off it, which is stricter than black for every role here.
+    "the lumen review plot": "#404040",
 }
 
 # Pairs that come close under one kind of vision and are told apart by
@@ -284,7 +319,9 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
     ("curated", "locs"):
         "an x against a dot",
     ("locs", "centroid"):
-        "a cloud of 3 px dots against 7 px circles with a pale outline",
+        "a cloud of 3 px dots against 7 px circles with a pale outline; in "
+        "the lumen review, a square (restored by hand) against a circle "
+        "(kept)",
     ("locs", "centre"):
         "a cloud of 3 px dots against one 18 px plus",
     ("centroid", "centre"):
@@ -313,7 +350,8 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
     ("locs", "image_spectrin"):
         "2 px dots against an image edge and 10 px squares",
     ("locs", "contour_kept"):
-        "a cloud of dots against one closed line through the centres",
+        "a cloud of dots against one closed line through the centres; in the "
+        "lumen review, squares (restored by hand) against that line",
     ("discarded", "contour_all"):
         "filled discs with a dark rim against a dashed line",
     ("image_tubulin", "image_spectrin"):
@@ -342,6 +380,15 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
     ("locs", "good"):
         "a histogram outline against a thick horizontal bar and a dashed "
         "vertical line; apart for everyone but a tritanope",
+    # --- the lumen review plot -------------------------------------------
+    ("discarded", "warn"):
+        "in the lumen review, a diamond (removed by the rule) against a "
+        "triangle (doubtful): orange against vermillion is 18 apart for a "
+        "deuteranope, and these two are the pair the review is about",
+    ("centroid", "contour_kept"):
+        "in the lumen review, circles (kept clusters) against one closed "
+        "line through them (the membrane after the cleaning); apart for "
+        "everyone but a tritanope",
 }
 
 
