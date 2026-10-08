@@ -142,8 +142,7 @@ def from_sidecar(path: str) -> Optional[RecordedPixel]:
     ``<stem>.txt`` of ``key= value`` lines and a ``<stem>_metadata.hdf5``
     next to each movie. A movie processed afterwards keeps the suffix at
     the end of the name while its metadata keeps it after "_metadata":
-    beside MPS_t2_ROI1_50ms_calib3_corrected.tiff sits
-    MPS_t2_ROI1_50ms_calib3_metadata_corrected.hdf5.
+    beside <stem>_corrected.tiff sits <stem>_metadata_corrected.hdf5.
     """
     stem = os.path.splitext(path)[0]
     text = _from_text_sidecar(stem + ".txt")

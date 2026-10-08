@@ -359,7 +359,8 @@ Set `MPS_SELECTION_LOG_DIR` to a temporary folder when running the tests, so tha
 to your user folder. Checks against unpublished data run only when `MPS_PRIVATE_DATA` points to the folder that holds
 them; otherwise they are skipped with a note. The same holds for the validators that read real data, each from its
 own environment variable: `MPS_VALIDATION_DATA` (a folder of picked axons) with `MPS_VALIDATION_EXPECTED` (a private
-JSON of what it must give), `MPS_AXOPLASM_PRIVATE`, `MPS_PAINT_SAMPLE` and `MPS_DATA_2023`.
+JSON of what it must give), `MPS_AXOPLASM_PRIVATE`, `MPS_PAINT_SAMPLE`, and `MPS_DATA_2023` (the 2023 data folder)
+with `MPS_DATASET_2023_LAYOUT` (a private JSON of where the files are inside it).
 
 ---
 
