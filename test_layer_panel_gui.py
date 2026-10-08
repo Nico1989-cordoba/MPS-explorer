@@ -668,6 +668,119 @@ def main() -> int:
 
     check("rings window: segment rows in a panel beside the superimposed plot", rings_overlay)
 
+    # ------------------------------------------------------------------ 5. groups (UI stage 2, IMPL-B)
+    print("\n5. LayerPanel groups, swatch size and casing, scroll, title hook (UI stage 2)")
+
+    def groups_rows_and_toggle() -> str:
+        panel = lp.LayerPanel()
+        combo = QtWidgets.QComboBox()
+        combo.addItems(["one source", "another"])
+        title = panel.add_group("Localizations", key="locs", caption="analyze_axon on the ROI", header=combo,
+                                collapsible=True)
+        a1, a2, b1, c1 = (pg.ScatterPlotItem() for _ in range(4))
+        panel.add_layer("a", "A", lp.Swatch("symbol", "#56b4e9", size=3), items=[a1], count=4)
+        panel.add_layer("a2", "A2", items=[a2], visible=False)
+        panel.add_group("Contour", key="contour")
+        panel.add_layer("b", "B", lp.Swatch("line", "#e8e8e8", cased=True), items=[b1])
+        panel.add_group("Plain title")                              # stage 0: no box, rows outside any group
+        panel.add_layer("c", "C", items=[c1])
+        assert title.text() == "Localizations" and panel.groups() == ["locs", "contour"]
+        assert panel.group_rows("locs") == ["a", "a2"] and panel.group_of("b") == "contour"
+        assert panel.group_of("c") is None and panel.group_header("locs") is combo
+        assert panel.group_caption("locs") == "analyze_axon on the ROI"
+        toggle = panel.findChild(QtWidgets.QCheckBox, "group_toggle_locs")
+        assert toggle is not None and toggle.checkState() == QtCore.Qt.CheckState.PartiallyChecked
+        toggle.click()                                    # partial -> every row shown
+        assert a1.isVisible() and a2.isVisible() and toggle.checkState() == QtCore.Qt.CheckState.Checked
+        toggle.click()                                    # all shown -> every row hidden
+        assert not a1.isVisible() and not a2.isVisible() and b1.isVisible() and c1.isVisible()
+        assert toggle.checkState() == QtCore.Qt.CheckState.Unchecked
+        panel.set_group_shown("locs", True)
+        assert a1.isVisible() and a2.isVisible()
+        panel.checkbox("a2").setChecked(False)
+        assert toggle.checkState() == QtCore.Qt.CheckState.PartiallyChecked
+        panel.set_group_collapsed("locs", True)
+        body = panel.findChild(QtWidgets.QWidget, "group_body_locs")
+        assert body is not None and body.isHidden() and a1.isVisible(), "folding must not hide what the rows draw"
+        panel.set_group_collapsed("locs", False)
+        assert not body.isHidden()
+        assert panel.shown() == ["A (4)", "B", "C"] and panel.shown_keys() == ["a", "b", "c"]
+        return "rows belong to the last keyed group; its check is tristate and shows/hides them; folding keeps items"
+
+    def groups_enabled_and_state() -> str:
+        panel = lp.LayerPanel()
+        combo = QtWidgets.QComboBox()
+        panel.add_group("Rings", key="rings", caption="from ms", header=combo)
+        r1 = pg.ScatterPlotItem()
+        panel.add_layer("r", "Ring origin", items=[r1], tip="its tip")
+        panel.set_group_enabled("rings", False, "the segments are of another selection")
+        reason = panel.findChild(QtWidgets.QLabel, "group_reason_rings")
+        assert reason is not None and "another selection" in reason.text() and not reason.isHidden()
+        assert not panel.checkbox("r").isEnabled() and not combo.isEnabled()
+        assert "another selection" in panel.checkbox("r").toolTip() and panel.shown() == []
+        panel.hide_all()
+        assert r1.isVisible(), "Hide all must skip the rows of a disabled group"
+        panel.set_group_enabled("rings", True)
+        assert panel.checkbox("r").isEnabled() and panel.checkbox("r").toolTip() == "its tip" and combo.isEnabled()
+        assert reason.isHidden() and panel.shown() == ["Ring origin"]
+        panel.set_group_collapsed("rings", True)
+        panel.checkbox("r").setChecked(False)
+        panel.clear_layers(keep_state=True)
+        assert panel.groups() == [] and panel.keys() == []
+        panel.add_group("Rings", key="rings", collapsible=True)
+        r2 = pg.ScatterPlotItem()
+        panel.add_layer("r", "Ring origin", items=[r2])
+        assert panel.is_group_collapsed("rings") and not r2.isVisible(), "group fold and row state survive a redraw"
+        panel.set_group_enabled("rings", False, "why")
+        panel.add_layer("late", "Added while the group is disabled", items=[])
+        assert not panel.checkbox("late").isEnabled() and "why" in panel.checkbox("late").toolTip()
+        panel.set_label("late", "Renamed")
+        assert panel.checkbox("late").text() == "Renamed"
+        panel.clear_layers(keep_state=False)
+        panel.add_group("Rings", key="rings")
+        assert not panel.is_group_collapsed("rings")
+        try:
+            panel.add_group("again", key="rings")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a second group under the same key must be refused")
+        return "a disabled group says why, disables its rows and header, and Hide all skips it; state kept by key"
+
+    def swatch_size_casing_scroll_hook() -> str:
+        def image(sw: Any) -> Any:
+            return lp.swatch_icon(sw).pixmap(16, 16).toImage()
+        plain, cased = image(lp.Swatch("line", "#0072b2")), image(lp.Swatch("line", "#0072b2", cased=True))
+        small, big = image(lp.Swatch("symbol", "#56b4e9", size=3)), image(lp.Swatch("symbol", "#56b4e9"))
+        assert plain != cased and small != big
+        assert not lp.swatch_icon(lp.Swatch("symbol", "#009e73", symbol="s", size=10, cased=True)).isNull()
+        assert lp.Swatch("bar") == lp.Swatch("bar", size=0.0, cased=False), "the stage-0 defaults must not change"
+        panel = lp.LayerPanel(scroll=True)
+        assert panel.scroll_area is not None and lp.LayerPanel().scroll_area is None
+        panel.add_group("Many", key="many")
+        for i in range(60):
+            panel.add_layer(f"k{i}", f"Layer {i}", items=[])
+        panel.resize(240, 300)
+        panel.show()
+        pump(app, 0.1)
+        inner = panel.scroll_area.widget()
+        assert inner.height() > panel.scroll_area.viewport().height(), "the rows must scroll, not squeeze"
+        panel.close()
+        hooked = lp.LayerPanel()
+        t1 = hooked.add_group("Legacy title")
+        t2 = hooked.add_group("Boxed title", key="g")
+        assert t1.styleSheet() == lp.group_title_style(False) == "font-weight: bold;"
+        assert lp.LayerPanel(dark=True).add_group("x").styleSheet() == f"font-weight: bold; color: {lp.TITLE_FG};"
+        hooked.set_title_style(lambda dark: "font-weight: bold; color: #123456;")
+        assert "#123456" in t1.styleSheet() and "#123456" in t2.styleSheet()
+        return "size and casing change the icon; 60 rows scroll; the title colour goes through one hook"
+
+    check("groups: rows, tristate group check, fold, shown() names", groups_rows_and_toggle)
+    check("groups: disabled with a reason, Hide all skips it, state by key through clear_layers",
+          groups_enabled_and_state)
+    check("swatch size and casing, scroll area, title-style hook (stage-0 defaults unchanged)",
+          swatch_size_casing_scroll_hook)
+
     for key in ("w",):
         try:
             st[key].close()
