@@ -7,8 +7,8 @@ computed, under the E(tau) curve of the 2D test, beside the matches on its map.
 What the control does
 ---------------------
 One tau drives the three column tests of the review window together (the arc test on the centroid membrane, the 2D
-test and the arc test on the localization membrane). It offers the pre-registered tau_0 (``config/columns_params.yaml``),
-the other values of the 2D test's pre-registered sensitivity list, and a free value; every value but tau_0 is
+test and the arc test on the localization membrane). It offers the pre-specified tau_0 (``config/columns_params.yaml``),
+the other values of the 2D test's pre-specified sensitivity list, and a free value; every value but tau_0 is
 EXPLORATORY, and the badge beside the control says so while it is chosen. The values come from the loaded parameters
 (``tools.mps_tau.tau_choices``), never from this file. The control starts at tau_0 in every window, is never saved,
 and never writes the parameters file; the batch runner and the simulated null always run at tau_0.
@@ -67,19 +67,19 @@ __all__ = [
 TAU_LABEL_TEXT = "Tolerance tau:"
 FREE_TEXT = "Free"
 RESET_TEXT = "Back to tau_0"
-TAU_NOTE_TEXT = ("tau is how close (in nm) two clusters of adjacent rings must sit to count as eclipsed. tau_0 comes "
-                 "from the cluster sizes and position errors of one exploratory axon and was frozen before any other "
-                 "axon was analysed; any other value is exploratory.")
-UNAVAILABLE_NOTE = "The tolerance control is off here ({reason}): the column tests run at the pre-registered tau_0."
+TAU_NOTE_TEXT = ("tau is how close (in nm) two clusters of adjacent rings must sit to count as eclipsed. tau_0 is a "
+                 "pilot-derived suggestion: measured on one exploratory axon of unpublished pilot data and frozen "
+                 "before the column tests were run on other axons; any other value is exploratory.")
+UNAVAILABLE_NOTE = "The tolerance control is off here ({reason}): the column tests run at the pre-specified tau_0."
 
 
 def tau0_item_text(tau0: float) -> str:
-    """The combo's first entry: the pre-registered value, read from the loaded parameters."""
-    return f"tau_0 = {float(tau0):.2f} nm (pre-registered)"
+    """The combo's first entry: the pre-specified value, read from the loaded parameters."""
+    return f"tau_0 = {float(tau0):.2f} nm (pre-specified)"
 
 
 def preset_item_text(tau: float) -> str:
-    """A preset of the combo (another value of the 2D test's pre-registered sensitivity list)."""
+    """A preset of the combo (another value of the 2D test's pre-specified sensitivity list)."""
     return f"{float(tau):g} nm"
 
 
@@ -90,7 +90,7 @@ def badge_text(tau: float) -> str:
 
 # ============================================================================ what the window says about tau
 # The simulated-null button while tau is not tau_0 (simnull runs at tau_0 only).
-SIMNULL_TAU_TIP = ("Disabled: the simulated null runs at the pre-registered tau_0 only. Press 'Back to tau_0' to use "
+SIMNULL_TAU_TIP = ("Disabled: the simulated null runs at the pre-specified tau_0 only. Press 'Back to tau_0' to use "
                    "it.")
 # A run stopped because tau changed before it finished.
 TAU_STOPPED_NOTE = "A run was stopped: tau changed before it finished."
@@ -135,7 +135,7 @@ CURVE_LAYER_TIPS: Dict[str, str] = {
     "observed": "The matched fraction of this pair's rings at each tau of the grid (line with circles).",
     "null_mean": "The mean matched fraction of the same rings, one shifted at random along its contour (dashed).",
     "null_band": "Where 95 % of the shifted replicates fall at each tau (2.5 to 97.5 %; grey band).",
-    "tau0": "The pre-registered tau_0 (dashed vertical line).",
+    "tau0": "The pre-specified tau_0 (dashed vertical line).",
     "tau": "The tau chosen in the control (solid vertical line; hidden while it is tau_0).",
 }
 # The map's rows for the clusters each test matched (UI stage 1, T5).
@@ -186,9 +186,10 @@ TAU_UI_TOOLTIPS: Dict[str, str] = {
         "The tolerance tau of the column tests of THIS window: the arc test on the centroid membrane (primary), the "
         "2D test (sensitivity) and the arc test on the localization membrane (diagnostic) all run at the value chosen "
         "here.\n\n"
-        "tau_0 is the pre-registered value: it comes from the cluster sizes and position errors of one exploratory "
-        "axon and was frozen before any other axon was analysed. The other entries are the 2D test's "
-        "pre-registered sensitivity values: chosen here they are exploratory, like a free value. Every result, log "
+        "tau_0 is the pre-specified value, a pilot-derived suggestion: it was measured on the cluster sizes and "
+        "position errors of one exploratory axon of unpublished pilot data and frozen before the column tests were "
+        "run on other axons (not before any data were seen). The other entries are the 2D test's "
+        "pre-specified sensitivity values: chosen here they are exploratory, like a free value. Every result, log "
         "row and export computed at another value than tau_0 says EXPLORATORY.\n\n"
         "The batch runner and the simulated null always use tau_0, and the parameters file is never written from "
         "here.",
@@ -196,7 +197,7 @@ TAU_UI_TOOLTIPS: Dict[str, str] = {
         "A free tau in nm, shown when 'Free' is chosen (it starts at the current tau). Each value is another "
         "exploratory analysis; quick steps start one run, for the last value.",
     "tau_reset_button":
-        "Back to the pre-registered tau_0. Results already computed there come back at once.",
+        "Back to the pre-specified tau_0. Results already computed there come back at once.",
     "tau_badge":
         "Shown while tau is not tau_0: every p on screen is EXPLORATORY, and no p is corrected for trying several "
         "tolerances.",
@@ -208,7 +209,7 @@ TAU_UI_TOOLTIPS: Dict[str, str] = {
         "Which pair the E(tau) curve and the matches on the map show. Only the pairs the selection selects are listed "
         "(VIABLE first, then MARGINAL ones, a sensitivity only); NOT VIABLE pairs are never analysed.",
     "curve_plot":
-        "The E(tau) curve of the 2D test for this pair: the matched fraction E at every tau of the pre-registered "
+        "The E(tau) curve of the 2D test for this pair: the matched fraction E at every tau of the pre-specified "
         "grid, for these rings (Observed E) and for the same rings with one shifted at random along its contour (the "
         "null's mean and its 95 % band).\n\n"
         "It is computed with every run and does not depend on the tau chosen above: changing tau only moves the "
@@ -231,7 +232,7 @@ _CONTROL_KEYS: Tuple[str, ...] = ("tau_combo", "tau_spin", "tau_reset_button", "
 # ============================================================================ the control
 class TauControl(QtWidgets.QWidget):
     """
-    The tolerance of the review's column tests: a combo with tau_0 (pre-registered), one preset per other value of
+    The tolerance of the review's column tests: a combo with tau_0 (pre-specified), one preset per other value of
     the loaded ``tau_sensitivity_nm`` and "Free"; a spin box for the free value (``TAU_FREE_*`` of ``tools.mps_tau``,
     shown and enabled on "Free" only, starting at the current tau rounded to whole nm); "Back to tau_0"; an
     EXPLORATORY badge while tau is not tau_0; a note on what tau is.
@@ -332,14 +333,14 @@ class TauControl(QtWidgets.QWidget):
         return self._tau0
 
     def is_tau0(self) -> bool:
-        """True at the pre-registered tau_0 (and when the control is unavailable: the tests then run at tau_0)."""
+        """True at the pre-specified tau_0 (and when the control is unavailable: the tests then run at tau_0)."""
         return self._tau0 is None or self._tau is None or mt.is_tau0(self._tau, self._tau0)
 
     def choices(self) -> Tuple[mt.TauChoice, ...]:
         return tuple(self._choices)
 
     def reset(self) -> None:
-        """Back to the pre-registered tau_0."""
+        """Back to the pre-specified tau_0."""
         if self._tau0 is None or not self._choices:
             return
         self.tau_combo.setCurrentIndex(0)          # -> _on_combo -> changed, when tau was not tau_0

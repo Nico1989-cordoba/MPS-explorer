@@ -43,7 +43,8 @@ DEFAULT_MIN_SAMPLES = 10
 DEFAULT_SLAB_HALF_WIDTH_NM = 90.0
 
 # DBCV is OFF by default (-1.0: no real score is ever below the metric's own
-# floor, so the criterion never fires). Measured on real axon data, log10(area)
+# floor, so the criterion never fires). Measured on real axon data (the example
+# regions shipped in example data/, validate_cluster_quality.py), log10(area)
 # vs. DBCV score correlates at -0.78 to -0.79: the score is not blind to
 # cluster size, it is dominated by it. At the previous default of 0.0 this
 # removed the largest cluster in an axon in every case checked -- exactly the
@@ -55,9 +56,9 @@ DEFAULT_DBCV_THRESHOLD = -1.0
 
 # The occupancy threshold of Gazal et al. (2026): a perimeter point counts
 # as occupied within this Mahalanobis distance of a cluster's constrained
-# Gaussian. It decides the occupancy outright -- 0.1 instead of 3 turned
-# 46.5 % into 1.5 % on axon 7 -- so it is stored, exported, and never left
-# to whatever a spin box happens to show.
+# Gaussian. It decides the occupancy outright -- a much smaller threshold
+# shrinks the occupancy many-fold -- so it is stored, exported, and never
+# left to whatever a spin box happens to show.
 DEFAULT_MAHALANOBIS_THRESHOLD = 3.0
 
 
@@ -138,11 +139,11 @@ class MPSSettings:
                 "Stored slab_half_width_nm=%r out of range; using %s",
                 self.slab_half_width_nm, DEFAULT_SLAB_HALF_WIDTH_NM)
             self.slab_half_width_nm = DEFAULT_SLAB_HALF_WIDTH_NM
-        # The knob was retired on 2026-09-20. Measured over the 18 real
-        # April axons (1143 clusters), the DBCV score correlates with
-        # log10(cluster area) at -0.70, and in 10 of the 18 the largest
-        # cluster is the lowest- or second-lowest-scoring one: any
-        # threshold above off removes the big clusters first. A settings
+        # The knob was retired on 2026-09-20. Measured on unpublished pilot
+        # axons, the DBCV score correlates strongly and negatively with
+        # log10(cluster area), and in many axons the largest cluster is
+        # among the lowest-scoring ones: any threshold above off removes
+        # the big clusters first. A settings
         # file written before that is ignored rather than obeyed, because
         # a stored value would otherwise silently curate an analysis.
         if self.dbcv_threshold != DEFAULT_DBCV_THRESHOLD:

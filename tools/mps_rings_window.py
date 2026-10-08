@@ -11,10 +11,10 @@ component and compares neighbours, which is what the thesis plan's item
 What the panel is built around
 ------------------------------
 Whether two segments are two rings at all is a property of the data, not
-of the software, and on the 18-axon test set it usually fails: 19 of 33
+of the software, and on unpublished pilot data it often fails: many
 boundaries have no interior minimum in the axial density, because the
-fitted components (sigma 55-112 nm) are too broad for their ~190 nm
-spacing. The segment table therefore leads with the boundary depth and
+fitted components are too broad for their spacing. The segment table
+therefore leads with the boundary depth and
 says "unresolved" in orange where there is no valley, so that a number
 measured between two halves of one axial distribution can never be read
 as a number measured between two rings.
@@ -205,7 +205,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
                 "Open the H-ECL column analysis of this ROI: do the clusters\n"
                 "of consecutive rings stack in columns?\n\n"
                 "Its rings are built again from the ROI's localizations with\n"
-                "the pre-registered parameters (not the segmentation above),\n"
+                "the pre-specified parameters (not the segmentation above),\n"
                 "the clusters inside the axon are marked by the lumen rule,\n"
                 "and you decide on the doubtful ones before the analyses run.\n"
                 "The widefield images of the Axoplasm panel are used when it\n"

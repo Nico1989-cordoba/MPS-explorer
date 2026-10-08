@@ -31,11 +31,11 @@ from tools.mps_settings import (  # noqa: E402
 PASSED = 0
 FAILED = 0
 
-# How the test data is actually filed.
-REAL = ("C:/Users/nicol/OneDrive/Doctorado/1°Reunión de avances de tesis/"
-        "Abril/ROI 1/Axon 7/"
-        "26.04.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_filter_"
-        "render_byRCC1000_picked_axon7.hdf5")
+# How test data is typically filed (a made-up path of that shape).
+REAL = ("D:/thesis data/meeting 1/"
+        "SampleA/ROI 1/Axon 4/"
+        "movie_1_MMStack.ome_locs_filter_"
+        "render_byRCC1000_picked_axon4.hdf5")
 
 
 def check(name: str, fn) -> None:
@@ -62,27 +62,27 @@ def test_from_the_path() -> None:
     def the_roi_and_the_axon():
         p = propose(REAL)
         assert p.identity.roi_name == "ROI 1", p.identity
-        assert p.identity.axon_name == "Axon 7", p.identity
+        assert p.identity.axon_name == "Axon 4", p.identity
         return f"{p.identity.roi_name} / {p.identity.axon_name}"
 
     def the_folder_wins_over_the_file_name():
-        # The file is named "..._picked_axon7.hdf5"; the folder is the one
+        # The file is named "..._picked_axon4.hdf5"; the folder is the one
         # the user reads, and it is the one proposed.
         p = propose(REAL)
-        assert p.identity.axon_name == "Axon 7", p.identity.axon_name
-        assert "Axon 7" in p.explain("axon_name"), p.explain("axon_name")
+        assert p.identity.axon_name == "Axon 4", p.identity.axon_name
+        assert "Axon 4" in p.explain("axon_name"), p.explain("axon_name")
         return p.explain("axon_name")
 
     def the_slide_is_the_folder_above_the_roi():
         p = propose(REAL)
-        assert p.identity.sample == "Abril", p.identity.sample
+        assert p.identity.sample == "SampleA", p.identity.sample
         assert "above 'ROI 1'" in p.explain("sample"), p.explain("sample")
         return f"{p.identity.sample}: {p.explain('sample')}"
 
     def a_file_named_after_the_roi_is_not_a_slide():
         # A whole-field file whose NAME holds "ROI 1" must not make its own
         # folder the slide: the file name is not a folder.
-        path = "D:/nerves/Abril/some folder/ROI 1 of the day.hdf5"
+        path = "D:/nerves/SampleA/some folder/ROI 1 of the day.hdf5"
         p = propose(path)
         assert p.identity.sample == "", p.identity.sample
         assert "no folder" in p.explain("sample"), p.explain("sample")
@@ -175,7 +175,7 @@ def test_nothing_is_invented() -> None:
 def test_carry_over() -> None:
     print("\n--- what the previous axon leaves behind ---")
 
-    typed = AxonIdentity(genotype="KO", protein="4.1B", sample="Abril",
+    typed = AxonIdentity(genotype="KO", protein="4.1B", sample="SampleA",
                          roi_name="ROI 1", axon_name="Axon 6")
     folder = os.path.dirname(REAL)
 
@@ -187,13 +187,13 @@ def test_carry_over() -> None:
         return p.explain("genotype")
 
     def the_axon_is_never_carried():
-        # Axon 6's identity must not name Axon 7's row.
+        # Axon 6's identity must not name Axon 4's row.
         p = propose(REAL, remembered=typed, remembered_folder=folder)
-        assert p.identity.axon_name == "Axon 7", p.identity.axon_name
+        assert p.identity.axon_name == "Axon 4", p.identity.axon_name
         return p.identity.axon_name
 
     def another_roi_of_the_same_slide_keeps_it():
-        other = REAL.replace("ROI 1/Axon 7", "ROI 2/Axon 3")
+        other = REAL.replace("ROI 1/Axon 4", "ROI 2/Axon 3")
         p = propose(other, remembered=typed, remembered_folder=folder)
         assert p.identity.genotype == "KO", p.identity
         assert p.identity.roi_name == "ROI 2", p.identity
@@ -202,16 +202,16 @@ def test_carry_over() -> None:
 
     def another_slide_keeps_nothing():
         # Where the genotype changes is exactly across slides.
-        other = REAL.replace("/Abril/", "/Mayo/")
+        other = REAL.replace("/SampleA/", "/SampleB/")
         p = propose(other, remembered=typed, remembered_folder=folder)
         assert p.identity.genotype == "", p.identity
-        assert p.identity.sample == "Mayo", p.identity
+        assert p.identity.sample == "SampleB", p.identity
         return "genotype empty again"
 
     def what_the_path_says_wins():
-        path = "D:/nervio WT aducina/Abril/ROI 1/Axon 9/locs.hdf5"
+        path = "D:/nervio WT aducina/SampleA/ROI 1/Axon 9/locs.hdf5"
         p = propose(path, remembered=typed,
-                    remembered_folder="D:/nervio WT aducina/Abril/ROI 1")
+                    remembered_folder="D:/nervio WT aducina/SampleA/ROI 1")
         assert p.identity.genotype == "WT", p.identity
         return p.identity.genotype
 
@@ -247,7 +247,7 @@ def test_axon_id() -> None:
 
     def two_files_differ():
         a = axon_id(REAL, "roi")
-        b = axon_id(REAL.replace("axon7", "axon8"), "roi")
+        b = axon_id(REAL.replace("axon4", "axon5"), "roi")
         assert a != b, a
         return f"{a} vs {b}"
 
@@ -260,7 +260,7 @@ def test_axon_id() -> None:
         return a
 
     def the_folder_it_sits_in_does_not_move_it():
-        moved = REAL.replace("/Abril/", "/copies/Abril/")
+        moved = REAL.replace("/SampleA/", "/copies/SampleA/")
         assert axon_id(REAL, "roi") == axon_id(moved, "roi")
         return "the same file copied elsewhere is the same axon"
 
@@ -285,8 +285,8 @@ def test_settings() -> None:
         s = MPSSettings()
         s.identity_patterns = {"genotype": r"(KO|WT|HET)"}
         s.identity_last = identity_to_dict(
-            AxonIdentity(genotype="KO", protein="4.1B", sample="Abril",
-                         roi_name="ROI 1", axon_name="Axon 7"))
+            AxonIdentity(genotype="KO", protein="4.1B", sample="SampleA",
+                         roi_name="ROI 1", axon_name="Axon 4"))
         s.identity_last_folder = os.path.dirname(REAL)
         assert save_settings(s, folder)
         back = load_settings(folder)
@@ -303,7 +303,7 @@ def test_settings() -> None:
         assert "genotype" not in back.identity_patterns, back.identity_patterns
         assert back.identity_patterns["roi_name"] == r"(ROI \d+)"
         # And the default is used in its place, not nothing.
-        p = propose("D:/KO/Abril/ROI 1/Axon 7/x.hdf5",
+        p = propose("D:/KO/SampleA/ROI 1/Axon 4/x.hdf5",
                     patterns=back.identity_patterns)
         assert p.identity.genotype == "KO", p.identity
         return "dropped, default used"
@@ -361,7 +361,7 @@ def test_the_animal() -> None:
         return f"'{p.identity.animal}' with the user's own pattern"
 
     typed = AxonIdentity(genotype="KO", protein="4.1B", animal="M12",
-                         sample="Abril", roi_name="ROI 1", axon_name="Axon 6")
+                         sample="SampleA", roi_name="ROI 1", axon_name="Axon 6")
     folder = os.path.dirname(REAL)
 
     def it_stays_with_the_slide():
@@ -372,7 +372,7 @@ def test_the_animal() -> None:
         return p.explain("animal")
 
     def it_does_not_cross_to_another_slide():
-        other = "D:/Mayo/ROI 1/Axon 2/locs.hdf5"
+        other = "D:/SampleB/ROI 1/Axon 2/locs.hdf5"
         p = propose(other, remembered=typed, remembered_folder=folder)
         assert p.identity.animal == "", p.identity
         return "another slide starts empty"
@@ -381,7 +381,7 @@ def test_the_animal() -> None:
         back = identity_from_dict(identity_to_dict(typed))
         assert back.animal == "M12", back
         # An identity stored before the animal existed still loads.
-        old = identity_from_dict({"genotype": "KO", "sample": "Abril"})
+        old = identity_from_dict({"genotype": "KO", "sample": "SampleA"})
         assert old.animal == "" and old.genotype == "KO", old
         return "stored, and an older stored identity still loads"
 

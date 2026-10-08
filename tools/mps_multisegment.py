@@ -114,8 +114,8 @@ def find_axial_segments(
         - "paper" (default): +/- half_width_nm around each component mean,
           exactly as the paper treats the single segment it analyses.
           Consecutive slabs OVERLAP whenever Delta-Z < 2 * half_width_nm,
-          so a localization can contribute to two segments. Measured on 18
-          real axons, 13 of 33 consecutive pairs overlap at +/-90 nm.
+          so a localization can contribute to two segments. On unpublished
+          pilot axons, many consecutive pairs overlap at +/-90 nm.
         - "valley": additionally clip each slab at the minimum of the
           fitted axial density between neighbouring components, so every
           localization belongs to at most one segment. Preferred over

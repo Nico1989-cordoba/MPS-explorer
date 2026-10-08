@@ -2,7 +2,7 @@
 """
 Checks for the H2 part of tools/mps_columns.py -- centroid precision by
 bootstrap over emission events, suspect marks on clusters, tau_0 and its
-components, and the pre-registered parameters file -- against synthetic
+components, and the pre-specified parameters file -- against synthetic
 axons of KNOWN truth (the research plan 03_plan.md, S3.6,
 milestone H2; DECISIONES.md D-03, D-12).
 
@@ -1568,7 +1568,7 @@ def test_columns_params() -> None:
 
     def strictness():
         load = require("load_columns_params")
-        base = ("# pre-registered parameters (test)\n"
+        base = ("# pre-specified parameters (test)\n"
                 "tau0_nm: 63.2\n"
                 "tau_grid_nm: [20.0, 30.0]\n"
                 "tau_sensitivity_nm: [30.0, 63.2, 100.0]\n")
@@ -1627,7 +1627,7 @@ def test_columns_params() -> None:
                 assert getattr(rp, f.name) == getattr(default, f.name), f.name
         return f"shared fields copied exactly: {shared}; the others at RingsParams defaults"
 
-    BASE = ("# pre-registered parameters (test)\n"
+    BASE = ("# pre-specified parameters (test)\n"
             "tau0_nm: 63.2\n"
             "tau_grid_nm: [20.0, 30.0]\n"
             "tau_sensitivity_nm: [30.0, 63.2, 100.0]\n")
@@ -1721,7 +1721,7 @@ def test_columns_params() -> None:
 
     def provenance_required():
         # 03_plan S3.1: dataset_role is one of three roles; a frozen file
-        # without role, date or commit is not a pre-registration. The
+        # without role, date or commit is not a pre-specification. The
         # writer refuses it (and leaves no file); the loader does not
         # require it (the minimal file of `strictness` loads with {}).
         write, load = require("write_columns_params", "load_columns_params")

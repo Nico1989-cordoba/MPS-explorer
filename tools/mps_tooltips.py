@@ -6,7 +6,7 @@ The texts live here rather than beside the widgets so they can be read
 as a set: a beginner meets them in the order of the window, and a
 sentence that contradicts the one next to it is easier to catch when
 the two are on the same screen. ``apply_tooltips`` puts them on, and
-the harness in the scratchpad checks both directions -- every name here
+a separate (private) harness checks both directions -- every name here
 exists in the window, and every control of the window has a text.
 
 They are in English, like the rest of the interface, because that is
@@ -125,8 +125,8 @@ MAIN_WINDOW: Dict[str, str] = {
     "lineEdit_minsamples_2":
         "DBSCAN's Min Pts for channel 2.\n\n"
         "This one counts LOCALIZATIONS, and the two channels are rarely "
-        "sampled alike: across five real adducin files channel 2 carried "
-        "1 to 138 times more of them per 20 nm cell than channel 1. That "
+        "sampled alike: channel 2 can carry many times more of them per "
+        "20 nm cell than channel 1. That "
         "is why the Two channels panel will not borrow channel 1's.",
     "pushButton_clusterch2":
         "Cluster the channel-2 selection, to look at.\n\n"

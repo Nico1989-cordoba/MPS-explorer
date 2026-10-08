@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Full-pipeline validation over the 18 real axons of varied diameter in
-ROI 1 / ROI 2, using the pixel size read from each file's Picasso YAML.
+Full-pipeline validation over a folder of real axons of varied diameter
+(unpublished data, not in this repository; picked axons under ROI
+folders), using the pixel size read from each file's Picasso YAML.
 
 Runs steps 1-4 end to end and checks every reference value the paper
 gives that is reachable so far:
@@ -12,7 +13,7 @@ gives that is reachable so far:
     1NN median of medians  260 nm
     N vs perimeter     y = 4.08x - 12.62, r = 0.81   <-- needs varied calibres
 
-Run:  python validate_full_18axons.py
+Run:  python validate_full_pipeline.py   (with MPS_VALIDATION_DATA set)
 """
 
 from __future__ import annotations
@@ -35,14 +36,11 @@ from tools.mps_periodicity import fit_z_periodicity, select_mps_slab  # noqa: E4
 from tools.mps_geometry import reconstruct_perimeter, compute_cluster_areas  # noqa: E402
 from tools.mps_spatial import compute_nn_distances, pool_nn_across_axons  # noqa: E402
 
-# Root of the validation dataset (18 axon cross-sections of varied calibre).
-# Override without editing this file:
+# Root of the validation dataset (axon cross-sections of varied calibre).
+# Unpublished data, so it is given from outside, never written here:
 #     set MPS_VALIDATION_DATA=D:\path\to\axons     (Windows)
 #     export MPS_VALIDATION_DATA=/path/to/axons    (POSIX)
-DATA_ROOT = os.environ.get(
-    "MPS_VALIDATION_DATA",
-    r"C:\Users\nicol\OneDrive\Doctorado\1°Reunión de avances de tesis\Abril",
-)
+DATA_ROOT = os.environ.get("MPS_VALIDATION_DATA", "")
 EPS_NM, MIN_SAMPLES = 25.0, 10
 
 
@@ -58,6 +56,8 @@ def read_pixelsize(hdf5_path: str) -> float:
 
 def find_axons():
     out = []
+    if not DATA_ROOT:
+        return out
     for pat in ["ROI 1/*.hdf5", "ROI 1/*/*.hdf5", "ROI 2/*.hdf5"]:
         for f in glob.glob(os.path.join(DATA_ROOT, pat)):
             if "axon" in os.path.basename(f).lower():
@@ -120,6 +120,9 @@ def run(path: str):
 
 
 if __name__ == "__main__":
+    if not DATA_ROOT or not os.path.isdir(DATA_ROOT):
+        sys.exit("Skipped: set MPS_VALIDATION_DATA to the folder of picked "
+                 "axons (unpublished data, not in this repository).")
     axons = find_axons()
     print(f"Found {len(axons)} axon files\n")
 

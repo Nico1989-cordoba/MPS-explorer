@@ -1755,7 +1755,7 @@ def _smoothed_closed_contour(contour: NDArray[np.float64], n_samples: int, warni
     ignores the last point it is given (it is the period's end), so the
     open contour would leave the last cluster out of the fit -- with
     ``s = K`` (K the ORIGINAL vertices, scipy's rule of thumb for unit
-    weights, D-25's pre-registered scale), resampled at ``n_samples``
+    weights, D-25's pre-specified scale), resampled at ``n_samples``
     points. Falls back to the polygon (with a warning) when the fit
     fails."""
     c = np.asarray(contour, dtype=np.float64)

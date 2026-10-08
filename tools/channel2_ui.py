@@ -5,11 +5,12 @@ Asking for channel 2's own clustering parameters, once per acquisition.
 The two-channel comparison used to cluster the partner protein with
 betaII-spectrin's eps and min_samples whenever nothing set its own. That
 is an assumption about the partner's density rather than a measurement
-of it, and measured over five real adducin files the two channels are 1
-to 138 times apart in localizations per resolution cell. min_samples
-counts localizations, so the same number does not mean the same thing in
-the two channels, and on one axon the difference was 13 clusters against
-35 and a median heterotypic distance of 280 nm against 223.
+of it, and measured on unpublished adducin files the two channels can be
+up to two orders of magnitude apart in localizations per resolution cell.
+min_samples counts localizations, so the same number does not mean the
+same thing in the two channels, and on one axon the difference was a
+several-fold change in the number of clusters and a clear change in the
+median heterotypic distance.
 
 So the comparison refuses, and this is the box that unblocks it.
 
@@ -24,9 +25,9 @@ carries what they need in order to answer:
     where the right answer is known.
 
 Nothing is filled in. The estimate is one deliberate click away, never
-an Enter away: measured on this project's own spectrin, where 25 nm is
-established, the same k-distance estimator returns 58 to 109 nm, so it
-is a starting point and not an answer.
+an Enter away: measured on this project's own (unpublished) spectrin,
+where 25 nm is established, the same k-distance estimator returns values
+several times larger, so it is a starting point and not an answer.
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -41,10 +42,8 @@ from PyQt5 import QtCore, QtWidgets
 from tools import mps_plot_style as plot_style
 from tools.mps_crosschannel import RESOLUTION_CELL_NM, locs_per_cell
 
-# What the k-distance estimator returned on this project's 18 spectrin
-# axons, where the established value is 25 nm. Quoted so the estimate is
-# never read as an answer.
-ESTIMATOR_ON_KNOWN_NM = (58.0, 109.0)
+# The established channel-1 value the estimate is compared with in the
+# box, so the estimate is never read as an answer.
 ESTABLISHED_CHANNEL1_NM = 25.0
 
 
@@ -177,8 +176,7 @@ class Channel2ParametersDialog(QtWidgets.QDialog):
             f"Estimated from channel 2's own points: {', '.join(parts)}. "
             f"A starting point, not an answer: on channel 1, where "
             f"{ESTABLISHED_CHANNEL1_NM:g} nm is the established value, the "
-            f"same estimator returns {ESTIMATOR_ON_KNOWN_NM[0]:.0f} to "
-            f"{ESTIMATOR_ON_KNOWN_NM[1]:.0f} nm.")
+            f"same estimator returns values several times larger.")
 
     # --------------------------------------------------------- behaviour
     def _fill_with_estimate(self) -> None:

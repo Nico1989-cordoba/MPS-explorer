@@ -230,7 +230,7 @@ class UnrollParams:
     0.031 with K_b = 4 (m = L / 8); without the exclusion 0.0475 (R 400)
     and 0.055 +/- 0.018, the levels the uniform-shift argument gives
     exactly (U ~ Haar on the circle makes the B + 1 configurations
-    exchangeable). The parameter stays so that the pre-registered 0.5
+    exchangeable). The parameter stays so that the pre-specified 0.5
     can be passed for comparison with the H3 null; ``CrossPcf.
     min_shift_nm`` records what was applied. ``include_locs``: also
     unroll every localization.
@@ -971,7 +971,7 @@ def analyze_unroll(
     ``cross_pcf_circular`` for every adjacent pair and every k+2 pair of
     ``cols`` (the persistence control of 02 P7 read on the pcf), all
     with ``params`` and the seed of the columns run (``cols.random_seed``,
-    D-22: the seed travels with the pre-registered parameters).
+    D-22: the seed travels with the pre-specified parameters).
 
     ``include_suspect`` defaults to ``cols.include_suspect`` so that the
     clusters entering the pcf are the ones that entered the matching;
@@ -1700,7 +1700,7 @@ def arc_eclipse_test(
         L, the reference curve's closed length.
     tau_nm
         The arc tolerance tau_s (the run's tau_0, D-20: the same
-        pre-registered tolerance, now measured along the membrane).
+        pre-specified tolerance, now measured along the membrane).
     n_null, random_seed
         Replicates and seed.
     ring_a, ring_b, reference_ring
@@ -2215,7 +2215,7 @@ def analyze_arc_columns(
     as arcs on ONE closed curve of the axon, ``arc_eclipse_test`` for
     every adjacent and every k+2 pair (the persistence control of 02
     P7), ``arc_joint_null`` over the adjacent pairs, all at tau_s =
-    ``tau_nm`` (None: ``cols.tau0_nm``, the pre-registered tolerance,
+    ``tau_nm`` (None: ``cols.tau0_nm``, the pre-specified tolerance,
     now along the membrane), with ``n_null = params.n_null`` and the
     seed of the columns run (``cols.random_seed``, D-22).
 

@@ -121,7 +121,7 @@ implementation follows these):
   one row per replicate to ``<out>/<cell>.csv`` and skips the (cell,
   replicate) rows that exist, saying "skip" on stdout; ``summarize``
   writes a markdown containing every cell's name, "Wilson", the rules
-  "R0", "R1", "R2", the sentence that R1/R2 are "not pre-registered", and
+  "R0", "R1", "R2", the sentence that R1/R2 are "not pre-specified", and
   "Wilcoxon".
 
 Deviations/decisions (each with the reason; the specification's text is
@@ -216,7 +216,7 @@ quoted where it is departed from):
   placed with another normal convention moves by r sin(0.003) ~ 0.05
   nm; 1e-3 nm is 1e-5 of tau. The zero-shift identity and the spacing
   permutation keep 1e-9 / 1e-6.
-* The smoothing scale of the smoothed curve is D-25's pre-registered s =
+* The smoothing scale of the smoothed curve is D-25's pre-specified s =
   K of ``smooth_contour_bspline`` with unit weights, which bounds the rms
   residual of the vertices by 1 nm: on rings scattered by 15 nm the
   curve still passes within ~1 nm rms of the vertices (probe of
@@ -1827,7 +1827,7 @@ def test_null_kinds() -> None:
             zc, zi = float(np.nanmean(c["zeta"])), float(np.nanmean(i["zeta"]))
             dz = zc - zi
             # The specification asked |mean zeta| <= 0.15 for the conserved-offset null at 15 nm scatter, on the
-            # hypothesis that its smoothing bias is negligible. It is NOT: with D-25's pre-registered s = K the
+            # hypothesis that its smoothing bias is negligible. It is NOT: with D-25's pre-specified s = K the
             # smoothed curve passes within 1 nm of the scattered centroids and the null equals the interpolating
             # one (+0.19 / +0.11 at K = 20 / 40, R = 200; the reviews measured +0.27 / +0.15 at R = 300 / 1000),
             # and a curve smoothed to the scatter's own scale (s = K sigma_hat^2) is WORSE (+0.56 / +0.35): the
@@ -2358,10 +2358,10 @@ def test_cli() -> None:
         dt = time.perf_counter() - t1
         with open(report, "r", encoding="utf-8") as fh:
             text = fh.read()
-        for token in ("m1_full_interp", "m5_f1_offset", "Wilson", "R0", "R1", "R2", "not pre-registered", "Wilcoxon"):
+        for token in ("m1_full_interp", "m5_f1_offset", "Wilson", "R0", "R1", "R2", "not pre-specified", "Wilcoxon"):
             assert token in text, f"report lacks {token!r}"
         assert re.search(r"\b(18|30)\b", text), "no aggregated power vs n axons"
-        return f"{dt:.0f} s: report {len(text)} chars with both cells, Wilson CIs, rules R0/R1/R2 (R1/R2 not pre-registered), Wilcoxon power vs n"
+        return f"{dt:.0f} s: report {len(text)} chars with both cells, Wilson CIs, rules R0/R1/R2 (R1/R2 not pre-specified), Wilcoxon power vs n"
 
     def measure_worker():
         measure_axon = require_power("measure_axon")
@@ -2414,7 +2414,7 @@ def test_cli() -> None:
     check("determinism: one cell's CSV deleted and rebuilt with --cells -> rows identical to the first run", determinism_rebuild)
     check("checkpoint repair: a truncated last row is dropped (stdout), re-run and identical to the first run", truncated_row)
     check("a cell with an invalid override is logged to errors.log and skipped; the other cell runs; exit 1", bad_override_cell)
-    check("summarize: markdown with both cells, Wilson CIs, R0/R1/R2 (R1/R2 not pre-registered), Wilcoxon power vs n", summarize)
+    check("summarize: markdown with both cells, Wilson CIs, R0/R1/R2 (R1/R2 not pre-specified), Wilcoxon power vs n", summarize)
     check("measure worker (measure_axon on arrays) on two synthetic axons + pool_sim_configs: medians, concatenated samples, "
           "pooled lpz strata, the chosen contour", measure_worker)
     check("find_axon_files: H1's patterns and the 'axon' basename filter on dummy names (3 of 7)", discovery)

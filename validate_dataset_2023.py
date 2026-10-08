@@ -14,7 +14,7 @@ What is verified:
      when both come from one movie;
   2. this software reproduces, value for value, the 1NN distances the lab
      measured in 2023 with its own script (DBSCAN eps 30 nm, 10 samples,
-     x and y only) on the 18 axons it selected;
+     x and y only) on the axons it selected;
   3. how much the two loose ends of this data move that result: the pixel
      size, which the YAML gives as 135 nm and the camera metadata as
      133 nm, and the last cluster, which the 2023 script leaves out
@@ -226,7 +226,7 @@ def section_reproduce() -> None:
             mine[(roi, number)] = ours
             theirs[(roi, number)] = old_distances(roi, number)
             raw[(roi, number)] = n_raw
-        assert len(mine) == 18, len(mine)
+        assert len(mine) == len(SELECTED), len(mine)
         counts = [len(v) for v in mine.values()]
         return (f"{len(mine)} axons, {sum(counts):,} clusters "
                 f"({min(counts)}-{max(counts)} per axon)")
@@ -258,7 +258,7 @@ def section_reproduce() -> None:
                 f"centroid rounding decides; pooled median "
                 f"{np.median(pooled):.1f} nm")
 
-    check("the 18 selected axons run", every_selected_axon)
+    check("the selected axons run", every_selected_axon)
     check("the same clusters as in 2023", same_number_of_clusters)
     check("the same 1NN distances, value for value", same_distances)
 
@@ -275,7 +275,7 @@ def section_reproduce() -> None:
             changed += int(np.count_nonzero(
                 np.round(whole[:common])
                 != np.round(mine[(roi, number)][:common])))
-        assert added == 18, added
+        assert added == len(SELECTED), added
         return (f"one cluster per axon left out, {added} in all; putting "
                 f"them back also moves {changed} of the other distances")
 

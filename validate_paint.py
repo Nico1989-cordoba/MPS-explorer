@@ -715,8 +715,8 @@ def test_quality_checks() -> None:
         # depends on the walk drawn, and must not shift when other checks
         # in this section change.
         local = np.random.default_rng(11)
-        # Sparse revisits, as in the 15.07.26 data: 3,000 sites, three
-        # visits each at random times over 20,000 frames. With many visits
+        # Sparse revisits, as in a sparse DNA-PAINT acquisition: 3,000
+        # sites, three visits each at random times over 20,000 frames. With many visits
         # per site every point has a coincident revisit and nothing moves
         # the fraction.
         n_sites, per_site, frames = 3000, 3, 20000

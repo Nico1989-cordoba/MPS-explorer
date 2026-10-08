@@ -247,7 +247,7 @@ def contour_health_checks() -> None:
 
     def a_concave_axon_stays_quiet():
         # An oval squeezed to a waist a third of its width, which is
-        # further than any sciatic cross-section in this dataset goes.
+        # further than any sciatic cross-section seen so far goes.
         rng = np.random.default_rng(23)
         worst, fired = 0.0, 0
         for _ in range(20):
@@ -345,8 +345,8 @@ def contour_health_checks() -> None:
     # ------------------------------------------------------------------
     # The same depth, read against the axon's own scatter (2026-09-22).
     # The 0.40 count is calibrated for centres that scatter by up to 5 %
-    # of the radius; the April axons scatter a median of ~10 %, and at
-    # that a healthy ring reaches 0.41-0.50. These hold the recalibrated
+    # of the radius; real (pilot) axons can scatter about twice that, and
+    # at 10 % a healthy ring reaches 0.41-0.50. These hold the recalibrated
     # reading to what it claims.
 
     def scatter_estimate_is_in_the_right_range():
@@ -367,7 +367,7 @@ def contour_health_checks() -> None:
           scatter_estimate_is_in_the_right_range)
 
     def noisy_healthy_rings_are_not_called_interior():
-        # At the scatter the April axons have, the 0.40 count fires on
+        # At the scatter real axons can have, the 0.40 count fires on
         # healthy rings; the claim that the centres are NOT scatter must
         # not.
         rng = np.random.default_rng(43)

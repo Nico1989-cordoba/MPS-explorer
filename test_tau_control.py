@@ -322,15 +322,15 @@ def test_texts_at_another_tau(cp: Any) -> None:
     v = _v(ms.DEFAULT_SELECTION, 100, cp)
     e = _v(ms.SelectionSpec.from_label("v2[]"), 100, cp)
     assert mt.tau_banner(v) == (
-        f"EXPLORATORY ANALYSIS {DEFAULT_LABEL} | tau = 100 nm #{v.hash}: tau = 100 nm is not the pre-registered "
+        f"EXPLORATORY ANALYSIS {DEFAULT_LABEL} | tau = 100 nm #{v.hash}: tau = 100 nm is not the pre-specified "
         f"tau_0 = {t0:.2f} nm; p values are not corrected for trying several tolerances or selections")
     assert mt.tau_banner(e) == (
-        f"EXPLORATORY ANALYSIS v2[] | tau = 100 nm #{e.hash}: tau = 100 nm is not the pre-registered tau_0 = "
+        f"EXPLORATORY ANALYSIS v2[] | tau = 100 nm #{e.hash}: tau = 100 nm is not the pre-specified tau_0 = "
         f"{t0:.2f} nm, and the selection is not the pre-specified rule {DEFAULT_LABEL}; p values are not corrected "
         "for trying several tolerances or selections")
-    assert mt.tau_2d_line(100.0, t0) == f"   tau 100.0 nm (exploratory; the pre-registered tau_0 is {t0:.1f} nm)"
-    assert mt.tau_2d_line(30.0, t0) == f"   tau 30.0 nm (exploratory; the pre-registered tau_0 is {t0:.1f} nm)"
-    assert mt.tau_tag(v) == f"EXPLORATORY tau = 100 nm (pre-registered tau_0 = {t0:.2f} nm) #{v.hash}"
+    assert mt.tau_2d_line(100.0, t0) == f"   tau 100.0 nm (exploratory; the pre-specified tau_0 is {t0:.1f} nm)"
+    assert mt.tau_2d_line(30.0, t0) == f"   tau 30.0 nm (exploratory; the pre-specified tau_0 is {t0:.1f} nm)"
+    assert mt.tau_tag(v) == f"EXPLORATORY tau = 100 nm (pre-specified tau_0 = {t0:.2f} nm) #{v.hash}"
     assert mt.analysis_with_tau("NAME", v) == f"NAME | {mt.tau_tag(v)}"
     assert mt.pending_export_message(100) == (
         "The results at tau = 100 nm are still being computed: only the decisions were written.")

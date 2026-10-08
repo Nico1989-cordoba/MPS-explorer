@@ -4,8 +4,14 @@ Checks for the batch: a folder of axons analysed at once, written to the
 same table the axon window writes, read back, and summarised by group
 without pretending the axons are independent.
 
-On the 18 real axons of April (read only; everything is written to a
+On a folder of real picked axons (read only; everything is written to a
 temporary folder), plus constructed cases where the answer is known.
+
+The real folder is unpublished data and is not in the repository: set
+MPS_VALIDATION_DATA to it, and MPS_VALIDATION_EXPECTED to a private JSON
+file with what that folder must give ({"n_axons": ..., "roi_names": [...],
+"icc": {column: value}}). Without them the real-data checks are skipped
+with a note and only the constructed cases run.
 
 Run:  python validate_batch.py
 """
@@ -13,13 +19,14 @@ Run:  python validate_batch.py
 from __future__ import annotations
 
 import csv
+import json
 import os
 import shutil
 import sys
 import tempfile
 import time
 import traceback
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 
@@ -31,8 +38,21 @@ from tools.mps_identity import AxonIdentity  # noqa: E402
 from tools.mps_settings import MPSSettings  # noqa: E402
 from tools.results_table import append_rows, excel_copy  # noqa: E402
 
-APRIL = (r"C:\Users\nicol\OneDrive\Doctorado\1°Reunión de avances de tesis"
-         r"\Abril")
+# The folder of real picked axons (unpublished; never in this repository)
+# and the private file of what it must give.
+DATA_ROOT = os.environ.get("MPS_VALIDATION_DATA", "")
+EXPECTED_PATH = os.environ.get("MPS_VALIDATION_EXPECTED", "")
+
+
+def _expected() -> Dict[str, Any]:
+    if not EXPECTED_PATH or not os.path.isfile(EXPECTED_PATH):
+        return {}
+    with open(EXPECTED_PATH, encoding="utf-8") as handle:
+        return dict(json.load(handle))
+
+
+EXPECTED = _expected()
+N_AXONS = int(EXPECTED.get("n_axons", 0))
 
 PASSED = 0
 FAILED = 0
@@ -61,13 +81,13 @@ STATE: Dict[str, object] = {}
 # ===========================================================================
 
 def test_the_plan() -> None:
-    print("\n--- what the April folder holds ---")
-    plan = mb.plan_batch(APRIL, pattern="axon")
+    print("\n--- what the real folder holds ---")
+    plan = mb.plan_batch(DATA_ROOT, pattern="axon")
     STATE["plan"] = plan
 
-    def eighteen_axons():
-        assert len(plan.files) == 18, [os.path.basename(f.path)
-                                       for f in plan.files]
+    def every_axon_is_found():
+        assert len(plan.files) == N_AXONS, [os.path.basename(f.path)
+                                            for f in plan.files]
         assert all(f.path.lower().endswith(".hdf5") for f in plan.files)
         return plan.describe()
 
@@ -84,11 +104,12 @@ def test_the_plan() -> None:
 
     def the_path_gives_the_roi_and_not_the_animal():
         rois = {f.identity.roi_name for f in plan.files}
-        assert rois == {"ROI 1", "ROI 2"}, rois
+        want = set(EXPECTED.get("roi_names", []))
+        assert rois == want, rois
         assert all(f.identity.animal == "" for f in plan.files)
-        return "ROI 1 and ROI 2; the animal empty for all 18"
+        return f"{len(rois)} ROIs; the animal empty for all {len(plan.files)}"
 
-    check("the 18 axons of April are found", eighteen_axons)
+    check("every axon of the folder is found", every_axon_is_found)
     check("the tables exported by hand are left out by their columns",
           the_tables_of_the_manual_test_are_not_axons)
     check("every file carries its own pixel size",
@@ -102,7 +123,7 @@ def test_the_plan() -> None:
 # ===========================================================================
 
 def test_the_run() -> None:
-    print("\n--- the batch over the 18 axons ---")
+    print("\n--- the batch over the folder ---")
     plan = STATE["plan"]
     done: List[int] = []
     started = time.time()
@@ -115,8 +136,9 @@ def test_the_run() -> None:
         failed = [(os.path.basename(r.source), r.error) for r in records
                   if not r.ok]
         assert not failed, failed
-        assert done == list(range(18)), done
-        return f"18 of 18 in {elapsed:.0f} s, {elapsed / 18:.1f} s each"
+        assert done == list(range(N_AXONS)), done
+        return (f"{N_AXONS} of {N_AXONS} in {elapsed:.0f} s, "
+                f"{elapsed / N_AXONS:.1f} s each")
 
     def the_row_is_the_axon_windows_row():
         # The same analysis as the axon window runs, without an ROI: the
@@ -229,13 +251,13 @@ def test_the_table() -> None:
         append_rows(path, check_.rows_to_write())
         with open(path, encoding="utf-8", newline="") as handle:
             back = list(csv.DictReader(handle))
-        assert len(back) == 18
-        return f"18 rows, {len(back[0])} columns"
+        assert len(back) == N_AXONS
+        return f"{N_AXONS} rows, {len(back[0])} columns"
 
     def the_same_batch_again_is_seen():
         check_ = mb.check_export(records, path)
-        assert len(check_.already) == 18, check_.already
-        return "all 18 already there: replace or add is asked"
+        assert len(check_.already) == N_AXONS, check_.already
+        return f"all {N_AXONS} already there: replace or add is asked"
 
     def a_file_exported_from_the_axon_window_is_left_out():
         # Axon exported by hand with an ROI around it, as in the manual
@@ -258,8 +280,9 @@ def test_the_table() -> None:
         name = os.path.basename(record.source).lower()
         assert list(check_.in_table_otherwise) == [name], \
             check_.in_table_otherwise
-        assert len(check_.rows_to_write()) == 17
-        return f"{os.path.basename(record.source)[-24:]} left out, 17 written"
+        assert len(check_.rows_to_write()) == N_AXONS - 1
+        return (f"{os.path.basename(record.source)[-24:]} left out, "
+                f"{N_AXONS - 1} written")
 
     def the_log_accounts_for_every_file():
         left = {records[7].source: "in the table from the axon window"}
@@ -268,17 +291,18 @@ def test_the_table() -> None:
         with open(out, encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
         status = [r["status"] for r in rows]
-        assert status.count("written") == 17, status
+        assert status.count("written") == N_AXONS - 1, status
         assert status.count("not written") == 1
         assert status.count("not analysed") == 1
         # And a later batch over this folder does not take it for an axon.
         from tools.mps_io import is_program_table
         assert is_program_table(out)
-        return f"{os.path.basename(out)}: 17 written, 1 not, 1 not analysed"
+        return (f"{os.path.basename(out)}: {N_AXONS - 1} written, 1 not, "
+                f"1 not analysed")
 
     def read_back_as_it_was_written():
         back, notes = mb.read_axon_table(path)
-        assert len(back) == 18 and not notes, notes
+        assert len(back) == N_AXONS and not notes, notes
         for mine, theirs in zip(records, back):
             assert theirs.identity == mine.identity
             for column in mb.COMPARABLE_COLUMNS:
@@ -306,7 +330,7 @@ def test_the_table() -> None:
             writer.writeheader()
             writer.writerows(rows)
         back, notes = mb.read_axon_table(old)
-        assert len(back) == 18
+        assert len(back) == N_AXONS
         assert notes and "animal" in notes[0], notes
         return notes[0][:60]
 
@@ -478,9 +502,10 @@ def test_comparison() -> None:
           the_p_value_is_not_offered)
 
 
-def test_the_numbers_in_the_docstring() -> None:
-    print("\n--- the nesting of the 18 test axons, by ROI ---")
+def test_the_recorded_icc() -> None:
+    print("\n--- the nesting of the real axons, by ROI ---")
     records = STATE["records"]
+    icc: Dict[str, float] = dict(EXPECTED.get("icc", {}))
 
     def recomputed():
         out = []
@@ -490,25 +515,33 @@ def test_the_numbers_in_the_docstring() -> None:
                                        nest_by="roi_name")
             diag = result.nesting[mb.ALL_AXONS]
             out.append(f"{column} {diag.icc:.2f} (chance {diag.null_p95:.2f})")
-            want = mb.ICC_ON_THE_TEST_AXONS.get(column)
+            want = icc.get(column)
             if want is not None:
                 assert abs(diag.icc - want) < 0.005, (column, diag.icc, want)
         return "; ".join(out)
 
-    check("the ICC of the docstring, recomputed", recomputed)
+    check("the ICC recorded in the private expected file, recomputed",
+          recomputed)
 
 
 def main() -> int:
     print("=" * 72)
     print("BATCH CHECKS")
     print("=" * 72)
+    real = bool(DATA_ROOT) and os.path.isdir(DATA_ROOT) and N_AXONS > 0
     try:
-        test_the_plan()
-        test_the_run()
-        test_failures()
-        test_the_table()
+        if real:
+            test_the_plan()
+            test_the_run()
+            test_failures()
+            test_the_table()
+        else:
+            print("\nReal-data checks skipped: set MPS_VALIDATION_DATA to the "
+                  "folder of picked axons and MPS_VALIDATION_EXPECTED to its "
+                  "private expected-values file.")
         test_comparison()
-        test_the_numbers_in_the_docstring()
+        if real:
+            test_the_recorded_icc()
     finally:
         for folder in STATE.get("cleanup", []):
             shutil.rmtree(folder, ignore_errors=True)

@@ -197,10 +197,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.spin_min)
 
         # A "DBCV thr." spin box stood here until 2026-09-20. Measured
-        # over the 18 real April axons (1143 clusters), the score
-        # correlates with log10(cluster area) at -0.70 pooled, and in 10
-        # of the 18 the LARGEST cluster is the lowest- or
-        # second-lowest-scoring one: every threshold above off removes
+        # on unpublished pilot axons, the score correlates strongly and
+        # negatively with log10(cluster area), and in many axons the
+        # LARGEST cluster is among the lowest-scoring ones: every
+        # threshold above off removes
         # the big clusters first. There is no setting of it that curates
         # without doing that, so it is gone rather than defaulted. The
         # analysis still takes the parameter and the export still records
@@ -214,8 +214,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.spin_maha.setSingleStep(0.5)
         # Qt starts a spin box at its minimum, which here is 0.1: an
         # analysis re-run from this window while the box had never been
-        # synced measured occupancy with that threshold (1.5 % instead of
-        # 46.5 % on axon 7), and no exported column said so.
+        # synced measured occupancy with that threshold (a many-fold
+        # smaller occupancy), and no exported column said so.
         self.spin_maha.setValue(DEFAULT_MAHALANOBIS_THRESHOLD)
         self.spin_maha.setToolTip(
             "Occupancy threshold: a perimeter point counts as occupied when\n"
@@ -355,7 +355,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "Every kept cluster, with the contour refined by 2-opt from\n"
             "every start (the shortest tour). Shown only when the measured\n"
             "analysis used one start, which can settle on a longer tour --\n"
-            "by up to 7.1 % on the April axons -- and would blur the\n"
+            "by a few percent on real axons -- and would blur the\n"
             "comparison with the next column.")
         for col in (_COL_EVERY, _COL_DISCARD):
             self.table.setColumnHidden(col, True)

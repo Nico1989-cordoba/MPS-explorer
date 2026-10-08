@@ -137,7 +137,7 @@ all_points = np.concatenate(clusters + [noise_points])  # Include noise points
 [per_cluster_validity_index,best_ind, best_param, best_labels] = DBCV_DBSCAN(all_points)
 
 
-# os.chdir(r'C:/Users/Usuario/Desktop/axones filtrados/230914 subROIs (Axons)/ROI2')
+# os.chdir(r'<folder with the picked axons>/ROI2')
 
 # # Define filename
 # filename = "ROI2_B2spectrin_unified_locs_rcc_apicked_1_filter.hdf5"

@@ -73,10 +73,10 @@ this dataset:
   at 250 nm. It is meant to catch the contours that are plainly wrong,
   not to measure the interior.
 
-  Measured on the 18 April axons (2026-09-22), the centres scatter off a
-  smooth outline by a median of 9.6 % of the hull radius, 6 to 16 % --
-  twice what the 0.40 was calibrated for -- and the check fired on 14 of
-  the 18. So the count stays, because it is right for clean data, and
+  On unpublished pilot axons (2026-09-22) the centres scatter off a
+  smooth outline by more than the 0.40 was calibrated for, and the check
+  fired on most of them. So the count stays, because it is right for
+  clean data, and
   what it CLAIMS is now read against the axon's own scatter
   (``radial_scatter``): the depth a healthy ring with that scatter and
   that many centres stays under 99 times in 100 is 0.237 + 1.052 s
@@ -89,9 +89,9 @@ this dataset:
   the hull (less sensitive, 19 % against 93 % for a centre at half the
   radius), and a per-axon limit from a parametric bootstrap (11 to 32 %
   false alarms on healthy circles, because the fit absorbs scatter). On
-  the 18, 10 axons have centres deeper than their own scatter reaches,
-  and the four whose interior clusters the widefield images confirm are
-  among them.
+  the pilot axons, those whose interior clusters the widefield images
+  confirm are among the ones with centres deeper than their own scatter
+  reaches.
 
   longest step over the median step, for the chord a gap forces. This
   one separates poorly and its limit is correspondingly loose: random
@@ -105,8 +105,8 @@ Two other numbers are reported and deliberately NOT flagged. The ratio
 of the tour to the convex hull of the same centres is what first made
 this dataset look wrong, but it depends on the number of clusters and on
 how far they scatter off a smooth outline: a perfectly correct contour
-of a ring with 140 centres scattered by 80 nm already reads 1.9, which
-is what axon 7 of April reads. And the share of the length carried by
+of a ring with 140 centres scattered by 80 nm already reads 1.9, a value
+real axons reach. And the share of the length carried by
 the few steps above 3x the median runs near 30 % on a healthy ring.
 Neither can carry a threshold; both are useful next to one that can.
 
@@ -114,14 +114,13 @@ Centre of the contour
 ---------------------
 Not a parameter of the paper. ``contour_centre`` gives the area centroid
 of the contour: the centre of mass of the region it encloses. Three
-centres were compared on the anchored contours of the 18 April axons by
-leaving each cluster out in turn and measuring how far the centre moved
-(largest move per axon, median / worst): area centroid 39 / 150 nm; the
-maximum of a laminar flow with no slip on the contour 147 / 2168 nm; the
-centre of the largest inscribed circle 276 / 2404 nm. On 2/axon6_roi2,
-a contour with two lobes, the last two moved by more than 2 um where the
-area centroid moved 62 nm (on 2/axon9_roi2, also two-lobed, 703 and
-1080 nm against 64 nm); that is why it is the one computed here. It is a geometric centre
+centres were compared on the anchored contours of unpublished pilot axons
+by leaving each cluster out in turn and measuring how far the centre moved:
+the area centroid moved least; the maximum of a laminar flow with no slip
+on the contour and the centre of the largest inscribed circle moved several
+times more, and on two-lobed contours by micrometres where the area
+centroid moved tens of nanometres; that is why it is the one computed
+here. It is a geometric centre
 of the contour and nothing more: like the perimeter, it is only as good
 as the contour, and a cluster from inside the axon that becomes a vertex
 moves it.
@@ -840,7 +839,7 @@ class PerimeterResult:
 
 # A centre further than this from the path drawn along the membrane is
 # named. It is roughly two cluster radii: the constrained Gaussian of a
-# typical April cluster reaches ~25 nm, so a centre 60 nm off the path is
+# typical cluster reaches a few tens of nm, so a centre 60 nm off the path is
 # not a cluster the path runs through.
 GUIDE_FAR_NM = 60.0
 
@@ -941,13 +940,13 @@ def reconstruct_perimeter(
         because it still means something after the clusters change.
     all_starts : run 2-opt from every starting point of the polar cycle and
         keep the shortest tour. 2-opt only accepts improvements, so where it
-        ends depends on where it starts: on the 18 April axons, rolling the
-        start changed the perimeter in 144 of 252 rolled starts (14 per
-        axon besides the original), by up to 12.9 %.
+        ends depends on where it starts: on unpublished pilot axons,
+        rolling the start changed the perimeter in many of the rolled
+        starts, some of them appreciably.
         The shortest over every start does not depend on it, and the MPS
         analysis builds its contour this way (tools.mps_analysis). Off by
         default here: one start is what this program did before
-        2026-09-19, and validate_full_18axons.py still uses it.
+        2026-09-19, and validate_full_pipeline.py still uses it.
 
     Returns
     -------

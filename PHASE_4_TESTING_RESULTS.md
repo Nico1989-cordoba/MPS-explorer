@@ -13,7 +13,7 @@
 ```
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-9.0.3, pluggy-1.6.0
-rootdir: C:\Users\nicol\OneDrive\Doctorado\Micro de superresolucion\26..5.26\MPS-explorer
+rootdir: <path to>\MPS-explorer
 
 collected 35 items
 

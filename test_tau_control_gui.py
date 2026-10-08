@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Offscreen test of the tolerance control of the columns review (UI stage 1, D-44; the plan approved on 2026-10-05: a
-tau control -- the pre-registered tau_0, the 2D test's two sensitivity values, a free value -- and the E(tau) curve in
+tau control -- the pre-specified tau_0, the 2D test's two sensitivity values, a free value -- and the E(tau) curve in
 the review, with the EXPLORATORY label and the counter): ``tools/mps_tau_ui.py`` and its wiring in
 ``tools/mps_columns_window.py``.
 
@@ -27,7 +27,7 @@ What it checks (G1-G15 of the specification; I1-I5 are the invariants the checks
   G7  "Back to tau_0": no badge, the simulated null back with its own tooltip, the results text and the export row of
       the golden, no new log row, the counter keeps the tau wording (history).
   G8  an exploratory selection AND another tau: one label, a first line naming both; back to both defaults -> the
-      pre-registered texts.
+      pre-specified texts.
   G9  before any run a change of tau runs nothing; the button then runs at it.
   G10 the demo without a viable pair: a change of tau runs nothing and changes no text.
   G11 the E(tau) curve: the selected pairs only (VIABLE first, MARGINAL tagged), its global p "not calibrated", the
@@ -217,7 +217,7 @@ def main() -> int:
         golden: Dict[str, Any] = json.load(fh)
 
     # a spy of the analyses the window starts: which tau each run was given (None: the window's own parameters,
-    # i.e. the pre-registered file, exactly as before this stage)
+    # i.e. the pre-specified file, exactly as before this stage)
     calls: List[Optional[float]] = []
     orig_run = mcw.run_cleaned_analyses
 
@@ -333,7 +333,7 @@ def main() -> int:
             assert not diff, f"{name}: {diff}: " + "; ".join(f"{k}: {got.get(k)!r} != {want[k]!r}"[:400]
                                                              for k in diff[:2])
             assert set(got) == set(want), set(got) ^ set(want)
-            # the window's own parameters (None: the pre-registered file) reach the analyses, as before
+            # the window's own parameters (None: the pre-specified file) reach the analyses, as before
             assert all(c is None for c in calls[n0:]), calls[n0:]
             out.append(f"{name}: {len(want)} fields equal, {len(calls) - n0} run(s)")
             w.close()
@@ -653,7 +653,7 @@ def main() -> int:
         assert "EXPLORATORY" not in w.selection_counter_label.text()
         return f"label '{v.label}' #{v.hash}; the first line names the tau and the selection; both reset: the golden"
 
-    check("G8 selection v2[] AND another tau: one label, a first line naming both; both reset -> the pre-registered "
+    check("G8 selection v2[] AND another tau: one label, a first line naming both; both reset -> the pre-specified "
           "texts", g8_selection)
 
     # ------------------------------------------------------------------ G11, G12 on the same window
@@ -821,7 +821,7 @@ def main() -> int:
         assert first_line(w) == mt.tau_banner(variant(ms.DEFAULT_SELECTION, lo))
         assert w.last_run.tau_nm == lo
         # back to tau_0, never computed in this window: one run, with the window's own parameters, and the golden's
-        # results text (the pre-registered analysis after an excursion)
+        # results text (the pre-specified analysis after an excursion)
         w.tau_control.reset()
         assert w.is_tau_pending() and w.results_text() == mtui.pending_live_text(TAU0)
         wait_idle(w)

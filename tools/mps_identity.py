@@ -77,7 +77,7 @@ FIELD_HINTS: Dict[str, str] = {
 # the platform writes. Each is a regular expression; the first capturing
 # group is the value, or the whole match when there is no group.
 #
-# The defaults match how the test data is filed ('.../Abril/ROI 1/Axon 7/')
+# The defaults match how the test data is filed ('.../<sample>/ROI n/Axon m/')
 # and the two knockouts of the thesis. They are a starting point, not a
 # rule: the user edits them once for their own folders.
 DEFAULT_PATTERNS: Dict[str, str] = {

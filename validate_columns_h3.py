@@ -22,7 +22,7 @@ are the first version's.
 
 Points where this harness departs from the letter of the H3
 specification, each with the number that forced it and, where the
-orchestrator amended the pre-registration after the review of
+orchestrator amended the pre-specification after the review of
 2026-09-23, the decision that ratifies it (DECISIONES D-24a-e and the
 fix decisions of that review, "items"):
 
@@ -81,7 +81,7 @@ fix decisions of that review, "items"):
   sd, K = 20 / 15 nm +0.219 (module mean zeta +0.229, outside the
   +/-0.15 band), K = 20 / 8 nm +0.097; realistic scale (circle, K = 60,
   tau 80, 15 nm) -0.088, conservative. Printed, not asserted: a null
-  along a smoothed membrane needs a pre-registered smoothing scale,
+  along a smoothed membrane needs a pre-specified smoothing scale,
   the orchestrator's call; the H3 report must say that the null's
   validity was verified on membrane-exact rings only.
 * The assignment rule (D-24b). The specification described the
@@ -2319,7 +2319,7 @@ def test_columns() -> None:
 
 # ============================================================ 11. integration
 def test_integration() -> None:
-    print("\n11. Integration: build_rings on SMALL (validate_rings_h1) then analyze_columns with the pre-registered params")
+    print("\n11. Integration: build_rings on SMALL (validate_rings_h1) then analyze_columns with the pre-specified params")
     st: Dict[str, Any] = {}
     B = 199
 
@@ -2392,7 +2392,7 @@ def test_integration() -> None:
         # SMALL's three rings draw their lattice offset independently
         # (make_synthetic_axon), and with seed 0 the three offsets agree
         # within 7 nm (H2 fingerprint: cluster 0/1/1 at y 95.4, 90.1, 88.9
-        # nm), far below tau_0 = 80.58 nm: every cluster has its partner.
+        # nm), far below the default tau_0: every cluster has its partner.
         # z_A is NOT asserted here: on the regular 24-gon the null lands
         # within tau_0 of the lattice 90 % of the time (see make_columns_axon).
         ed = [m.E_dir for m in out.adjacent] + [out.k2[0].E_dir]

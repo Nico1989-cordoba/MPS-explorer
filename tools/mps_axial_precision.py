@@ -678,9 +678,14 @@ def calibrated_lpz_nm(
 # ===================================================================
 #  z-information quality of every ring pair (D-39, the first filter)
 # ===================================================================
-# D-39(b) thresholds, fixed on the simulated grid of the H5-E research
-# (zquality/zq_thresholds.py, 2026-09-29) BEFORE any real axon was
-# measured. The separation index d = |mu2 - mu1| / sqrt(s1^2 + s2^2)
+# D-39(b) thresholds: pilot-derived suggestions, editable. They were derived
+# in a simulation study of this program (2026-09-29), but the simulator was
+# configured from one exploratory axon of unpublished pilot data (its
+# contour, period, cluster sizes and precisions), the study also looked at
+# the z geometry of pilot axons, and the pilot data had already been
+# analysed in other ways when they were adopted: they are NOT a
+# data-independent pre-specification. They hold for a single contour and
+# period and min_samples = 10. The separation index d = |mu2 - mu1| / sqrt(s1^2 + s2^2)
 # guards against unresolved boundaries (sigma/P <= 0.32 / 0.35 at equal
 # widths); the expected leak-copy fraction is the analytic D-27c count;
 # the information ratio asks for twice the events that give an expected
@@ -699,8 +704,11 @@ ZQ_MERGED_GAP_OVER_P = 1.3
 # A localization is "ambiguous" when its two-component posterior is
 # below this.
 ZQ_POSTERIOR_MIN = 0.85
-# The default reference period P (D-15: the median axial period measured on
-# the exploratory dataset) when the caller has no better reference for P.
+# The default reference period P when the caller has no better reference
+# for P: the median axial spacing measured on the betaII-spectrin example
+# regions distributed with the program (example data/), consistent with the
+# 170 +/- 15 nm of Gazal et al. (2026). It is not the period of the axon
+# being analysed; callers can pass another value.
 P_REF_DEFAULT_NM = 170.8
 VERDICT_VIABLE = "viable"
 VERDICT_MARGINAL = "marginal"
