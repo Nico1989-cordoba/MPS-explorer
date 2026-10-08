@@ -70,8 +70,11 @@ MAIN_WINDOW: Dict[str, str] = {
         "Select with a rectangle. Drag the middle to move it, drag the "
         "handle to resize it.",
     "radioButton_polygonROI":
-        "Select by clicking one vertex at a time; ENTER closes the "
-        "shape.\n\n"
+        "Select with a polygon. It starts as a four-sided shape: drag a "
+        "vertex to move it, click a side to add a vertex there, "
+        "right-click a vertex and choose 'Remove handle' to take it out "
+        "(the shape keeps at least three), drag the inside to move the "
+        "whole shape.\n\n"
         "For an axon that is not round, or when a neighbouring one has "
         "to be left out of a circle that would otherwise contain it.",
     "lineEdit_zmin":

@@ -1318,7 +1318,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             lines.append("No spectrin interior was found, so no cluster is "
                          "discarded.")
         lines.append(
-            f"Discarded (orange discs): {found.n_discarded} of {found.n} "
+            f"Discarded (vermillion discs): {found.n_discarded} of {found.n} "
             f"clusters, "
             f"inside both images by more than {found.margin_nm:.0f} nm. "
             f"Kept although one image alone puts them inside: "

@@ -88,7 +88,6 @@ System automatically detects and uses GPU if available. 🚀
 | **⚙️ Configure parameters** | [CONFIG.md](CONFIG.md) | 10 min |
 | **🐛 Debug issues** | [LOGGING.md](LOGGING.md) | 10 min |
 | **💡 Understand features** | [FEATURE_DEMO.md](FEATURE_DEMO.md) | 5 min |
-| **🎨 Draw ROIs** | [INTERACTIVE_POLYGON_DRAWING_GUIDE.md](INTERACTIVE_POLYGON_DRAWING_GUIDE.md) | 10 min |
 | **⚡ GPU setup** | [GPU_ACCELERATION_GUIDE.md](GPU_ACCELERATION_GUIDE.md) | 15 min |
 | **📝 Type hints** | [TYPE_HINTS.md](TYPE_HINTS.md) | 5 min |
 
@@ -101,7 +100,6 @@ System automatically detects and uses GPU if available. 🚀
 - [LOGGING.md](LOGGING.md) - Comprehensive logging guide (450+ lines)
 - [LOGGING_SUMMARY.txt](LOGGING_SUMMARY.txt) - Logging quick reference
 - [FEATURE_DEMO.md](FEATURE_DEMO.md) - Feature showcase with examples
-- [INTERACTIVE_POLYGON_DRAWING_GUIDE.md](INTERACTIVE_POLYGON_DRAWING_GUIDE.md) - ROI drawing tutorial
 
 **For Developers:**
 - [TYPE_HINTS.md](TYPE_HINTS.md) - Type annotations and IDE support
@@ -378,8 +376,7 @@ MPS-explorer/
 │   ├── clustering_strategies.py # Strategy patterns for algorithms
 │   ├── gpu_clustering.py        # GPU-accelerated clustering
 │   ├── parallel_clustering.py   # Multi-core processing
-│   ├── parameter_cache.py       # Cached parameter storage
-│   └── utils.py                 # Utility functions
+│   └── parameter_cache.py       # Cached parameter storage
 │
 ├── tests/                       # Test suite
 │   ├── test_mps_explorer.py     # Main application tests
@@ -697,7 +694,6 @@ GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for the full
 | How do I configure? | [CONFIG.md](CONFIG.md) | 10 min |
 | How do I debug? | [LOGGING.md](LOGGING.md) | 10 min |
 | How do I use GPU? | [GPU_ACCELERATION_GUIDE.md](GPU_ACCELERATION_GUIDE.md) | 15 min |
-| How do I draw ROI? | [INTERACTIVE_POLYGON_DRAWING_GUIDE.md](INTERACTIVE_POLYGON_DRAWING_GUIDE.md) | 10 min |
 
 ---
 
@@ -783,4 +779,4 @@ Main GUI code with all functionality
 
 UI file (data_explorer.ui) designed in Qt Designer
 
-Companion tools module (tools.utils)
+Companion modules in the tools/ package

@@ -14,29 +14,27 @@ pyuic5 -x data_explorer.ui -o data_explorer.py
 import os
 import sys
 from collections import OrderedDict
-from typing import (Callable, Optional, Tuple, List, Dict, Union, Any,
+from typing import (Callable, Optional, Tuple, List, Dict, Any,
                     NamedTuple, Sequence)
 from pathlib import Path
 import logging
-import traceback
 
 cdir = os.getcwd()
 os.chdir(cdir)
 
 import ctypes
-import h5py as h5
 import pandas as pd
-from tkinter import Tk, filedialog
 import numpy as np
 from numpy.typing import NDArray
-from sklearn.cluster import DBSCAN
 from sklearn.neighbors import KDTree
-import tools.utils as utils
 import tools.clustering as clustering
-from tools.clustering_strategies import create_clustering_strategy, AutoClusteringStrategy
-from tools.parallel_clustering import create_parallel_clustering_manager
+from tools.clustering_strategies import create_clustering_strategy
 from tools.parameter_cache import create_parameter_cache
-import hdbscan
+# Not referenced by name, and kept on purpose: importing it IS the check.
+# The HDBSCAN choice of the clustering box needs the library, and without
+# this line a missing install would surface only when that choice is run.
+# Do not remove it as an unused import.
+import hdbscan  # noqa: F401
 
 # --- Gazal et al. (2026) per-axon MPS analysis -------------------------------
 # Automatic replication of the paper's per-axon parameters. These modules are
@@ -57,17 +55,16 @@ from tools.mps_tooltips import MAIN_WINDOW, apply_tooltips
 from tools.mps_settings import load_settings, save_settings
 
 # Import logging configuration
-from logging_config import setup_logging, get_logger, get_log_filename
+from logging_config import setup_logging, get_log_filename
 
 # Import configuration loader
-from config_loader import load_config, get_roi_config, get_histogram_config, get_visualization_config
+from config_loader import load_config
 
 
 import pyqtgraph as pg
 pg.setConfigOption('background', 'w')
 pg.setConfigOption('foreground', 'k')
 from pyqtgraph.Qt import QtCore, QtGui
-from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QMainWindow, QApplication
@@ -95,7 +92,6 @@ ROI_ZORDER = _roi_config.get('z_order', 10)
 # --- Histogram Configuration ---
 DEFAULT_KNN_BINS = _hist_config.get('default_knn_bins', 30)
 MAX_LATERAL_DISTANCE_NM = _hist_config.get('max_lateral_distance_nm', 800)
-HISTOGRAM_2D_BINS = _hist_config.get('bins_2d', 400)
 HISTOGRAM_Z_BINS = _hist_config.get('bins_z', 500)
 
 # --- Visualization Configuration ---
@@ -403,16 +399,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.eps: Optional[float] = None             # DBSCAN epsilon parameter
         self.minsamples: Optional[int] = None      # DBSCAN min_samples parameter
 
-        # --- polygon drawing mode (interactive drawing) ---
-        self.polygon_drawing_mode: bool = False     # True when actively drawing polygon
-        self.polygon_points_temp: List[List[float]] = []  # Accumulate clicked points during drawing
-        self.polygon_drawing_visual: Optional[pg.PolyLineROI] = None  # Visual feedback (polyline + points)
-        self.polygon_drawing_label: Optional[QtWidgets.QLabel] = None  # Status label for user guidance
-        self.mouse_click_handler: Optional[Any] = None  # Connection handle for mouse clicks
-        self.current_plot: Optional[Any] = None  # Reference to plotxy during drawing
-        self.current_viewbox: Optional[Any] = None  # Reference to ViewBox during drawing
-        self.current_roi_pen: Optional[Any] = None  # ROI pen color during drawing
-
         # --- nearest-neighbour distances (set by KNdist_hist) ---
         self.distances: Optional[NDArray[np.float64]] = None       # distance array to the K nearest centroids
         self.Nneighbor: Optional[int] = None       # number of neighbours requested
@@ -653,6 +639,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         .ui's menu bar is hidden, since nothing else lives there.
         """
         self.menuBar().setVisible(False)
+        # The .ui's status bar is never written to either; hidden until
+        # UI stage 3 rebuilds the window (the .ui stays as it is).
+        self.statusBar().setVisible(False)
 
         self.action_quality = QtWidgets.QAction("Data quality", self)
         self.action_quality.setToolTip(
@@ -1899,11 +1888,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         as in the MPS analysis window).
 
         This panel used to populate only after manual curation (clicking
-        each bad centroid via rx(), then dist_cm_good_clus()). Once bad-
-        cluster removal became automatic, nothing called it any more and
-        it went permanently blank -- not broken, just orphaned. Shared here
-        by run_mps_analysis (automatic path) and dist_cm_good_clus (manual
-        fallback, see its docstring) so both draw it the same way.
+        each bad centroid). Once bad-cluster removal became automatic,
+        nothing called it any more and it went permanently blank -- not
+        broken, just orphaned. run_mps_analysis draws it now; the manual
+        curation was removed in UI stage 2 (git keeps it).
 
         Safe to call with zero centroids (e.g. curation removed every
         cluster): the panel is cleared rather than raising on an empty
@@ -1916,10 +1904,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         good_clusters_plot.setLabels(bottom='x [nm]', left='y [nm]')
 
         if len(centroids):
-            self.good_clusters_scatter_plot = pg.ScatterPlotItem(
+            good_clusters_plot.addItem(pg.ScatterPlotItem(
                 centroids[:, 0], centroids[:, 1],
-                size=CLUSTER_CENTROID_POINT_SIZE, brush=self.brush3)
-            good_clusters_plot.addItem(self.good_clusters_scatter_plot)
+                size=CLUSTER_CENTROID_POINT_SIZE, brush=self.brush3))
 
         if self.xroi is not None and len(self.xroi):
             good_clusters_plot.setXRange(
@@ -2525,43 +2512,29 @@ class MPS_explorer(QtWidgets.QMainWindow):
         channel : int
             Channel number (1 or 2) to load data into.
         """
+        if channel not in (1, 2):
+            return
+        self.logger.debug(f"File dialog opened for channel {channel}")
+        # The localizations first, so the dialog does not open on a
+        # folder of TIFFs and CSV exports with nothing to pick.
+        path, _ = QFileDialog.getOpenFileName(
+            self, f"Select the channel-{channel} file", self._open_dir(),
+            "Localizations (*.hdf5 *.h5 *.csv);;All files (*.*)")
+        if not path:
+            self.logger.debug(f"File dialog cancelled for channel {channel}")
+            return
+        self.logger.info(f"Channel {channel} file selected: {path}")
         try:
-            self.logger.debug(f"File dialog opened for channel {channel}")
-            root = Tk()
-            root.withdraw()
-            # The localizations first, so the dialog does not open on a
-            # folder of TIFFs and CSV exports with nothing to pick.
-            kinds = [("Localizations", "*.hdf5 *.h5 *.csv"),
-                     ("All files", "*.*")]
             if channel == 1:
-                root.filenamedata = filedialog.askopenfilename(
-                    initialdir=self._open_dir(), filetypes=kinds,
-                    title='Select the channel-1 file')
-                if root.filenamedata != '':
-                    self.logger.info(f"Channel 1 file selected: {root.filenamedata}")
-                    if self.load_channel1(root.filenamedata,
-                                          int(self.fileformat.currentIndex())):
-                        self._remember_open_dir(root.filenamedata)
-                else:
-                    self.logger.debug("File dialog cancelled for channel 1")
-                    return
-            elif channel == 2:
-                root.filenamedata2 = filedialog.askopenfilename(
-                    initialdir=self._open_dir(), filetypes=kinds,
-                    title='Select the channel-2 file')
-                if root.filenamedata2 != '':
-                    self.logger.info(f"Channel 2 file selected: {root.filenamedata2}")
-                    if self.load_channel2(root.filenamedata2,
-                                          int(self.fileformat_2.currentIndex())):
-                        self._remember_open_dir(root.filenamedata2)
-                else:
-                    self.logger.debug("File dialog cancelled for channel 2")
-                    return
+                loaded = self.load_channel1(path, int(self.fileformat.currentIndex()))
+            else:
+                loaded = self.load_channel2(path, int(self.fileformat_2.currentIndex()))
         except OSError as e:
             self.logger.error(f"Error loading file: {e}", exc_info=True)
-            pass
+            return
+        if loaded:
+            self._remember_open_dir(path)
 
-   
     
     def load_channel1(self, path: str, fileformat: int = 0) -> bool:
         """Load a file into channel 1 without the file dialog."""
@@ -2623,8 +2596,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.axoplasm_window = None
         # The plots still show the previous file until they are redrawn;
         # channel 2's histogram of its whole file is left alone.
-        if self.polygon_drawing_mode:
-            self._cleanup_drawing_mode()
         for layout in (
             self.ui.scatterlayout, self.ui.zhistlayoutch1,
             self.ui.scatterlayout_3, self.ui.zhistlayout_2,
@@ -2898,59 +2869,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
     # ========================================================================
     # Hallazgo 05 — Helper methods for scatterplot refactoring
     # ========================================================================
-
-    def _render_scatter_xy_heatmap(self, x_data: NDArray[np.float64], y_data: NDArray[np.float64], plotxy: Any, brush_color: str) -> None:
-        """Render X,Y scatter as a 2D density heatmap instead of individual points.
-
-        Hallazgo 13 — Scalable rendering for millions of points.
-
-        PyQtGraph's ScatterPlotItem is slow with >500k points because each
-        point is a separate graphics object. This method renders the data as
-        a 2D histogram (density map) displayed as a single raster image,
-        which is orders of magnitude faster.
-
-        Trade-off: You see density (color intensity), not individual points.
-        But the ROI panel still shows individual points (fast, since ROI
-        filters to fewer points).
-
-        Parameters
-        ----------
-        x_data : NDArray[np.float64]
-            1D array of x-coordinates
-        y_data : NDArray[np.float64]
-            1D array of y-coordinates
-        plotxy : pyqtgraph.PlotItem
-            PlotItem to add the heatmap to
-        brush_color : str
-            Color string (unused, heatmap has its own colormap)
-        """
-        # Compute 2D histogram (density map)
-        # 400x400 bins balances detail vs. speed (160k pixels, still 6x faster than 969k points)
-        xmin, xmax = np.min(x_data), np.max(x_data)
-        ymin, ymax = np.min(y_data), np.max(y_data)
-
-        hist2d, xedges, yedges = np.histogram2d(x_data, y_data, bins=HISTOGRAM_2D_BINS)
-        hist2d = hist2d.T  # Transpose for correct orientation
-
-        # Log-scale for better visibility of density variations
-        # (linear scale would make high-density regions wash out to white)
-        hist2d_log = np.log1p(hist2d)
-
-        # Create image item with log-scaled data
-        # Let PyQtGraph handle the normalization/display via levels parameter
-        img = pg.ImageItem(image=hist2d_log)
-        img.setRect(pg.QtCore.QRectF(xmin, ymin, xmax - xmin, ymax - ymin))
-
-        # Apply a heatmap colormap (viridis: good for perceptual uniformity)
-        cmap = pg.colormap.get('viridis')
-        img.setColorMap(cmap)
-
-        # Set display levels to use full colormap range
-        img.setLevels([hist2d_log.min(), hist2d_log.max()])
-
-        plotxy.addItem(img)
-        plotxy.setXRange(xmin, xmax, padding=0)
-        plotxy.setYRange(ymin, ymax, padding=0)
 
     def _render_scatter_xy_ch1(self, scatterWidgetxy: Any, plotxy: Any) -> None:
         """Render the X,Y scatter plot for channel 1.
@@ -3447,15 +3365,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         histabsz2 = histzWidget2.addPlot(title="z ROI Histogram")
 
         shown = [self.xroi]
-        self.selected = pg.ScatterPlotItem(self.xroi, self.yroi, pen = self.pen1,
-                                           brush = None, size = GOOD_CLUSTER_POINT_SIZE)
-        plotROI.addItem(self.selected)
+        plotROI.addItem(pg.ScatterPlotItem(self.xroi, self.yroi, pen = self.pen1,
+                                           brush = None, size = GOOD_CLUSTER_POINT_SIZE))
         self._add_roi_histogram(histabsz2, self.zroi, self.brush1, self.pen1)
 
         if self.xroi2 is not None:
-            self.selected2 = pg.ScatterPlotItem(self.xroi2, self.yroi2, pen = self.pen2,
-                                                brush = None, size = GOOD_CLUSTER_POINT_SIZE)
-            plotROI.addItem(self.selected2)
+            plotROI.addItem(pg.ScatterPlotItem(self.xroi2, self.yroi2, pen = self.pen2,
+                                               brush = None, size = GOOD_CLUSTER_POINT_SIZE))
             shown.append(self.xroi2)
             self._add_roi_histogram(histabsz2, self.zroi2, self.brush2, self.pen2)
 
@@ -3467,328 +3383,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.empty_layout(self.ui.zhistlayout_2)
         self.ui.zhistlayout_2.addWidget(histzWidget2)
 
-    # ========================================================================
-    # PHASE 1-10: INTERACTIVE POLYGON DRAWING MODE IMPLEMENTATION
-    # ========================================================================
-
-    def _start_polygon_drawing_mode(self, plotxy: Any, roi_pen: Any) -> None:
-        """Enter interactive polygon drawing mode.
-
-        User clicks to place vertices, presses Enter/Escape to finish drawing.
-
-        Parameters
-        ----------
-        plotxy : pyqtgraph.PlotItem
-            Plot to draw on
-        roi_pen : pyqtgraph pen
-            Pen for drawing visualization
-        """
-        self.polygon_drawing_mode = True
-        self.polygon_points_temp = []
-        self.current_plot = plotxy
-        self.current_roi_pen = roi_pen
-        self.current_viewbox = plotxy.getViewBox()
-
-        # Connect click handler DIRECTLY to the ViewBox's mouse clicked signal
-        # This is more direct than connecting to scene()
-        self.mouse_click_handler = self.current_viewbox.scene().sigMouseClicked.connect(
-            self._on_polygon_click
-        )
-
-        # Create status label with instructions
-        self._show_drawing_status("Click to place vertices. Press ENTER to finish. ESC to cancel.")
-
-        self.logger.info("Polygon drawing mode activated - waiting for user clicks")
-
-    def _on_polygon_click(self, event: Any) -> None:
-        """Handle mouse clicks during polygon drawing mode.
-
-        Each click adds a vertex to the polygon being drawn.
-
-        Parameters
-        ----------
-        event : pyqtgraph MouseClickEvent
-            Mouse click event from the plot
-        """
-        # Guard: only process clicks if in drawing mode
-        if not self.polygon_drawing_mode:
-            return
-
-        # Ignore double-clicks
-        if event.double():
-            return
-
-        # Get the ViewBox (should be set during mode activation)
-        if self.current_viewbox is None:
-            self.logger.error("current_viewbox is None!")
-            return
-
-        try:
-            # Get mouse position in scene coordinates
-            scene_pos = event.scenePos()
-
-            # Get the ViewBox's viewport rectangle in scene coordinates
-            vb_rect = self.current_viewbox.sceneBoundingRect()
-
-            # Check if click is within the plot area
-            if not vb_rect.contains(scene_pos):
-                self.logger.debug(f"Click outside ViewBox: scene_pos=({scene_pos.x():.1f}, {scene_pos.y():.1f}), vb_rect={vb_rect}")
-                return
-
-            # Transform: scene coordinates → view (data) coordinates
-            # Use the ViewBox's transformation matrix directly
-            click_point = self.current_viewbox.mapSceneToView(scene_pos)
-
-            x = float(click_point.x())
-            y = float(click_point.y())
-
-            self.logger.info(f"Click registered: x={x:.2f}, y={y:.2f}")
-            self.logger.info(f"Data range: x=[{self.x.min():.2f}, {self.x.max():.2f}], y=[{self.y.min():.2f}, {self.y.max():.2f}]")
-
-            self.polygon_points_temp.append([x, y])
-
-            # Update visualization
-            self._update_polygon_drawing_visual()
-
-            # Show status with vertex count
-            self._show_drawing_status(
-                f"Vertices: {len(self.polygon_points_temp)} | "
-                f"ENTER to finish | ESC to cancel"
-            )
-        except Exception as e:
-            self.logger.error(f"Error in _on_polygon_click: {e}", exc_info=True)
-
-    def _update_polygon_drawing_visual(self) -> None:
-        """Update polyline visualization during drawing.
-
-        Shows a live polyline connecting the clicked points as the user draws.
-        """
-        # Need at least 2 points to draw a line
-        if len(self.polygon_points_temp) < 2:
-            return
-
-        # Remove old visual if exists
-        if self.polygon_drawing_visual is not None:
-            self.current_plot.removeItem(self.polygon_drawing_visual)
-
-        # Create temporary polyline connecting clicked points (not closed yet)
-        points = np.array(self.polygon_points_temp)
-        try:
-            self.polygon_drawing_visual = pg.PolyLineROI(
-                points,
-                closed=False,  # Not closed yet, only shows clicked points
-                movable=False,  # Can't move while drawing
-                pen=self.current_roi_pen
-            )
-            self.current_plot.addItem(self.polygon_drawing_visual)
-            self.logger.debug(f"Updated drawing visual with {len(points)} points")
-        except Exception as e:
-            self.logger.error(f"Error updating drawing visual: {e}", exc_info=True)
-
-    def _finish_polygon_drawing(self) -> None:
-        """Complete polygon drawing and create PolyLineROI.
-
-        Called when user presses ENTER. Creates the final closed polygon
-        and integrates it with the clustering system.
-        """
-        # Validate minimum vertices
-        if len(self.polygon_points_temp) < 3:
-            QtWidgets.QMessageBox.warning(
-                self, "Too Few Vertices",
-                "Polygon must have at least 3 vertices. You have "
-                f"{len(self.polygon_points_temp)}."
-            )
-            return
-
-        try:
-            # Create the final PolyLineROI (closed this time)
-            points = np.array(self.polygon_points_temp)
-            self.polygon_roi = pg.PolyLineROI(
-                points,
-                closed=True,
-                movable=True,
-                pen=self.current_roi_pen
-            )
-
-            self.polygon_roi.setZValue(ROI_ZORDER)
-            self.current_plot.addItem(self.polygon_roi)
-            self.polygon_roi.sigRegionChangeFinished.connect(self.update_ROI)
-
-            # Clean up drawing mode
-            self._cleanup_drawing_mode()
-
-            self.logger.info(
-                f"Polygon drawing complete: {len(points)} vertices. "
-                "Polygon ready for clustering (vertices can still be edited)."
-            )
-
-            # Trigger ROI update to show filtered points
-            self.update_ROI()
-
-        except Exception as e:
-            self.logger.error(f"Error finishing polygon drawing: {e}", exc_info=True)
-            QtWidgets.QMessageBox.critical(
-                self, "Polygon Creation Error",
-                f"Failed to create polygon:\n{str(e)}"
-            )
-            self._cleanup_drawing_mode()
-
-    def _cancel_polygon_drawing(self) -> None:
-        """Cancel polygon drawing and return to normal state.
-
-        Called when user presses ESC. Resets to circular ROI.
-        """
-        self._cleanup_drawing_mode()
-        self.logger.info("Polygon drawing cancelled by user")
-
-        # Reset to circular ROI
-        self.ui.radioButton_circROI.setChecked(True)
-        self.scatterplot()
-
-    def _cleanup_drawing_mode(self) -> None:
-        """Clean up drawing mode state and visual elements.
-
-        Called after drawing is finished or cancelled.
-        """
-        # Remove status label
-        if self.polygon_drawing_label is not None:
-            self.ui.scatterlayout.removeWidget(self.polygon_drawing_label)
-            self.polygon_drawing_label.deleteLater()
-            self.polygon_drawing_label = None
-
-        # Remove temporary visual
-        if self.polygon_drawing_visual is not None:
-            self.current_plot.removeItem(self.polygon_drawing_visual)
-            self.polygon_drawing_visual = None
-
-        # Disconnect mouse handler
-        if self.mouse_click_handler is not None and self.current_plot is not None:
-            try:
-                self.current_plot.getViewBox().scene().sigMouseClicked.disconnect(
-                    self.mouse_click_handler
-                )
-            except Exception as e:
-                self.logger.debug(f"Error disconnecting mouse handler: {e}")
-            self.mouse_click_handler = None
-
-        # Reset state
-        self.polygon_drawing_mode = False
-        self.polygon_points_temp = []
-        self.current_plot = None
-        self.current_viewbox = None
-        self.current_roi_pen = None
-
-    def _show_drawing_status(self, message: str) -> None:
-        """Show status message to user during drawing.
-
-        Displays a colored label with instructions/feedback.
-
-        Parameters
-        ----------
-        message : str
-            Status message to display
-        """
-        # Remove old label if exists
-        if self.polygon_drawing_label is not None:
-            self.ui.scatterlayout.removeWidget(self.polygon_drawing_label)
-            self.polygon_drawing_label.deleteLater()
-
-        # Create new label with styling.
-        #
-        # The pale yellow is the one in the program, and it is deliberate:
-        # this is a sticky note telling the user what to do next, not a
-        # category to be told apart from another colour, and its text is
-        # black on it. Yellow is kept out of the PLOT roles
-        # (tools.mps_plot_style) for a different reason -- there it would
-        # be the brightest mark on black and the weakest on white.
-        self.polygon_drawing_label = QtWidgets.QLabel(message)
-        self.polygon_drawing_label.setStyleSheet(
-            "QLabel { background-color: #ffffcc; padding: 10px; "
-            "border: 2px solid #ffcc00; border-radius: 4px; "
-            "font-weight: bold; font-size: 11px; }"
-        )
-        self.polygon_drawing_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.ui.scatterlayout.addWidget(self.polygon_drawing_label)
-        self.logger.debug(f"Status: {message}")
-
-    def keyPressEvent(self, event: Any) -> None:
-        """Handle keyboard input during polygon drawing.
-
-        ENTER: Finish drawing and create polygon
-        ESC: Cancel drawing and return to circular ROI
-
-        Parameters
-        ----------
-        event : QKeyEvent
-            Keyboard event
-        """
-        # Check if we're in polygon drawing mode
-        if not self.polygon_drawing_mode:
-            super().keyPressEvent(event)
-            return
-
-        # Handle ENTER key to finish drawing
-        if event.key() == QtCore.Qt.Key_Return:
-            self._finish_polygon_drawing()
-            event.accept()
-        # Handle ESC key to cancel drawing
-        elif event.key() == QtCore.Qt.Key_Escape:
-            self._cancel_polygon_drawing()
-            event.accept()
-        else:
-            # Pass other keys to parent
-            super().keyPressEvent(event)
-
     def _point_in_polygon(self, points: NDArray[np.float64],
                           polygon: NDArray[np.float64]) -> NDArray[np.bool_]:
         """Boolean mask of the (N, 2) ``points`` inside ``polygon``."""
         return points_in_polygon(points, polygon)
-
-    def _apply_polygon_smoothing(self, polygon: NDArray[np.float64],
-                                 smoothness: int = 5) -> NDArray[np.float64]:
-        """Apply spline smoothing to polygon vertices.
-
-        Optional: Creates smooth curves through vertices for realistic axon outlines
-
-        Parameters
-        ----------
-        polygon : NDArray[np.float64]
-            (M, 2) array of polygon vertices
-        smoothness : int
-            Number of interpolated points between vertices
-
-        Returns
-        -------
-        NDArray[np.float64]
-            (M*smoothness, 2) smoothed polygon vertices
-        """
-        try:
-            from scipy.interpolate import CubicSpline
-        except ImportError:
-            self.logger.warning("scipy.interpolate not available, returning original polygon")
-            return polygon
-
-        # Handle small polygons
-        if len(polygon) < 4:
-            return polygon
-
-        # Create closed spline by adding first point at end
-        x = np.concatenate([polygon[:, 0], [polygon[0, 0]]])
-        y = np.concatenate([polygon[:, 1], [polygon[0, 1]]])
-
-        # Parameter t goes 0 to len(polygon)
-        t = np.arange(len(x))
-
-        # Create cubic splines for x and y with periodic boundary conditions
-        cs_x = CubicSpline(t, x, bc_type='periodic')
-        cs_y = CubicSpline(t, y, bc_type='periodic')
-
-        # Evaluate at higher resolution
-        t_smooth = np.linspace(0, len(polygon), len(polygon) * smoothness, endpoint=False)
-        x_smooth = cs_x(t_smooth)
-        y_smooth = cs_y(t_smooth)
-
-        return np.column_stack([x_smooth, y_smooth])
 
     def savexyzROI(self, channel: int) -> None:
         """
@@ -4020,8 +3618,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # channel 2 leaves it alone.
         if channel == 1:
             self.bad_cluster_indices = []
-            # (Legacy attribute kept for any code that may still reference it)
-            self.indbc = []
 
         # Channel-specific data setup
         if channel == 1:
@@ -4311,12 +3907,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 plotclusters.addItem(cluster_plot)
         
         # Plot cluster centers
-        self.selectedcluscm = pg.ScatterPlotItem(
+        cluster_centres = pg.ScatterPlotItem(
             centroids[:, 0], centroids[:, 1],
             size=CLUSTER_CENTROID_POINT_SIZE + 2, pen=self.pen_outline,
             brush=roi_brush  # Filled circles for centers
         )
-        plotclusters.addItem(self.selectedcluscm)
+        plotclusters.addItem(cluster_centres)
 
         # Bad clusters used to be marked by clicking each centroid (rx).
         # They are now identified automatically and objectively -- clusters
@@ -4334,229 +3930,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self._persist_mps_settings()
             self.run_mps_analysis(
                 show_window=self.mps_settings.auto_analyze_on_cluster)
-
-    def cluster_both_channels(self) -> None:
-        """
-        Cluster both channels in parallel for improved performance.
-
-        Phase 3: Parallel Processing
-        Executes clustering for Ch1 and Ch2 simultaneously using ThreadPoolExecutor.
-        Expected 1.8-2.0x speedup compared to sequential clustering.
-
-        Sequential: ~200ms (100ms Ch1 + 100ms Ch2)
-        Parallel:   ~110ms (max(100ms Ch1, 100ms Ch2))
-
-        Returns
-        -------
-        None
-            Updates UI with clustering results for both channels
-        """
-        self.logger.info("Starting parallel clustering for both channels...")
-
-        # Create task dictionary for parallel execution
-        clustering_tasks = {
-            1: lambda: self.cluster(channel=1),
-            2: lambda: self.cluster(channel=2)
-        }
-
-        channel_names = {
-            1: "Channel 1",
-            2: "Channel 2"
-        }
-
-        # Execute clustering in parallel
-        try:
-            with create_parallel_clustering_manager(
-                max_workers=2,
-                logger=self.logger
-            ) as manager:
-                # Define progress callback to show status
-                def on_channel_progress(channel_id: int, status: str) -> None:
-                    """Progress callback for clustering tasks."""
-                    channel_name = channel_names[channel_id]
-                    self.logger.info(f"{channel_name}: {status}")
-
-                # Execute both channels in parallel
-                results = manager.cluster_with_progress(
-                    clustering_tasks,
-                    progress_callback=on_channel_progress,
-                    channel_names=channel_names
-                )
-
-                self.logger.info(
-                    f"Parallel clustering completed: "
-                    f"Ch1={'OK' if results[1] is None else 'FAILED'}, "
-                    f"Ch2={'OK' if results[2] is None else 'FAILED'}"
-                )
-
-        except Exception as e:
-            self.logger.error(f"Parallel clustering failed: {e}", exc_info=True)
-            QtWidgets.QMessageBox.critical(
-                self, "Parallel Clustering Error",
-                f"Parallel clustering failed: {str(e)}"
-            )
-
-    def cluster_both_channels_sequential(self) -> None:
-        """
-        Cluster both channels sequentially (for comparison/debugging).
-
-        Uses sequential execution instead of parallel. Useful for:
-        - Debugging clustering issues
-        - Reducing memory usage for large datasets
-        - Performance comparison with parallel mode
-
-        Returns
-        -------
-        None
-            Updates UI with clustering results for both channels
-        """
-        self.logger.info("Starting sequential clustering for both channels...")
-
-        # Create task dictionary
-        clustering_tasks = {
-            1: lambda: self.cluster(channel=1),
-            2: lambda: self.cluster(channel=2)
-        }
-
-        channel_names = {
-            1: "Channel 1",
-            2: "Channel 2"
-        }
-
-        try:
-            with create_parallel_clustering_manager(
-                max_workers=1,  # Sequential: 1 worker
-                logger=self.logger
-            ) as manager:
-                results = manager.cluster_sequential(
-                    clustering_tasks,
-                    channel_names=channel_names
-                )
-
-                self.logger.info(
-                    f"Sequential clustering completed: "
-                    f"Ch1={'OK' if results[1] is None else 'FAILED'}, "
-                    f"Ch2={'OK' if results[2] is None else 'FAILED'}"
-                )
-
-        except Exception as e:
-            self.logger.error(f"Sequential clustering failed: {e}", exc_info=True)
-            QtWidgets.QMessageBox.critical(
-                self, "Sequential Clustering Error",
-                f"Sequential clustering failed: {str(e)}"
-            )
-
-
-    def rx(self, obj: Any, points: Any) -> None:
-        """Handle clicking on cluster centers to mark them as bad.
-
-        SUPERSEDED -- no longer connected to any plot. Bad clusters are now
-        identified automatically and objectively by
-        ``tools.cluster_quality.identify_bad_clusters`` (edge-touching plus
-        DBCV validity), which runs as part of ``run_mps_analysis``. Kept so
-        the manual workflow can be restored by reconnecting
-        ``sigClicked`` if a dataset ever needs hand curation.
-
-        Parameters
-        ----------
-        obj : Any
-            The scatter plot item (unused).
-        points : Any
-            List of clicked points containing position information.
-        """
-        try:
-            clicked_pos = np.array([points[0].pos().x(), points[0].pos().y()])
-            distances = np.linalg.norm(self.cluster_centroids - clicked_pos, axis=1)
-            bad_cluster_idx = np.argmin(distances)  # Índice del CM más cercano
-            
-            if not hasattr(self, 'bad_cluster_indices'):
-                self.bad_cluster_indices = []
-            
-            # Toggle cluster status (add if not present, remove if present)
-            if bad_cluster_idx in self.bad_cluster_indices:
-                self.bad_cluster_indices.remove(bad_cluster_idx)
-            else:
-                self.bad_cluster_indices.append(bad_cluster_idx)
-            
-            # Update display
-            self.update_display_after_cluster_removal()
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error en rx: {str(e)}")
-        
-        
-    def update_display_after_cluster_removal(self) -> None:
-        """Update the display after cluster removal."""
-        try:
-            if not hasattr(self, 'bad_cluster_indices'):
-                return
-            
-            # Fiter good clusters
-            mask = ~np.isin(self.cluster_labels, self.bad_cluster_indices)
-            
-            # Update good clusters CM 
-            good_cluster_indices = [i for i in range(len(self.cluster_centroids)) 
-                              if i not in self.bad_cluster_indices]
-            self.good_cluster_centroids = self.cluster_centroids[good_cluster_indices] if good_cluster_indices else np.array([])
-            
-            # Update display
-            good_clusters_widget = pg.GraphicsLayoutWidget()
-            good_clusters_plot = good_clusters_widget.addPlot(title="Selected Clusters")
-            good_clusters_plot.setAspectLocked(True)
-            
-            # Scatter plot good CMs
-            # good_points = self.original_points[mask]
-            # good_plot = pg.ScatterPlotItem(
-            #     good_points[:, 0], good_points[:, 1], 
-            #     pen=None, brush=self.brush3, size=5
-            # )
-            # good_clusters_plot.addItem(good_plot)
-            
-
-            if len(self.good_cluster_centroids) > 0:
-                cm_plot = pg.ScatterPlotItem(
-                    self.good_cluster_centroids[:, 0], self.good_cluster_centroids[:, 1], 
-                    size=CLUSTER_CENTROID_POINT_SIZE,
-                    pen=self.pen_outline, brush=self.brush3
-                )
-                good_clusters_plot.addItem(cm_plot)
-            
-            self.empty_layout(self.ui.scatterlayout_goodclus)
-            self.ui.scatterlayout_goodclus.addWidget(good_clusters_widget)
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error al filtrar: {str(e)}")
-        
-
-        
-    
-    def dist_cm_good_clus(self) -> None:
-        """
-        Display the centroids of good clusters (after removing bad clusters).
-
-        SUPERSEDED -- the button that used to call this now opens the MPS
-        analysis panel, which draws the curated centroids together with the
-        reconstructed perimeter. Kept for the manual fallback described in
-        ``rx``.
-
-        Renders a scatter plot of cluster centroid coordinates (X, Y) for all clusters
-        that were not marked as bad by the user. If no clusters have been explicitly
-        marked as good yet, displays all cluster centroids.
-
-        This is typically called after the user has clicked on cluster centers to mark
-        them as "bad" (artifacts, false positives). The remaining clusters are considered
-        "good" and are visualized here.
-
-        Notes
-        -----
-        - Uses pyqtgraph for interactive visualization
-        - Cluster centers are displayed with size=10 pixels in green (brush3)
-        - X/Y range is set to match the ROI boundaries
-        """
-        if len(self.good_cluster_centroids) == 0:
-            self.good_cluster_centroids = self.cluster_centroids
-        self._render_good_clusters_panel(self.good_cluster_centroids)
-
 
     def save_clus_CM(self) -> None:
         """

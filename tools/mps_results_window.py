@@ -329,7 +329,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 "is showing.\n\n"
                 "'Discard applied' leaves out the clusters both widefield "
                 "images place inside the axon (axoplasm panel,\n"
-                "section 5); they are drawn as orange diamonds, and the "
+                "section 5); they are drawn as vermillion diamonds, and the "
                 "contour with "
                 "every cluster stays as a grey dashed line.")
         self.radio_measured.setChecked(True)
