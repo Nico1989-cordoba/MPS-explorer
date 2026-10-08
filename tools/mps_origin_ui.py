@@ -26,7 +26,7 @@ translate them.
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from PyQt5 import QtCore, QtWidgets
 
@@ -251,7 +251,7 @@ class DetailsPanel(QtWidgets.QWidget):
         self.button.toggled.connect(self._fold)
         self.button.setChecked(not collapsed)
         self._fold(not collapsed)
-        self._rows: List[tuple] = []
+        self._rows: List[Tuple[Any, ...]] = []
 
     def set_rows(self, rows: Sequence[Sequence[Any]]) -> None:
         self._rows = [tuple(r) for r in rows]
@@ -268,7 +268,7 @@ class DetailsPanel(QtWidgets.QWidget):
                 self.table.setItem(i, col, item)
         self.table.resizeColumnsToContents()
 
-    def rows(self) -> List[tuple]:
+    def rows(self) -> List[Tuple[Any, ...]]:
         return list(self._rows)
 
     def text(self) -> str:
