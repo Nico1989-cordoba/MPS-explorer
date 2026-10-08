@@ -185,16 +185,18 @@ class LayerPanel(QtWidgets.QWidget):
     ``toggled(key, visible)`` is emitted after a row's items were shown or hidden and its ``on_toggle`` called.
     ``dark`` styles the group titles for a dark window (the Axoplasm window); otherwise they use the window's own
     text colour. ``scroll`` puts the rows in a scroll area (the footer stays under it); ``title_style`` replaces the
-    hook that styles group titles (``group_title_style``).
+    hook that styles group titles (``group_title_style``); ``hide_disabled`` draws nothing for a row that is not
+    available (its remembered state is kept for when it is again).
     """
 
     toggled = QtCore.pyqtSignal(str, bool)
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None, *, dark: bool = False,
                  max_width: int = PANEL_MAX_WIDTH, scroll: bool = False,
-                 title_style: Optional[Callable[[bool], str]] = None) -> None:
+                 title_style: Optional[Callable[[bool], str]] = None, hide_disabled: bool = False) -> None:
         super().__init__(parent)
         self._dark = bool(dark)
+        self._hide_disabled = bool(hide_disabled)
         self._layers: Dict[str, _Layer] = {}
         self._state: Dict[str, bool] = {}
         self._groups: List[QtWidgets.QWidget] = []
@@ -409,6 +411,9 @@ class LayerPanel(QtWidgets.QWidget):
             if not layer.owned:      # the caller's box: out of the panel, not deleted
                 self._rows.removeWidget(layer.box)
                 layer.box.setParent(None)
+        for box in self._boxes.values():
+            if box.header is not None:   # the caller's selector: out of the panel, not deleted
+                box.header.setParent(None)
         for w in self._groups:
             self._rows.removeWidget(w)
             w.setParent(None)
@@ -562,6 +567,8 @@ class LayerPanel(QtWidgets.QWidget):
         if not on and reason:
             tip = (tip + "\n\n" if tip else "") + f"Not available: {reason}."
         layer.box.setToolTip(tip)
+        if self._hide_disabled:
+            self._apply(layer)
         if layer.group is not None and layer.group in self._boxes:
             self._sync_group_toggle(self._boxes[layer.group])
 
@@ -588,6 +595,8 @@ class LayerPanel(QtWidgets.QWidget):
         if reason:
             tip = (tip + "\n\n" if tip else "") + f"Not available: {reason}."
         layer.box.setToolTip(tip)
+        if self._hide_disabled:
+            self._apply(layer)
 
     def _apply_collapse(self, group: _Group) -> None:
         folded = self.is_group_collapsed(group.key)
@@ -615,6 +624,8 @@ class LayerPanel(QtWidgets.QWidget):
 
     def _apply(self, layer: _Layer) -> None:
         on = self._state.get(layer.key, True)
+        if self._hide_disabled and not layer.box.isEnabled():
+            on = False
         for item in layer.items:
             try:
                 item.setVisible(on)

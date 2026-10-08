@@ -726,7 +726,10 @@ def main() -> int:
         panel.set_group_collapsed("rings", True)
         panel.checkbox("r").setChecked(False)
         panel.clear_layers(keep_state=True)
+        QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+        pump(app, 0.02)
         assert panel.groups() == [] and panel.keys() == []
+        assert combo.count() == 0 and combo.parent() is None, "the caller's header widget must survive a clear"
         panel.add_group("Rings", key="rings", collapsible=True)
         r2 = pg.ScatterPlotItem()
         panel.add_layer("r", "Ring origin", items=[r2])
