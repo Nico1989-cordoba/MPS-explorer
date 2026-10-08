@@ -208,7 +208,7 @@ TUBULIN_SHIFT_WARNING = (
     "so its depths can be off by 100-250 nm.")
 LEAK_NOT_CALIBRATED_NOTE = "not calibrated for axial leak (H5-E)"
 
-# The pre-registered parameters of the column analysis (D-22), what
+# The pre-specified parameters of the column analysis (D-22), what
 # ``run_cleaned_analyses`` runs with when given none.
 DEFAULT_COLUMNS_PARAMS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                            "config", "columns_params.yaml")
@@ -1775,10 +1775,10 @@ def _analysis_notes(what: str, result: Any) -> List[str]:
 
 
 def default_columns_params(path: str = DEFAULT_COLUMNS_PARAMS_PATH) -> ColumnsParams:
-    """The pre-registered column parameters (D-22, ``config/columns_params.yaml``): tau_0, the seed,
+    """The pre-specified column parameters (D-22, ``config/columns_params.yaml``): tau_0, the seed,
     the null size. FileNotFoundError when the file is not there."""
     if not os.path.isfile(path):
-        raise FileNotFoundError(f"the pre-registered column parameters are not at {path}; pass columns_params")
+        raise FileNotFoundError(f"the pre-specified column parameters are not at {path}; pass columns_params")
     return load_columns_params(path)
 
 
@@ -1804,7 +1804,7 @@ def run_cleaned_analyses(
     4. ``arc_localization`` = ``analyze_arc_columns(reference_curve=
        "localization_membrane")``, the diagnostic.
 
-    ``columns_params``: the column parameters (None: the pre-registered file,
+    ``columns_params``: the column parameters (None: the pre-specified file,
     ``default_columns_params``); ``n_null`` the null size of EVERY test (None:
     ``columns_params.n_null``; checked before anything runs). An analysis
     that fails is None with a warning; the cleaning itself raises

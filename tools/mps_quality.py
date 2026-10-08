@@ -10,7 +10,7 @@ was no way to put the two side by side.
 
 The checks here all answer the same shape of question -- "is this
 structure, or is this the microscope?" -- and they exist because the ring
-analysis ran aground on exactly that ambiguity: 19 of 33 segment
+analysis ran aground on exactly that ambiguity: on pilot data many segment
 boundaries showed no density valley, and nothing in the pipeline could
 say whether that meant the rings are genuinely merged or merely
 unresolved.
@@ -448,10 +448,10 @@ def axial_resolvedness(
     the implied structural width is sqrt(sigma^2 - lpz^2).
 
     This is the number that was missing when the ring analysis found no
-    density valley at 19 of 33 boundaries. Two rings 190 nm apart, each
-    of width lpz = 47 nm, are 4 sigma apart and would show a deep valley;
-    the valleys were absent because the fitted components came out ~1.8x
-    wider than lpz, and nothing could say why.
+    density valley at many boundaries of pilot data. Two rings 190 nm
+    apart, each of width lpz = 50 nm, are nearly 4 sigma apart and would show a
+    deep valley; the valleys were absent because the fitted components
+    came out clearly wider than lpz, and nothing could say why.
 
     ``lpz`` is taken per component, from the localizations nearest that
     component's mean, because axial precision degrades towards the ends
@@ -741,9 +741,10 @@ def repeat_neighbour_fraction(
 
     A docking site is revisited during a DNA-PAINT movie, so its
     localizations from different moments should land on top of each other.
-    A drift correction that is wrong scrambles them: on the 15.07.26
-    sample, AIM with 100-frame segments reported 1.3 um of drift that was
-    not there and this fraction fell from 0.51 to 0.09. That is what it is
+    A drift correction that is wrong scrambles them: on an unpublished
+    DNA-PAINT sample, AIM with 100-frame segments reported drift of the
+    order of a micrometre that was not there and this fraction fell
+    several-fold. That is what it is
     for -- telling a file from its own corrected copy. Whether it also
     shows a correct correction helping depends on how sites are revisited:
     when each is revisited often, revisits close in time coincide even

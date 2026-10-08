@@ -2251,7 +2251,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         The rings are built once, in the background, from the ROI's
         localizations BEFORE the axial cut (roi_indices_unfiltered, the H1
-        hook) with their frames and precisions and the pre-registered
+        hook) with their frames and precisions and the pre-specified
         parameters, WITHOUT the ROI's edge (roi=None), exactly as simnull
         and the certified classification build them (the orchestrator's
         decision for H5-D): the window's clusters are then the ones

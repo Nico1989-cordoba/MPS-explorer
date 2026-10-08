@@ -156,9 +156,8 @@ def main() -> int:
     def untouched_changes_nothing():
         # The editor opens on the measured contour, every centre a vertex,
         # so that "Use this contour" without a drag is a no-op. Measured
-        # on the 18 real April axons: 0.00 % change in 18 of 18, where
-        # the convex hull -- the first version's start -- lengthened every
-        # one (median +12 %, up to +49 %).
+        # on unpublished pilot axons: no change on any of them, where the
+        # convex hull -- the first version's start -- lengthened every one.
         x, y, z = ring_axon(11)
         a = analyse(x, y, z)
         same = reconstruct_perimeter(a.centroids, guide=a.perimeter.contour)

@@ -258,7 +258,7 @@ class RingGeometry:
 
     The smoothed curve (D-25, H5): ``smooth_path`` is the SMOOTHING
     periodic B-spline of the contour -- ``smooth_contour_bspline`` with
-    the pre-registered scale s = K and unit weights, fitted on the
+    the pre-specified scale s = K and unit weights, fitted on the
     CLOSED contour (first vertex appended: handed the open contour,
     ``splprep(per=1)`` overwrites the last vertex with the first and
     leaves that cluster out of the fit, a 9 nm offset at K = 40 and 87
@@ -305,7 +305,7 @@ class RingGeometry:
     usable: NDArray[np.bool_]           # (K,) clusters that enter the matching
     labels: NDArray[np.int64]           # (K,) DBSCAN labels, for reporting
     suspect: Optional[NDArray[np.bool_]] = None   # (K,) H2 suspect mark; all False when omitted
-    smoothing_nm2: Optional[float] = None         # s of the smoothed curve (nm^2); None = the pre-registered K (D-25)
+    smoothing_nm2: Optional[float] = None         # s of the smoothed curve (nm^2); None = the pre-specified K (D-25)
     membrane: Optional[SmoothPath] = field(default=None, repr=False)   # the leave-ring-out pooled membrane (H5-B); None = none attached
     arc_nm: NDArray[np.float64] = field(init=False)          # (K,) CURVE arc of each CLUSTER; arc_nm[order[0]] = 0
     length_nm: float = field(init=False)                      # closed CURVE length (the null's L)
@@ -704,7 +704,7 @@ def _smoothing_closed_path(
     length / step_nm))`` equally spaced values of the chord-length
     parameter u (row 0 is the smoothed image of vertex 0, the origin of
     the arc coordinate and of the reflection, as vertex 0 is for
-    ``path``). ``smoothing`` is s: the pre-registered scale is K, the
+    ``path``). ``smoothing`` is s: the pre-specified scale is K, the
     number of clusters (D-25), i.e. a summed squared residual of at
     most K nm^2 over the vertices, an rms residual of 1 nm.
 
@@ -1032,7 +1032,7 @@ def arc_shift(
     nm: +0.097; on a denser ring (circle R = 1200 nm,
     K = 60, tau 80, 15 nm): -0.088 (conservative there). The
     conserved-offset kind is the smoothing-curve remedy named there,
-    with the pre-registered scale s = K; ``validate_simulate_axon.py``
+    with the pre-specified scale s = K; ``validate_simulate_axon.py``
     section 5 measures both kinds on the same scattered M1 rings and
     the same draws (15 nm isotropic scatter, B = 199, tau 60, R = 200
     pairs per K, se of a mean zeta 0.07-0.08; implementation run of
@@ -1061,7 +1061,7 @@ def arc_shift(
     variant stay inside [0.01, 0.09] at the 5 % level; the bias is in
     the mean zeta, i.e. in the effect size T_A the between-axon
     inference works on. The interpolating kind stays the default
-    because it is the pre-registered H3 null; D-28 decides, and a
+    because it is the pre-specified H3 null; D-28 decides, and a
     membrane estimate from more than the K centroids (the ring's
     localization cloud, or the contours of the axon's rings pooled) is
     the direction that the reference of the re-review -- the exact
@@ -1218,7 +1218,7 @@ def match_rings(
     between tau and 2 tau, and fewer, closer pairs could win: a =
     (0, 0), (55, 0), (110, 0) against b = (-55, 0), (0, 0), (55, 0) at
     tau = 60 gave 2 pairs at 0 nm instead of 3 at 55 nm); D-24b makes
-    the pre-registered semantics the rule.
+    the pre-specified semantics the rule.
 
     Parameters
     ----------
@@ -1902,10 +1902,10 @@ def eclipse_test(
     22), p_excess <= 0.05 in 0.047-0.073 against exact 0.037-0.039;
     and in the research grid, after the contour fix of grid v2 (library
     contours smoothed to their 600 nm P-spline), ``pooled_z_A`` is
-    biased upward under H0 about as much as the pre-registered
+    biased upward under H0 about as much as the pre-specified
     interpolating null. The ``pooled_*`` columns of the power grid are therefore
     NOT a level test at the realistic geometry, as biased as the
-    pre-registered null and in the same direction; a real axon's
+    pre-specified null and in the same direction; a real axon's
     pooled_z_A is read against the calibration table of the matching
     null cell (``power_columns.py summarize``) or its own ``simnull``,
     never against the nominal level.
@@ -2753,8 +2753,8 @@ def build_columns(
 @dataclass
 class AxonColumnsResult:
     """
-    Everything H3 says about one axon, at the pre-registered tau_0 and
-    over the pre-registered grids (D-22: the values travel in
+    Everything H3 says about one axon, at the pre-specified tau_0 and
+    over the pre-specified grids (D-22: the values travel in
     ``params``; nothing here is a constant).
 
     ``adjacent`` are the (k, k+1) matches at tau_0, ``k2`` the (k, k+2)

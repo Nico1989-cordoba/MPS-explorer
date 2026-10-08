@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Validation of tools/mps_multisegment.py on the 18 real axons.
+Validation of tools/mps_multisegment.py on a folder of real axons
+(unpublished data, not in this repository: set MPS_VALIDATION_DATA).
 
 Runs the per-segment analysis on EVERY MPS segment of each axon and
 compares consecutive segments -- item (e) of the thesis plan's Figure 3.
@@ -24,10 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from tools.mps_multisegment import analyze_all_segments  # noqa: E402
 
-DATA_ROOT = os.environ.get(
-    "MPS_VALIDATION_DATA",
-    r"C:\Users\nicol\OneDrive\Doctorado\1°Reunión de avances de tesis\Abril",
-)
+# Unpublished data, not in this repository: given from outside.
+DATA_ROOT = os.environ.get("MPS_VALIDATION_DATA", "")
 
 
 def read_pixelsize(path: str) -> float:
@@ -40,6 +39,8 @@ def read_pixelsize(path: str) -> float:
 
 def find_axons():
     out = []
+    if not DATA_ROOT:
+        return out
     for pat in ["ROI 1/*.hdf5", "ROI 1/*/*.hdf5", "ROI 2/*.hdf5"]:
         for f in glob.glob(os.path.join(DATA_ROOT, pat)):
             if "axon" in os.path.basename(f).lower():
@@ -143,6 +144,9 @@ def run_mode(files, mode):
 
 if __name__ == "__main__":
     files = find_axons()
+    if not files:
+        sys.exit("Skipped: set MPS_VALIDATION_DATA to the folder of picked "
+                 "axons (unpublished data, not in this repository).")
     print(f"Found {len(files)} axon files")
     for mode in ("paper", "partition"):
         run_mode(files, mode)

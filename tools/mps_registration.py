@@ -50,9 +50,9 @@ from scipy.spatial import cKDTree
 # localizations, so a spot fitted twice in one frame does not count double.
 FIDUCIAL_MIN_FRAME_FRACTION = 0.8
 # Drift-corrected markers stay within a few nm; this leaves room for a
-# poorer correction. On the 15.07.26 DNA-PAINT sample no spot reaches even
-# 25% of the frames at any radius up to 1 um, so a generous radius does not
-# turn persistent binding sites into markers.
+# poorer correction. On an unpublished DNA-PAINT sample no binding spot
+# came anywhere near the frame fraction at any radius up to 1 um, so a
+# generous radius does not turn persistent binding sites into markers.
 FIDUCIAL_RADIUS_NM = 150.0
 # Largest round-to-round offset searched when pairing markers.
 MATCH_MAX_OFFSET_NM = 3000.0

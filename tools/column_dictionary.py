@@ -157,8 +157,8 @@ ANALYSIS: Dict[str, str] = {
     "contour_scatter_percent": "The same scatter as a percentage of the "
                                "hull radius: how rough this ring is for its "
                                "size. The deep-centre count is calibrated "
-                               "for up to 5 %; the April axons measured 6 "
-                               "to 16 %.",
+                               "for up to 5 %; real axons can measure "
+                               "more.",
     "contour_scatter_depth_limit_nm": "How deep a healthy ring with that "
                                       "scatter and this many centres "
                                       "reaches, 99 times in 100. The deep "
@@ -445,8 +445,8 @@ CROSSCHANNEL: Dict[str, str] = {
                        "in the unit Min Pts counts.",
     "locs_per_cell_b": "The same for channel 2. Far above channel 1's means "
                        "the two are not in the same regime and cannot share "
-                       "a Min Pts; measured across five real adducin files "
-                       "the ratio ran from 1 to 138.",
+                       "a Min Pts; on unpublished adducin files the ratio "
+                       "reached two orders of magnitude.",
     "channel_b_parameter_source": "Where channel 2's Epsilon and Min Pts "
                                   "came from, as the caller stated it: "
                                   "typed by a person, estimated by the "

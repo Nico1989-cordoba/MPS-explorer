@@ -15,8 +15,8 @@ The same row the axon window exports, built by the same function
 one by one fit in one table. They differ in one thing, and say so: a
 batch has no ROI drawn around the axon, so the automatic curation
 measures edge-touching against the convex hull of the localizations
-(``edge_reference``), which keeps other clusters than an ROI does -- on
-the April axon 7, 90 against 94. That axon then has a different
+(``edge_reference``), which keeps other clusters than an ROI does (a
+few fewer on an axon of unpublished pilot data). That axon then has a different
 ``analysis_id`` in the two, and a table must not hold it twice; the export
 leaves out the files the table already holds from the axon window.
 
@@ -31,15 +31,12 @@ answers. This module therefore reports the data at BOTH levels -- per
 axon, and one value per nesting unit -- with the intraclass correlation
 that says how much the difference between them matters, and stops there.
 
-On the 18 April test axons grouped by ROI -- two ROIs of nine -- the
-intraclass correlation is 0.86 for occupancy, 0.96 for the median
-cluster area and 0.44 for the median 1NN, where two groups of nine reach
-0.31 by chance alone (95th percentile). With two groups that says the two
-ROIs differ, and not how much evidence an axon is worth: an ICC measured
-over two groups is a comparison of those two groups. How much the axons of
-one animal resemble each other needs several animals, which the test data
-does not have. ``validate_batch.py`` recomputes these numbers every run
-(``ICC_ON_THE_TEST_AXONS``).
+With axons grouped in only two units (two ROIs of one animal, say), a
+high intraclass correlation says that those two units differ, and not how
+much evidence an axon is worth: an ICC measured over two groups is a
+comparison of those two groups. How much the axons of one animal resemble
+each other needs several animals. ``validate_batch.py`` recomputes the ICC
+of a real test folder against values kept in a private file.
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -61,16 +58,6 @@ from numpy.typing import NDArray
 from tools.mps_identity import FIELD_LABELS, AxonIdentity
 from tools.mps_identity import FIELDS as IDENTITY_FIELDS
 from tools.mps_randomization import DEFAULT_N_RANDOMIZATIONS
-
-# What validate_batch.py measured on the 18 April axons, grouped by ROI
-# (two ROIs of nine), on 2026-09-22. Kept here so that the numbers in the
-# docstring are ones someone can check, and rechecked by that script on
-# every run.
-ICC_ON_THE_TEST_AXONS: Dict[str, float] = {
-    "occupancy_percent": 0.86,
-    "median_area_nm2": 0.96,
-    "median_1nn_nm": 0.44,
-}
 
 
 # ============================================================================

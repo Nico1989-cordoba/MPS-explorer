@@ -573,8 +573,8 @@ def molecular_map(
     ``postprocess`` (Picasso's default) filters the map before writing
     it: see ``G5M_FILTERS`` and ``molmap_summary``. One of the three
     filters is a sticking test on the spread of frames, and on a short
-    acquisition it can remove nearly everything -- 94 of 166 molecules
-    failed that test alone on the 3,412-frame 15.07.26 sample.
+    acquisition it can remove nearly everything -- more than half of the
+    molecules failed that test alone on a short unpublished sample.
 
     Returns
     -------

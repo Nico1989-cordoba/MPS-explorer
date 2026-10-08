@@ -2,13 +2,13 @@
 """
 The viability explorer's work on one file, without Qt (so a worker process imports nothing of the GUI): the per-pair
 criteria of both viability rules of one picked axon (``tools.mps_selection.geometry_for_file``: the batch's loader, the
-pre-registered rings, z_quality, rule v2 on the lab coordinates, rule v2c), cached as JSON.
+pre-specified rings, z_quality, rule v2 on the lab coordinates, rule v2c), cached as JSON.
 
 Geometry only (R8): no column statistic is computed here, so it may run on real axons.
 
 The cache: ``<cache dir>/<key>.json`` with ``key`` = sha256 (12 hex) of the input file's sha256, the pixel size asked
 for, ``tools.mps_selection.selection_source_sha()`` (the rules' sources and thresholds) and the sha256 of the
-pre-registered column parameters (they build the rings). Any of them changes -> another key, a new computation.
+pre-specified column parameters (they build the rings). Any of them changes -> another key, a new computation.
 
 @author: Nicolas (ngomez) + Claude
 """

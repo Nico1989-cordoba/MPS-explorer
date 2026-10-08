@@ -20,7 +20,7 @@ the parent's x', y', matched to it within tau_0 and counted as a column
 (01_formalizacion E6 (a)). With P / 2 = 85 nm and sigma_z = 77 nm the
 tail beyond a boundary is 1 - Phi(85 / 77) = 13.5 % of a cluster: 27 of
 200 localizations, enough for min_samples = 10. The module puts the
-five pre-registered diagnostics (01 S1.6 point 4) on every matched pair
+five pre-specified diagnostics (01 S1.6 point 4) on every matched pair
 and every ring pair, adds the principled per-pair form of (ii) (D-27:
 the tail-versus-centred likelihood ratio of the child's z'), fits the
 axial profile of every column (the mixture at the period against one
@@ -184,7 +184,7 @@ class LeakParams:
     marks a child whose shared-event fraction reaches it as
     ``shared_high`` (informative; H5 calibrates). ``n_null_shared`` is
     the number of replicates of the reassignment null of (i) and of the
-    permutation p of (ii). ``boundary_band_sigma`` is the pre-registered
+    permutation p of (ii). ``boundary_band_sigma`` is the pre-specified
     band of (ii): within that many sigma_z of the boundary.
     ``lpz_scale`` multiplies every lpz before the leak fraction (D-19:
     the reported axial precision can be optimistic away from focus;
@@ -194,7 +194,7 @@ class LeakParams:
     the parametric bootstrap of the axial profile; a column enters rule
     (iv) when every cluster has ``profile_min_locs_per_cluster``
     localizations; ``profile_alpha`` its level. ``n_min_z`` is the z of
-    the pre-registered n_min (two-sided 5 %) and ``n_min_power`` the
+    the pre-specified n_min (two-sided 5 %) and ``n_min_power`` the
     target power of the Fisher-information sample size.
 
     The random seed is NOT a field: it is ``AxonColumnsResult.random_seed``
@@ -257,7 +257,7 @@ class PairLeak:
     The CHILD is the cluster with fewer localizations (tie: the cluster
     of ring b), the PARENT the other; ``boundary_z_nm`` is the edge of
     the child's ring window facing the parent. ``boundary_fraction_child``
-    is the pre-registered (ii): the fraction of the child's
+    is the pre-specified (ii): the fraction of the child's
     localizations within ``boundary_band_sigma`` x sigma_z of the child
     ring of that boundary; ``boundary_fraction_expected`` the same for
     N(centre, sigma_z) of the child ring truncated to the window and
@@ -403,7 +403,7 @@ class RingPairLeak:
     ``n_matched_clean`` = n_matched - n_leak_explained, ``E_dir_clean``
     that over min(K_a, K_b) and ``zeta_clean`` its standardisation
     against the UNCLEANED H3 null of the same ``RingPairMatch`` (the
-    pre-registered form). That number is NOT conservative but biased
+    pre-specified form). That number is NOT conservative but biased
     low: the null replicates still contain the flagged children (a
     shifted child is matched to whatever it lands near), so the count
     removed from the observed side stays in E*, and zeta_clean sits
@@ -429,9 +429,9 @@ class RingPairLeak:
     ``shared_fraction_paired_mean`` is the mean over the matched pairs,
     ``shared_fraction_unpaired_mean`` the mean over every UNMATCHED cross
     pair of usable clusters (shared / min of the two event counts).
-    ``p_shared`` is the pre-registered (i), a reassignment null (see
+    ``p_shared`` is the pre-specified (i), a reassignment null (see
     ``ring_pair_leak``); ``spearman_matched_vs_lpz_rho`` / ``_p`` the
-    pre-registered (ii) over the usable clusters of both rings pooled
+    pre-specified (ii) over the usable clusters of both rings pooled
     (one-sided, rho > 0 is what leak predicts). ``lpz_pair_median_nm``
     and ``E_excess`` = E_dir - E* are for cross-axon reporting.
     ``n_leak_explained_any`` counts the pairs with
@@ -440,7 +440,7 @@ class RingPairLeak:
     equal to ``n_leak_explained`` / its fraction as ``ring_pair_leak``
     returns them, raised by ``analyze_leak`` once the two-parent pass
     has seen both adjacent pairs. The cleaned null (``match_clean``)
-    removes the single-parent flags only (the pre-registered form).
+    removes the single-parent flags only (the pre-specified form).
     """
 
     ring_a: int
@@ -487,7 +487,7 @@ class AxialProfileFit:
     parametric bootstrap under the one-Gaussian fit, ``pi_hat`` = 1 -
     max(weights): the mass outside the dominant component.
 
-    ``n_min_events`` is the PRE-REGISTERED form (03 S3.2): z^2 / (pi_hat^2
+    ``n_min_events`` is the PRE-SPECIFIED form (03 S3.2): z^2 / (pi_hat^2
     (exp((period / sigma)^2) - 1)), the Cramer-Rao bound at pi -> 0 with
     mu, sigma and the period known -- a lower bound the fitted mixture
     (three free parameters more) cannot reach, and NOT the sample size
@@ -556,7 +556,7 @@ class LeakDiagnostics:
     guard (empty without the rebuild or its inputs, with a warning),
     ``profiles`` one ``AxialProfileFit`` per column of length >= 2 in
     ``cols.columns`` order. ``rules`` holds the verdict of each
-    pre-registered diagnostic: "i_shared" (every p_shared > 0.05; None
+    pre-specified diagnostic: "i_shared" (every p_shared > 0.05; None
     without events), "ii_lpz" (every pair has rho <= 0 or p > 0.05; None
     without lpz OR when rho is undefined on every pair, e.g. a constant
     lpz over the clusters -- an undefined correlation cannot vote, D-27),
@@ -583,7 +583,7 @@ class LeakDiagnostics:
       and the rule then rests on the remaining pairs (None when none
       is defined).
     * (iii) does NOT separate leak from columns at these sigma_z /
-      period values: beyond the pre-registered dead zone the tail is
+      period values: beyond the pre-specified dead zone the tail is
       still 1 - Phi((85 + 30) / 77) = 6.8 % of a cluster, 13.5 of 200
       localizations, above min_samples 10 in ~85 % of the clusters, so
       most children persist at g = 60 (measured 44 -> 32 on the
@@ -592,7 +592,7 @@ class LeakDiagnostics:
       independent-ring axons with leak (2.3-3.3 / 0.5-2.0 at g = 90),
       and ``rules["iii_guard"]`` read True on every one of them. It
       holds for real columns (M5) and is reported because it is
-      pre-registered; a True is not evidence against leak.
+      pre-specified; a True is not evidence against leak.
     * (v) assumes clusters of comparable size and reads False whenever
       the sizes are as dispersed as a real ring's (median size ratio
       0.33-0.43 on perfect columns of distinct molecules).
@@ -1012,7 +1012,7 @@ def pair_leak(
         if n_ev_child == 0:
             warnings_.append("child cluster with no event (every id -1): shared_fraction NaN")
 
-    # --- (ii) pre-registered band and the tail-versus-centred LLR ---------
+    # --- (ii) pre-specified band and the tail-versus-centred LLR ---------
     sigma_c = float(child_ring.sigma_z_nm)
     band = float(params.boundary_band_sigma) * sigma_c
     z_child = np.asarray(child.z_values_nm, dtype=np.float64)
@@ -1304,7 +1304,7 @@ def ring_pair_leak(
     """
     The ``RingPairLeak`` of one adjacent match: ``pair_leak`` on every
     matched pair, the counts and the clean excess, then the two
-    pre-registered pair-level diagnostics.
+    pre-specified pair-level diagnostics.
 
     ``clean_null`` (D-27): when at least one pair is leak-explained,
     the eclipse test is rerun (``match_clean``) with the flagged
@@ -1329,7 +1329,7 @@ def ring_pair_leak(
     (B + 1). The linking is local (radius 5 x lp ~ 50 nm), so random
     pairings almost never share an event and this p is small whenever
     ANY matched pair shares one; it is reported because it is
-    pre-registered (D-10), the decision-relevant quantity is the
+    pre-specified (D-10), the decision-relevant quantity is the
     per-pair level (``leak_explained``), and H5 calibrates.
 
     (ii) Spearman between the indicator "has a partner" and
@@ -1776,7 +1776,7 @@ def _fisher_information_pi(pi: float, mu: float, sigma: float, period: float, we
 
 
 def _n_min_prereg(pi: float, period: float, sigma: float, z: float) -> float:
-    """The pre-registered n_min: z^2 / (pi^2 (exp((P / sigma)^2) - 1));
+    """The pre-specified n_min: z^2 / (pi^2 (exp((P / sigma)^2) - 1));
     inf at pi = 0, 0 when the exponential overflows (sigma << P: the
     bound is then below one event anyway)."""
     if not (pi > 0.0):

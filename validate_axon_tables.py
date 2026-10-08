@@ -85,14 +85,14 @@ def build(rng=None, k=20, **kwargs):
     x = np.concatenate([x, x[:9]])
     y = np.concatenate([y, y[:9]])
     analysis = analyze_axon(
-        x, y, z, source_name=r"D:/Abril/ROI 1/Axon 7/axon7.hdf5",
+        x, y, z, source_name=r"D:/SampleA/ROI 1/Axon 4/axon4.hdf5",
         pixel_size_nm=113.0, pixel_size_source="yaml", roi=roi,
         run_randomization=False, **kwargs)
     return x, y, z, with_every_start(analysis)
 
 
 IDENT = AxonIdentity(genotype="KO", protein="4.1B", animal="mouse 1",
-                     sample="Abril", roi_name="ROI 1", axon_name="Axon 7")
+                     sample="SampleA", roi_name="ROI 1", axon_name="Axon 4")
 
 
 def panel_row(analysis, discarded=0, margin=250.0,
@@ -110,7 +110,7 @@ def panel_row(analysis, discarded=0, margin=250.0,
         "mask_area_um2": 12.5,
         "n_localizations": int(analysis.n_locs_total),
         "n_localizations_inside": 141,
-        "fraction_inside": 0.0141,
+        "fraction_inside": 0.0123,
         "n_warnings": 0,
         "warnings": "",
     }
@@ -128,10 +128,10 @@ def test_the_row() -> None:
         row = axon_row(analysis, identity=IDENT)
         for name in HEAD_COLUMNS:
             assert name in row, name
-        assert row["genotype"] == "KO" and row["axon_name"] == "Axon 7", row
+        assert row["genotype"] == "KO" and row["axon_name"] == "Axon 4", row
         assert row["roi"].startswith("circle centred"), row["roi"]
         assert row["roi_name"] == "ROI 1", row
-        assert row["source"].endswith("axon7.hdf5"), row["source"]
+        assert row["source"].endswith("axon4.hdf5"), row["source"]
         return f"{row['axon_id']} / {row['analysis_id']}"
 
     def without_an_identity_the_cells_are_empty():
@@ -258,11 +258,11 @@ def test_refuses_two_states() -> None:
 
     def a_panel_of_another_axon():
         other = panel_row(analysis)
-        other["source_localizations"] = "D:/Abril/ROI 1/Axon 8/axon8.hdf5"
+        other["source_localizations"] = "D:/SampleA/ROI 1/Axon 5/axon5.hdf5"
         try:
             axon_row(analysis, axoplasm=other)
         except ExportConflict as error:
-            assert "axon8.hdf5" in str(error), error
+            assert "axon5.hdf5" in str(error), error
             return str(error)[:56]
         raise AssertionError("exported a row of two axons")
 
@@ -304,7 +304,7 @@ def test_refuses_two_states() -> None:
                        axoplasm=panel_row(analysis, discarded=3))
         assert row["axoplasm_measured"] is True
         assert row["axoplasm_mask_status"] == "ok", row
-        assert row["axoplasm_fraction_inside"] == 0.0141
+        assert row["axoplasm_fraction_inside"] == 0.0123
         # Written once, under the name the axon row uses.
         assert "axoplasm_n_clusters_discarded" not in row
         assert "axoplasm_margin_nm" not in row

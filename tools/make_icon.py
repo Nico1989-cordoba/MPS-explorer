@@ -43,8 +43,8 @@ from tools.mps_plot_style import PANEL_BG, neutral, role  # noqa: E402
 # being 16 pixels across.
 SIZES = (256, 128, 64, 48, 32, 16)
 # How many cluster centres go round the ring. Eight is what still reads
-# as "a ring of separate things" at 16 pixels; the real axons have
-# between forty and a hundred.
+# as "a ring of separate things" at 16 pixels; real axons have many
+# more.
 N_CLUSTERS = 8
 
 

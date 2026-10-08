@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Validation of tools/mps_gaps.py on the 18 real axons.
+Validation of tools/mps_gaps.py on a folder of real axons (unpublished
+data, not in this repository: set MPS_VALIDATION_DATA to it).
 
 Answers three questions, in order:
 
@@ -45,10 +46,8 @@ from tools.mps_periodicity import (  # noqa: E402
     fit_z_periodicity,
 )
 
-DATA_ROOT = os.environ.get(
-    "MPS_VALIDATION_DATA",
-    r"C:\Users\nicol\OneDrive\Doctorado\1°Reunión de avances de tesis\Abril",
-)
+# Unpublished data, not in this repository: given from outside.
+DATA_ROOT = os.environ.get("MPS_VALIDATION_DATA", "")
 
 
 def read_pixelsize(path: str) -> float:
@@ -61,6 +60,8 @@ def read_pixelsize(path: str) -> float:
 
 def find_axons() -> List[str]:
     out = []
+    if not DATA_ROOT:
+        return out
     for pat in ["ROI 1/*.hdf5", "ROI 1/*/*.hdf5", "ROI 2/*.hdf5"]:
         for f in glob.glob(os.path.join(DATA_ROOT, pat)):
             if "axon" in os.path.basename(f).lower():

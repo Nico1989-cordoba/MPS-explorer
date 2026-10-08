@@ -24,12 +24,11 @@ betaIII-tubulin are like that. Its localizations are counted on the
 movie's own camera grid, so it is placed by construction: no widefield
 image, no shift, and section 5 runs without one; the table records
 "same acquisition". For the spectrin, that can be the movie's own file.
-Measured on five picked axons of 230911 ROI 1, the tubulin mask drawn
-from localizations and the one drawn from the widefield image of the
-same axons overlap with an IoU of 0.53 to 0.70, and the widefield one is
-larger -- its edge a median 246 nm further out in effective radius,
-86 to 356 nm -- so the same margin discards less against a mask drawn
-from localizations. Which to use is the user's call; the table says
+Measured on a few picked axons of unpublished data, the tubulin mask
+drawn from localizations and the one drawn from the widefield image of
+the same axons overlap only partly, and the widefield one is larger --
+its edge a few hundred nm further out in effective radius -- so the same
+margin discards less against a mask drawn from localizations. Which to use is the user's call; the table says
 which it was.
 
 The calculations are in ``tools.mps_axoplasm``.
@@ -118,10 +117,10 @@ def _cased_edge(edge: "np.ndarray", colour: tuple) -> "np.ndarray":
 CONTOUR_CACHE_SIZE = 32
 
 # How long the panel waits, after the last step of a drag, before it
-# recomputes the mask and the discard. Measured on axon 7 (34 clusters,
-# 10,034 localizations): one control event costs 110-135 ms of panel work
-# even when nothing is discarded, and 2.6-2.8 s when the discarded set
-# changes, of which 2.46 s is the 1000-iteration randomization. A slider
+# recomputes the mask and the discard. Measured on a pilot axon (tens of
+# clusters, ~10^4 localizations): one control event costs ~0.1 s of panel
+# work even when nothing is discarded, and seconds when the discarded set
+# changes, most of it the 1000-iteration randomization. A slider
 # emits about 60 of those a second, so without this the window is not
 # slow -- it is frozen.
 RECOMPUTE_DELAY_MS = 250
@@ -223,9 +222,8 @@ class AxoplasmInputs:
     # The axial cut the main window applied to this selection, and where
     # it came from ("typed", "axial peak" or "none"). Every count in this
     # panel is a count of the localizations that survived it: clearing the
-    # Z fields on axon 7 took the selection from 10,034 to 23,743 and
-    # fraction_inside from 0.0141 to 0.0060, with nothing in the table to
-    # say why.
+    # Z fields on a pilot axon more than doubled the selection and more
+    # than halved fraction_inside, with nothing in the table to say why.
     z_range: Optional[Tuple[float, float]] = None
     z_range_source: str = "none"
     # The DBSCAN label of each kept cluster, in the order of ``clusters``,
@@ -1156,8 +1154,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                 or len(centroids) < 3:
             return
         # Which clusters are inside depends entirely on where the images
-        # sit: with no shift, axon 7 gave 4 discarded and a 19.65 um
-        # contour against 5 and 18.48 um once the shift was measured.
+        # sit: on a pilot axon the discarded set and the contour length
+        # changed once the shift was measured.
         # Sorting them before anything is placed would hand the results
         # window, and the tables, a discard measured on an unplaced image.
         # Only a widefield image needs placing. Localizations acquired with

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 The tolerance tau of the columns review as a control (UI stage 1, D-44): the tau the column tests of the review
-window run at, how a run at another tau than the pre-registered tau_0 is named, logged, counted and exported, and
+window run at, how a run at another tau than the pre-specified tau_0 is named, logged, counted and exported, and
 the data the window draws from what a run already computed (the E(tau) curve of the 2D test, the clusters each test
 matched).
 
@@ -10,19 +10,21 @@ What tau is, and why another value is exploratory
 Two clusters of adjacent rings are matched ("eclipsed") when they sit within tau of each other: in the axon frame
 for the 2D test, along the membrane for the arc tests. The matching is one-to-one of maximum cardinality (D-24b), so
 a larger tau matches at least as many clusters -- by chance as well as by columns, which is why the evidence is the
-excess over the null (zeta, p), never the number of matches. tau_0 (``config/columns_params.yaml``, D-22) was fixed
-before the data were seen; any other value is EXPLORATORY, and every result computed at it says so.
+excess over the null (zeta, p), never the number of matches. tau_0 (``config/columns_params.yaml``, D-22) is a
+pilot-derived suggestion: it was measured once on one exploratory axon of an unpublished pilot dataset and then frozen
+in the parameters file; it was NOT fixed before any data were seen, and results on that pilot data are exploratory.
+Any other value is EXPLORATORY too, and every result computed at it says so.
 
 What lives here (no Qt)
 -----------------------
-* ``normalize_tau`` / ``is_tau0`` / ``tau_text``: a tau in nm, rounded to 0.01 nm; whether it is the pre-registered
+* ``normalize_tau`` / ``is_tau0`` / ``tau_text``: a tau in nm, rounded to 0.01 nm; whether it is the pre-specified
   tau_0 (to 1e-9 nm: only the loaded value itself); its text in labels ("100", "55.5").
 * ``params_at_tau``: the column parameters at a tau, in memory only (the parameters file is never written: changing
-  tau_0 stays a decision of its own). At tau_0 it returns the loaded object ITSELF, so the pre-registered run is the
+  tau_0 stays a decision of its own). At tau_0 it returns the loaded object ITSELF, so the pre-specified run is the
   program's run exactly. ``tau_choices``: tau_0, one preset per other value of ``tau_sensitivity_nm`` (the 2D test's
-  pre-registered sensitivity values, exploratory as a control) and a free value (``TAU_FREE_*``).
+  pre-specified sensitivity values, exploratory as a control) and a free value (``TAU_FREE_*``).
 * ``AnalysisVariant``: a selection of pairs (D-43) and a tau. At tau_0 its label and hash ARE the selection's, so
-  every text, export and log row of a pre-registered run stays what it was. At another tau the label is
+  every text, export and log row of a pre-specified run stays what it was. At another tau the label is
   "<selection> | tau = X nm" (``TAU_LABEL_MARK``, which no selection label contains) and the 8-hex hash covers that
   label, the selection schema, the selection thresholds and ``TAU_SCHEMA`` (tau_0 itself is not hashed: the numbers
   at tau X do not depend on it).
@@ -32,7 +34,7 @@ What lives here (no Qt)
   every distinct (selection, tau) tried; until a tau variant has been tried the counter reads as before.
 * The texts a run at another tau writes in the results view and the exports (``tau_banner``, ``tau_2d_line``,
   ``tau_tag``, ``analysis_with_tau``, ``pending_export_message``, ``counter_banner_text``), so the tests pin them.
-  Under tau_0 each returns the pre-registered text or nothing (its docstring says which).
+  Under tau_0 each returns the pre-specified text or nothing (its docstring says which).
 * ``curve_view``: the E(tau) curve of one pair exactly as the 2D test computed it (``AxonColumnsResult.curves``,
   D-03). It is seeded per pair over the fixed grid and does not depend on tau, so drawing it computes nothing.
   ``match_segments``: the clusters a test matched for one pair, as segments between their centroids (x', y'), from
@@ -128,8 +130,8 @@ def normalize_tau(t: Any) -> float:
 
 
 def is_tau0(t: Any, tau0: Any) -> bool:
-    """Whether ``t`` is the pre-registered tau_0 (``tau0``, the loaded value) to ``TAU0_TOLERANCE_NM``: only that
-    value itself is pre-registered, not its rounding. False for anything that is not a number."""
+    """Whether ``t`` is the pre-specified tau_0 (``tau0``, the loaded value) to ``TAU0_TOLERANCE_NM``: only that
+    value itself is pre-specified, not its rounding. False for anything that is not a number."""
     try:
         return abs(float(t) - float(tau0)) <= TAU0_TOLERANCE_NM
     except (TypeError, ValueError):
@@ -148,7 +150,7 @@ def tau_text(t: Any) -> str:
 
 def params_at_tau(cp: "ColumnsParams", t: Any) -> "ColumnsParams":
     """The column parameters at the tolerance ``t``: ``cp`` ITSELF when ``t`` is its tau_0 (``is_tau0``: the
-    pre-registered run is untouched), else a copy with ``tau0_nm = normalize_tau(t)`` and every other field (the
+    pre-specified run is untouched), else a copy with ``tau0_nm = normalize_tau(t)`` and every other field (the
     grid, the sensitivity taus, the null size, the seed...) as loaded. In memory only: nothing is written."""
     if is_tau0(t, cp.tau0_nm):
         return cp
@@ -157,7 +159,7 @@ def params_at_tau(cp: "ColumnsParams", t: Any) -> "ColumnsParams":
 
 @dataclass(frozen=True)
 class TauChoice:
-    """One entry of the control: ``key`` "tau0" (the pre-registered value), "preset" (another value of the 2D
+    """One entry of the control: ``key`` "tau0" (the pre-specified value), "preset" (another value of the 2D
     test's ``tau_sensitivity_nm``) or "free" (``tau_nm`` None: the user types it)."""
 
     key: str
@@ -182,8 +184,8 @@ def tau_choices(cp: "ColumnsParams") -> Tuple[TauChoice, ...]:
 class AnalysisVariant:
     """
     What a column result of the review was computed under: the selection of pairs ``spec`` (D-43) and the tolerance
-    ``tau_nm``, against the pre-registered ``tau0_nm``. ``tau_nm`` is kept as tau_0 itself when ``is_tau0``, else
-    rounded to 0.01 nm (``normalize_tau``). The pre-registered analysis is the default selection at tau_0; anything
+    ``tau_nm``, against the pre-specified ``tau0_nm``. ``tau_nm`` is kept as tau_0 itself when ``is_tau0``, else
+    rounded to 0.01 nm (``normalize_tau``). The pre-specified analysis is the default selection at tau_0; anything
     else is exploratory. At tau_0 ``label`` and ``hash`` are the selection's own (so are the log rows, the counter
     and every text); at another tau the label is ``<selection label> | tau = X nm`` and the hash is its own.
     """
@@ -205,12 +207,12 @@ class AnalysisVariant:
 
     @property
     def tau_is_default(self) -> bool:
-        """The run is at the pre-registered tau_0."""
+        """The run is at the pre-specified tau_0."""
         return is_tau0(self.tau_nm, self.tau0_nm)
 
     @property
     def is_default(self) -> bool:
-        """The pre-registered analysis: the pre-specified selection at tau_0."""
+        """The pre-specified analysis: the pre-specified selection at tau_0."""
         return bool(self.spec.is_default and self.tau_is_default)
 
     @property
@@ -289,7 +291,7 @@ def variant_counter_line(n_total: int, n_tau: int, where: str = "on this axon") 
 
 # ============================================================================ the texts of a run at another tau
 def counter_banner_text(v: AnalysisVariant) -> str:
-    """The bold head of the review's counter label: "" for the pre-registered analysis; under tau_0 with an
+    """The bold head of the review's counter label: "" for the pre-specified analysis; under tau_0 with an
     exploratory selection the selection's own "EXPLORATORY SELECTION <label> #<hash>"; at another tau
     "EXPLORATORY ANALYSIS <variant label> #<variant hash>"."""
     if v.is_default:
@@ -305,7 +307,7 @@ def tau_banner(v: AnalysisVariant) -> str:
     (``tools.mps_selection_ui.exploratory_banner``) or none."""
     if v.tau_is_default:
         return ""
-    text = (f"EXPLORATORY ANALYSIS {v.label} #{v.hash}: tau = {tau_text(v.tau_nm)} nm is not the pre-registered "
+    text = (f"EXPLORATORY ANALYSIS {v.label} #{v.hash}: tau = {tau_text(v.tau_nm)} nm is not the pre-specified "
             f"tau_0 = {v.tau0_nm:.2f} nm")
     if v.spec.exploratory:
         text += f", and the selection is not the pre-specified rule {ms.DEFAULT_SELECTION.label}"
@@ -313,23 +315,23 @@ def tau_banner(v: AnalysisVariant) -> str:
 
 
 def tau_2d_line(tau: float, tau0: float) -> str:
-    """The tolerance line of the 2D test in the results: at tau_0 the pre-registered "   tau_0 X nm", at another
-    tau "   tau X nm (exploratory; the pre-registered tau_0 is Y nm)"."""
+    """The tolerance line of the 2D test in the results: at tau_0 the pre-specified "   tau_0 X nm", at another
+    tau "   tau X nm (exploratory; the pre-specified tau_0 is Y nm)"."""
     if is_tau0(tau, tau0):
         return f"   tau_0 {float(tau0):.1f} nm"
-    return f"   tau {float(tau):.1f} nm (exploratory; the pre-registered tau_0 is {float(tau0):.1f} nm)"
+    return f"   tau {float(tau):.1f} nm (exploratory; the pre-specified tau_0 is {float(tau0):.1f} nm)"
 
 
 def tau_tag(v: AnalysisVariant) -> str:
     """What the ``analysis`` column of the results table adds at another tau than tau_0 ("" at tau_0)."""
     if v.tau_is_default:
         return ""
-    return (f"EXPLORATORY tau = {tau_text(v.tau_nm)} nm (pre-registered tau_0 = {v.tau0_nm:.2f} nm) "
+    return (f"EXPLORATORY tau = {tau_text(v.tau_nm)} nm (pre-specified tau_0 = {v.tau0_nm:.2f} nm) "
             f"#{v.hash}")
 
 
 def analysis_with_tau(name: str, v: AnalysisVariant) -> str:
-    """The ``analysis`` cell: ``name`` at tau_0 (the pre-registered row), ``f"{name} | {tau_tag(v)}"`` otherwise."""
+    """The ``analysis`` cell: ``name`` at tau_0 (the pre-specified row), ``f"{name} | {tau_tag(v)}"`` otherwise."""
     return str(name) if v.tau_is_default else f"{name} | {tau_tag(v)}"
 
 

@@ -4,8 +4,10 @@ Checks against the 2023 sciatic-nerve data (Guada Gazal and Gonzalo
 Escalante): two colours split onto one camera, 3D by astigmatism, and the
 axons picked one by one in Picasso.
 
-The data is not in the repository (218 GB). Point MPS_DATA_2023 at it, or
-leave it in "example data/2023"; without it these checks are skipped.
+The data is unpublished and not in the repository (218 GB). Point
+MPS_DATA_2023 at it, or leave it in "example data/2023", and point
+MPS_DATASET_2023_LAYOUT at a private JSON file that says where things are
+inside it (see LAYOUT below); without either, these checks are skipped.
 
 What is verified:
   1. the files are read as their own metadata describes them -- the pixel
@@ -14,7 +16,7 @@ What is verified:
      when both come from one movie;
   2. this software reproduces, value for value, the 1NN distances the lab
      measured in 2023 with its own script (DBSCAN eps 30 nm, 10 samples,
-     x and y only) on the 18 axons it selected;
+     x and y only) on the axons it selected;
   3. how much the two loose ends of this data move that result: the pixel
      size, which the YAML gives as 135 nm and the camera metadata as
      133 nm, and the last cluster, which the 2023 script leaves out
@@ -27,10 +29,11 @@ Run:  python validate_dataset_2023.py
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import traceback
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from sklearn.cluster import DBSCAN
@@ -44,16 +47,48 @@ from tools.mps_spatial import compute_nn_distances  # noqa: E402
 
 DATA = os.environ.get("MPS_DATA_2023") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "example data", "2023")
-DAY = os.path.join(DATA, "230911 - MPS", "230911-Analysis")
-STAINING6 = os.path.join(DATA, "230915 - MPS", "Analisis - Tinción 6", "ROI3")
 
-# The axons the lab kept for its first 1NN analysis, as
-# load_selected_distances.py lists them: (ROI, axon).
+# LAYOUT: where things are inside the unpublished data, kept in a private
+# JSON file named by MPS_DATASET_2023_LAYOUT. Folders are lists of path
+# parts relative to MPS_DATA_2023; file names may hold {roi}, {axon} and
+# {protein}:
+#   "analysis_dir"      the picked axons and the 2023 1NN distances;
+#   "acquisition_dir"   the widefield crop and a split movie;
+#   "movie_dir"         raw movies with their acquisition metadata;
+#   "staining6_dir"     the two channels of staining 6;
+#   "roi_dir", "selection_dirs", "axon_file", "distances_file";
+#   "staining6_spectrin", "staining6_adducin";
+#   "widefield_crop", "split_movie", "movies" [raw, corrected];
+#   "example_axon" [roi, axon]  the axon the reading checks use;
+#   "selected" [[roi, axon], ...]  the axons the lab kept for its first
+#       1NN analysis.
+LAYOUT_PATH = os.environ.get("MPS_DATASET_2023_LAYOUT", "")
+
+
+def _layout() -> Dict[str, Any]:
+    if not LAYOUT_PATH or not os.path.isfile(LAYOUT_PATH):
+        return {}
+    with open(LAYOUT_PATH, encoding="utf-8") as handle:
+        return dict(json.load(handle))
+
+
+LAYOUT = _layout()
+
+
+def _folder(key: str) -> str:
+    return os.path.join(DATA, *LAYOUT.get(key, [])) if LAYOUT else ""
+
+
+DAY = _folder("analysis_dir")
+ACQUISITION = _folder("acquisition_dir")
+MOVIES = _folder("movie_dir")
+STAINING6 = _folder("staining6_dir")
 SELECTED: List[Tuple[int, int]] = [
-    (1, 4), (2, 2), (2, 3), (2, 4), (2, 5), (3, 1), (3, 3), (3, 4), (4, 1),
-    (4, 2), (6, 1), (6, 3), (7, 2), (8, 1), (8, 3), (8, 4), (9, 1), (9, 2),
-]
-# open_hdf5_dbscan.py, the same in every ROI folder.
+    (int(roi), int(number)) for roi, number in LAYOUT.get("selected", [])]
+_EXAMPLE = LAYOUT.get("example_axon", [0, 0])
+EXAMPLE: Tuple[int, int] = (int(_EXAMPLE[0]), int(_EXAMPLE[1]))
+
+# The lab's 2023 DBSCAN script, the same in every ROI folder.
 OLD_PIXEL_NM = 135.0
 OLD_EPS_NM = 30.0
 OLD_MIN_SAMPLES = 10
@@ -79,10 +114,11 @@ def check(name: str, fn) -> None:
 
 
 def axon_file(roi: int, axon: int, protein: str = "spectrin") -> str:
-    """The picked axon's file; the ROI folders are named two ways."""
-    stem = f"ROI{roi}_{protein}_locs_drift_corrected_apicked_{axon}.hdf5"
-    for folder in ("Seleccion de axones", "Seleccion axones"):
-        path = os.path.join(DAY, f"ROI {roi}", folder, stem)
+    """The picked axon's file; the selection folders are named two ways."""
+    stem = LAYOUT["axon_file"].format(roi=roi, protein=protein, axon=axon)
+    roi_dir = LAYOUT["roi_dir"].format(roi=roi)
+    for folder in LAYOUT["selection_dirs"]:
+        path = os.path.join(DAY, roi_dir, folder, stem)
         if os.path.exists(path):
             return path
     raise FileNotFoundError(stem)
@@ -98,7 +134,8 @@ def axon(roi: int, axon_number: int, protein: str = "spectrin"):
 
 def old_distances(roi: int, axon_number: int) -> np.ndarray:
     """The 1NN distances the 2023 script saved, in nm."""
-    path = os.path.join(DAY, f"distances_{roi}_{axon_number}.txt")
+    path = os.path.join(
+        DAY, LAYOUT["distances_file"].format(roi=roi, axon=axon_number))
     return np.loadtxt(path, ndmin=1).ravel()
 
 
@@ -129,7 +166,7 @@ def section_reading() -> None:
     print("\n1. READING THE 2023 FILES")
 
     def one_axon():
-        loc = axon(1, 4)
+        loc = axon(*EXAMPLE)
         assert loc.n > 1000, loc.n
         assert loc.pixel_size_nm == OLD_PIXEL_NM, loc.pixel_size_nm
         assert loc.pixel_size_source == "yaml", loc.pixel_size_source
@@ -145,7 +182,7 @@ def section_reading() -> None:
     def both_channels_of_one_axon():
         # Both channels come from one movie through the same affine
         # correction, so the same pick covers the same area.
-        spectrin, tubulin = axon(1, 4), axon(1, 4, "tubulin")
+        spectrin, tubulin = axon(*EXAMPLE), axon(*EXAMPLE, "tubulin")
         boxes = []
         for loc in (spectrin, tubulin):
             boxes.append((loc.x_nm.min(), loc.x_nm.max(),
@@ -161,9 +198,9 @@ def section_reading() -> None:
         # Localized with different pixel sizes, on one camera: what the
         # main window now warns about when both channels are loaded.
         spectrin = read_pixel_size(
-            os.path.join(STAINING6, "ROI3-spectrin_locs_drift_corrected.hdf5"))
+            os.path.join(STAINING6, LAYOUT["staining6_spectrin"]))
         adducin = read_pixel_size(
-            os.path.join(STAINING6, "ROI3-adducin_locs_drift_corrected.hdf5"))
+            os.path.join(STAINING6, LAYOUT["staining6_adducin"]))
         assert spectrin == OLD_PIXEL_NM and adducin == CAMERA_PIXEL_NM, (
             spectrin, adducin)
         note = pixel_size_disagreement("spectrin", spectrin, "adducin",
@@ -175,28 +212,24 @@ def section_reading() -> None:
         from tools import mps_axoplasm as ax
         from tools import mps_pixel_size as px
 
-        day = os.path.join(DATA, "230911 - MPS")
-        crop = os.path.join(
-            day, "MPS_ROI1_50ms_calib3_wf29x31_corrected_crop_ch1.tif")
+        crop = os.path.join(ACQUISITION, LAYOUT["widefield_crop"])
         image = ax.load_widefield(crop)
         assert abs(image.pixel_size_nm - CAMERA_PIXEL_NM) < 0.01, \
             image.pixel_size_nm
         assert "ImageJ" in image.pixel_size_source
         # Placing it on localizations analysed with 135 nm is reported.
-        loc = axon(1, 4)
+        loc = axon(*EXAMPLE)
         offset, notes = ax.camera_offset(image, loc.info, loc.pixel_size_nm)
         assert offset == (0.0, 0.0), offset
         assert any("1.5%" in note for note in notes), notes
         # The split movies carry 0.133 with the unit "cm": refused.
         recorded, movie_notes = px.from_tiff(
-            os.path.join(day, "ROI1_spectrin.tif"))
+            os.path.join(ACQUISITION, LAYOUT["split_movie"]))
         assert recorded is None and movie_notes, (recorded, movie_notes)
         # The acquisition metadata beside a raw movie, and beside the
         # corrected one under its own name.
-        for movie in ("MPS_t2_ROI1_50ms_calib3.tiff",
-                      "MPS_t2_ROI1_50ms_calib3_corrected.tiff"):
-            beside = px.from_sidecar(
-                os.path.join(DATA, "230912  - MPS", movie))
+        for movie in LAYOUT["movies"]:
+            beside = px.from_sidecar(os.path.join(MOVIES, movie))
             assert beside is not None, movie
             assert abs(beside.nm - CAMERA_PIXEL_NM) < 1e-9, (movie, beside)
         return (f"the widefield images and the acquisition record "
@@ -226,7 +259,7 @@ def section_reproduce() -> None:
             mine[(roi, number)] = ours
             theirs[(roi, number)] = old_distances(roi, number)
             raw[(roi, number)] = n_raw
-        assert len(mine) == 18, len(mine)
+        assert len(mine) == len(SELECTED), len(mine)
         counts = [len(v) for v in mine.values()]
         return (f"{len(mine)} axons, {sum(counts):,} clusters "
                 f"({min(counts)}-{max(counts)} per axon)")
@@ -258,7 +291,7 @@ def section_reproduce() -> None:
                 f"centroid rounding decides; pooled median "
                 f"{np.median(pooled):.1f} nm")
 
-    check("the 18 selected axons run", every_selected_axon)
+    check("the selected axons run", every_selected_axon)
     check("the same clusters as in 2023", same_number_of_clusters)
     check("the same 1NN distances, value for value", same_distances)
 
@@ -275,7 +308,7 @@ def section_reproduce() -> None:
             changed += int(np.count_nonzero(
                 np.round(whole[:common])
                 != np.round(mine[(roi, number)][:common])))
-        assert added == 18, added
+        assert added == len(SELECTED), added
         return (f"one cluster per axon left out, {added} in all; putting "
                 f"them back also moves {changed} of the other distances")
 
@@ -303,6 +336,12 @@ def main() -> int:
     print("=" * 72)
     print("2023 SCIATIC-NERVE DATA CHECKS")
     print("=" * 72)
+    if not LAYOUT or not SELECTED:
+        print("\nThe 2023 checks are skipped: set MPS_DATASET_2023_LAYOUT "
+              "to the private layout file of the 2023 data (and "
+              "MPS_DATA_2023 to the data folder).")
+        print("=" * 72)
+        return 0
     if not os.path.isdir(DAY):
         print(f"\nThe 2023 data is not here: {DATA}")
         print("Set MPS_DATA_2023 to the acquisition folder to run these "

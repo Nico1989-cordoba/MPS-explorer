@@ -3,13 +3,14 @@
 Three controls on the correlation between the gap/patch patterns of
 consecutive MPS segments.
 
-validate_gaps.py measures that correlation: mean r(0) = +0.09 with 10 of
-33 segment pairs significant against the rotation null. This script asks
-whether that is a relationship between rings, or an artefact.
+validate_gaps.py measures that correlation (on unpublished pilot data a
+weak positive mean r(0), with a minority of segment pairs significant
+against the rotation null). This script asks whether that is a
+relationship between rings, or an artefact.
 
 The suspicion is axial bleed-through. Axial localization precision in
 3D dSTORM (~50-80 nm) is comparable to the 180 nm slab thickness, and the
-fitted component sigmas (55-112 nm) are consistent with being dominated by
+fitted component sigmas are consistent with being dominated by
 it. One physical ring then deposits localizations on both sides of a
 boundary, so two slabs that share no localization still share clusters --
 which by itself puts the same patches at the same angles in both.
@@ -230,7 +231,7 @@ def main() -> int:
     #
     # Controls 1-3 leave one alternative alive. A cluster centred in one
     # slab can still spread beyond the guard band into the next, because
-    # the axial spread (sigma 55-112 nm) is a large fraction of the
+    # the axial spread (the fitted sigma) is a large fraction of the
     # distance to the boundary. The same physical cluster would then be
     # detected in both segments at the same angle, which produces exactly
     # the observed short-range, guard-resistant, axon-specific

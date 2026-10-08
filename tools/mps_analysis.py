@@ -34,7 +34,7 @@ Beyond the paper, the analysis reports the centre of the contour: its
 area centroid (tools.mps_geometry.contour_centre).
 
 This module is deliberately free of any Qt dependency so the whole pipeline
-can be run and tested headlessly (see validate_full_18axons.py).
+can be run and tested headlessly (see validate_full_pipeline.py).
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -196,8 +196,8 @@ class AxonAnalysis:
     roi: Optional[ROIShape] = None
     # What the edge criterion measured against: the drawn ROI, or the
     # convex hull of the analysed localizations when none was given (the
-    # headless batch). The two curate differently -- on axon 7, 94 kept
-    # clusters against 90 -- so a table pooling both must be able to say
+    # headless batch). The two curate differently -- a few kept clusters
+    # apart on a pilot axon -- so a table pooling both must be able to say
     # which is which.
     edge_reference: str = "none"
     # "automatic", "peak chosen" or "range typed": how the axial slab was
@@ -409,8 +409,8 @@ class AxonAnalysis:
              else f"how far the centres sit off a smooth outline, as a "
                   f"share of the hull radius R "
                   f"({self.contour_health.hull_radius_nm:,.0f} nm); the "
-                  f"deep-centre check assumes up to 5 %, the April axons "
-                  f"measure 6-16 %. Estimated from the centres, so rough"),
+                  f"deep-centre check assumes up to 5 %, and real axons "
+                  f"can measure more. Estimated from the centres, so rough"),
             ("  contour / its convex hull",
              "n/a" if self.contour_health is None
              else f"{self.contour_health.tour_over_hull:.2f}",
@@ -566,8 +566,8 @@ class AxonAnalysis:
                 else round(self.contour_health.max_depth_nm, 1)),
             # The same depth read against this axon's own scatter: the
             # 0.40 limit above is right for centres that scatter by up to
-            # 5 % of the radius, and the April axons scatter about twice
-            # that, so a count above can be scatter. These say whether it
+            # 5 % of the radius, and real axons (unpublished pilot data) can
+            # scatter more, so a count above can be scatter. These say whether it
             # is.
             "contour_scatter_nm": (
                 None if self.contour_health is None
@@ -604,8 +604,8 @@ class AxonAnalysis:
             "median_r_eff_nm": self.median_r_eff_nm,
             "median_1nn_nm": self.median_1nn_nm,
             # The threshold the occupancy was measured with. It decides
-            # the number outright (0.1 instead of 3 turned 46.5 % into
-            # 1.5 % on axon 7) and was in no column.
+            # the number outright (a much smaller threshold shrinks the
+            # occupancy many-fold) and was in no column.
             "mahalanobis_threshold": self.mahalanobis_threshold,
             "ellipse_mode": self.ellipse_mode,
             "occupancy_percent": self.occupancy_percent,
@@ -729,8 +729,8 @@ def analyze_axon(
 
     all_starts : build the contour with 2-opt from every start and keep
         the shortest tour (default). False refines it from one start, as
-        this program did before 2026-09-19; on the 18 April axons that
-        tour came out longer in 13, by up to 7.1 %.
+        this program did before 2026-09-19; on unpublished pilot axons
+        that tour often came out longer, by a few percent.
 
     Returns
     -------
@@ -1021,10 +1021,10 @@ def with_every_start(
     The same analysis with its contour built by 2-opt from every start.
 
     2-opt is a local search: the tour it settles on depends on the cluster
-    it starts from. On the 18 April axons, rotating the start changed the
-    perimeter by up to 12.9 %, more than leaving one or two clusters out
-    does, and in either direction: with one start, discarding interior
-    clusters lengthened two contours of four. The shortest tour over every
+    it starts from. On unpublished pilot axons, rotating the start changed
+    the perimeter by more than leaving one or two clusters out does, and in
+    either direction: with one start, discarding interior clusters could
+    lengthen a contour. The shortest tour over every
     start does not depend on where the centres are listed from, so the
     effect of the discard is measured between this analysis and
     without_clusters, both built that way. Steps 3-6 run again, since the

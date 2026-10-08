@@ -429,7 +429,7 @@ Status: [OK] Forced HDBSCAN works
 
 ### Command Run
 ```bash
-cd "C:\Users\nicol\OneDrive\Doctorado\Micro de superresolucion\26..5.26\MPS-explorer"
+cd "<path to>\MPS-explorer"
 python test_phase2_integration.py
 ```
 

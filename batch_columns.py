@@ -10,7 +10,7 @@ Per axon (one picked-localization file each), exactly as the review window
 
 1. the file through ``power_columns.load_simnull_input`` (``mps_io.
    load_localizations``: the loader the GUI and the Batch button use);
-2. ``build_rings`` with ``roi=None`` and the pre-registered parameters
+2. ``build_rings`` with ``roi=None`` and the pre-specified parameters
    (``rings_params_from(default_columns_params())``), as ``prepare_review``;
 3. D-39 ``z_quality`` of the built rings, the rule-v2 analysis of D-41
    (``tools.mps_axial_precision.viability_v2``: SiZer peak + valley, the
@@ -415,7 +415,7 @@ def real_inputs(paths: Sequence[str]) -> List[str]:
 class ColumnBatchSettings:
     """What every axon of a run is processed with (picklable; the determinants are in ``batch_meta.json``)."""
 
-    n_null: Optional[int] = None          # None: the pre-registered null size (columns_params.yaml)
+    n_null: Optional[int] = None          # None: the pre-specified null size (columns_params.yaml)
     viability_spec: str = DEFAULT_VIABILITY
     allow_real: bool = False
     widefield_dir: Optional[str] = None
@@ -562,7 +562,7 @@ def process_axon(path: str, settings: ColumnBatchSettings) -> Dict[str, Any]:
         rp = rings_params_from(cp)
     except (OSError, ValueError) as exc:
         rp = RingsParams()
-        warnings_.append(f"the pre-registered column parameters could not be applied ({exc}); RingsParams defaults used")
+        warnings_.append(f"the pre-specified column parameters could not be applied ({exc}); RingsParams defaults used")
     res = build_rings(inp.x_nm.copy(), inp.y_nm.copy(), inp.z_nm.copy(), frame=inp.frame.copy(),
                       lp_lateral_nm=inp.lp_lateral_nm.copy(), lpz_nm=inp.lpz_nm.copy(), params=rp, source_name=str(path),
                       pixel_size_nm=inp.pixel_size_nm, pixel_size_source=str(inp.pixel_size_source), n_frames=inp.n_frames,
@@ -1096,7 +1096,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     p.add_argument("--out", required=True, help="output folder (outside the repo)")
     p.add_argument("--inputs", nargs="*", default=[], help="picked-localization files or folders (simulated NPZ by default)")
     p.add_argument("--list", default=None, help="text file with one input path per line")
-    p.add_argument("--n-null", type=int, default=None, help="null size (default: the pre-registered 1999)")
+    p.add_argument("--n-null", type=int, default=None, help="null size (default: the pre-specified 1999)")
     p.add_argument("--viability", default=DEFAULT_VIABILITY,
                    help=f"module:callable of the viability rule (default {V2_VIABILITY}, the D-41 rule v2; "
                         f"{D39_VIABILITY} for the D-39 verdict)")

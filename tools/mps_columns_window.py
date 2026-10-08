@@ -71,7 +71,7 @@ How the axon gets here
 ``MPS_explorer.open_columns_review``) builds the H-ECL rings once, in a
 worker, from the ROI's localizations BEFORE the axial cut with their
 frames and precisions (the H1 hook ``roi_indices_unfiltered``), with the
-pre-registered parameters (``config/columns_params.yaml``,
+pre-specified parameters (``config/columns_params.yaml``,
 D-22) and WITHOUT the ROI's edge (``roi=None``, as simnull and the certified
 classification build them), classifies the clusters
 (``tools.mps_lumen.classify_lumen``), and opens the window. Pressing the
@@ -374,7 +374,7 @@ class ReviewRun:
     # selection change started it ("Live update") rather than the button
     fp: Any = None
     live: bool = False
-    # UI stage 1 (D-44): the tolerance the analyses ran at (the window's control); None = the pre-registered tau_0
+    # UI stage 1 (D-44): the tolerance the analyses ran at (the window's control); None = the pre-specified tau_0
     # (a run built outside the window)
     tau_nm: Optional[float] = None
 
@@ -742,7 +742,7 @@ class ColumnsReviewInputs:
     acquisition's length, the file, the ROI (``roi``: None -- the review's
     convention, ``RINGS_WITHOUT_ROI_NOTE`` -- builds the rings without its
     edge; ``roi_text`` names the axon in the tables), the pixel size and
-    where it came from, the rings' parameters (None: the pre-registered ones), the
+    where it came from, the rings' parameters (None: the pre-specified ones), the
     Axoplasm panel's widefield state (None: isolation only, with
     ``widefield_note`` saying why), and the identity (an ``AxonIdentity``
     or a callable returning one, asked at the export).
@@ -840,7 +840,7 @@ def build_review_rings(
         inputs: ColumnsReviewInputs) -> Tuple[RingsResult, RingsParams, Optional[NDArray[np.float64]], List[str]]:
     """
     The H-ECL rings of one axon exactly as the review builds them
-    (``build_rings`` with the pre-registered parameters unless
+    (``build_rings`` with the pre-specified parameters unless
     ``inputs.rings_params`` says otherwise, ``roi=inputs.roi``): the rings,
     the parameters used, the axial precisions (None without them) and the
     warnings. Shared by ``prepare_review`` and the z-quality view
@@ -864,7 +864,7 @@ def build_review_rings(
             params = rings_params_from(default_columns_params())
         except (OSError, ValueError) as exc:
             params = RingsParams()
-            warnings_.append(f"the pre-registered column parameters could not be read ({exc}); the rings were built "
+            warnings_.append(f"the pre-specified column parameters could not be read ({exc}); the rings were built "
                              "with the defaults of RingsParams")
     res = build_rings(x.copy(), y.copy(), z.copy(), frame=None if frame is None else frame.copy(),
                       lp_lateral_nm=None if lp is None else lp.copy(), lpz_nm=None if lpz is None else lpz.copy(),
@@ -983,7 +983,7 @@ def results_row(
     ``tau0_nm`` holds the run's tau (an analysis column: rows of two
     tolerances never share a table) and ``analysis`` carries the
     EXPLORATORY tag (``tools.mps_tau.analysis_with_tau``). At tau_0, or
-    without it, the row is the pre-registered one.
+    without it, the row is the pre-specified one.
     """
     from tools.mps_unroll import CENTROID_MEMBRANE_RECIPE
 
@@ -1228,7 +1228,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
     automatic state). ``lpz_nm``: the axial precision of every localization
     ``build_rings`` received (``clean_rings`` recomputes the rings'
     medians with it). ``columns_params`` / ``n_null``: the tests'
-    parameters (None: the pre-registered ones, D-22). ``widefield_images``:
+    parameters (None: the pre-specified ones, D-22). ``widefield_images``:
     a ``ReviewWidefield`` to draw under the clusters. ``identity``: an
     ``AxonIdentity`` or a callable returning one (asked at the export).
     ``roi_text``: the ROI as ``tools.cluster_quality.describe_roi`` names
@@ -1332,7 +1332,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self.columns_params = columns_params
         self.n_null = None if n_null is None else int(n_null)
         # UI stage 1 (D-44): the tolerance control. ``base_columns_params``: the parameters it reads its choices from
-        # (the window's own, or the pre-registered file, read once); a run at tau_0 still passes ``columns_params``
+        # (the window's own, or the pre-specified file, read once); a run at tau_0 still passes ``columns_params``
         # exactly as before, a run at another tau a copy of these with that tau (tools.mps_tau.params_at_tau). The
         # control starts at tau_0 in every window and is never saved.
         self.base_columns_params: Optional[ColumnsParams] = None
@@ -2345,7 +2345,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         fp = msel.lumen_fp(snapshot)
         res, lpz, cp, n_null = self.res, self.lpz_nm, self.columns_params, self.n_null
         # UI stage 1 (D-44): the tau of the control. At tau_0 the window's own parameters go to the analyses exactly as
-        # before (None: the pre-registered file); at another tau a copy of them with that tau, in memory only
+        # before (None: the pre-specified file); at another tau a copy of them with that tau, in memory only
         run_tau = self._tau_key(self.tau_nm)
         if not self._at_tau0() and self.base_columns_params is not None:
             cp = mtau.params_at_tau(self.base_columns_params, run_tau)
@@ -2650,7 +2650,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
             lines.extend(pair_lines(ac.adjacent))
         lines.append("")
         cols = r.columns_2d
-        lines.append("2D test (pre-registered, D-24) -- SENSITIVITY (D-29a), selected pairs only")
+        lines.append("2D test (pre-specified, D-24) -- SENSITIVITY (D-29a), selected pairs only")
         if cols is None:
             lines.append("   failed (see the warnings)")
         else:
@@ -2702,7 +2702,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         return self._tau_key(tau) == self._tau_key(self.tau_nm)
 
     def _at_tau0(self) -> bool:
-        """The control is at the pre-registered tau_0 (or there is no control)."""
+        """The control is at the pre-specified tau_0 (or there is no control)."""
         return self.tau0_nm is None or self.tau_nm is None or mtau.is_tau0(self.tau_nm, self.tau0_nm)
 
     def _cache_key(self, fp: Any, tau: Optional[float]) -> Tuple[Any, Optional[float]]:
@@ -2723,7 +2723,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
     def _tau_variant(self, run: Optional[ReviewRun]) -> Optional[mtau.AnalysisVariant]:
         """The variant of a run computed at another tau than tau_0 (its selection: the run's own, the pre-specified
         rule when it has none); None at tau_0, without a run or without the control (the texts are then the
-        pre-registered ones)."""
+        pre-specified ones)."""
         if run is None:
             return None
         spec = getattr(run.viability, "spec", None)
@@ -2757,7 +2757,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         if not self._tau_touched and not mtau.is_tau0(new, self.tau0_nm):
             # UI stage 1 (review): the control leaves tau_0 for the first time. Without the criteria of the selection
             # (switches off) the window logged and counted nothing, as before this stage; from now on it does, so the
-            # pre-registered result on screen is logged first and counted with the tau variants that follow
+            # pre-specified result on screen is logged first and counted with the tau variants that follow
             self._tau_touched = True
             if self.criteria is None and self.last_run is not None and self.last_run.analyses is not None:
                 self._selection_texts(self.last_run)
@@ -3328,7 +3328,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         else:
             self.simnull_button.setToolTip(SIMNULL_BUTTON_TIP)
         if not self._at_tau0():
-            # UI stage 1 (D-44): the simulated null runs at the pre-registered tau_0 only
+            # UI stage 1 (D-44): the simulated null runs at the pre-specified tau_0 only
             self.simnull_button.setEnabled(False)
             self.simnull_button.setToolTip(mtui.SIMNULL_TAU_TIP)
 
@@ -3625,7 +3625,7 @@ class ColumnsReviewLauncher(QtWidgets.QWidget):
         lay = QtWidgets.QVBoxLayout(self)
         self.label = QtWidgets.QLabel(
             f"Building the H-ECL rings of {os.path.basename(str(inputs.source_name)) or 'this axon'} "
-            f"({np.asarray(inputs.x_nm).size:,} localizations of the ROI, before the axial cut) with the pre-registered "
+            f"({np.asarray(inputs.x_nm).size:,} localizations of the ROI, before the axial cut) with the pre-specified "
             "parameters, then classifying their clusters. This runs once; the review window opens when it is done.")
         self.label.setWordWrap(True)
         lay.addWidget(self.label)

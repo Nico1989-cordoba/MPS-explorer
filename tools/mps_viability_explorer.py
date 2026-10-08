@@ -16,7 +16,7 @@ What it shows
 * "Export CSV...": the 16 x 4 table and the pairs of the current selection, both with the selection's label and hash.
 
 Geometry only (R8): the per-pair criteria come from ``tools.mps_selection.geometry_for_file`` (the batch's loader,
-the pre-registered rings, z_quality, rule v2, rule v2c) and nothing here imports or runs a column analysis, so it may
+the pre-specified rings, z_quality, rule v2, rule v2c) and nothing here imports or runs a column analysis, so it may
 run on real axons. The files are computed once (in worker processes, at most 12) and cached as JSON
 (``tools.mps_viability_jobs``): toggling never recomputes anything.
 

@@ -52,12 +52,9 @@ PASSED = 0
 FAILED = 0
 _TEMP_DIRS: list = []
 
-REAL_SAMPLE = os.environ.get(
-    "MPS_PAINT_SAMPLE",
-    r"C:\Users\nicol\OneDrive\Doctorado\15.07.26"
-    r"\260713_DNAPAINT_NCtransversal_bIIspt_TIRF4_Roi2_2_1"
-    r"\260713_DNAPAINT_NCtransversal_bIIspt_TIRF4_Roi2_2_1_MMStack.ome_locs.hdf5",
-)
+# A real DNA-PAINT localization file (unpublished data, not in this
+# repository): given from outside; without it the check is skipped.
+REAL_SAMPLE = os.environ.get("MPS_PAINT_SAMPLE", "")
 
 
 def check(name: str, fn) -> None:
@@ -255,7 +252,7 @@ def test_markers() -> None:
     check("a marker straddling grid cells is found once",
           one_marker_on_cell_corners)
     check("frames are counted, not localizations", frames_not_localizations)
-    check("the 15.07.26 DNA-PAINT sample holds no marker",
+    check("a real DNA-PAINT sample holds no marker",
           real_sample_has_no_markers)
     check("a large field stays fast", large_file_is_fast)
 

@@ -84,13 +84,13 @@ PIXEL_COLUMNS: Tuple[str, ...] = (
 )
 
 # A fitted precision this far below the file's median, on a localization
-# that is NOT unusually bright, is a failed fit. On the 15.07.26 DNA-PAINT
-# files every such localization had its width collapsed to the fitter's
-# floor (about 0.06 px) and a sixth of the usual photons; the nearest
-# genuine ones sat above 0.2x. Precision scales as 1/sqrt(photons), so a
-# real 0.1x takes about a hundred times the typical photon count -- which
-# is exactly what a linked or combined localization has, hence the
-# exemptions below.
+# that is NOT unusually bright, is a failed fit. On unpublished DNA-PAINT
+# pilot files every such localization had its width collapsed to the
+# fitter's floor and a small fraction of the usual photons, well apart
+# from the genuine ones. Precision scales as 1/sqrt(photons), so a real
+# 0.1x takes about a hundred times the typical photon count -- which is
+# exactly what a linked or combined localization has, hence the
+# exemptions below. 0.1 is a pilot-derived suggestion, editable.
 FAILED_FIT_PRECISION_FRACTION = 0.1
 
 
@@ -564,7 +564,7 @@ DERIVED_SUFFIXES: Tuple[str, ...] = (
     "_filtered_clusters_thunderstorm",
     "_two_channels",
     # The tables the panels write beside the data. A batch over the folder
-    # of the April axon 7 took two of them for axons and reported them as
+    # of a pilot axon took two of them for axons and reported them as
     # files that failed to load.
     "_axoplasm",
     "_axoplasm_localizations",
@@ -585,14 +585,14 @@ _SAME_ACQUISITION_PATTERNS: Tuple[Any, ...] = (re.compile(r"_aim(?![a-z0-9])"),)
 # The channel-numbered ROI export written by ``MPS_explorer.save_roi``
 # ("{stem}_ch{channel}_roi.csv"). It needs a pattern rather than a fixed
 # suffix because of the channel number, and it cannot be shortened to
-# "_roi": real files in this dataset are named "..._axon2_roi2.hdf5".
+# "_roi": real files are often named like "..._axonN_roiM.hdf5".
 # Missing it meant a batch analysed every axon TWICE -- once as the
 # Picasso HDF5 and once as its own ROI export -- and then reported the
 # nesting statistics as if those were independent observations.
 #
 # Deliberately NOT anchored to a word boundary: these files get renamed
-# by hand afterwards ("..._ch1_roi_filterby-123to57.csv" is in the real
-# dataset), and "_" is a word character, so a \b here would let exactly
+# by hand afterwards ("..._ch1_roi_filterby-<range>.csv", say), and "_"
+# is a word character, so a \b here would let exactly
 # those through. The marker identifies the file whatever follows it.
 _DERIVED_PATTERNS: Tuple[Any, ...] = (
     re.compile(r"_ch\d+_roi"),
@@ -617,7 +617,7 @@ def is_derived_output(name: str) -> bool:
 # analysis_id), the batch's log, and the dictionary of columns. Their
 # names are the user's to choose -- "mps_axons.csv" by default, anything
 # after -- so they are recognised by what they hold, not by their name.
-# A batch over the April folder took the three tables of the manual test
+# A batch over a pilot data folder took the three tables of a manual test
 # (2026-09-19) for axons.
 _PROGRAM_TABLE_MARKS: Tuple[Tuple[str, ...], ...] = (
     ("axon_id", "analysis_id"),

@@ -273,9 +273,9 @@ def test_duplicates() -> None:
     def row(source: str, roi: str, perimeter: float):
         return {"source": source, "roi": roi, "perimeter_um": perimeter}
 
-    first = row("axon7.hdf5", "circle centred at (0, 0) nm, radius 10 nm", 21.5)
-    second = row("axon8.hdf5", "circle centred at (9, 9) nm, radius 10 nm", 18.4)
-    other_roi = row("axon7.hdf5", "circle centred at (5, 5) nm, radius 10 nm",
+    first = row("axon4.hdf5", "circle centred at (0, 0) nm, radius 10 nm", 21.5)
+    second = row("axon5.hdf5", "circle centred at (9, 9) nm, radius 10 nm", 18.4)
+    other_roi = row("axon4.hdf5", "circle centred at (5, 5) nm, radius 10 nm",
                     17.0)
 
     def nothing_to_repeat_yet():
@@ -289,17 +289,17 @@ def test_duplicates() -> None:
         assert duplicate_rows(path, [first], key) == [1]
         assert duplicate_rows(path, [second], key) == [2]
         # Another analysis of the same selection is the same row to replace.
-        assert duplicate_rows(path, [row("axon7.hdf5", first["roi"], 99.9)],
+        assert duplicate_rows(path, [row("axon4.hdf5", first["roi"], 99.9)],
                               key) == [1]
         return "rows 1 and 2"
 
     def replacing_keeps_the_rest():
-        again = row("axon7.hdf5", first["roi"], 20.0)
+        again = row("axon4.hdf5", first["roi"], 20.0)
         replaced = replace_rows(path, [again], key)
         with open(path, encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.DictReader(handle))
         assert replaced == 1, replaced
-        assert [r["source"] for r in rows] == ["axon8.hdf5", "axon7.hdf5"], rows
+        assert [r["source"] for r in rows] == ["axon5.hdf5", "axon4.hdf5"], rows
         assert rows[-1]["perimeter_um"] == "20.0", rows[-1]
         assert not os.path.exists(path + ".replacing")
         return f"{len(rows)} rows, none lost"
@@ -354,20 +354,20 @@ def test_derived_files() -> None:
     from tools.mps_io import find_localization_files
 
     folder = tempfile.mkdtemp(prefix="mps_derived_")
-    written = ["axon7_axoplasm.csv", "axon7_axoplasm_localizations.csv",
-               "axon7_axoplasm_clusters.csv", "axon7_mps_parameters.csv",
-               "axon7_mps_parameters_discard.csv", "axon7_mps_rings.csv",
-               "axon7_mps_rings_pairs.csv", "axon7_ch1_all_clusters.csv",
-               "axon7_cluster_centers.csv", "axon7_1neighbor_distances.csv",
-               "axon7_two_channels.csv"]
-    for name in ["axon7.hdf5"] + written:
+    written = ["axon4_axoplasm.csv", "axon4_axoplasm_localizations.csv",
+               "axon4_axoplasm_clusters.csv", "axon4_mps_parameters.csv",
+               "axon4_mps_parameters_discard.csv", "axon4_mps_rings.csv",
+               "axon4_mps_rings_pairs.csv", "axon4_ch1_all_clusters.csv",
+               "axon4_cluster_centers.csv", "axon4_1neighbor_distances.csv",
+               "axon4_two_channels.csv"]
+    for name in ["axon4.hdf5"] + written:
         open(os.path.join(folder, name), "w").close()
 
     def only_the_axon():
-        # A batch over the folder of the real axon 7 took two of these
+        # A batch over the folder of a pilot axon took two of these
         # tables for axons and reported them as files that failed to load.
         files, skipped = find_localization_files(folder, pattern="axon")
-        assert [os.path.basename(f) for f in files] == ["axon7.hdf5"], files
+        assert [os.path.basename(f) for f in files] == ["axon4.hdf5"], files
         assert len(skipped) == len(written), (len(skipped), len(written))
         return f"1 axon, {len(skipped)} tables of our own skipped"
 
@@ -386,12 +386,13 @@ def test_excel_copy() -> None:
 
     folder = tempfile.mkdtemp(prefix="mps_excel_")
     path = os.path.join(folder, "axons.csv")
-    rows = [{"source": r"C:\Doctorado\1°Reunión\axon7.hdf5",
-             "roi": "circle centred at (26096, 6167) nm, radius 3376 nm",
-             "contour_hull_um": 11.999, "occupancy_percent": 46.51087158,
-             "ks_pvalue": 2.138196152288707e-07, "n_clusters_kept": 94,
+    # A made-up row (not a measured axon) with the cells Excel misreads.
+    rows = [{"source": r"C:\data\1° meeting\axon4.hdf5",
+             "roi": "circle centred at (12000, 8000) nm, radius 3000 nm",
+             "contour_hull_um": 12.345, "occupancy_percent": 23.45678901,
+             "ks_pvalue": 3.141592653589793e-07, "n_clusters_kept": 50,
              "edge_criterion_disabled": False,
-             "warnings": "Ambiguous main peak: 0.38 vs 0.32"}]
+             "warnings": "Ambiguous main peak: 0.41 vs 0.33"}]
     append_rows(path, rows)
 
     def a_copy_beside_the_table():
@@ -403,11 +404,11 @@ def test_excel_copy() -> None:
         first, second = text.splitlines()[:2]
         assert first.count(";") == 7 and "," not in first, first
         # The numbers Excel would otherwise multiply by a thousand.
-        assert ";11,999;" in second, second
-        assert ";2,138196152288707e-07" in second, second
+        assert ";12,345;" in second, second
+        assert ";3,141592653589793e-07" in second, second
         # Text keeps its own commas, and the table is unchanged.
-        assert "circle centred at (26096, 6167) nm" in second, second
-        assert "0,38 vs 0,32" not in second, second
+        assert "circle centred at (12000, 8000) nm" in second, second
+        assert "0,41 vs 0,33" not in second, second
         return second[:60]
 
     def the_table_is_untouched():

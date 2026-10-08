@@ -1,6 +1,7 @@
-# Pre-registered parameters of the column analysis (MPS Explorer, H2).
-# tau0_nm is the median pair tolerance measured on the exploratory axon
-# (DECISIONES D-03, D-05); the other keys are what build_rings and the
+# Pre-specified parameters of the column analysis (MPS Explorer, H2).
+# tau0_nm is the median pair tolerance measured once on one exploratory axon
+# of unpublished pilot data (D-03, D-05): a pilot-derived suggestion, frozen
+# here, not fixed before any data were seen; the other keys are what build_rings and the
 # H3+ steps must run with so that both agree (rings_params_from).
 # Written by tools.mps_columns.write_columns_params; read it back with
 # load_columns_params, which rejects unknown keys. Frozen once committed.

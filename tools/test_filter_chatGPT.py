@@ -13,7 +13,7 @@ import os
 from matplotlib import cm
 from scipy.spatial.distance import cdist
 
-os.chdir(r'C:\Users\Lucia\Documents\Lu Lopez\SIMPLER\data Chechu jun23')
+os.chdir(r'<data folder>')  # set to your own data folder
 
 # Define filename
 filename = "SIMPLER1_100pM_9meratto655_2nM_100ms_647nm_130mW_telescope_12.3mm_1_MMStack_Default.ome_locs.hdf5"
