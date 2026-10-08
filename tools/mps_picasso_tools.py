@@ -32,17 +32,18 @@ from tools.mps_settings import save_settings
 
 PICASSO_RELEASES = "https://github.com/jungmannlab/picasso/releases"
 
-# On the 15.07.26 sample (5.6 localizations per frame), segments holding 560
-# or 1,100 localizations made AIM invent 0.1-1.3 um of drift and scramble
-# the data. From about 2,800 on, the result stopped degrading but still
-# scattered with the segment length -- by tens of nm in the drift, and by
-# 96-100% in the sharpness kept -- and no run was sharper than the
-# uncorrected file. Picasso's own default of 100 frames assumes much denser
-# data. AIM also needs at least four segments; with two it crashes.
+# On an unpublished sparse DNA-PAINT sample, segments holding about a
+# thousand localizations or fewer made AIM invent drift of up to the order
+# of a micrometre and scramble the data. From a few thousand on, the result
+# stopped degrading but still scattered with the segment length, and no
+# run was sharper than the uncorrected file. Picasso's own default of 100
+# frames assumes much denser data. AIM also needs at least four segments;
+# with two it crashes. 3000 is a pilot-derived suggestion, editable.
 AIM_LOCS_PER_SEGMENT = 3000
 # Share of the original's repeat-neighbour fraction a corrected file keeps.
-# Measured on that sample: 17% and 79% for the scrambling runs, 94% for
-# the mildly damaged ones, 96-100% for the rest.
+# Measured on that sample: the scrambling runs kept far less than the
+# mildly damaged ones, and the rest kept nearly all of it. The three ratios
+# are pilot-derived suggestions, editable.
 UNDRIFT_SCRAMBLED_RATIO = 0.90
 UNDRIFT_KEEP_RATIO = 0.98
 UNDRIFT_SHARPER_RATIO = 1.02

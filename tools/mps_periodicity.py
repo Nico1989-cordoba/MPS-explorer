@@ -326,9 +326,9 @@ def density_valleys(
     no interior minimum between them: there is then no valley to cut at,
     and no evidence in the axial profile that these are two resolved rings
     rather than one broad distribution the mixture happened to split.
-    Measured on the 18-axon dataset, that is the case for more than half of
-    the boundaries (component sigmas of 75-90 nm against a ~190 nm
-    spacing), so this is the normal case, not a corner case. Read
+    Measured on unpublished pilot data, that is the case for many of the
+    boundaries (components broad against their spacing), so this is the
+    normal case, not a corner case. Read
     ``relative_depth`` before treating two segments as distinct rings.
 
     Parameters

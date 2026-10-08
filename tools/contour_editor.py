@@ -5,10 +5,10 @@ joined in the order they fall along it.
 
 The automatic contour joins the cluster centres by 2-opt, and on an axon
 with centres off the membrane or a deep concavity it can run through the
-wrong ones -- on axon 7, 6 of 94 centres sit deep inside the hull and the
-contour comes out 1.79 times longer than the hull of the same centres.
+wrong ones -- on a pilot axon a few centres sit deep inside the hull and
+the contour comes out much longer than the hull of the same centres.
 
-The fix a person can make is not to reorder 94 centres one by one. It is
+The fix a person can make is not to reorder ~100 centres one by one. It is
 to say where the membrane goes: drag a closed path along it, and let the
 program join the centres in the order they fall along that path. That is
 what this box does, and the path -- not an order of cluster numbers -- is
@@ -20,13 +20,12 @@ The path starts ON THE CONTOUR THE PROGRAM MEASURED, with every centre
 as a handle, so that using it without a single drag changes nothing:
 the box can only move what a person moves. That was measured, not
 assumed. The first version started on the convex hull of the centres --
-a clean outline that looks like the obvious place to begin -- and on the
-18 real April axons, applying it without a drag lengthened every contour,
-by a median of 12 % and up to 49 %, with half the centres or more over
-60 nm off it: in this data the membrane is not the hull. The automatic
-contour's own vertices changed nothing in 18 of 18 and never crossed
-themselves; the automatic contour resampled to 24 handles still moved
-the perimeter by a median of 1.7 %.
+a clean outline that looks like the obvious place to begin -- and on
+unpublished pilot axons, applying it without a drag lengthened every
+contour, with many centres far off it: in that data the membrane is not
+the hull. The automatic contour's own vertices changed nothing on any of
+them and never crossed themselves; the automatic contour resampled to 24
+handles still moved the perimeter a little.
 
 That is also why the box cannot make a contour shorter. The automatic
 one is 2-opt's shortest tour through every centre, and every centre has
@@ -73,11 +72,11 @@ def starting_path(centroids: NDArray[np.float64],
     the centres, resampled to at most ``n_max`` points spread evenly.
 
     Only a fallback. When there is a contour the box starts on it instead,
-    because on real axons the hull lengthened the contour by a median of
-    12 % when applied untouched.
+    because on real axons the hull lengthened the contour when applied
+    untouched.
 
     The hull because it never crosses itself and is already the membrane
-    of a round axon; evenly spread because a hull of 94 centres can have
+    of a round axon; evenly spread because a hull of ~100 centres can have
     3 vertices on one flank and 20 on the other, and a handle is only
     useful where it can be dragged.
     """
@@ -201,7 +200,7 @@ class ContourGuideDialog(QtWidgets.QDialog):
         lay.addWidget(buttons)
 
         # Dragging a handle emits many changes a second; the ordering is
-        # cheap but the redraw is not free on 94 centres.
+        # cheap but the redraw is not free on ~100 centres.
         self._timer = QtCore.QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(60)

@@ -635,8 +635,8 @@ def _panel_by_localization(
 
     The panel measures the selection cut to the axial range typed in the
     main window, and the analysis is given the selection before that cut,
-    so the two lists differ in length on any real axon (10,034 against
-    23,743 on axon 7) and their order is not the same either. Lining them
+    so the two lists differ in length on any real axon (often by a factor
+    of two or more) and their order is not the same either. Lining them
     up by position would put every distance on the wrong localization,
     quietly. Localizations that share a position to the centinanometre are
     left out of the join rather than guessed between.

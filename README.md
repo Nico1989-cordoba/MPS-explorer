@@ -304,7 +304,7 @@ and to judge first whether the z profile of the axon can answer that at all.
 - **Columns: lumen review...** — the clusters of each ring in the axon frame, the automatic lumen rule (REMOVE /
   DOUBTFUL, with or without widefield images), the user's own decisions (saved per axon), and the arc test of the
   column hypothesis on the cleaned rings, run in a worker thread.
-  - Its tolerance tau: the pre-registered tau_0 of `config/columns_params.yaml` by default, the 2D test's two
+  - Its tolerance tau: the pre-specified tau_0 of `config/columns_params.yaml` by default, the 2D test's two
     sensitivity values or a free value; anything but tau_0 makes every result, log row and export of the window
     EXPLORATORY. Under the map, the 2D test's E(tau) curve of the chosen pair (descriptive; its global p is not
     calibrated), and on the map the clusters each test matched at the current tau. The batch runner and the
@@ -334,9 +334,11 @@ Power grids are YAML files written by the user; none is shipped.
 
 ### Parameters
 
-`config/columns_params.yaml` holds the pre-registered parameters of the column analysis (the pair tolerance `tau0_nm`
+`config/columns_params.yaml` holds the pre-specified parameters of the column analysis (the pair tolerance `tau0_nm`
 and its grid, the null size and seed, the DBSCAN `eps_nm` / `min_samples`, the event linking). It is loaded strictly
-(an unknown key is an error); changing a value is a deviation from the pre-registration and should be recorded.
+(an unknown key is an error); changing a value is a deviation from the pre-specification and should be recorded.
+`tau0_nm` is a pilot-derived suggestion: it was measured once on one exploratory axon of unpublished pilot data and
+then frozen in this file. It was not fixed before any data were seen, so results on that pilot data are exploratory.
 
 Optional site setting: inputs from an acquisition known to lie outside the calibrated range can be flagged (never
 blocked) by a regular expression matched against the file label / path, written as `"uncalibrated_labels"` in the
@@ -355,7 +357,10 @@ python validate_simulate_axon.py     # validate_*.py: harnesses on simulated axo
 
 Set `MPS_SELECTION_LOG_DIR` to a temporary folder when running the tests, so that the exploration log is not written
 to your user folder. Checks against unpublished data run only when `MPS_PRIVATE_DATA` points to the folder that holds
-them; otherwise they are skipped with a note.
+them; otherwise they are skipped with a note. The same holds for the validators that read real data, each from its
+own environment variable: `MPS_VALIDATION_DATA` (a folder of picked axons) with `MPS_VALIDATION_EXPECTED` (a private
+JSON of what it must give), `MPS_AXOPLASM_PRIVATE`, `MPS_PAINT_SAMPLE`, and `MPS_DATA_2023` (the 2023 data folder)
+with `MPS_DATASET_2023_LAYOUT` (a private JSON of where the files are inside it).
 
 ---
 

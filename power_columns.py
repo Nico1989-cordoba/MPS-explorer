@@ -57,11 +57,11 @@ Wilson 95 % interval (the FPR of a null cell, the power of an effect
 cell); the bias E[E_dir - E*] with its se; the mean zeta and
 zeta_clean_null; the leak-explained fractions (single-parent and any);
 the bimodal-profile fraction; the mean g(0); the "favours M5"
-classification rate under three rules -- R0 the pre-registered 01 S1.6
+classification rate under three rules -- R0 the pre-specified 01 S1.6
 rule (z_A > 0, p_A <= 0.05 and rules (i)-(v) True), R1 (p_A <= 0.05 and
 p_excess_clean <= 0.05 in every adjacent pair) and R2 (p_excess_clean
 <= 0.05 in every adjacent pair and the axon's fraction_leak_explained_any
-<= 0.5), R1 and R2 being candidates for D-28, not pre-registered -- and
+<= 0.5), R1 and R2 being candidates for D-28, not pre-specified -- and
 the aggregated power against the number of axons n in {5, 10, 18, 30}:
 n rows of the cell resampled with replacement 2000 times, the Wilcoxon
 signed-rank test of z_A against 0 (two-sided, alpha 0.05) on each, the
@@ -154,7 +154,7 @@ and frames -- the harness's path without real data), its rings with
 as ``<out>/<name>_config.yaml`` and reused on a restart (or the YAML of
 ``--config-from``); the OBSERVED statistics of the real axon in ONE v2
 row (``<out>/<name>_observed.csv``; its base columns carry the
-pre-registered H3 null, ``null_kind`` "interpolating", ``pooled_*`` the
+pre-specified H3 null, ``null_kind`` "interpolating", ``pooled_*`` the
 pooled kind, and the conserved-offset statistics -- which the v2 header
 has no column for -- go to the companion ``<name>_conserved_offset.csv``
 under replicate -1 and to the markdown only); then R replicates of M1
@@ -3119,7 +3119,7 @@ def _candidate_blocks(a: Callable[[str], None], cells: Sequence[Tuple[str, Dict[
       "membrane of all rings (`analyze_arc_columns(reference_curve=\"pooled_membrane\")`, knots every "
       f"{float(ARC_MEMBRANE_KNOT_SPACING_NM):g} nm, the remedy of the reviews of "
       "2026-09-25 for the reference curve's own scatter, which makes `arc_*` liberal on concave contours). "
-      "None of the candidates is pre-registered; they are measured here for D-28.")
+      "None of the candidates is pre-specified; they are measured here for D-28.")
     a("")
     a("Caveats measured by the reviews of 2026-09-25 (recorded for D-28): (i) the clean arc variants exclude only the children the "
       "H4 diagnostics flag, a minority of the spurious children per axon in the leak cell, "
@@ -3128,7 +3128,7 @@ def _candidate_blocks(a: Callable[[str], None], cells: Sequence[Tuple[str, Dict[
       "the pooled_offset null is NOT a level test: its joint null is anti-conservative one-sided (p_excess <= 0.05 in 0.05-0.07 "
       "on scattered synthetic rings, mean z_A +0.25 to +0.41; `tools.mps_matching.eclipse_test`) and in the research grid WITHOUT "
       "leak `pooled_z_A` is biased upward under H0, as biased as the "
-      "pre-registered null and in the same direction -- the D-25 mechanism persists in the base "
+      "pre-specified null and in the same direction -- the D-25 mechanism persists in the base "
       "columns of every cell, and a two-sided p_A near the nominal level understates it (a shift of a discrete count is "
       "mostly absorbed below the two-sided threshold): the calibration table below, not the nominal level, is what a real "
       "axon's z_A or pooled_z_A is compared with; (iii) the arc test on the interpolating curve (`arc_*`) is close to level on "
@@ -3236,7 +3236,7 @@ def _candidate_blocks(a: Callable[[str], None], cells: Sequence[Tuple[str, Dict[
     a("")
     a("What a real axon's value is compared with: the null cells (model M1 or M3b, marked yes) give the distribution of each "
       "statistic under no columns with the measurement process of the configuration; an observed z_A above the 0.95 "
-      "quantile of the matching null cell is what the pre-registered alpha means once the null is calibrated by simulation "
+      "quantile of the matching null cell is what the pre-specified alpha means once the null is calibrated by simulation "
       "(02 B8; the per-axon version is `simnull`).")
     a("")
     a("| cell | null cell? | statistic | n | mean | sd | q 0.5 | q 0.95 | q 0.99 |")
@@ -3392,15 +3392,15 @@ def write_summary_report(path: str, cells: Sequence[Tuple[str, Dict[str, Any]]],
     a("")
     a('## "Favours M5" classification rate under three decision rules')
     a("")
-    a(f"- R0: the pre-registered rule of 01 §1.6 — z_A > 0 with p_A <= {alpha:g} and the rules (i)–(v) all True. "
+    a(f"- R0: the pre-specified rule of 01 §1.6 — z_A > 0 with p_A <= {alpha:g} and the rules (i)–(v) all True. "
       "Rule (iii) needs the guard rebuild, which the grid does not run (`analyze_leak(guard=False)`), and rule (iv) is None until "
       "the simulated-leak null exists, so R0 as written reads False on every row; \"R0 (defined rules)\" applies R0 to the rules "
       "that are defined (None does not vote), with the count of rows on which each rule was defined.")
     a(f"- R1: p_A <= {alpha:g} and p_excess_clean <= {alpha:g} in every adjacent pair.")
     a(f"- R2: p_excess_clean <= {alpha:g} in every adjacent pair and the axon's fraction_leak_explained_any <= 0.5.")
-    a("- R1 and R2 are candidates for D-28, **not pre-registered**; only R0 is.")
+    a("- R1 and R2 are candidates for D-28, **not pre-specified**; only R0 is.")
     a("")
-    a("| cell | z_A > 0 and p_A <= alpha | R0 (pre-registered, literal) | R0 (defined rules) | R1 | R2 | rules defined (i, ii, iii, iv, v) |")
+    a("| cell | z_A > 0 and p_A <= alpha | R0 (pre-specified, literal) | R0 (defined rules) | R1 | R2 | rules defined (i, ii, iii, iv, v) |")
     a("|---|---|---|---|---|---|---|")
     for name, s in cells:
         if not s.get("n_rows"):
@@ -3718,7 +3718,7 @@ def calibrated_p(sim_values: NDArray[np.float64], observed: float) -> float:
 
 # The statistics the simnull markdown calibrates: (label, column, in the companion file?).
 SIMNULL_STATISTICS: Tuple[Tuple[str, str, bool], ...] = (
-    ("z_A — H3 joint test, interpolating null (pre-registered, D-04/D-11)", "z_A", False),
+    ("z_A — H3 joint test, interpolating null (pre-specified, D-04/D-11)", "z_A", False),
     ("z_A — H3 joint test, conserved_offset null (D-25)", "offset_z_A", True),
     ("pooled_z_A — H3 joint test, pooled leave-ring-out membrane null (candidate B)", "pooled_z_A", False),
     ("arc_z_A — 1D arc test on the reference circle, rotation null (candidate A)", "arc_z_A", False),
@@ -3847,7 +3847,7 @@ def write_simnull_report(path: str, *, inp: SimnullInput, obs: Dict[str, str], o
       "`_conserved_offset.csv` (replicate −1 = the observed axon)"
       + ("; the sub-basis structure diagnostic in `_subbasis.csv`." if v3 else "."))
     a("- Calibrated p = (#{sim ≥ obs} + 1) / (R + 1), one-sided towards columns (excess), with the +1 of Phipson and Smyth; "
-      "the pre-registered alpha applies to it, not to the analytic p of each null. R is the number of simulated rows whose "
+      "the pre-specified alpha applies to it, not to the analytic p of each null. R is the number of simulated rows whose "
       "statistic is finite (column \"R finite / R\"): a replicate whose statistic is undefined (a constant null, a ring lost "
       "by the detection) cannot be ranked and leaves the denominator.")
     if "zq_mode" in obs:

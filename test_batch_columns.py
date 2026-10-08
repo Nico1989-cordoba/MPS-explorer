@@ -294,7 +294,7 @@ def test_r8_guard_refuses_real_inputs(sims: Dict[str, str], tmp_path_factory: py
 
 
 def test_rings_and_cleaning_are_the_review_windows(sims: Dict[str, str], default_run: str) -> None:
-    """The rings (``roi=None``, pre-registered parameters) and the lumen classification are the review window's: the
+    """The rings (``roi=None``, pre-specified parameters) and the lumen classification are the review window's: the
     cluster-set fingerprint of the batch row is the one ``prepare_review`` gives."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:

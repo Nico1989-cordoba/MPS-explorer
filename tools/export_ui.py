@@ -4,8 +4,8 @@ What an export asks before it adds an axon a table already holds.
 
 Every panel's export appends, which is what lets a folder's worth of
 axons accumulate into one table. Appending the same axon twice is silent
-and weights it twice in every statistic afterwards, and it happens: the
-table of axon 7 exported on 2026-09-17 holds that axon twice, with
+and weights it twice in every statistic afterwards, and it happens: a
+table of a pilot axon exported on 2026-09-17 holds that axon twice, with
 identical rows. The panels therefore look before they write, and let the
 user replace the rows instead.
 

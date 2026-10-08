@@ -35,10 +35,10 @@ cluster of eleven or more localizations passes through untouched, and
 the claimed half-width peaks at 271 nm for a 300 nm outlier exactly
 where the cap stops biting. The constraint keeps the headline ~20 % from
 being an artefact of the SPARSEST clusters; what it does not do is
-police a badly clustered large one. In the real April data, one cluster
-of 4,500 localizations spanning 847 nm claims 14.0 % of its axon's
-perimeter on its own -- a clustering problem, which no setting of this
-module fixes.
+police a badly clustered large one. In unpublished pilot data, one
+cluster of thousands of localizations spanning several hundred nm claims
+a sizeable share of its axon's perimeter on its own -- a clustering
+problem, which no setting of this module fixes.
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -131,12 +131,11 @@ def fit_constrained_gaussian(
           cluster's measured anisotropy (elongation and orientation).
 
         The paper does not disambiguate, and the choice is not small:
-        measured over the 18 real April axons, occupancy differs by a
-        median 3.57 percentage points (2.36 to 6.61; every axon moves by
-        more than one), which is 9.6 times the measurement's own
-        bootstrap noise of 0.37 pp. It changes nothing else -- areas,
-        r_eff, 1NN, perimeter and cluster counts are bit-identical -- and
-        it does not change the ranking of axons (Spearman 0.998).
+        measured on unpublished pilot axons, occupancy differs by several
+        percentage points, many times the measurement's own bootstrap
+        noise. It changes nothing else -- areas, r_eff, 1NN, perimeter and
+        cluster counts are bit-identical -- and it barely changes the
+        ranking of axons.
 
         "clip" stays the default on evidence, not on wording alone. Both
         modes set the major axis to exactly the cap; they differ only in
@@ -144,14 +143,14 @@ def fit_constrained_gaussian(
         "clip"'s) although the paper's constraint says nothing about it.
         Optimising the Gaussian log-likelihood over every covariance
         whose sigmas are all at most the cap reproduced "clip"'s sigmas
-        in every case tested, at anisotropies from 1.2 to 8; "scale"
-        matched only when the cap did not bind. "clip" is the
-        constrained maximum-likelihood fit; "scale" is an ad-hoc shrink.
+        in every case tested; "scale" matched only when the cap did not
+        bind. "clip" is the constrained maximum-likelihood fit; "scale"
+        is an ad-hoc shrink.
 
         The two are nearly degenerate with ``mahalanobis_threshold``:
-        calibrated so each mode's claimed arc matches the arc its own
-        localizations span, "clip" lands at 2.4 and "scale" at 2.8, and
-        the two then agree to 0.39 pp with Spearman 1.000. So this is a
+        calibrated on pilot data so each mode's claimed arc matches the
+        arc its own localizations span, they land at slightly different
+        thresholds and then agree closely. So this is a
         second knob on one degree of freedom, which is why it is a
         keyword argument with a justified default and not a control --
         the threshold is the one to turn, and it is persisted, exported

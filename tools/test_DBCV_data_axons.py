@@ -55,7 +55,7 @@ def DBCV_DBSCAN(X, eps_range, min_samples_range):
 
 
 # load exp data
-os.chdir(r'C:\Users\Usuario\Desktop\axones filtrados\230914 subROIs (Axons)\ROI3')
+os.chdir(r'<folder with the picked axons>\ROI3')  # set to your own data folder
 
 # Define filename
 filename = "ROI3_B2spectrin_unified_locs_filter_rcc_apicked_2_filter.hdf5"

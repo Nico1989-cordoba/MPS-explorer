@@ -10,9 +10,9 @@ movie's metadata, Tormenta in a sidecar beside it -- and TIFF files carry
 it in their resolution tags. This module reads those and says when they
 disagree with the value in use.
 
-The 2023 sciatic-nerve data is the reason. All 202 of its acquisition
-metadata files record 0.133 um, while 196 of the 200 Picasso YAMLs say
-135 nm and the other 4 say 133; its widefield images record 133 nm in
+The 2023 sciatic-nerve data is the reason. All of its acquisition
+metadata files record 0.133 um, while most of its Picasso YAMLs say
+135 nm and a few say 133; its widefield images record 133 nm in
 their ImageJ resolution tags. Nobody remembers which is right, so the
 software reports the disagreement instead of choosing.
 
@@ -142,8 +142,7 @@ def from_sidecar(path: str) -> Optional[RecordedPixel]:
     ``<stem>.txt`` of ``key= value`` lines and a ``<stem>_metadata.hdf5``
     next to each movie. A movie processed afterwards keeps the suffix at
     the end of the name while its metadata keeps it after "_metadata":
-    beside MPS_t2_ROI1_50ms_calib3_corrected.tiff sits
-    MPS_t2_ROI1_50ms_calib3_metadata_corrected.hdf5.
+    beside <stem>_corrected.tiff sits <stem>_metadata_corrected.hdf5.
     """
     stem = os.path.splitext(path)[0]
     text = _from_text_sidecar(stem + ".txt")
@@ -278,7 +277,7 @@ def disagreement(name: str, used_nm: Optional[float],
 #
 # The readers above answer "what does THIS file record?". Two of the
 # user's own datasets answer "nothing": the 2023 sciatic-nerve exports
-# and the TIRF4 DNA-PAINT set both contain localization files whose
+# and an unpublished DNA-PAINT set both contain localization files whose
 # Picasso YAML was lost somewhere between the acquisition computer and
 # the analysis folder. Until now the program either refused them or --
 # worse, until 2026-09-20 -- loaded them at a hardcoded 133 nm.

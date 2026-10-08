@@ -5,9 +5,8 @@ on the localizations, the axoplasm mask, the membrane/interior
 classification, the clusters both widefield images put inside the axon,
 and the MPS analysis repeated without them (tools/mps_analysis.py).
 
-Synthetic images with a known answer, plus the April 2026 ROI 1 data when
-it is present (its widefield images sit (-2.05, +5.55) px from the STORM
-localizations).
+Synthetic images with a known answer, plus unpublished pilot data when a
+private file names it (MPS_AXOPLASM_PRIVATE; see below).
 
 Run:  python validate_axoplasm.py
 """
@@ -40,31 +39,35 @@ PASSED = 0
 FAILED = 0
 PIXEL_NM = 113.0
 
-DATA = os.environ.get("MPS_AXOPLASM_DATA", r"C:\Users\nicol\OneDrive\Doctorado")
-APRIL_FULL = os.path.join(
-    DATA, "30.4.26", "26.04.30_bIIspt_50ms_90mW_TIRF_3con5_1",
-    "26.04.30_bIIspt_RCC1000_filt_lpxy015_z400.hdf5")
-APRIL_SPEC = os.path.join(DATA, "30.4.26", "WF_spec_1",
-                          "WF_spec_1_MMStack.ome.tif")
-APRIL_TUB = os.path.join(DATA, "30.4.26", "WF_tub_1", "WF_tub_1_MMStack.ome.tif")
-APRIL_AXON7 = os.path.join(
-    DATA, "1°Reunión de avances de tesis", "Abril", "ROI 1", "Axon 7",
-    "26.04.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_filter_render_"
-    "byRCC1000_picked_axon7.hdf5")
-# ROI 2 is another camera region, with its own widefield images. Its picks
-# are exact subsets of the RCC-corrected full field below (checked frame by
-# frame), which is therefore what registers them.
-APRIL2 = os.path.join(DATA, "1°Reunión de avances de tesis", "Abril")
-APRIL2_FULL = os.path.join(
-    APRIL2, "26.4.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_filter_"
-    "render_RCC1000.hdf5")
-APRIL2_SPEC = os.path.join(DATA, "30.4.26", "WF_spec_2",
-                           "WF_spec_2_MMStack.ome.tif")
-APRIL2_TUB = os.path.join(DATA, "30.4.26", "WF_tub_2",
-                          "WF_tub_2_MMStack.ome.tif")
-APRIL2_AXON1 = os.path.join(
-    APRIL2, "ROI 2", "26.4.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack.ome_locs_"
-    "filter_picked_Axon1_roi2.hdf5")
+# The real-data checks (section 8) run on unpublished pilot data, which is
+# not in this repository. MPS_AXOPLASM_PRIVATE names a private JSON file
+# holding the file paths and what they must give:
+#   "full", "spec", "tub", "axon"            one camera region: the whole
+#       field's localizations, its widefield spectrin and tubulin images and
+#       one picked axon;
+#   "roi2_full", "roi2_spec", "roi2_tub", "roi2_axon"   another region;
+#   "shift_px" [col, row], "shift_tolerance_px", "n_discarded",
+#   "perimeter_range_um" [lo, hi], "one_start_longer_by_um",
+#   "roi2_n_discarded".
+# Without it those checks are skipped with a note.
+PRIVATE_PATH = os.environ.get("MPS_AXOPLASM_PRIVATE", "")
+PRIVATE = (json.load(open(PRIVATE_PATH, encoding="utf-8"))
+           if PRIVATE_PATH and os.path.isfile(PRIVATE_PATH) else {})
+REAL_FULL = PRIVATE.get("full", "")
+REAL_SPEC = PRIVATE.get("spec", "")
+REAL_TUB = PRIVATE.get("tub", "")
+REAL_AXON = PRIVATE.get("axon", "")
+# The other camera region, with its own widefield images. Its picks are
+# exact subsets of the RCC-corrected full field (checked frame by frame),
+# which is therefore what registers them.
+REAL2_FULL = PRIVATE.get("roi2_full", "")
+REAL2_SPEC = PRIVATE.get("roi2_spec", "")
+REAL2_TUB = PRIVATE.get("roi2_tub", "")
+REAL2_AXON = PRIVATE.get("roi2_axon", "")
+
+
+def _present(*paths: str) -> bool:
+    return all(p and os.path.exists(p) for p in paths)
 
 
 def check(name: str, fn) -> None:
@@ -316,7 +319,7 @@ def test_registration() -> None:
     def known_shift():
         rng = np.random.default_rng(1)
         rings = ring_field(rng, shape)
-        true = (-2.05, 5.55)
+        true = (-2.10, 5.60)
         image = widefield_of(rng, rings, shape, shift=true)
         x, y = sample_rings(rng, rings)
         reg = ax.measure_shift(image, x, y)
@@ -723,8 +726,8 @@ def spectrin_ring_image(shape, centre, radius, *, width=1.2, ring=300.0,
     """
     A widefield spectrin image of one ring: a blurred bright band of
     ``radius`` px on a ``base`` background. ``inside`` makes the axon's
-    inside darker than the background, as on the April data (inside ~740,
-    myelin ~900, ring ~990 on axon 7). ``gap`` = (start, end) in radians
+    inside darker than the background, as on real data (inside darker
+    than the myelin, the ring brightest). ``gap`` = (start, end) in radians
     leaves a sector of the band at the background level; ``neighbour`` =
     (col, row, radius, brightness) adds another ring; ``pool`` = (col, row,
     radius, level) paints a darker area, as myelin can be.
@@ -1358,26 +1361,26 @@ def test_without_clusters() -> None:
 
 
 def test_real_data() -> None:
-    print("\n8. APRIL 2026  (widefield images and STORM data)")
+    print("\n8. PILOT DATA  (widefield images and STORM data)")
 
-    def april():
-        if not all(os.path.exists(p) for p in (APRIL_FULL, APRIL_SPEC,
-                                               APRIL_TUB, APRIL_AXON7)):
+    def pilot_registration():
+        if not _present(REAL_FULL, REAL_SPEC, REAL_TUB, REAL_AXON):
             return "skipped, data not present"
         from tools.mps_io import load_localizations
 
-        spec = ax.load_widefield(APRIL_SPEC)
-        tub = ax.load_widefield(APRIL_TUB)
-        full = load_localizations(APRIL_FULL)
+        spec = ax.load_widefield(REAL_SPEC)
+        tub = ax.load_widefield(REAL_TUB)
+        full = load_localizations(REAL_FULL)
         px = full.pixel_size_nm
         off, notes = ax.camera_offset(spec, full.info, px)
         assert off == (0.0, 0.0) and not notes
         reg = ax.measure_shift(spec.image, full.x_nm / px + off[0],
                                full.y_nm / px + off[1])
-        assert np.hypot(reg.shift_px[0] + 2.05, reg.shift_px[1] - 5.55) < 0.1, \
-            reg.shift_px
+        want = PRIVATE["shift_px"]
+        assert np.hypot(reg.shift_px[0] - want[0], reg.shift_px[1] - want[1]) \
+            < float(PRIVATE["shift_tolerance_px"]), reg.shift_px
         assert not reg.warnings, reg.warnings
-        axon = load_localizations(APRIL_AXON7)
+        axon = load_localizations(REAL_AXON)
         toff, _ = ax.camera_offset(tub, axon.info, px)
         col = axon.x_nm / px + toff[0] + reg.shift_px[0]
         row = axon.y_nm / px + toff[1] + reg.shift_px[1]
@@ -1388,19 +1391,19 @@ def test_real_data() -> None:
         result = ax.classify(mask, col, row, 250.0)
         assert result.count(ax.LABEL_OUTSIDE) == 0
         return (f"shift ({reg.shift_px[0]:+.2f}, {reg.shift_px[1]:+.2f}) px; "
-                f"axon 7 mask {mask.area_ratio:.2f}x its ring, "
+                f"pilot axon mask {mask.area_ratio:.2f}x its ring, "
                 f"{result.fraction_interior:.0%} interior with a 250 nm margin")
 
-    check("registration and one axon", april)
+    check("registration and one axon", pilot_registration)
 
-    def anchored_axon7():
-        if not all(os.path.exists(p) for p in (APRIL_SPEC, APRIL_TUB,
-                                               APRIL_AXON7)):
+    def anchored_axon():
+        if not _present(REAL_SPEC, REAL_TUB, REAL_AXON):
             return "skipped, data not present"
-        found, new, lengths = anchored_on(APRIL_AXON7, APRIL_TUB, APRIL_SPEC,
-                                          (-2.0531, 5.5531))
-        assert found.n_discarded == 5, found.n_discarded
-        assert 15.5 < new.perimeter_um < 17.0, new.perimeter_um
+        found, new, lengths = anchored_on(REAL_AXON, REAL_TUB, REAL_SPEC,
+                                          tuple(PRIVATE["shift_px"]))
+        assert found.n_discarded == PRIVATE["n_discarded"], found.n_discarded
+        lo, hi = PRIVATE["perimeter_range_um"]
+        assert lo < new.perimeter_um < hi, new.perimeter_um
         assert new.health.n_deep_vertices <= 1, new.health.n_deep_vertices
         # The MPS analysis builds its contour from every start: the panel
         # takes it as it is.
@@ -1411,14 +1414,13 @@ def test_real_data() -> None:
 
     def anchored_roi2():
         # The axon where a spectrin interior not bounded by the clusters
-        # leaked along the myelin and took seven membrane clusters.
-        if not all(os.path.exists(p) for p in (APRIL2_FULL, APRIL2_SPEC,
-                                               APRIL2_TUB, APRIL2_AXON1)):
+        # leaked along the myelin and took membrane clusters.
+        if not _present(REAL2_FULL, REAL2_SPEC, REAL2_TUB, REAL2_AXON):
             return "skipped, data not present"
         from tools.mps_io import load_localizations
 
-        spec = ax.load_widefield(APRIL2_SPEC)
-        full = load_localizations(APRIL2_FULL)
+        spec = ax.load_widefield(REAL2_SPEC)
+        full = load_localizations(REAL2_FULL)
         px = full.pixel_size_nm
         off, _ = ax.camera_offset(spec, full.info, px)
         reg = ax.measure_shift(spec.image, full.x_nm / px + off[0],
@@ -1426,22 +1428,21 @@ def test_real_data() -> None:
         assert reg.score is not None and reg.score >= ax.MIN_REGISTRATION_SCORE, \
             reg.score
         assert not reg.warnings, reg.warnings
-        found, new, _lengths = anchored_on(APRIL2_AXON1, APRIL2_TUB,
-                                           APRIL2_SPEC, reg.shift_px)
-        assert found.n_discarded == 0, found.n_discarded
-        return (f"registered to WF_spec_2 ({reg.shift_px[0]:+.2f}, "
+        found, new, _lengths = anchored_on(REAL2_AXON, REAL2_TUB,
+                                           REAL2_SPEC, reg.shift_px)
+        assert found.n_discarded == PRIVATE["roi2_n_discarded"], found.n_discarded
+        return (f"registered ({reg.shift_px[0]:+.2f}, "
                 f"{reg.shift_px[1]:+.2f}) px, score {reg.score:.1f}; "
                 f"0 of {found.n} discarded, though the tubulin alone puts "
                 f"{found.n_tubulin_only} inside")
 
-    def analysis_axon7():
-        if not all(os.path.exists(p) for p in (APRIL_SPEC, APRIL_TUB,
-                                               APRIL_AXON7)):
+    def analysis_axon():
+        if not _present(REAL_SPEC, REAL_TUB, REAL_AXON):
             return "skipped, data not present"
         from tools import mps_analysis as ma
 
         found, _new, _lengths, analysis = anchored_on(
-            APRIL_AXON7, APRIL_TUB, APRIL_SPEC, (-2.0531, 5.5531),
+            REAL_AXON, REAL_TUB, REAL_SPEC, tuple(PRIVATE["shift_px"]),
             with_analysis=True)
         both = ma.compare_discard(
             analysis, found.discarded, margin_nm=found.margin_nm,
@@ -1453,7 +1454,8 @@ def test_real_data() -> None:
         assert every is analysis
         assert every.perimeter is found.contour_all_starts
         assert applied.perimeter is found.contour_anchored
-        assert applied.n_clusters_kept == analysis.n_clusters_kept - 5
+        assert applied.n_clusters_kept == (analysis.n_clusters_kept
+                                           - PRIVATE["n_discarded"])
         assert applied.median_1nn_nm != every.median_1nn_nm
         assert applied.occupancy_percent != every.occupancy_percent
         moved = float(np.hypot(applied.centre.x_nm - every.centre.x_nm,
@@ -1466,13 +1468,13 @@ def test_real_data() -> None:
                 f"{applied.occupancy_percent:.1f} %; the centre moves "
                 f"{moved:.0f} nm")
 
-    def one_start_axon7():
-        if not os.path.exists(APRIL_AXON7):
+    def one_start_axon():
+        if not _present(REAL_AXON):
             return "skipped, data not present"
         from tools import mps_analysis as ma
         from tools.mps_io import load_localizations
 
-        loc = load_localizations(APRIL_AXON7)
+        loc = load_localizations(REAL_AXON)
         args = (loc.x_nm, loc.y_nm, loc.z_nm)
         kw = dict(pixel_size_nm=loc.pixel_size_nm, n_randomizations=50,
                   random_seed=0)
@@ -1481,7 +1483,8 @@ def test_real_data() -> None:
         redone = ma.with_every_start(one)
         assert every.contour_2opt == "every start"
         assert one.contour_2opt == "one start"
-        assert one.perimeter_um > every.perimeter_um + 0.5, \
+        assert one.perimeter_um > (every.perimeter_um
+                                   + float(PRIVATE["one_start_longer_by_um"])), \
             (one.perimeter_um, every.perimeter_um)
         assert redone.perimeter_um == every.perimeter_um
         assert np.array_equal(redone.perimeter.order, every.perimeter.order)
@@ -1492,12 +1495,12 @@ def test_real_data() -> None:
                 f"{every.perimeter_um:.2f} um; one start repeated from every "
                 f"start gives the latter, occupancy and KS included")
 
-    check("axon 7: the clusters inside, and the contour without them",
-          anchored_axon7)
-    check("axon 7: one start, as before 2026-09-19, is longer",
-          one_start_axon7)
-    check("axon 7: every parameter with and without them", analysis_axon7)
-    check("ROI 2, axon 1: no membrane cluster discarded", anchored_roi2)
+    check("pilot axon: the clusters inside, and the contour without them",
+          anchored_axon)
+    check("pilot axon: one start, as before 2026-09-19, is longer",
+          one_start_axon)
+    check("pilot axon: every parameter with and without them", analysis_axon)
+    check("another region: no membrane cluster discarded", anchored_roi2)
 
 
 def anchored_on(axon_path, tub_path, spec_path, shift_px,

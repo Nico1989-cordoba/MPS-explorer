@@ -34,7 +34,7 @@ reported so it can be checked:
 3. THE DISTANCE TO THE MASK. Every localization gets its signed distance
    to the mask's edge, positive inside (``classify``). The tubulin alone
    does not decide what is inside: where the mask drifts off the spectrin
-   ring it puts membrane localizations inside, which on axon 7 of April
+   ring it puts membrane localizations inside, which on a pilot axon
    was most of what it put there. A localization is counted inside only
    through its cluster, in step 4 (``localization_labels``).
 
@@ -84,11 +84,12 @@ DEFAULT_MAX_SHIFT_PX = 20
 # local maximum of the correlation (farther than RUNNER_UP_EXCLUSION_PX
 # from the best shift). The score is the best shift's height above the
 # median of the search, in robust standard deviations (1.4826 * MAD).
-# Measured while building this: correct registrations had a runner-up of
-# 0.09-0.11 of the peak and a score of 13-21, both on synthetic fields and
-# on the April 2026 ROI 1 data. Wrong ones scored 2.6-6.5 with a runner-up
-# of 0.58-0.88: the true shift outside the search, a periodic field, one
-# picked axon alone, or the tubulin image as reference.
+# Measured while building this, on synthetic fields and on unpublished
+# pilot data: correct registrations had a small runner-up and a score well
+# above MIN_REGISTRATION_SCORE; wrong ones scored well below it with a
+# runner-up close to the peak (the true shift outside the search, a
+# periodic field, one picked axon alone, or the tubulin image as
+# reference). The two limits are pilot-derived suggestions, editable.
 RUNNER_UP_EXCLUSION_PX = 3
 RUNNER_UP_FRACTION = 0.5
 MIN_REGISTRATION_SCORE = 10.0
@@ -105,8 +106,9 @@ AREA_RATIO_WARN = (0.5, 2.0)
 # The margin the panel opens with: how far inside a widefield edge a point
 # must be before the image is trusted to put it inside. The edge is blurred
 # by the diffraction limit, so without a margin a ring on the membrane falls
-# half inside. 250 nm is the value the Axoplasm panel was first used with on
-# the April data; the user sets it, and it is exported with every result.
+# half inside. 250 nm is a pilot-derived suggestion (the value the Axoplasm
+# panel was first used with on unpublished pilot data), editable: the user
+# sets it, and it is exported with every result.
 DEFAULT_MARGIN_NM = 250.0
 # An image whose recorded pixel size differs from the localizations' by
 # this much or more is refused: that is another scale altogether (another
@@ -1044,8 +1046,8 @@ class AnchoredClusters:
     warnings: List[str] = field(default_factory=list)
     # How the widefield images were placed on the localizations when this
     # was found ("measured, score 13.5", "set by hand", ...). Which
-    # clusters are inside depends on it entirely -- on axon 7, 5 of 94
-    # after the shift was measured against 4 of 94 before -- so it travels
+    # clusters are inside depends on it entirely -- on a pilot axon the
+    # discarded set changed once the shift was measured -- so it travels
     # with the discard into every table that reports it.
     registration: str = ""
 
@@ -1328,7 +1330,7 @@ def summary_row(
         # How the widefield images were placed when the clusters were
         # sorted. Loading the spectrin image is enough to sort them, so
         # this says whether that happened before or after the shift was
-        # measured -- on axon 7, 4 clusters discarded against 5.
+        # measured -- on a pilot axon the discarded set differed.
         "discard_registration": (None if anchored is None
                                  else anchored.registration or None),
         "spectrin_interior_cut": None if spectrin is None else finite(

@@ -81,10 +81,10 @@ def filter_noise(X, K):
     return clus, noise
 
 
-os.chdir(r'\\Fileserver\na\Alan Szalai\MPS analysis - septiembre 2023\data ejemplo')
+os.chdir(r'<folder with the picked axons>')  # set to your own data folder
 
 # Define filename
-filename = "ROI6_spectrin_locs_drift_corrected_apicked_1.hdf5"
+filename = "<picked axon>.hdf5"  # set to your own file
 
 # Read H5 file
 f = h5.File(filename, "r")

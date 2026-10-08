@@ -207,8 +207,8 @@ def duplicate_rows(path: str, rows: Sequence[Dict[str, Any]],
     Appending is what makes a table of axons grow, so nothing here refuses
     anything; but a second copy of one axon weights it twice in every
     statistic over the table, and an export that only ever appends cannot
-    tell the user it is about to do that. The user's own table of axon 7
-    (2026-09-17) holds that axon twice, with identical rows.
+    tell the user it is about to do that. A user's own table of a pilot
+    axon (2026-09-17) holds that axon twice, with identical rows.
     """
     if not key_columns:
         return []

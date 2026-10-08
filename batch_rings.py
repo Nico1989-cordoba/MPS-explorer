@@ -21,8 +21,8 @@ docstring of tools/mps_batch.py.
 There is no ROI here: each file is one picked axon, so the automatic
 curation measures edge-touching against the convex hull of the
 localizations instead of a drawn boundary. That keeps other clusters
-than the GUI does -- on the April axon 7, 90 clusters against 94, a
-perimeter of 20.73 um against 21.52 -- so rows from here and rows
+than the GUI does -- on an axon of unpublished pilot data, a few
+clusters fewer and a shorter perimeter -- so rows from here and rows
 exported from the GUI are not the same measurement. Every row says
 which it is, in ``edge_reference``; do not pool the two without it.
 

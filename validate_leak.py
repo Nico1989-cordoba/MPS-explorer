@@ -41,7 +41,7 @@ the harness's own truth on seed 0 before the module existed):
   not the constant the H4 specification wrote, and the z' noise of a
   localization has sd lpz_i, so the leak physics stays exact (F is the
   mean over localizations of 1 - Phi(85 / lpz_i) = 0.1344). Why: the
-  pre-registered diagnostic (ii) is a Spearman correlation with the
+  pre-specified diagnostic (ii) is a Spearman correlation with the
   clusters' ``lpz_median_nm``, which is undefined (all ties) with a
   constant lpz; a 10 % jitter gives medians that differ by ~1 nm.
 * The generator's leak truth (check 1) is compared ONE-SIDED: the
@@ -1392,7 +1392,7 @@ def test_guard() -> None:
         return "; ".join(out) + "; rule iii True"
 
     def m1_leak_survives_guard():
-        # The M1 direction of rule (iii) (re-review of 2026-09-24): the pre-registered dead zone does not remove
+        # The M1 direction of rule (iii) (re-review of 2026-09-24): the pre-specified dead zone does not remove
         # the leak. Physics: beyond 85 + 30 = 115 nm the tail of N(0, lpz_i) is mean_i(1 - Phi(115 / lpz_i)),
         # 6.8 % at lpz 77, i.e. 13.5 of 200 localizations, above min_samples 10 with probability
         # P[Bin(200, F60) >= 10] ~ 0.85, so most children persist at g = 60 (DBSCAN fragmentation lowers it;
@@ -1599,16 +1599,16 @@ def test_profile_test() -> None:
                     worst = max(worst, abs(f.n_min_80_events - mine) / mine)
             assert worst <= 1e-3, worst
             out.append(f"{w}: N_80 (interpolated) {n80:.0f}, n_min_80 at true pi {wald:.1f} (ratio {n80 / wald:.1f}), "
-                       f"pre-registered n_min {prereg:.3f} (ratio {n80 / prereg:.0f}); module n_min_80_events vs formula {worst:.1e}")
+                       f"pre-specified n_min {prereg:.3f} (ratio {n80 / prereg:.0f}); module n_min_80_events vs formula {worst:.1e}")
         return "; ".join(out) + " -- the factor-3 band of the specification is not met by the physics (see the docstring)"
 
     check("FPR: 200 samples of N = 100 from one Gaussian, B = 99: fraction p <= 0.05 in [0.02, 0.09]; llr = 2 (loglik2 - loglik1) >= 0, "
           "loglik1 the closed-form MLE, p on the (b+1)/(B+1) grid", fpr)
     check("power table (0.5, 0.5) and (0.8, 0.2) at N = 50/100/200/500, R = 100, B = 99: non-decreasing in N (one inversion within 2 MC sd); "
           "power >= 0.95 at N = 500 for (0.5, 0.5)", power_table)
-    check("N_min (a): n_min_events equals the pre-registered closed form (1e-9)", n_min_closed_form)
+    check("N_min (a): n_min_events equals the pre-specified closed form (1e-9)", n_min_closed_form)
     check("N_min (b): sd of pi_hat at N = 500 (0.8, 0.2) within [0.9, 3] x CRLB sd (mu, sigma known); (0.5, 0.5) printed", crlb_efficiency)
-    check("N_min (c)/(d): N_80 >= n_min_80 (Wald, true pi) >= n_min_events (pre-registered); ratios printed; module n_min_80_events "
+    check("N_min (c)/(d): N_80 >= n_min_80 (Wald, true pi) >= n_min_events (pre-specified); ratios printed; module n_min_80_events "
           "equals the harness formula at the fit's values (1e-3)", n_80_vs_bounds)
 
 

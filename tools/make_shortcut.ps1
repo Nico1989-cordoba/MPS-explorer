@@ -9,8 +9,8 @@
 # lost by it -- the program writes everything it says to logs\ anyway.
 #
 # The desktop is asked for through the shell rather than assembled from
-# $env:USERPROFILE, because OneDrive redirects it (here it is
-# C:\Users\...\OneDrive\Desktop) and a shortcut written to the other
+# $env:USERPROFILE, because a cloud-sync client may redirect it
+# (to a Desktop folder it syncs) and a shortcut written to the other
 # place would simply not appear.
 
 $ErrorActionPreference = "Stop"

@@ -66,7 +66,7 @@ BATCH_UI_TOOLTIPS: Dict[str, str] = {
                 "log. Outside the program's folder. The same folder again RESUMES an interrupted run (an axon "
                 "already finished is not computed again).",
     "workers_spin": "Processes working on axons at once (at most 12 on this laptop).",
-    "n_null_spin": "The rotation-null size of every axon's arc test. 'pre-registered' is 1999 (D-22); a small value "
+    "n_null_spin": "The rotation-null size of every axon's arc test. 'pre-specified' is 1999 (D-22); a small value "
                    "(e.g. 199) is enough to try the dialog.",
     "wall_spin": "No new axon is started once the elapsed time plus the expected time of one more axon passes this "
                  "(at most 24 h); the run then stops and can be resumed.",
@@ -161,7 +161,7 @@ class ColumnsBatchDialog(QtWidgets.QDialog):
         self.n_null_spin = QtWidgets.QSpinBox()
         self.n_null_spin.setObjectName("n_null_spin")
         self.n_null_spin.setRange(18, 1999)
-        self.n_null_spin.setSpecialValueText("pre-registered (1999)")
+        self.n_null_spin.setSpecialValueText("pre-specified (1999)")
         self.n_null_spin.setValue(18)
         form.addRow("Rotation null per axon:", self.n_null_spin)
         self.wall_spin = QtWidgets.QDoubleSpinBox()

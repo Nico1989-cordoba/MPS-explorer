@@ -57,12 +57,9 @@ def new_tmp(prefix: str) -> str:
     _TEMP_DIRS.append(path)
     return path
 
-REAL_DATA = os.environ.get(
-    "MPS_PAINT_SAMPLE",
-    r"C:\Users\nicol\OneDrive\Doctorado\15.07.26"
-    r"\260713_DNAPAINT_NCtransversal_bIIspt_TIRF4_Roi2_2_1"
-    r"\260713_DNAPAINT_NCtransversal_bIIspt_TIRF4_Roi2_2_1_MMStack.ome_locs.hdf5",
-)
+# A real DNA-PAINT localization file (unpublished data, not in this
+# repository): given from outside; without it section 4 is skipped.
+REAL_DATA = os.environ.get("MPS_PAINT_SAMPLE", "")
 
 
 def check(name: str, fn) -> None:

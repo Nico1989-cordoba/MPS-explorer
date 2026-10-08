@@ -87,14 +87,15 @@ from tools.mps_registration import (
 PHASE_UNCERTAINTY_WARN = 0.1
 
 # One lateral resolution cell, near the median localization precision of
-# this data (lpx medians of 15 to 27 nm across the real files). Used only
-# to compare how densely the two channels are sampled, never to cluster.
+# the lab's (unpublished) files; a pilot-derived suggestion. Used only to
+# compare how densely the two channels are sampled, never to cluster.
 RESOLUTION_CELL_NM = 20.0
 # Above this ratio of localizations per cell, channel B is sampled in a
 # different regime from channel A and cannot share its min_samples --
-# which counts localizations, not molecules. Measured over the five real
-# adducin files the ratio is 12 to 138 in four of them and about 1 in the
-# fifth, so there is no single number that fits both.
+# which counts localizations, not molecules. Measured on unpublished
+# adducin files the ratio ranged from about 1 to two orders of magnitude,
+# so there is no single number that fits both. 3 is a pilot-derived
+# suggestion, editable.
 OVERSAMPLING_WARN = 3.0
 # Below this ratio of the two channels' slab fractions (B's over A's),
 # channel B's rings are measurably not where spectrin's are. Measured on
@@ -110,9 +111,9 @@ SLAB_FRACTION_WARN = 0.75
 CHANNEL2_PARAMETERS_REQUIRED = (
     "Type channel 2's own Epsilon and Min Pts before comparing the "
     "channels -- they are not channel 1's. Min Pts counts localizations, "
-    "and across five real adducin files channel 2 carried 1 to 138 times "
-    "more of them per 20 nm cell than channel 1; on one axon channel 1's "
-    "25 nm / 10 found 13 clusters where channel 2's own found 35.")
+    "and channel 2 can carry many times more of them per 20 nm cell than "
+    "channel 1; on one axon channel 1's 25 nm / 10 found several times "
+    "fewer clusters than channel 2's own.")
 
 
 def _usable_parameter(value: Any, lo: float, hi: float) -> bool:
@@ -236,8 +237,8 @@ def axial_phase(
         )
 
     # Does either channel's axial density actually separate the
-    # components the mixture fitted? Measured on the 18-axon dataset,
-    # more than half of the boundaries have no interior minimum at all,
+    # components the mixture fitted? Measured on unpublished pilot data,
+    # many of the boundaries have no interior minimum at all,
     # so this is the common case rather than the exception.
     separated: Dict[str, Optional[bool]] = {}
     for tag, fitted in (("a", ra), ("b", rb)):
@@ -437,8 +438,9 @@ def _null_hetero_nn(
 # patch makes the overlap worth reading only with its error bar; above
 # the second, the bare number is not a measurement at all. The scale is
 # the patch and not the perimeter because that is what an overlap is
-# resolved against: measured on the one loadable real pair, channel A's
-# covered patches are a median of 86 nm.
+# resolved against: on a real pair of unpublished data, channel A's
+# covered patches are about a hundred nm. Both fractions are pilot-derived
+# suggestions, editable.
 SHARED_REGISTRATION_WARN = 0.10
 SHARED_REGISTRATION_REFUSE = 0.50
 # Matching parameter 8, which uses 1000 randomizations.
@@ -973,9 +975,9 @@ def cross_channel_transverse(
     analyze_kwargs_b : channel B's OWN clustering parameters. Both
         ``eps_nm`` and ``min_samples`` are required and a ValueError is
         raised without them: they used to fall back to channel A's,
-        which assumes the two proteins are sampled alike. Measured over
-        five real adducin files they are 1 to 138 times apart per
-        resolution cell. Also overrides of ``analyze_kwargs`` for its
+        which assumes the two proteins are sampled alike. Measured on
+        unpublished adducin files they can be up to two orders of magnitude
+        apart per resolution cell. Also overrides of ``analyze_kwargs`` for its
         own clustering parameters, pixel size and source name.
     n_null : randomizations for the null distribution of heterotypic 1NN,
         and for the null of the shared perimeter occupancy.
@@ -997,8 +999,8 @@ def cross_channel_transverse(
     # clustering parameters. Until 2026-09-21 the line below merged
     # channel A's in for whatever channel B did not set, which is an
     # assumption about the partner protein's density rather than a
-    # measurement of it -- and measured, the two are 1 to 138 times apart
-    # per resolution cell across five real files, so there is no single
+    # measurement of it -- and measured, the two can be up to two orders of
+    # magnitude apart per resolution cell, so there is no single
     # min_samples that fits both. Both keys are required: a half-set
     # channel B, with eps given and min_samples inherited, inherits the
     # parameter the measurement is actually about.
@@ -1147,10 +1149,10 @@ def cross_channel_transverse(
         # The contour's area centroid, which is this project's axon
         # centre since 2026-09-19. The mean of the two channels'
         # centroids used to stand here, and it moves with how channel B
-        # was clustered: measured on the one loadable real pair it sits
-        # 77 to 151 nm from the area centroid, and channel A's own median
-        # radius changed by 54 to 59 nm depending on channel B's DBSCAN
-        # parameters -- a number about channel A that channel B could
+        # was clustered: measured on a real pair of unpublished data it sat
+        # around a hundred nm from the area centroid, and channel A's own
+        # median radius changed by tens of nm depending on channel B's
+        # DBSCAN parameters -- a number about channel A that channel B could
         # move is not a measurement of channel A.
         centre_a = an_a.centre if an_a is not None else None
         if centre_a is not None:

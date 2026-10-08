@@ -749,7 +749,7 @@ def test_fpr() -> None:
         assert abs(p.bandwidth_nm - BW_FRACTION * p.p_bar_nm) < 1e-9 and abs(p.lag_max_nm - p.p_bar_nm) < 1e-9
         assert p.lag_step_nm == STEP_NM and (p.ring_a, p.ring_b, p.reference_ring) == (0, 1, 0)
         assert all(isinstance(w, str) for w in p.warnings)
-        # the pre-registered exclusion when asked for: m = 0.5 L / K_b, every U in [m, L - m], same g_obs
+        # the pre-specified exclusion when asked for: m = 0.5 L / K_b, every U in [m, L - m], same g_obs
         m = 0.5 * L / K_RING
         q = cross_pcf_circular(a.s_nm, b.s_nm, L, p_bar_nm=L / K_RING,
                                params=default_unroll_params(n_null=NULL_B, min_shift_fraction=0.5),

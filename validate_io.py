@@ -42,10 +42,14 @@ from tools.mps_io import (  # noqa: E402
     read_pixel_size,
 )
 
-DATA_ROOT = os.environ.get(
-    "MPS_VALIDATION_DATA",
-    r"C:\Users\nicol\OneDrive\Doctorado\1°Reunión de avances de tesis\Abril",
-)
+# Unpublished data, not in this repository: given from outside, with a
+# private JSON file of what that data must give (MPS_VALIDATION_EXPECTED:
+# "n_frames", "box_size_px", "pixel_size_nm"; each check runs only when
+# its value is there).
+DATA_ROOT = os.environ.get("MPS_VALIDATION_DATA", "")
+EXPECTED_PATH = os.environ.get("MPS_VALIDATION_EXPECTED", "")
+EXPECTED = (json.load(open(EXPECTED_PATH, encoding="utf-8"))
+            if EXPECTED_PATH and os.path.isfile(EXPECTED_PATH) else {})
 
 PASSED = 0
 FAILED = 0
@@ -123,6 +127,8 @@ def write_hdf5(
 def find_real_axon() -> str | None:
     import glob
 
+    if not DATA_ROOT:
+        return None
     for pattern in ("ROI 1/*.hdf5", "ROI 1/*/*.hdf5", "ROI 2/*.hdf5"):
         hits = [
             f
@@ -483,8 +489,10 @@ def test_real_data() -> None:
 
     def metadata_chain():
         assert loc.metadata_source == "yaml"
-        assert loc.n_frames == 60000
-        assert loc.box_size_px == 9
+        if "n_frames" in EXPECTED:
+            assert loc.n_frames == EXPECTED["n_frames"]
+        if "box_size_px" in EXPECTED:
+            assert loc.box_size_px == EXPECTED["box_size_px"]
         assert loc.fit_method and "Gaussian" in loc.fit_method
         assert loc.z_calibration is not None
         assert len(loc.processing_steps) >= 4
@@ -503,7 +511,8 @@ def test_real_data() -> None:
 
         with h5.File(path, "r") as handle:
             table = handle["locs"]
-            x = np.asarray(table["x"], float) * 113.0
+            x = np.asarray(table["x"], float) * float(
+                EXPECTED.get("pixel_size_nm", loc.pixel_size_nm))
             z = np.asarray(table["z"], float)
         assert np.allclose(loc.x_nm, x)
         assert np.allclose(loc.z_nm, z)
@@ -558,10 +567,10 @@ def test_derived_outputs() -> None:
 
     def known_suffixes():
         for name in (
-            "axon7_cluster_centers.csv",
-            "axon7_all_clusters.csv",
-            "axon7neighbor_distances.csv",
-            "pick_01_filtered_clusters_thunderstorm_ep15.csv",
+            "axon5_cluster_centers.csv",
+            "axon5_all_clusters.csv",
+            "axon5neighbor_distances.csv",
+            "pick_A_filtered_clusters_thunderstorm_epsX.csv",
         ):
             assert is_derived_output(name), name
         return "4 suffixes"
@@ -570,7 +579,7 @@ def test_derived_outputs() -> None:
         # save_roi writes "{stem}_ch{channel}_roi.csv". This was NOT
         # excluded, so a batch read every axon twice.
         for name in (
-            "..._picked_axon7_ch1_roi.csv",
+            "..._picked_axon5_ch1_roi.csv",
             "..._picked_Axon1_roi2_ch1_roi.csv",
             "..._picked_axon3_ch2_roi.csv",
             # Renamed by hand afterwards; the marker still identifies it.
@@ -582,7 +591,7 @@ def test_derived_outputs() -> None:
         return "_ch{N}_roi excluded, even when renamed"
 
     def real_files_kept():
-        # "_roi2" is part of real filenames in this dataset; a substring
+        # "_roi2" is part of real filenames; a substring
         # rule on "_roi" would have thrown the actual data away.
         for name in (
             "..._picked_axon2_roi2.hdf5",
@@ -595,9 +604,9 @@ def test_derived_outputs() -> None:
     def collision_detected():
         found = duplicate_sources(
             [
-                "/d/x_picked_axon7.hdf5",
-                "/d/x_picked_axon7_ch1_roi.csv",
-                "/d/x_picked_axon8.hdf5",
+                "/d/x_picked_axon5.hdf5",
+                "/d/x_picked_axon5_ch1_roi.csv",
+                "/d/x_picked_axon6.hdf5",
             ]
         )
         assert len(found) == 1, found
@@ -606,7 +615,7 @@ def test_derived_outputs() -> None:
 
     def no_false_collision():
         assert duplicate_sources(
-            ["/d/x_picked_axon7.hdf5", "/d/x_picked_axon8.hdf5"]
+            ["/d/x_picked_axon5.hdf5", "/d/x_picked_axon6.hdf5"]
         ) == {}
         # Different ROIs of the same movie are different acquisitions.
         assert duplicate_sources(
@@ -616,21 +625,21 @@ def test_derived_outputs() -> None:
 
     def picasso_outputs():
         for name in (
-            "x_picked_axon7_clusters.hdf5",
-            "x_picked_axon7_cluster_centers.hdf5",
-            "x_picked_axon7_clusters_molmap.hdf5",
-            "x_picked_axon7_aim_clusters.hdf5",
-            "x_picked_axon7_link.hdf5",
+            "x_picked_axon5_clusters.hdf5",
+            "x_picked_axon5_cluster_centers.hdf5",
+            "x_picked_axon5_clusters_molmap.hdf5",
+            "x_picked_axon5_aim_clusters.hdf5",
+            "x_picked_axon5_link.hdf5",
         ):
             assert is_derived_output(name), name
         # A drift-corrected copy may be the file to analyse: kept, but
         # reported as the same acquisition as its original.
-        assert not is_derived_output("x_picked_axon7_aim.hdf5")
+        assert not is_derived_output("x_picked_axon5_aim.hdf5")
         found = duplicate_sources(
-            ["/d/x_picked_axon7.hdf5", "/d/x_picked_axon7_aim.hdf5"])
+            ["/d/x_picked_axon5.hdf5", "/d/x_picked_axon5_aim.hdf5"])
         assert len(found) == 1, found
-        assert duplicate_sources(["/d/x_aimed_axon7.hdf5",
-                                  "/d/x_axon7.hdf5"]) == {}
+        assert duplicate_sources(["/d/x_aimed_axon5.hdf5",
+                                  "/d/x_axon5.hdf5"]) == {}
         # Whole tokens only: the user's own Picasso-linked files are input.
         for name in ("x_undrift_filter__linked.hdf5",
                      "x__linked_picked_axon2.hdf5",
@@ -642,7 +651,7 @@ def test_derived_outputs() -> None:
 
     def real_folder_is_clean_now():
         root = os.path.join(DATA_ROOT, "ROI 2")
-        if not os.path.isdir(root):
+        if not DATA_ROOT or not os.path.isdir(root):
             return "skipped, dataset not present"
         files, skipped = find_localization_files(root)
         collisions = duplicate_sources(files)

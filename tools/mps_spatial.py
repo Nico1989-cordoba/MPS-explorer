@@ -142,7 +142,7 @@ def compute_nn_distances(
 
     kept = np.empty((n, k_eff), dtype=float)
     # Which cluster each of those distances is to. The per-cluster table
-    # exports it beside the distance: a 1NN of 130 nm says nothing about
+    # exports it beside the distance: a 1NN of 200 nm says nothing about
     # which neighbour, and a reader cannot recover it from the centroids
     # without repeating this query.
     kept_index = np.empty((n, k_eff), dtype=np.intp)

@@ -125,7 +125,7 @@ What is here (H2)
 ``RingsResult.n_suspect``       count per mark over all rings
 ``TauComponents``, ``tau_components``    tau_0 of D-03 and its components
 ``ColumnsParams``, ``write_columns_params``, ``load_columns_params``,
-``rings_params_from``            the pre-registered parameters file (YAML)
+``rings_params_from``            the pre-specified parameters file (YAML)
 ``columns_params_from_rings``    an addition beyond the H2 specification: the
                                 ``ColumnsParams`` for a measured tau_0 (what
                                 the report script needs to write the file)
@@ -340,18 +340,19 @@ SUSPECT_MARKS: Tuple[str, ...] = (SUSPECT_FEW_EVENTS, SUSPECT_BURST, SUSPECT_EDG
 
 # Quantiles reported by ``tau_components`` for rho and sigma_m, in percent.
 TAU_QUANTILES_PERCENT: Tuple[float, ...] = (10.0, 25.0, 50.0, 75.0, 90.0)
-# The tolerance grid of the pre-registered file: 20, 30, ..., 200 nm.
+# The tolerance grid of the pre-specified file: 20, 30, ..., 200 nm.
 DEFAULT_TAU_GRID_NM: Tuple[float, ...] = tuple(float(v) for v in range(20, 201, 10))
 # The bootstrap needs two draws for a standard deviation with ddof = 1;
 # fewer means "off": sigma stays NaN and n_bootstrap 0.
 MIN_BOOTSTRAP_DRAWS = 2
-# Comment block written above the YAML body of the pre-registered file.
+# Comment block written above the YAML body of the pre-specified file.
 # PyYAML drops comments, so the block is written by hand and the parser
 # skips it (a '#' line is a comment to the YAML reader as well).
 COLUMNS_PARAMS_HEADER: Tuple[str, ...] = (
-    "# Pre-registered parameters of the column analysis (MPS Explorer, H2).",
-    "# tau0_nm is the median pair tolerance measured on the exploratory axon",
-    "# (DECISIONES D-03, D-05); the other keys are what build_rings and the",
+    "# Pre-specified parameters of the column analysis (MPS Explorer, H2).",
+    "# tau0_nm is the median pair tolerance measured once on one exploratory axon",
+    "# of unpublished pilot data (D-03, D-05): a pilot-derived suggestion, frozen",
+    "# here, not fixed before any data were seen; the other keys are what build_rings and the",
     "# H3+ steps must run with so that both agree (rings_params_from).",
     "# Written by tools.mps_columns.write_columns_params; read it back with",
     "# load_columns_params, which rejects unknown keys. Frozen once committed.",
@@ -360,7 +361,7 @@ COLUMNS_PARAMS_HEADER: Tuple[str, ...] = (
 # find_axial_segments`` raises on anything else, but only when the rings
 # are built; the parameters file must fail on load instead).
 SEGMENT_MODES: Tuple[str, ...] = ("paper", "valley", "partition")
-# Provenance of the pre-registered file (03_plan S3.1, RunRecord): the
+# Provenance of the pre-specified file (03_plan S3.1, RunRecord): the
 # role of the data tau_0 came from, the date the caller passed in and
 # the code commit. ``write_columns_params`` refuses a file without them,
 # so a frozen file cannot exist that does not say where it came from.
@@ -1900,7 +1901,7 @@ def tau_components(
     ----------
     results : sequence of RingsResult
         The axons whose pairs are pooled (D-05: the exploratory axon
-        alone for the pre-registered tau_0).
+        alone for the pre-specified tau_0).
     sigma_d_nm : float
         Assumed lateral distortion between rings, nm (>= 0).
     exclude_suspect : bool
@@ -2061,7 +2062,7 @@ def tau_components(
 
 
 # ============================================================================
-# H2: the pre-registered parameters file
+# H2: the pre-specified parameters file
 # ============================================================================
 
 @dataclass
@@ -2192,7 +2193,7 @@ def _check_columns_ranges(params: ColumnsParams, where: str) -> None:
     object that writes it can hold them. Bounds are the loosest that
     make sense: ``n_bootstrap`` 0 means "off" (``MIN_BOOTSTRAP_DRAWS``),
     ``guard_nm``, ``sigma_d_nm`` and ``min_shift_fraction`` 0 are the
-    pre-registered values, ``posterior_min`` 0 and 1 are the ends of its range.
+    pre-specified values, ``posterior_min`` 0 and 1 are the ends of its range.
     """
     positive = (("tau0_nm", params.tau0_nm), ("eps_nm", params.eps_nm),
                 ("link_radius_factor", params.link_radius_factor))
@@ -2234,7 +2235,7 @@ def _check_provenance(provenance: Dict[str, Any], where: str) -> None:
     one of ``DATASET_ROLES``, or ValueError. The dict stays free-form
     otherwise (source files, the tau components, versions may be added),
     but a file that does not say which data, which day and which code
-    produced its tau_0 is not a pre-registration (03_plan S3.1).
+    produced its tau_0 is not a pre-specification (03_plan S3.1).
     """
     missing = [k for k in PROVENANCE_REQUIRED_KEYS
                if k not in provenance or provenance[k] is None or provenance[k] == ""]
@@ -2261,7 +2262,7 @@ def _yaml_load_strict(text: str, where: str) -> Any:
     ``yaml.safe_load`` that raises ValueError on a repeated key.
 
     PyYAML keeps the LAST value of a duplicated mapping key without a
-    word, so a pre-registered file edited by hand into two ``n_null``
+    word, so a pre-specified file edited by hand into two ``n_null``
     lines would load as the second one; the loader's promise is that
     an editing error in the frozen file does not pass silently. The
     check walks the node tree ``yaml.compose`` gives (every mapping
@@ -2283,7 +2284,7 @@ def _yaml_load_strict(text: str, where: str) -> Any:
                         raise ValueError(
                             f"{where}: key {key_node.value!r} appears twice (second at line "
                             f"{key_node.start_mark.line + 1}); a repeated key in the "
-                            "pre-registered file is an editing error")
+                            "pre-specified file is an editing error")
                     seen.add(key)
                 stack.append(key_node)
                 stack.append(value_node)
@@ -2354,7 +2355,7 @@ def load_columns_params(path: str) -> ColumnsParams:
     Read a file written by ``write_columns_params`` back, exactly.
 
     The header comment block is skipped (a '#' line is a comment to the
-    YAML reader). Strict on purpose, because the file is pre-registered:
+    YAML reader). Strict on purpose, because the file is pre-specified:
     an unknown key raises ``ValueError`` naming it (a typo must not pass
     silently as "left at the default"), a missing ``tau0_nm``,
     ``tau_grid_nm`` or ``tau_sensitivity_nm`` raises (they have no
@@ -2379,7 +2380,7 @@ def load_columns_params(path: str) -> ColumnsParams:
     unknown = [str(k) for k in raw if k not in names]
     if unknown:
         raise ValueError(
-            f"{path}: unknown key(s) {unknown}; the pre-registered file accepts only {names}")
+            f"{path}: unknown key(s) {unknown}; the pre-specified file accepts only {names}")
     missing = [f.name for f in fields
                if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
                and f.name not in raw]
@@ -2413,7 +2414,7 @@ def columns_params_from_rings(
     provenance: Optional[Dict[str, Any]] = None,
 ) -> ColumnsParams:
     """
-    The pre-registered parameters for a measured tau_0 (an addition
+    The pre-specified parameters for a measured tau_0 (an addition
     beyond the H2 specification's API, for the report script): the grid
     ``DEFAULT_TAU_GRID_NM``, the sensitivity triple [30, tau_0, 100] nm
     and the shared fields of the ``RingsParams`` the rings were built
