@@ -145,6 +145,22 @@ _CROSSING_ROW = "  CDF crossing"
 MAP_SHARE = 0.74
 
 
+class _Row:
+    """One line of a strip item: widgets and layouts left to right (the grid positions the strip's code gives are
+    ignored: an item is one line, and the flow wraps whole items)."""
+
+    def __init__(self, frame: QtWidgets.QFrame) -> None:
+        self.lay = QtWidgets.QHBoxLayout(frame)
+        self.lay.setContentsMargins(0, 0, 0, 0)
+        self.lay.setSpacing(4)
+
+    def addWidget(self, widget: QtWidgets.QWidget, *_grid: int) -> None:  # noqa: N802 - Qt's name
+        self.lay.addWidget(widget)
+
+    def addLayout(self, layout: QtWidgets.QLayout, *_grid: int) -> None:  # noqa: N802
+        self.lay.addLayout(layout)
+
+
 @dataclass
 class SelectionView:
     """What the main window knows about the current selection and the analysis, for display only (Appendix B).
@@ -339,29 +355,34 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         outer.setSpacing(2)
         params_row = QtWidgets.QWidget()
         params_row.setObjectName("strip_params")
-        self.strip_flow = FlowLayout(params_row)
-        actions_row = QtWidgets.QWidget()
-        actions_row.setObjectName("strip_actions")
-        self.actions_flow = FlowLayout(actions_row)
+        # One flow of one-line items, the parameters and "Reset to
+        # defaults": it wraps onto a second line at 1366 px, so the map
+        # keeps its share of the height (a "More" line opened widens its
+        # item, which then wraps whole).
+        self.strip_flow = FlowLayout(params_row, spacing=8)
+        self.actions_flow = self.strip_flow
         outer.addWidget(params_row)
-        outer.addWidget(actions_row)
 
-        def group(title: str, name: str) -> Tuple[QtWidgets.QGroupBox, QtWidgets.QGridLayout]:
-            g = QtWidgets.QGroupBox(title)
+        def group(title: str, name: str) -> Tuple[QtWidgets.QFrame, "_Row"]:
+            g = QtWidgets.QFrame()
             g.setObjectName(name)
-            grid = QtWidgets.QGridLayout(g)
-            grid.setContentsMargins(6, 2, 6, 2)
-            grid.setHorizontalSpacing(4)
-            grid.setVerticalSpacing(2)
+            row = _Row(g)
+            if title:
+                head = QtWidgets.QLabel(f"<b>{title}</b>")
+                head.setObjectName(name + "_title")
+                row.addWidget(head)
             self.strip_flow.addWidget(g)
-            return g, grid
+            return g, row
 
         # --- Axial slab: centre (automatic / a component), half-width, or a
         # typed range that decides it.
         g_slab, ls = group("Axial slab", "group_slab")
-        ls.addWidget(QtWidgets.QLabel("centre:"), 0, 0)
         self.combo_peak = QtWidgets.QComboBox()
-        self.combo_peak.setMinimumWidth(230)
+        self.combo_peak.setMinimumWidth(205)
+        # A fixed width: the items' length must not widen the strip's line.
+        self.combo_peak.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_peak.setMinimumContentsLength(24)
         self.combo_peak.setToolTip(
             "Centre of the 180 nm axial slab that isolates one MPS segment.\n"
             "Defaults to the main peak of the fitted Gaussian mixture. When\n"
@@ -387,6 +408,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.lbl_slab_mode.setStyleSheet(f"color: {_C_TEXT_DIM};")
         ls.addWidget(self.lbl_slab_mode, 1, 1)
 
+        g_half, ls = group("", "group_slab_half")
         ls.addWidget(QtWidgets.QLabel("half-width [nm]:"), 2, 0)
         self.spin_half = QtWidgets.QDoubleSpinBox()
         self.spin_half.setRange(1.0, 5000.0)
@@ -398,7 +420,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.field_half = ParamField("slab.half_width_nm", self.spin_half)
         ls.addWidget(self.field_half, 2, 1)
 
-        self.chk_typed = QtWidgets.QCheckBox("typed range [nm]:")
+        self.chk_typed = QtWidgets.QCheckBox("typed [nm]:")
         self.chk_typed.setObjectName("chk_typed")
         self.chk_typed.setToolTip(
             "Type the slab's bounds yourself. Applying them sets the main\n"
@@ -406,6 +428,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "analysis: the banner says the analysis is of the previous slab\n"
             "and offers to run it. While a range is typed, the centre and\n"
             "the half-width are not used. Untick to go back to them.")
+        g_typed, ls = group("", "group_slab_typed")
         ls.addWidget(self.chk_typed, 3, 0)
         typed_row = QtWidgets.QHBoxLayout()
         typed_row.setSpacing(4)
@@ -414,7 +437,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.edit_typed_max = QtWidgets.QLineEdit()
         self.edit_typed_max.setObjectName("edit_typed_max")
         for edit in (self.edit_typed_min, self.edit_typed_max):
-            edit.setMaximumWidth(80)
+            edit.setMaximumWidth(62)
             edit.setPlaceholderText("nm")
             typed_row.addWidget(edit)
         self.btn_typed_apply = QtWidgets.QPushButton("Apply")
@@ -432,7 +455,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         # --- DBSCAN (MPS analysis): eps, min samples; the curation and the
         # contour in its "More" line (the TODO-B6 hook, filled by B6).
-        g_db, ld = group("DBSCAN (MPS analysis)", "group_dbscan")
+        g_db, ld = group("DBSCAN", "group_dbscan")
+        g_db.setToolTip("DBSCAN of the MPS analysis (not the main window's window clustering).")
         ld.addWidget(QtWidgets.QLabel("eps [nm]:"), 0, 0)
         self.spin_eps = QtWidgets.QDoubleSpinBox()
         self.spin_eps.setRange(0.1, 1000.0)
@@ -465,8 +489,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # readable; what curates is the edge-touching criterion.
 
         # --- Occupancy: the Mahalanobis threshold; the sigma cap in "More".
-        g_occ, lo = group("Occupancy", "group_occupancy")
-        lo.addWidget(QtWidgets.QLabel("Mahalanobis:"), 0, 0)
+        g_occ, lo = group("", "group_occupancy")
+        lo.addWidget(QtWidgets.QLabel("<b>Occupancy</b> Mahalanobis:"), 0, 0)
         self.spin_maha = QtWidgets.QDoubleSpinBox()
         self.spin_maha.setRange(0.1, 10.0)
         self.spin_maha.setDecimals(1)
@@ -488,7 +512,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         # --- Randomization: the switch (no badge: a switch carries none,
         # 12.1); its parameters, read-only in stage 2, in "More".
-        g_rand, lr = group("Randomization", "group_randomization")
+        g_rand, lr = group("", "group_randomization")
         self.chk_random = QtWidgets.QCheckBox("Randomization")
         self.chk_random.setChecked(True)
         self.chk_random.setToolTip(
@@ -502,7 +526,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         lr.addWidget(self.more_randomization, 1, 0)
 
         # --- Contour
-        g_con, lc = group("Contour", "group_contour")
+        g_con, lc = group("", "group_contour")
         self.btn_contour = QtWidgets.QPushButton("Draw contour...")
         self.btn_contour.setToolTip(
             "Drag a path along the membrane and join the cluster centres in\n"
@@ -528,6 +552,15 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_reset.clicked.connect(self._on_reset)
         self.actions_flow.addWidget(self.btn_reset)
 
+        # The axon's actions sit at the right of the plot tabs' bar, a line
+        # that is otherwise empty: the strip keeps two lines at 1366 px and
+        # the map its share of the height.
+        self.actions_box = QtWidgets.QWidget()
+        self.actions_box.setObjectName("strip_actions")
+        actions = QtWidgets.QHBoxLayout(self.actions_box)
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(4)
+
         self.btn_rings = QtWidgets.QPushButton("Rings...")
         self.btn_rings.setToolTip(
             "Analyse EVERY axial segment of this axon, not just this slab,\n"
@@ -536,7 +569,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         )
         self.btn_rings.clicked.connect(self._on_rings)
         self.btn_rings.setEnabled(self.rings_callback is not None)
-        self.actions_flow.addWidget(self.btn_rings)
+        actions.addWidget(self.btn_rings)
 
         self.btn_export = QtWidgets.QPushButton("Export axon...")
         self.btn_export.setToolTip(
@@ -546,7 +579,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "written from the state on screen, in one go.")
         self.btn_export.clicked.connect(self._on_export)
         self.btn_export.setEnabled(self.export_callback is not None)
-        self.actions_flow.addWidget(self.btn_export)
+        actions.addWidget(self.btn_export)
 
         self.btn_image = QtWidgets.QPushButton("Export image...")
         self.btn_image.setToolTip(
@@ -556,7 +589,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "which analysis, which localizations and which colouring it\n"
             "draws, and the message after writing it repeats the provenance.")
         self.btn_image.clicked.connect(self._on_export_image)
-        self.actions_flow.addWidget(self.btn_image)
+        actions.addWidget(self.btn_image)
 
         enabled = self.rerun_callback is not None
         for w in (self.combo_peak, self.spin_half, self.spin_eps,
@@ -786,6 +819,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setObjectName("plot_tabs")
+        self.tabs.setCornerWidget(self.actions_box, QtCore.Qt.Corner.TopRightCorner)
         self.axial = AxialView(dark=self.dark)
         self.tabs.addTab(self.axial, "Axial")
         self.nn = NearestNeighboursPanel(

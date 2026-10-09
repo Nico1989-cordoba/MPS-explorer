@@ -53,10 +53,10 @@ def mode_words(choice: SlabChoice, typed: Optional[Tuple[float, float]] = None) 
     if choice.mode == "typed" or typed is not None:
         if typed is None:
             return "typed range"
-        return f"typed range {typed[0]:,.1f} .. {typed[1]:,.1f} nm: it decides the slab"
+        return f"typed range {typed[0]:,.1f} .. {typed[1]:,.1f} nm"
     if choice.mode == "component":
-        return f"a component you chose (z = {float(choice.centre_nm or 0.0):,.1f} nm)"
-    return "automatic: the density peak of the fitted mixture"
+        return "a component you chose"
+    return "automatic: density peak"
 
 
 def origin_words(key: str, value: Any) -> str:
