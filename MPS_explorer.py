@@ -26,7 +26,6 @@ import ctypes
 import pandas as pd
 import numpy as np
 from numpy.typing import NDArray
-from sklearn.neighbors import KDTree
 import tools.clustering as clustering
 from tools.clustering_strategies import create_clustering_strategy
 from tools.parameter_cache import create_parameter_cache
@@ -171,6 +170,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self._make_content_scrollable()
         self._build_analysis_toolbar()
         self._wire_file_drops()
+        self._hide_moved_plots()
 
         # Where the open dialogs start. "Desktop" used to stand here as a
         # literal, which is not a path: the dialog then opened wherever it
@@ -199,7 +199,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui.pushButton_zrange.clicked.connect(self.update_ROI)
         self.ui.pushButton_savexyzROI.clicked.connect(lambda: self.savexyzROI(1))
         self.ui.pushButton_savexyzROI_2.clicked.connect(lambda: self.savexyzROI(2))
-        self.ui.pushButton_savedistdata.clicked.connect(self.savedistdata)
         self.ui.pushButton_clusterch1.clicked.connect(lambda:self.cluster(1))
         self.ui.pushButton_clusterch2.clicked.connect(lambda:self.cluster(2))
         # Bad clusters are now removed automatically (edge-touching + DBCV,
@@ -216,7 +215,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui.pushButton_remove_bad_cluster.clicked.connect(
             lambda: self.run_mps_analysis(show_window=True))
         self.ui.pushButton_savecluscenters.clicked.connect(self.save_clus_CM)
-        self.ui.pushButton_Distances.clicked.connect(self.KNdist_hist)
         self.ui.pushButton_saveAllClusterData.clicked.connect(lambda: self.save_all_clustered_data(1))
         self.ui.pushButton_saveAllClusterDataThunderStorm.clicked.connect(lambda: self.save_all_clustered_data_thunderstorm(1))
         self._explain_save_buttons()
@@ -226,15 +224,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # the pre-fill's own setText calls do not mark the field as edited.
         self.ui.lineEdit_zmin.textEdited.connect(self._on_z_range_edited)
         self.ui.lineEdit_zmax.textEdited.connect(self._on_z_range_edited)
-
-        # Fine Tuning Parameters
-        self.ui.lineEdit_latmin.textChanged.connect(self.latchange)
-        self.ui.lineEdit_latmax.textChanged.connect(self.latchange)
-        self.ui.lineEdit_bin.textChanged.connect(self.latchange)
-
-        self.lmin = 0
-        self.lmax = MAX_LATERAL_DISTANCE_NM
-        self.bins = DEFAULT_KNN_BINS
 
         # What every control says when the mouse rests on it, for
         # somebody meeting the program for the first time. The texts are
@@ -399,15 +388,35 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.eps: Optional[float] = None             # DBSCAN epsilon parameter
         self.minsamples: Optional[int] = None      # DBSCAN min_samples parameter
 
-        # --- nearest-neighbour distances (set by KNdist_hist) ---
-        self.distances: Optional[NDArray[np.float64]] = None       # distance array to the K nearest centroids
-        self.Nneighbor: Optional[int] = None       # number of neighbours requested
-
         # --- Gazal 2026 per-axon analysis (set by run_mps_analysis) ---
         self.mps_analysis: Optional[Any] = None      # last AxonAnalysis
         # The selection array the last analysis was run on. A new selection
         # is a new array, and the analysis no longer describes it.
         self._analysed_x: Optional[NDArray[np.float64]] = None
+        # Display only (the axial view, the stale banner): the z of the
+        # selection the analysis was given, whether that was the cut
+        # selection (the fallback), and which selection it was.
+        self._analysed_z: Optional[NDArray[np.float64]] = None
+        self._analysed_after_cut: bool = False
+        self._analysed_roi_words: str = ""
+        self._analysed_cut: Optional[Tuple[float, float]] = None
+        # The fit the Z-range prefill computed (ZPeriodicityResult, display
+        # only), for which selection, and whether the prefill fell back to
+        # the histogram mode; a fit computed on demand when it skipped it.
+        self._prefill_fit: Optional[Any] = None
+        self._prefill_from_mode: bool = False
+        self._prefill_fit_key: Optional[Any] = None
+        self._fit_on_demand: Optional[Tuple[Any, Any]] = None
+        # Channel 2's z inside the applied ROI before the cut, as loaded
+        # (display only: the axial view's "not registered" row).
+        self._ch2_roi_cache: Optional[Tuple[Any, Any]] = None
+        # The rings' key (3.4 rule 4): the segments, the file, the spatial
+        # selection by value; their parameters are read from the segments.
+        self._rings_key: Optional[Dict[str, Any]] = None
+        # The analysis whose discard comparison the Axoplasm panel's move
+        # to another selection dropped, and why a comparison failed.
+        self._discard_dropped_for: Any = None
+        self._discard_failed: Tuple[Any, str] = (None, "")
         # The same analysis with all its clusters and without the ones the
         # axoplasm panel found inside the axon (a _HeldDiscard), or None.
         self.mps_discard: Optional[Any] = None
@@ -478,13 +487,20 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """
         z = np.asarray(z_values, dtype=float).ravel()
         z = z[np.isfinite(z)]
+        self._prefill_fit = None
+        self._prefill_from_mode = False
         if z.size < 2:
             return None
         try:
-            return float(fit_z_periodicity(z).main_peak_nm)
+            # Kept for the axial view (display only): the same fit, so the
+            # window can draw it before any analysis.
+            self._prefill_fit = fit_z_periodicity(z)
+            return float(self._prefill_fit.main_peak_nm)
         except Exception as exc:                          # noqa: BLE001
             self.logger.debug(
                 f"GMM peak estimation failed ({exc}); using histogram mode.")
+            self._prefill_fit = None
+            self._prefill_from_mode = True
             counts, edges = np.histogram(z, bins="auto")
             if counts.size == 0:
                 return None
@@ -536,7 +552,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.yroi_unfiltered = np.asarray(self.yroi).copy()
         self.zroi_unfiltered = np.asarray(z_all).copy()
 
+        self._prefill_fit_key = None
         self._prefill_z_range(z_all)
+        if not self._z_range_user_edited:
+            # The fit the prefill just computed describes this selection.
+            self._prefill_fit_key = self.zroi_unfiltered
 
         zmin_text = self.ui.lineEdit_zmin.text().strip()
         zmax_text = self.ui.lineEdit_zmax.text().strip()
@@ -585,12 +605,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
             (float(self.zmin), float(self.zmax))
             if (self._z_range_user_edited and self.zmin is not None
                 and self.zmax is not None) else None)
-        # The centroids and the distances between them belong to the
-        # previous selection's analysis: saving them now would write
-        # another selection's results. Clustering again recomputes them.
+        # The centroids belong to the previous selection's analysis: saving
+        # them now would write another selection's results. Clustering
+        # again recomputes them. (The distances between them are computed
+        # on demand by the MPS analysis window, which refuses to save them
+        # while its analysis is of a previous selection.)
         self.good_cluster_centroids = None
-        self.distances = None
-        self.Nneighbor = None
         if self.two_channel_window is not None and \
                 self.two_channel_window.isVisible():
             self.two_channel_window.update_selection(
@@ -600,6 +620,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
             inputs = self._axoplasm_inputs()
             if inputs is not None:
                 self.axoplasm_window.update_selection(inputs)
+        # The MPS analysis and rings windows say whether what they show is
+        # still of this selection (design 3.4 rule 5): they redraw the
+        # banner, the map and the axial view, never the analysis.
+        self._notify_selection_windows()
+
+    def _notify_selection_windows(self) -> None:
+        """Tell the MPS analysis and rings windows the selection changed."""
+        if self.mps_window is not None:
+            self.mps_window.selection_changed()
+        if self.rings_window is not None:
+            self.rings_window.status_changed()
 
     # ------------------------------------------------------------------
     #  Acquisition-level panels: data quality and DNA-PAINT
@@ -779,6 +810,47 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # would also be handed the action's checked flag.
         self.copy_table_for_excel()
 
+    def _hide_moved_plots(self) -> None:
+        """
+        UI stage 2 (design 2): the main window's cluster centres (M4), its
+        distances histogram with N neighbor, the lateral range, the binning,
+        "Distances" and "save dist data" (M5), and its ROI z histogram
+        (M2z) moved to the MPS analysis window - the axon map, the
+        "Nearest neighbours" tab and the "Axial" tab. The .ui is left as it
+        is (stage 3 rebuilds the window): the widgets are hidden and a
+        pointer says where each plot went.
+        """
+        ui = self.ui
+        for widget in (ui.verticalLayoutWidget_12, ui.verticalLayoutWidget_5,
+                       ui.groupBox_9, ui.lineEdit_Nneighbor,
+                       ui.label_Nneighbor, ui.pushButton_Distances,
+                       ui.pushButton_savedistdata, ui.verticalLayoutWidget_3):
+            widget.setVisible(False)
+        self.label_moved_clusters = QtWidgets.QLabel(
+            "Cluster centres, the distances between them and the axial "
+            "distribution are in the MPS analysis window: the axon map, and "
+            "its tabs Nearest neighbours and Axial.", ui.groupBox)
+        self.label_moved_clusters.setObjectName("label_moved_clusters")
+        self.label_moved_clusters.setWordWrap(True)
+        self.label_moved_clusters.setGeometry(QtCore.QRect(20, 455, 620, 48))
+        self.button_show_mps_window = QtWidgets.QPushButton(
+            "Show the MPS analysis window", ui.groupBox)
+        self.button_show_mps_window.setObjectName("button_show_mps_window")
+        self.button_show_mps_window.setToolTip(
+            "Open the MPS analysis window on the current selection: with "
+            "its analysis when there is one, otherwise the selection alone "
+            "(its localizations, its z with the fit and the cut).")
+        self.button_show_mps_window.setGeometry(QtCore.QRect(20, 508, 220, 28))
+        self.button_show_mps_window.clicked.connect(
+            lambda: self.show_mps_window())
+        self.label_moved_z = QtWidgets.QLabel(
+            "The z of this ROI - before the cut, with the fitted mixture, "
+            "the analysis slab and the cut - is on the MPS analysis window's "
+            "Axial tab.", ui.groupBox_vis)
+        self.label_moved_z.setObjectName("label_moved_z")
+        self.label_moved_z.setWordWrap(True)
+        self.label_moved_z.setGeometry(QtCore.QRect(410, 395, 235, 90))
+
     def _explain_save_buttons(self) -> None:
         """
         Hide the save buttons whose file is now a subset of what "Export
@@ -798,10 +870,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
                                    points and the same cluster_label,
                                    plus cluster_kept and in_slab.
 
-        "save dist data" is NOT hidden. It writes one column per neighbour
-        (nn1_nm, nn2_nm, ...) for however many the histogram was asked
-        for, and the clusters table holds the first one only. The 2nd and
-        further neighbours are nowhere else.
+        "save dist data" moved to the MPS analysis window ("Nearest
+        neighbours" tab, "Save distances..."): one column per neighbour
+        (nn1_nm, nn2_nm, ...), which the clusters table does not hold
+        beyond the first.
 
         "save ROI Ch2" is not hidden either: channel 2 has no table of its
         own. Nor is the ThunderSTORM one, which writes for another
@@ -830,12 +902,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
              "Save the channel-2 selection (x, y, z) as plain text.\n\n"
              "Channel 2 has no table of its own: this is the only way to "
              "write it out."),
-            (self.ui.pushButton_savedistdata,
-             "Save the nearest-neighbour distances behind the histogram: "
-             "one column per neighbour asked for.\n\n"
-             "'Export axon' writes the first neighbour of every cluster "
-             "(nn_1_nm, and which cluster it is to). The second and "
-             "further neighbours are only here."),
             (self.ui.pushButton_saveAllClusterDataThunderStorm,
              "Save the clustered localizations in the columns ThunderSTORM "
              "reads.\n\nThis one is for another program, so it stays as it "
@@ -1513,7 +1579,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             selection_key=self.roi_indices,
             contour=self._current_perimeter,
             anchored_changed=self._anchored_changed,
-            cluster_of=self._cluster_of_selection)
+            cluster_of=self._cluster_of_selection,
+            map_changed=self._axoplasm_map_changed)
 
     def _cluster_of_selection(self, x_nm: NDArray[np.float64],
                               y_nm: NDArray[np.float64],
@@ -1620,6 +1687,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                         f"MPS analysis without the discarded clusters "
                         f"failed: {error}", exc_info=True)
                     comparison = None
+                    # Said by the axon map's contour caption (3.4 rule 3).
+                    self._discard_failed = (analysis, str(error))
                 finally:
                     QtWidgets.QApplication.restoreOverrideCursor()
                 if comparison is not None:
@@ -1646,6 +1715,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         changed = held is not self.mps_discard and not (
             held is not None and self.mps_discard is not None
             and held.comparison is self.mps_discard.comparison)
+        if (held is None and self.mps_discard is not None
+                and self.mps_discard.base is analysis and current is None):
+            # Dropped because the panel moved to another selection: the
+            # stale banner says so (3.4 rule 5).
+            self._discard_dropped_for = analysis
         self.mps_discard = held
         if changed and self.mps_window is not None \
                 and self.mps_window.analysis is analysis:
@@ -1690,7 +1764,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 self.axoplasm_window = None
                 self.axoplasm_window = show_axoplasm_window(
                     inputs, parent=self,
-                    export_callback=self.export_axon)
+                    export_callback=self.export_axon,
+                    map_callback=lambda: self.show_mps_window(
+                        view="axoplasm", beside=self.axoplasm_window))
             self.logger.info(
                 f"Axoplasm panel opened for "
                 f"{os.path.basename(self.locs1.path)} "
@@ -1879,42 +1955,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return None
 
-    def _render_good_clusters_panel(
-        self, centroids: NDArray[np.float64]
-    ) -> None:
-        """
-        Render curated cluster centroids into the main window's own "good
-        clusters" panel (green, brush3: a centre of mass, the same colour
-        as in the MPS analysis window).
-
-        This panel used to populate only after manual curation (clicking
-        each bad centroid). Once bad-cluster removal became automatic,
-        nothing called it any more and it went permanently blank -- not
-        broken, just orphaned. run_mps_analysis draws it now; the manual
-        curation was removed in UI stage 2 (git keeps it).
-
-        Safe to call with zero centroids (e.g. curation removed every
-        cluster): the panel is cleared rather than raising on an empty
-        scatter.
-        """
-        good_clusters_widget = pg.GraphicsLayoutWidget()
-        good_clusters_plot = good_clusters_widget.addPlot(
-            title="Clusters centers and distances")
-        good_clusters_plot.setAspectLocked(True)
-        good_clusters_plot.setLabels(bottom='x [nm]', left='y [nm]')
-
-        if len(centroids):
-            good_clusters_plot.addItem(pg.ScatterPlotItem(
-                centroids[:, 0], centroids[:, 1],
-                size=CLUSTER_CENTROID_POINT_SIZE, brush=self.brush3))
-
-        if self.xroi is not None and len(self.xroi):
-            good_clusters_plot.setXRange(
-                np.min(self.xroi), np.max(self.xroi), padding=0)
-
-        self.empty_layout(self.ui.scatterlayout_goodclus)
-        self.ui.scatterlayout_goodclus.addWidget(good_clusters_widget)
-
     def run_mps_analysis(self, show_window: bool = True, **overrides) -> Optional[Any]:
         """
         Run the full Gazal-2026 per-axon pipeline on the current ROI.
@@ -1998,6 +2038,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         self.mps_analysis = analysis
         self._analysed_x = x_in
+        self._analysed_z = z_in
+        self._analysed_after_cut = x_in is self.xroi and x_in is not self.xroi_unfiltered
+        self._analysed_roi_words = self._roi_words(self._applied_roi_shape)
+        self._analysed_cut = self._cut_now()
         self.logger.info(
             f"MPS analysis: {analysis.n_clusters_kept}/{analysis.n_clusters_raw} "
             f"clusters kept, perimeter="
@@ -2012,15 +2056,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # plots and exports reflect the same automatically curated set.
         self.bad_cluster_indices = sorted(analysis.bad_report.bad_labels)
         self.good_cluster_centroids = analysis.centroids
-        # The nearest-neighbour distances were measured between the
-        # PREVIOUS centroids. Keeping them let "save dist data" write 94
-        # rows for an analysis with 55 clusters, with no header and no
-        # provenance to notice it by, while the centres panel already
-        # showed the new ones.
-        self.distances = None
-        self.Nneighbor = None
-        self.empty_layout(self.ui.zhistlayout_cmdist)
-        self._render_good_clusters_panel(analysis.centroids)
         # The axoplasm panel finds the discarded clusters of THIS analysis,
         # and with them the results window's discard column: bring it up
         # to date even when it is closed, since its images are still loaded.
@@ -2033,12 +2068,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 if inputs is not None:
                     window.update_selection(inputs)
 
+        # The rings say whether they were computed with this analysis'
+        # parameters (3.4 rule 4).
+        if self.rings_window is not None:
+            self.rings_window.status_changed()
+
         if show_window:
             self._show_mps_window(analysis)
         return analysis
 
-    def _show_mps_window(self, analysis: Any) -> None:
-        """Open, or refresh in place, the MPS results window."""
+    def _make_mps_window(self, analysis: Optional[Any]) -> Any:
+        """Build the MPS analysis window (with an analysis or without)."""
         from tools.mps_results_window import MPSResultsWindow
 
         def rerun(**kw):
@@ -2050,18 +2090,228 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     "The analysis could not be re-run with those parameters.")
             return result
 
+        return MPSResultsWindow(
+            analysis, rerun_callback=rerun, parent=self,
+            rings_callback=self.run_ring_analysis,
+            discard_callback=self._discard_for,
+            export_callback=self.export_axon,
+            links=self._mps_window_links())
+
+    def _show_mps_window(self, analysis: Any) -> None:
+        """Open, or refresh in place, the MPS results window."""
         if self.mps_window is None:
-            self.mps_window = MPSResultsWindow(
-                analysis, rerun_callback=rerun, parent=self,
-                rings_callback=self.run_ring_analysis,
-                discard_callback=self._discard_for,
-                export_callback=self.export_axon)
+            self.mps_window = self._make_mps_window(analysis)
         else:
             self.mps_window.analysis = analysis
             self.mps_window.refresh()
         self.mps_window.show()
         self.mps_window.raise_()
         self.mps_window.activateWindow()
+
+    def show_mps_window(self, view: Optional[str] = None,
+                        beside: Optional[Any] = None) -> Optional[Any]:
+        """
+        Open or raise the MPS analysis window - before any analysis too
+        (design 3.1, B10: it then draws the current selection only) - in a
+        view of its axon map, placed beside ``beside`` the first time.
+        """
+        if self.mps_window is None:
+            self.mps_window = self._make_mps_window(self.mps_analysis)
+        elif self.mps_window.analysis is None and self.mps_analysis is not None:
+            self.mps_window.analysis = self.mps_analysis
+            self.mps_window.refresh()
+        if view is None:
+            self.mps_window.show()
+            self.mps_window.raise_()
+            self.mps_window.activateWindow()
+        else:
+            self.mps_window.show_view(view, beside=beside)
+        return self.mps_window
+
+    def _mps_window_links(self) -> Any:
+        """What the MPS analysis window asks the main window for (design
+        Appendix B): display only, never passed to an analysis."""
+        from tools.mps_results_window import WindowLinks
+
+        s = self.mps_settings
+        return WindowLinks(
+            selection=self._selection_view,
+            axoplasm=self._axoplasm_map_state,
+            rings=self._rings_for_map,
+            run_analysis=lambda: self.run_mps_analysis(show_window=True),
+            params=lambda: (float(s.eps_nm), int(s.min_samples),
+                            float(s.slab_half_width_nm),
+                            float(s.mahalanobis_threshold)),
+            root_name=self.get_root_filename,
+            nn_bins=int(DEFAULT_KNN_BINS),
+            nn_range=(0.0, float(MAX_LATERAL_DISTANCE_NM)))
+
+    @staticmethod
+    def _roi_words(shape: Optional[Any]) -> str:
+        """The ROI in the words of the provenance line and the banner."""
+        if shape is None:
+            return "whole field of view, no ROI drawn"
+        from tools.cluster_quality import describe_roi
+        return "ROI " + describe_roi(shape)
+
+    def _cut_now(self) -> Optional[Tuple[float, float]]:
+        if self.zmin is None or self.zmax is None:
+            return None
+        return (float(self.zmin), float(self.zmax))
+
+    def _selection_words(self, roi_words: str,
+                         cut: Optional[Tuple[float, float]]) -> str:
+        return roi_words + ("" if cut is None else
+                            f", main-window cut {cut[0]:,.0f}..{cut[1]:,.0f} nm")
+
+    def _selection_view(self) -> Optional[Any]:
+        """The current selection and what is known of the analysis, for the
+        MPS analysis window (display only)."""
+        from tools.mps_results_window import SelectionView
+
+        if self.locs1 is None or self.xroi is None:
+            return SelectionView(analysis=self.mps_analysis)
+        unfiltered = (self.zroi_unfiltered is not None
+                      and len(self.zroi_unfiltered))
+        z = self.zroi_unfiltered if unfiltered else self.zroi
+        cut = self._cut_now()
+        roi_words = self._roi_words(self._applied_roi_shape)
+        fit = None
+        fit_reason = "the mixture could not be fitted"
+        if (self._prefill_fit_key is not None
+                and self._prefill_fit_key is self.zroi_unfiltered):
+            fit = self._prefill_fit
+        elif z is not None and len(z) >= 2 and self.mps_analysis is None:
+            fit = self._display_fit(z)
+        ch2_z, ch2_reason = self._channel2_roi_z()
+        a = self.mps_analysis
+        current = a is not None and self._current_cluster_centroids() is not None
+        failed_for, failed = self._discard_failed
+        return SelectionView(
+            z_roi=None if z is None else np.asarray(z, dtype=float),
+            n_locs=None if self.roi_indices is None else int(len(self.roi_indices)),
+            roi_words=roi_words,
+            current_words=self._selection_words(roi_words, cut),
+            cut=cut,
+            cut_from_histogram_mode=bool(self._prefill_from_mode and not self._z_range_user_edited),
+            fit=fit, fit_reason=fit_reason,
+            ch2_z=ch2_z, ch2_reason=ch2_reason,
+            analysis=a, analysis_current=bool(current),
+            analysed_z=self._analysed_z, analysed_after_cut=self._analysed_after_cut,
+            analysed_words=self._selection_words(self._analysed_roi_words, self._analysed_cut),
+            analysed_roi_words=self._analysed_roi_words, analysed_cut=self._analysed_cut,
+            discard_dropped=bool(a is not None and self._discard_dropped_for is a),
+            discard_failed=(failed if (a is not None and failed_for is a) else ""))
+
+    def _display_fit(self, z: Any) -> Optional[Any]:
+        """The mixture of the current ROI's z when the prefill did not fit
+        it (a typed range skips the prefill): the same deterministic
+        function, computed once per selection, display only."""
+        cached = self._fit_on_demand
+        if cached is not None and cached[0] is z:
+            return cached[1]
+        zz = np.asarray(z, dtype=float).ravel()
+        zz = zz[np.isfinite(zz)]
+        try:
+            fit = fit_z_periodicity(zz) if zz.size >= 2 else None
+        except Exception as exc:                          # noqa: BLE001
+            self.logger.debug(f"Axial view: the mixture could not be fitted ({exc})")
+            fit = None
+        self._fit_on_demand = (z, fit)
+        return fit
+
+    def _channel2_roi_z(self) -> Tuple[Optional[NDArray[np.float64]], str]:
+        """Channel 2's z inside the applied ROI, before the axial cut, as
+        loaded - never registered (the axial view's row, display only)."""
+        if self.xdata2 is None or self.zdata2 is None:
+            return None, "no channel 2 is loaded"
+        if not all(loc is None or loc.is_3d for loc in (self.locs1, self.locs2)):
+            return None, "channel 1 or channel 2 has no z"
+        shape = self._applied_roi_shape
+        key = (self.xdata2, repr(shape))
+        cached = self._ch2_roi_cache
+        if cached is not None and cached[0][0] is key[0] and cached[0][1] == key[1]:
+            return cached[1], ""
+        x2 = np.asarray(self.xdata2, dtype=float)
+        y2 = np.asarray(self.ydata2, dtype=float)
+        z2 = np.asarray(self.zdata2, dtype=float)
+        keep = (np.ones(x2.size, dtype=bool) if shape is None
+                else points_in_roi(x2, y2, shape))
+        out = z2[keep]
+        self._ch2_roi_cache = (key, out)
+        return out, ""
+
+    def _axoplasm_map_state(self) -> Tuple[Optional[Any], str]:
+        """What the Axoplasm panel draws, for the axon map, when it shows
+        the current selection (3.4 rule 4)."""
+        window = self.axoplasm_window
+        if window is None:
+            return None, "the Axoplasm panel is not open on this selection"
+        if (window.inputs.movie is not self.locs1
+                or window.inputs.selection_key is not self.roi_indices):
+            return None, ("the Axoplasm panel shows another selection - open "
+                          "it on this one")
+        try:
+            return window.map_state(), ""
+        except Exception as error:     # noqa: BLE001 - shown as the reason
+            self.logger.error(f"Axon map: the Axoplasm panel could not be "
+                              f"read: {error}", exc_info=True)
+            return None, f"the Axoplasm panel could not be read: {error}"
+
+    def _axoplasm_map_changed(self) -> None:
+        """The Axoplasm panel's picture changed: the map follows it live."""
+        window = self.mps_window
+        if window is not None and window.isVisible():
+            window.axoplasm_changed()
+
+    def _rings_status(self) -> Tuple[str, str]:
+        """Why the rings window's segments are not of the current selection,
+        or not of the MPS analysis' parameters ("" when they are)."""
+        key = self._rings_key
+        rw = self.rings_window
+        if key is None or rw is None or key["ms"] is not rw.ms:
+            return "", ""
+        selection = ""
+        if (key["locs"] is not self.locs1 or self.roi_indices_unfiltered is None
+                or not np.array_equal(key["roi"], self.roi_indices_unfiltered)):
+            selection = ("the segments are of another selection - press "
+                         "Rings... again")
+        params = ""
+        first = next((an for an in rw.ms.analyses if an is not None), None)
+        a = self.mps_analysis
+        if first is not None and a is not None:
+            then = (float(first.eps_nm), int(first.min_samples),
+                    float(first.slab_half_width_nm),
+                    float(first.mahalanobis_threshold))
+            now = (float(a.eps_nm), int(a.min_samples),
+                   float(a.slab_half_width_nm),
+                   float(a.mahalanobis_threshold))
+            if then != now:
+                params = (f"the segments were computed with eps {then[0]:g} nm, "
+                          f"min samples {then[1]}, half-width {then[2]:g} nm, "
+                          f"Mahalanobis {then[3]:g}; the MPS analysis now uses "
+                          f"eps {now[0]:g} nm, min samples {now[1]}, half-width "
+                          f"{now[2]:g} nm, Mahalanobis {now[3]:g} - press "
+                          f"Rings... again")
+        return selection, params
+
+    def _rings_for_map(self) -> Tuple[Optional[Any], str]:
+        """The segments, for the axon map and the axial view, when they are
+        of this selection and these parameters (3.4 rule 4)."""
+        rw = self.rings_window
+        key = self._rings_key
+        if rw is None or key is None or key["ms"] is not rw.ms:
+            return None, "press Rings... to compute the segments"
+        selection, params = self._rings_status()
+        if selection or params:
+            return None, selection or params
+        return rw.ms, ""
+
+    def _rings_refreshed(self) -> None:
+        """The rings window shows other segments: the map and the axial
+        view redraw their segment groups."""
+        if self.mps_window is not None:
+            self.mps_window.rings_changed()
 
     def run_ring_analysis(
         self, show_window: bool = True, mode: str = "valley",
@@ -2134,6 +2384,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         )
         for w in ms.warnings:
             self.logger.warning(f"Ring analysis: {w}")
+        # The rings' key (3.4 rule 4): the file, the spatial selection by
+        # value (the rings do not depend on the axial cut), and through the
+        # segments themselves the parameters they were computed with.
+        self._rings_key = {
+            "ms": ms, "locs": self.locs1,
+            "roi": (None if self.roi_indices_unfiltered is None
+                    else np.asarray(self.roi_indices_unfiltered).copy())}
 
         if show_window:
             self._show_rings_window(ms, guard_nm)
@@ -2160,12 +2417,19 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 columns_callback=self.open_columns_review,
                 zquality_callback=self.open_z_quality,
                 batch_callback=self.open_columns_batch,
-                explorer_callback=self.open_viability_explorer)
+                explorer_callback=self.open_viability_explorer,
+                segments_callback=lambda: self.show_mps_window(
+                    view="segments", beside=self.rings_window),
+                status_callback=self._rings_status,
+                refreshed_callback=self._rings_refreshed)
         else:
             self.rings_window.ms = ms
             self.rings_window.rings = analyze_rings(ms)
             self.rings_window.refresh()
         self.rings_window._guard_nm = guard_nm
+        # The map and the axial view draw these segments too (the window's
+        # own refresh ran before it was assigned).
+        self._rings_refreshed()
         self.rings_window.show()
         self.rings_window.raise_()
         self.rings_window.activateWindow()
@@ -2573,10 +2837,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.cluster_centroids = self.good_cluster_centroids = None
         self.bad_cluster_indices = []
         self._clustered_x[1] = None
-        self.distances = None
-        self.Nneighbor = None
         self.mps_analysis = None
         self._analysed_x = None
+        self._analysed_z = None
+        self._rings_key = None
         self.mps_discard = None
         # Channel 2's selection was cut with channel 1's ROI, which is gone.
         self.xroi2 = self.yroi2 = self.zroi2 = None
@@ -2598,9 +2862,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # channel 2's histogram of its whole file is left alone.
         for layout in (
             self.ui.scatterlayout, self.ui.zhistlayoutch1,
-            self.ui.scatterlayout_3, self.ui.zhistlayout_2,
-            self.ui.scatterlayout_clusterch1, self.ui.scatterlayout_goodclus,
-            self.ui.zhistlayout_cmdist, self.ui.scatterlayout_clusterch2,
+            self.ui.scatterlayout_3,
+            self.ui.scatterlayout_clusterch1, self.ui.scatterlayout_clusterch2,
         ):
             self.empty_layout(layout)
         self.logger.info(f"Channel 1 loaded: {len(x):,} localizations")
@@ -2918,7 +3181,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             UI layout to place the histogram
         """
         histzWidget = pg.GraphicsLayoutWidget()
-        histabsz = histzWidget.addPlot(title=f"z Histogram Ch {channel}")
+        histabsz = histzWidget.addPlot(
+            title=f"z of the whole file, channel {channel}")
 
         histz, bin_edgesz = np.histogram(z_data, bins=HISTOGRAM_Z_BINS)
         widthzabs = np.mean(np.diff(bin_edgesz))
@@ -3343,45 +3607,29 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return
         self.xroi2, self.yroi2, self.zroi2 = x2[keep], y2[keep], z2[keep]
 
-    def _add_roi_histogram(self, plot: Any, z: NDArray[np.float64],
-                           brush: Any, pen: Any) -> None:
-        """Add one channel's axial histogram to the ROI histogram plot."""
-        histz2, bin_edgesz2 = np.histogram(z, bins='auto')
-        widthzabs2 = np.mean(np.diff(bin_edgesz2))
-        bincentersz2 = np.mean(np.vstack([bin_edgesz2[0:-1],bin_edgesz2[1:]]), axis=0)
-        bargraphz2 = pg.BarGraphItem(x = bincentersz2, height = histz2,
-                                    width = widthzabs2, brush = brush, pen = pen)
-        bargraphz2.setOpacity(0.5)
-        plot.addItem(bargraphz2)
-
     def _draw_roi_panels(self) -> None:
-        """Draw both channels' selections in the ROI scatter and histogram."""
+        """Draw both channels' selections in the ROI scatter. Their z is on
+        the MPS analysis window's Axial tab (UI stage 2: the ROI before the
+        cut, the cut lines, channel 2 as loaded)."""
         scatterWidgetROI = pg.GraphicsLayoutWidget()
-        plotROI = scatterWidgetROI.addPlot(title="Scatter plot ROI selected")
+        plotROI = scatterWidgetROI.addPlot(title="ROI after the Z cut")
         plotROI.setAspectLocked(True)
         plotROI.setLabels(bottom=('x [nm]'), left=('y [nm]'))
-
-        histzWidget2 = pg.GraphicsLayoutWidget()
-        histabsz2 = histzWidget2.addPlot(title="z ROI Histogram")
 
         shown = [self.xroi]
         plotROI.addItem(pg.ScatterPlotItem(self.xroi, self.yroi, pen = self.pen1,
                                            brush = None, size = GOOD_CLUSTER_POINT_SIZE))
-        self._add_roi_histogram(histabsz2, self.zroi, self.brush1, self.pen1)
 
         if self.xroi2 is not None:
             plotROI.addItem(pg.ScatterPlotItem(self.xroi2, self.yroi2, pen = self.pen2,
                                                brush = None, size = GOOD_CLUSTER_POINT_SIZE))
             shown.append(self.xroi2)
-            self._add_roi_histogram(histabsz2, self.zroi2, self.brush2, self.pen2)
 
         x_shown = np.concatenate(shown)
         plotROI.setXRange(np.min(x_shown), np.max(x_shown), padding=0)
 
         self.empty_layout(self.ui.scatterlayout_3)
         self.ui.scatterlayout_3.addWidget(scatterWidgetROI)
-        self.empty_layout(self.ui.zhistlayout_2)
-        self.ui.zhistlayout_2.addWidget(histzWidget2)
 
     def _point_in_polygon(self, points: NDArray[np.float64],
                           polygon: NDArray[np.float64]) -> NDArray[np.bool_]:
@@ -3475,69 +3723,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
             
     
-    def savedistdata(self) -> None:
-        """
-        Save k-nearest neighbor distances to a CSV file.
-
-        Exports the distances from each good cluster centroid to its k nearest neighbors
-        to a CSV file. This data is useful for analyzing cluster spacing and detecting
-        potential artifacts or incomplete clustering.
-
-        The output contains columns for each neighbor (1st NN, 2nd NN, etc.) with
-        distances in nanometers.
-
-        Raises
-        ------
-        UserWarning
-            If distances have not been computed yet (user must run KNdist_hist first).
-
-        Notes
-        -----
-        Output filename: `{original_filename}_distances.csv`
-        """
-        # Guard: distances must have been computed first.
-        if self.distances is None or self.Nneighbor is None:
-            QtWidgets.QMessageBox.warning(
-                self, "No distance data",
-                "Please compute the nearest-neighbour distances first."
-            )
-            return
-        Nneighbor = int(self.Nneighbor)
-        dist = self.distances
-        
-        # Get root filename
-        root_name = self.get_root_filename()
-        default_filename = f"{root_name}_{Nneighbor}neighbor_distances.csv"
-        
-        filename, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Distance Data",
-            default_filename,
-            "CSV Files (*.csv)"
-        )
-        
-        if not filename:
-            return
-        data = {}
-        labels = self._current_cluster_labels()
-        if labels is not None and len(labels) == len(dist):
-            data["cluster_label"] = np.asarray(labels, dtype=int)
-        for k in range(dist.shape[1]):
-            data[f"nn{k + 1}_nm"] = dist[:, k]
-        try:
-            pd.DataFrame(data).to_csv(filename, index=False,
-                                      float_format="%.2f")
-        except Exception as error:                     # noqa: BLE001
-            self.logger.error(f"Could not save the distances: {error}",
-                              exc_info=True)
-            QtWidgets.QMessageBox.critical(
-                self, "Save Error",
-                f"Failed to save the distances:\n\n{error}")
-            return
-        self.logger.info(f"Saved {dist.shape[0]} row(s) of "
-                         f"{dist.shape[1]} neighbour distance(s) to "
-                         f"{filename}")
-
     def on_algorithm_changed(self, algorithm: str) -> None:
         """Handle algorithm selection change to show/hide algorithm-specific parameters.
 
@@ -3881,7 +4066,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         # Create cluster visualization
         scatterWidgetcluster = pg.GraphicsLayoutWidget()
-        plotclusters = scatterWidgetcluster.addPlot(title="Clustered data")
+        plotclusters = scatterWidgetcluster.addPlot(
+            title="Window clustering (not the MPS analysis)")
         plotclusters.setAspectLocked(True)  # Maintain aspect ratio
         plotclusters.setLabels(bottom='x [nm]', left='y [nm]')
         
@@ -4225,122 +4411,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 f"Failed to save data: {str(e)}"
             )
     
-    def latchange(self) -> None:
-        """
-        Read the three histogram fields and redraw the distance histogram.
-
-        The fields are wired to this on every keystroke. It used to read
-        ``self.nbins``, ``self.latmin`` and ``self.latmax``, none of
-        which is ever assigned anywhere in this class, so typing in any
-        of the three raised AttributeError -- which the ``except
-        ValueError`` below does not catch -- and the histogram never
-        moved. They are ``self.ui.lineEdit_bin`` and the two
-        ``lineEdit_lat*``.
-
-        A half-typed number is not an error: the field says "1" for an
-        instant on the way to "150". The previous value is kept and the
-        histogram is left alone until what is typed is a number again.
-        """
-        try:
-            bins = int(self.ui.lineEdit_bin.text())
-            lmin = float(self.ui.lineEdit_latmin.text())
-            lmax = float(self.ui.lineEdit_latmax.text())
-        except (ValueError, AttributeError):
-            return
-        if bins < 1 or not lmax > lmin:
-            return
-
-        self.bins, self.lmin, self.lmax = bins, lmin, lmax
-        if self.good_cluster_centroids is not None and len(
-                self.good_cluster_centroids):
-            self.KNdist_hist()
-        
-    def KNdist_hist(self) -> None:
-        """Compute K-nearest-neighbour distances between cluster centroids and
-        display the distribution as a bar histogram.
-
-        The centroids in ``self.good_cluster_centroids`` (good clusters, after optional removal
-        of bad ones) are queried against themselves with a KDTree.  The
-        self-distance (distance = 0, always the first column returned by
-        ``tree.query``) is excluded.
-        """
-        # Guard: clustering must have been run first.
-        if self.good_cluster_centroids is None or len(self.good_cluster_centroids) == 0:
-            QtWidgets.QMessageBox.warning(
-                self, "No clusters",
-                "Please run clustering and confirm cluster selection before "
-                "computing distances."
-            )
-            return
-
-        # Hallazgo: Input validation for K-nearest neighbors parameter
-        try:
-            self.Nneighbor = float(self.ui.lineEdit_Nneighbor.text())
-            Nneighbor = int(self.Nneighbor)
-        except ValueError:
-            QtWidgets.QMessageBox.warning(
-                self, "Invalid Input",
-                "Number of neighbors must be a numeric value."
-            )
-            return
-        
-        tree = KDTree(self.good_cluster_centroids)
-        distances, indexes = tree.query(self.good_cluster_centroids, Nneighbor+1)
-        self.distances = distances[:,1:] # exclude distance to the same molecule; distances has N rows (#clusters) and M columns (# neighbors)
-
-        self.logger.debug(f"Computed distances for {len(self.distances)} cluster centers")
-        indexes = indexes[:,1:]    
-                
-        histzWidget3 = pg.GraphicsLayoutWidget()
-        histabcm = histzWidget3.addPlot(title="distances Histogram")
-
-        # The display range must not destroy data. The previous version
-        # reassigned self.distances to the filtered subset, so (a) the CSV
-        # written by savedistdata() silently lost every distance outside
-        # (lmin, lmax) -- with the default 0-800 nm window that quietly
-        # dropped real neighbours, e.g. an 836 nm 1NN in one test axon --
-        # and (b) calling this method twice filtered the already-filtered
-        # array, shrinking the data further on each redraw. Keep the full
-        # array and derive a separate view for plotting.
-        distances_full = self.distances
-        plot_distances = distances_full
-        if self.lmin is not None and self.lmax is not None:
-            in_range = ((distances_full > self.lmin)
-                        & (distances_full < self.lmax))
-            plot_distances = distances_full[in_range]
-            n_excluded = int(distances_full.size - plot_distances.size)
-            if n_excluded:
-                self.logger.info(
-                    f"KNdist_hist: {n_excluded} distance(s) outside "
-                    f"({self.lmin}, {self.lmax}) nm are hidden from the "
-                    f"histogram but kept in the exported data."
-                )
-
-        bins = self.bins if self.bins is not None else 20
-
-        if plot_distances.size == 0:
-            QtWidgets.QMessageBox.warning(
-                self, "No distances in range",
-                f"All {distances_full.size} neighbour distances fall outside "
-                f"the display range ({self.lmin}, {self.lmax}) nm.\n\n"
-                f"Widen the range to see the histogram. The underlying data "
-                f"is unchanged."
-            )
-            return
-
-        histcmdist, bin_edgescmdist = np.histogram(plot_distances, bins)
-        widthcmdist = np.mean(np.diff(bin_edgescmdist))
-        bincenterscmdist = np.mean(np.vstack([bin_edgescmdist[0:-1],bin_edgescmdist[1:]]), axis=0)
-        bargraphcmdist = pg.BarGraphItem(x = bincenterscmdist, height = histcmdist, 
-                                    width = widthcmdist, brush = self.brush3, pen = None)
-        histabcm.addItem(bargraphcmdist)
-        histabcm.setXRange(self.lmin, self.lmax)
-                
-        self.empty_layout(self.ui.zhistlayout_cmdist)
-        self.ui.zhistlayout_cmdist.addWidget(histzWidget3)
-    
-        
-        
     def empty_layout(self, layout: Any) -> None:
         """
         Remove all widgets from a PyQt5 layout.

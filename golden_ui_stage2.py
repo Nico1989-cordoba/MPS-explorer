@@ -691,14 +691,19 @@ class Cell:
         return out
 
     def distances(self, mw: Any) -> Dict[str, Any]:
+        # UI stage 2 (design G4, IMPL-C): the main window's "N neighbor",
+        # "Distances" and "save dist data" moved to the MPS analysis
+        # window's "Nearest neighbours" tab. The after-driver sets N there
+        # and presses its "Save distances..."; the fields recorded are the
+        # same (the messages, the table written).
         out: Dict[str, Any] = {}
         for n in (1, 3):
             n_msg = len(self.messages)
-            mw.ui.lineEdit_Nneighbor.setText(str(n))
-            mw.KNdist_hist()
+            panel = mw.mps_window.nn
+            panel.spin_neighbours.setValue(n)
             target = self.next_path(f"{n}neighbor_distances")
             self.save_queue = [target]
-            mw.savedistdata()
+            panel.on_save()
             self.save_queue = []
             out[f"N{n}"] = {"messages": self.messages[n_msg:],
                             "table": (_csv_text_table(target) if os.path.exists(target) else None)}

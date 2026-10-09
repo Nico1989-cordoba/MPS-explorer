@@ -138,26 +138,6 @@ MAIN_WINDOW: Dict[str, str] = {
         "it compares. With 'auto' in the boxes this button is how you "
         "find a number to put in them. The per-axon analysis stays on "
         "channel 1.",
-    # --- the distance histogram ----------------------------------------
-    "lineEdit_Nneighbor":
-        "Which neighbour the distance histogram shows: 1 is the nearest "
-        "cluster centre, 2 the second nearest, and so on.\n\n"
-        "The per-axon analysis always reports the first; this is how to "
-        "look at the others.",
-    "pushButton_Distances":
-        "Measure the distances between cluster centres and draw the "
-        "histogram below.\n\n"
-        "Centre to centre, in the plane.",
-    "lineEdit_bin":
-        "How many bars the distance histogram is drawn with.",
-    "lineEdit_latmin":
-        "Left edge of the distance histogram, in nanometres.\n\n"
-        "Distances outside the range are left out of the DRAWING only; "
-        "what is exported is unchanged.",
-    "lineEdit_latmax":
-        "Right edge of the distance histogram, in nanometres.\n\n"
-        "Distances outside the range are left out of the DRAWING only; "
-        "what is exported is unchanged.",
 }
 
 

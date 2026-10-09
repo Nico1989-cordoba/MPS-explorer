@@ -176,49 +176,21 @@ def blend(colour: str, alpha: int, background: str) -> str:
 # at and the symbol that carries it when the colour alone would not.
 # These lists ARE the specification the drawing code follows.
 TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
-    "the contour plot": (
-        ("noise", 90, "dot"),
-        ("curated", 160, "x"),
-        ("discarded", 255, "diamond"),
-        ("locs", 200, "dot"),
-        ("centroid", 255, "circle"),
-        ("occupied", 255, "thick line"),
-        ("centre", 255, "plus"),
-    ),
-    "the axial histogram": (
-        ("locs", 170, "bars"),
-        ("fit", 255, "dashed line"),
-        ("slab", 60, "band"),
-    ),
+    # UI stage 2 (IMPL-C): the MPS analysis window's "Contour and centre",
+    # its axial histogram and its randomization CDF, and the Axoplasm
+    # panel's image, moved to the axon map, the axial view and the
+    # nearest-neighbours tab: their lists are the stage-2 entries below.
+    # The cluster-area histogram and the nearest-neighbour histogram keep
+    # this one (the reference line in the paper role is a published value).
     "a histogram with a median and the paper's value": (
         ("locs", 190, "bars"),
         ("summary", 255, "line"),
-        ("paper", 255, "dashed line"),
-    ),
-    "the randomization CDF": (
-        ("observed", 255, "line"),
-        ("randomized", 255, "line"),
         ("paper", 255, "dashed line"),
     ),
     "two channels": (
         ("locs", 170, "dot"),
         ("channel_b", 170, "triangle"),
         ("centre", 255, "plus"),
-    ),
-    # The axoplasm panel draws on a widefield image, not on black: its
-    # background is whatever grey the axon is at that point, so its
-    # colours are measured against a mid grey as well.
-    "the axoplasm image": (
-        ("locs", 255, "dot"),
-        ("discarded", 255, "dot"),
-        # Both edges are drawn with a one-pixel dark casing, which is
-        # what makes them legible over a photograph: their own hues sit
-        # at about the lightness of a mid grey. Circles for one, squares
-        # for the other.
-        ("image_tubulin", 255, "cased line and circles"),
-        ("image_spectrin", 255, "cased line and squares"),
-        ("contour_all", 255, "dashed line"),
-        ("contour_kept", 255, "line"),
     ),
     # --- the two panels that report on the acquisition -----------------
     # Findings are text, not marks, and they are read one under the other
@@ -359,7 +331,6 @@ TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
 
 # What each plot is drawn on. Anything not named here is on black.
 BACKGROUNDS: Dict[str, str] = {
-    "the axoplasm image": "#808080",
     # The quality and DNA-PAINT panels paint their own window, and the
     # findings are read on that rather than on a plot's black.
     "the findings list": PANEL_BG,
@@ -423,20 +394,10 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
     ("locs", "contour_kept"):
         "a cloud of dots against one closed line through the centres; in the "
         "lumen review, squares (restored by hand) against that line",
-    ("discarded", "contour_all"):
-        "filled discs with a dark rim against a dashed line",
     ("image_tubulin", "image_spectrin"):
         "circles against squares, and two edges that are different places "
         "in the image: the outside of the axon and the inside of the "
         "spectrin ring",
-    ("image_tubulin", "contour_kept"):
-        "the mask's own irregular edge against the polygon through the "
-        "cluster centres; apart for everyone but a tritanope, who is "
-        "about one person in ten thousand",
-    ("image_spectrin", "contour_all"):
-        "a solid image edge against a dashed contour",
-    ("image_spectrin", "contour_kept"):
-        "an image edge against the polygon through the cluster centres",
     ("discarded", "image_spectrin"):
         "filled discs against an edge and open squares",
     # --- the quality panels --------------------------------------------
@@ -853,14 +814,13 @@ def test_greyscale() -> None:
         return "every pair differs in lightness or in symbol"
 
     def what_is_excluded_has_its_own_symbol():
-        for plot in ("the contour plot", "the axon map (MPS analysis view)"):
+        for plot in ("the axon map (MPS analysis view)",):
             drawn = dict((name, shape)
                          for name, _alpha, shape in TOGETHER[plot])
             assert drawn["curated"] == "x", (plot, drawn)
             assert drawn["centroid"] == "circle", (plot, drawn)
             assert drawn["centre"] == "plus", (plot, drawn)
-        return ("curated x, centroids circles, centre a plus (the contour "
-                "plot and the axon map)")
+        return "curated x, centroids circles, centre a plus (the axon map)"
 
     def every_finding_carries_its_own_mark():
         # A verdict is text: it has no symbol to be told apart by, so it
