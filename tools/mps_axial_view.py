@@ -34,6 +34,10 @@ __all__ = ["AxialView"]
 VIEW_TIP = ("MPS analysis slab: the ROI's z before the cut with the slab the analysis kept, the fitted components and "
             "the main-window cut. Every segment: the same z with each segment's slab and the boundaries between them "
             "(set by the Rings window's button).")
+# With the details open: the plot's least height (its three title lines, the axis, ~100 px of data) and the
+# details table's largest (it scrolls beyond).
+PLOT_MIN_WITH_DETAILS_PX = 220
+DETAILS_MAX_PX = 150
 
 
 class AxialView(QtWidgets.QWidget):
@@ -74,6 +78,9 @@ class AxialView(QtWidgets.QWidget):
         self.plot = pg.PlotWidget()
         self.plot.setObjectName("axial_plot")
         self.plot.setLabels(bottom="z [nm]", left=L.AXIAL_LEFT_LABEL)
+        # The densities are ~0.001-0.01 per nm: an automatic SI multiplier ("x0.001") is appended to the axis
+        # label and cut on a short plot, and the ticks then read as 4 per nm. Plain numbers instead.
+        self.plot.getPlotItem().getAxis("left").enableAutoSIPrefix(False)
         self.layers = LayerPanel(scroll=True, max_width=320, hide_disabled=True, elide=True)
         self.layers.setObjectName("axial_layers")
         self.layers.toggled.connect(self._on_toggled)
@@ -84,6 +91,10 @@ class AxialView(QtWidgets.QWidget):
         root.addLayout(row, 1)
         self.details = DetailsPanel(object_name="details_axial", collapsed=True)
         root.addWidget(self.details)
+        # Opened, the details must not crush the plot: the plot keeps a readable height (the window gives the tabs
+        # the room, taking it from the map), and the table scrolls past a few rows.
+        self.details.table.setMaximumHeight(DETAILS_MAX_PX)
+        self.details.button.toggled.connect(self._on_details)
         self._style()
         self.redraw()
 
@@ -192,6 +203,10 @@ class AxialView(QtWidgets.QWidget):
     def _style(self) -> None:
         (style_dark if self.dark else style_light)(self.plot)
         self.plot.setLabels(left=L.AXIAL_LEFT_LABEL)
+
+    def _on_details(self, expanded: bool) -> None:
+        self.plot.setMinimumHeight(PLOT_MIN_WITH_DETAILS_PX if expanded else 0)
+        self.updateGeometry()
 
     def _on_toggled(self, key: str, on: bool) -> None:
         if key == "ch2_roi" and not self._applying and bool(on) != bool(self._inputs.ch2_shown):

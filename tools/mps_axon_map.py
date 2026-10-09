@@ -214,7 +214,10 @@ def render_layer(layer: L.Layer, dark: bool = True) -> List[Any]:
     if layer.kind == "hline":
         return [pg.InfiniteLine(pos=float(d["y"]), angle=0, pen=pg.mkPen(colour, width=s.width,
                                                                           style=_pen_style(s.pen)),
-                                label=d.get("label"), labelOpts={"position": 0.05, "color": colour})]
+                                # the label starts at the line's left end and runs right, under it: never cut by
+                                # the left axis (centred on the end, half of it was), and clear of the legend's row
+                                label=d.get("label"), labelOpts={"position": 0.05, "color": colour,
+                                                                 "anchors": [(0, 0), (0, 0)]})]
     raise ValueError(f"unknown layer kind {layer.kind!r}")
 
 

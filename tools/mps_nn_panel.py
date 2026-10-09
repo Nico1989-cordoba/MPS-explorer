@@ -126,7 +126,7 @@ class NearestNeighboursPanel(QtWidgets.QWidget):
         self.plot_nn = pg.PlotWidget()
         self.plot_nn.setObjectName("nn_plot")
         self.plot_nn.setLabels(bottom="distance [nm]", left="count")
-        self.layers = LayerPanel(scroll=True, max_width=280, hide_disabled=True, elide=True)
+        self.layers = LayerPanel(scroll=True, max_width=220, hide_disabled=True, elide=True)
         self.layers.setObjectName("nn_layers")
         self.layers.toggled.connect(lambda _k, _on: None)
         hist_row.addWidget(self.plot_nn, 1)
@@ -138,8 +138,9 @@ class NearestNeighboursPanel(QtWidgets.QWidget):
         self.plot_cdf = pg.PlotWidget()
         self.plot_cdf.setObjectName("cdf_plot")
         self.plot_cdf.setLabels(bottom="distance [nm]", left="cumulative")
-        # inside the plot, so a figure carries it; bottom-right, the empty corner of a CDF
-        self.legend = self.plot_cdf.addLegend(offset=(-10, -10), labelTextColor=AXIS_FG)
+        # inside the plot, so a figure carries it; bottom-right, the empty corner of a CDF; one row, so that it fits
+        # a short plot
+        self.legend = self.plot_cdf.addLegend(offset=(-10, -10), labelTextColor=AXIS_FG, colCount=2)
         right.addWidget(self.plot_cdf, 1)
         self.details_cdf = DetailsPanel(object_name="details_cdf", collapsed=True)
         right.addWidget(self.details_cdf)

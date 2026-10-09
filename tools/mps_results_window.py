@@ -146,6 +146,15 @@ _CROSSING_ROW = "  CDF crossing"
 # How much of the plot column the map takes when the window opens (the rest
 # is the tabs under it): the map keeps at least 55 % of a 1366 x 728 window.
 MAP_SHARE = 0.74
+# On a short screen the tabs under the map keep at least this height (a plot
+# of ~30 px cannot be read), as long as the map keeps MAP_MIN_OF_WINDOW of the
+# window's height.
+TABS_MIN_PX = 230
+MAP_MIN_OF_WINDOW = 0.56
+# The table column's width when the window opens: wide enough for the name,
+# "Measured" and the reference column (1366 px screens; the user's divider
+# wins afterwards).
+LEFT_MIN_PX = 430
 
 
 class _Row:
@@ -335,6 +344,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # The table is widened once when its extra columns appear; after
         # that the divider stays where the user leaves it.
         self._widened = False
+        self._left_done = False
+        splitter.splitterMoved.connect(self._on_left_moved)
 
         self.refresh()
 
@@ -883,11 +894,37 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if not getattr(self, "_applying_share", False):
             self._split_done = True
 
+    def _on_left_moved(self, _pos: int, _index: int) -> None:
+        if not getattr(self, "_applying_share", False):
+            self._left_done = True
+
+    def _apply_left_width(self) -> None:
+        """The table column at least LEFT_MIN_PX wide (never more than a
+        third of the window), until the user drags the divider."""
+        if self._left_done or self._widened:
+            return
+        sizes = self.splitter.sizes()
+        total = sum(sizes)
+        if total <= 0 or len(sizes) != 2:
+            return
+        left = int(min(LEFT_MIN_PX, total / 3.0))
+        if sizes[0] >= left:
+            return
+        self._applying_share = True
+        try:
+            self.splitter.setSizes([left, total - left])
+        finally:
+            self._applying_share = False
+
     def _apply_map_share(self) -> None:
+        self._apply_left_width()
         total = self.plot_splitter.height()
         if total <= 0:
             return
         top = int(total * MAP_SHARE)
+        if total - top < TABS_MIN_PX:
+            # a short screen: the tabs get their minimum, the map keeps its share of the window
+            top = max(total - TABS_MIN_PX, int(MAP_MIN_OF_WINDOW * self.height()))
         self._applying_share = True
         try:
             self.plot_splitter.setSizes([top, total - top])
