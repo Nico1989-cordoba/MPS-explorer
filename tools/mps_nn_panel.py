@@ -126,7 +126,7 @@ class NearestNeighboursPanel(QtWidgets.QWidget):
         self.plot_nn = pg.PlotWidget()
         self.plot_nn.setObjectName("nn_plot")
         self.plot_nn.setLabels(bottom="distance [nm]", left="count")
-        self.layers = LayerPanel(scroll=True, max_width=220, hide_disabled=True)
+        self.layers = LayerPanel(scroll=True, max_width=280, hide_disabled=True, elide=True)
         self.layers.setObjectName("nn_layers")
         self.layers.toggled.connect(lambda _k, _on: None)
         hist_row.addWidget(self.plot_nn, 1)

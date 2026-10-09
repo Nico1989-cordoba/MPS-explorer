@@ -41,7 +41,10 @@ from tools.mps_plot_style import (
 __all__ = ["AxonMap", "render_layer", "swatch_for", "cased_edge_rgba", "colour_of"]
 
 DARK_RIM = "#000000"
-PANEL_WIDTH = 280
+PANEL_WIDTH = 280          # the side column's narrowest width
+SIDE_MAX_WIDTH = 460       # and its widest: what the plot's shape leaves, up to this
+FIT_PAD_FRACTION = 0.06    # the view: the data's extent plus this fraction of its larger side ...
+FIT_PAD_MIN_NM = 150.0     # ... and at least this much
 VIEW_LABEL = "View"
 SOURCE_TIP = ("Which localizations: three different sets, one at a time - the MPS analysis' own slab, the "
               "main-window selection placed by the Axoplasm panel, or each segment's slab from the Rings window.")
@@ -230,9 +233,23 @@ class AxonMap(QtWidgets.QWidget):
         self._applying = False
         self._groups: List[L.Group] = []
         self._layers: Dict[str, L.Layer] = {}
+        self._fitted = False
+        self._user_range = False
+        self._user_split = False
+        self._fit_key: Tuple[int, Optional[int]] = (0, None)
+        self._data_extent: Optional[Tuple[float, float, float, float]] = None
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(2)
+        # The plot takes the map's whole height (an axon is drawn as large as
+        # the height allows, the aspect locked); the View combo, the two
+        # provenance lines and the layers sit in a column beside it, which
+        # takes the width the plot's shape leaves.
+        self.side = QtWidgets.QWidget()
+        self.side.setObjectName("map_side")
+        side = QtWidgets.QVBoxLayout(self.side)
+        side.setContentsMargins(4, 0, 0, 0)
+        side.setSpacing(2)
         top = QtWidgets.QHBoxLayout()
         top.addWidget(QtWidgets.QLabel(VIEW_LABEL))
         self.combo_view = QtWidgets.QComboBox()
@@ -243,7 +260,7 @@ class AxonMap(QtWidgets.QWidget):
         self.combo_view.currentIndexChanged.connect(self._on_view_combo)
         top.addWidget(self.combo_view)
         top.addStretch(1)
-        root.addLayout(top)
+        side.addLayout(top)
         self.lbl_line1 = QtWidgets.QLabel("")
         self.lbl_line1.setObjectName("map_provenance_1")
         self.lbl_line1.setWordWrap(True)
@@ -252,21 +269,27 @@ class AxonMap(QtWidgets.QWidget):
         self.lbl_line2.setObjectName("map_provenance_2")
         self.lbl_line2.setWordWrap(True)
         self.lbl_line2.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
-        root.addWidget(self.lbl_line1)
-        root.addWidget(self.lbl_line2)
+        side.addWidget(self.lbl_line1)
+        side.addWidget(self.lbl_line2)
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.plot = pg.PlotWidget()
         self.plot.setObjectName("map_plot")
         self.plot.setAspectLocked(True)
         self.plot.setLabels(bottom="x [nm]", left="y [nm]")
-        self.layers = LayerPanel(scroll=True, max_width=PANEL_WIDTH, hide_disabled=True)
+        self.layers = LayerPanel(scroll=True, max_width=SIDE_MAX_WIDTH, hide_disabled=True, elide=True)
         self.layers.setObjectName("map_layers")
         self.layers.toggled.connect(self._on_toggled)
+        side.addWidget(self.layers, 1)
+        self.side.setMinimumWidth(PANEL_WIDTH)
+        self.side.setMaximumWidth(SIDE_MAX_WIDTH)
         self.splitter.addWidget(self.plot)
-        self.splitter.addWidget(self.layers)
+        self.splitter.addWidget(self.side)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 0)
+        self.splitter.setCollapsible(0, False)
         self.splitter.setCollapsible(1, True)
+        self.splitter.splitterMoved.connect(self._on_splitter_moved)
+        self.plot.getViewBox().sigRangeChangedManually.connect(self._on_range_by_hand)
         root.addWidget(self.splitter, 1)
         # the group headers' selectors (owned here, shown in the panel)
         self.combo_source = QtWidgets.QComboBox()
@@ -287,6 +310,10 @@ class AxonMap(QtWidgets.QWidget):
             self.combo_image.addItem(name, key)
         self.combo_image.setToolTip(IMAGE_TIP)
         self.combo_image.currentIndexChanged.connect(self._on_header)
+        for combo in (self.combo_source, self.combo_colour, self.combo_image):
+            # a narrow side column must not be held open by a combo's longest item (the full item is in its list)
+            combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(14)
         self._style()
         self.redraw()
 
@@ -298,6 +325,11 @@ class AxonMap(QtWidgets.QWidget):
         """Draw from new inputs. ``view`` applies a preset (its source and colouring included); without it the
         source, colouring and image follow the header selectors and every row keeps its state."""
         self._inputs = inputs
+        key = (id(inputs.analysis), inputs.selection_n)
+        if key != self._fit_key:
+            # another analysis or selection: the view fits the new data, even after a zoom by hand
+            self._fit_key = key
+            self._user_range = False
         if view is not None:
             self.set_view(view)
             return
@@ -410,7 +442,101 @@ class AxonMap(QtWidgets.QWidget):
             self._applying = was
         self._apply_rules()
         self._retitle()
+        self._data_extent = self._extent()
+        if not self._user_range:
+            self.fit_view()
         self.redrawn.emit()
+
+    # ------------------------------------------------------------------ the view
+    def _extent(self) -> Optional[Tuple[float, float, float, float]]:
+        """The lab extent of what the rows draw (every row with points, shown or not, so a tick does not move the
+        view; never the widefield image, whose field is far larger than the axon)."""
+        lo_x = lo_y = np.inf
+        hi_x = hi_y = -np.inf
+        for layer in self._layers.values():
+            if layer.kind == "image":
+                continue
+            d = layer.data
+            if "x" not in d or "y" not in d:
+                continue
+            x = np.asarray(d["x"], dtype=float).ravel()
+            y = np.asarray(d["y"], dtype=float).ravel()
+            if x.size == 0 or x.size != y.size:
+                continue
+            ok = np.isfinite(x) & np.isfinite(y)
+            if not ok.any():
+                continue
+            lo_x, hi_x = min(lo_x, float(x[ok].min())), max(hi_x, float(x[ok].max()))
+            lo_y, hi_y = min(lo_y, float(y[ok].min())), max(hi_y, float(y[ok].max()))
+        if not np.isfinite([lo_x, hi_x, lo_y, hi_y]).all():
+            return None
+        return lo_x, hi_x, lo_y, hi_y
+
+    def fit_view(self) -> None:
+        """Fit the view to the data's extent with a small padding, the aspect locked (what is drawn is unchanged);
+        then give the side column the width the plot's shape leaves."""
+        ext = self._data_extent
+        if ext is None:
+            self.plot.getViewBox().enableAutoRange()
+            return
+        x0, x1, y0, y1 = ext
+        pad = max(FIT_PAD_FRACTION * max(x1 - x0, y1 - y0), FIT_PAD_MIN_NM)
+        self._fitting = True
+        try:
+            self.plot.setRange(xRange=(x0 - pad, x1 + pad), yRange=(y0 - pad, y1 + pad), padding=0.0)
+        finally:
+            self._fitting = False
+        self._fitted = True
+        self._apply_split()
+
+    def view_extent(self) -> Optional[Tuple[float, float, float, float]]:
+        """The data extent the view was fitted to (x0, x1, y0, y1), or None with nothing drawn."""
+        return self._data_extent
+
+    def _apply_split(self) -> None:
+        """The plot as wide as the data's shape needs at the plot's height; the side column gets the rest, between
+        its narrowest and widest. Until the user drags the divider."""
+        if self._user_split or self._data_extent is None:
+            return
+        total = sum(self.splitter.sizes())
+        vb = self.plot.getViewBox()
+        vb_h = float(vb.height())
+        if total <= 0 or vb_h <= 0:
+            return
+        x0, x1, y0, y1 = self._data_extent
+        pad = max(FIT_PAD_FRACTION * max(x1 - x0, y1 - y0), FIT_PAD_MIN_NM)
+        aspect = (x1 - x0 + 2 * pad) / max(y1 - y0 + 2 * pad, 1e-9)
+        frame = max(0.0, float(self.plot.width()) - float(vb.width()))
+        ideal_plot = int(vb_h * aspect + frame)
+        side = int(min(SIDE_MAX_WIDTH, max(PANEL_WIDTH, total - ideal_plot)))
+        if abs(self.splitter.sizes()[1] - side) <= 2:
+            return
+        self._splitting = True
+        try:
+            self.splitter.setSizes([total - side, side])
+        finally:
+            self._splitting = False
+
+    def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        QtCore.QTimer.singleShot(0, self._after_resize)
+
+    def showEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        super().showEvent(event)
+        QtCore.QTimer.singleShot(0, self._after_resize)
+
+    def _after_resize(self) -> None:
+        self._apply_split()
+        if not self._user_range and self._data_extent is not None:
+            self.fit_view()
+
+    def _on_splitter_moved(self, _pos: int, _index: int) -> None:
+        if not getattr(self, "_splitting", False):
+            self._user_split = True
+
+    def _on_range_by_hand(self, *_args: Any) -> None:
+        if not getattr(self, "_fitting", False):
+            self._user_range = True
 
     def _apply_rules(self) -> None:
         """Rows that cannot be read over what else is drawn (3.5): grey on the grey image."""

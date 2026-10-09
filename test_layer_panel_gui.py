@@ -694,7 +694,10 @@ def main() -> int:
         assert all(panel.items(k)[0].isVisible() for k in keys[1:])
         panel.checkbox(k0).setChecked(True)
         assert new_item.isVisible()
-        g1, g2 = amap.plot.geometry(), panel.geometry()
+        # in the map's own coordinates: the panel sits in the column beside the plot (IMPL-F: the side column)
+        from PyQt5 import QtCore as _QtCore
+        g1 = _QtCore.QRect(amap.plot.mapTo(amap, _QtCore.QPoint(0, 0)), amap.plot.size())
+        g2 = _QtCore.QRect(panel.mapTo(amap, _QtCore.QPoint(0, 0)), panel.size())
         assert not g1.intersects(g2) and g2.left() >= g1.right(), (g1, g2)
         amap.close()
         w.close()

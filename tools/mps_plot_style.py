@@ -353,6 +353,28 @@ def set_title(plot: Any, text: str, dark: bool = True) -> None:
     disappears against the dark background.
     """
     plot.setTitle(text, color=TITLE_FG if dark else TITLE_FG_LIGHT)
+    fit_title_height(plot)
+
+
+def fit_title_height(plot: Any) -> None:
+    """Give a title of several lines the height it needs.
+
+    pyqtgraph fixes the title row at 30 px whatever the text, so a title of
+    two or three lines (the stage-2 provenance titles) spills over the plot
+    and its first line is cut at the top. The row is grown to the text's own
+    height; the text itself is untouched. A one-line title keeps the 30 px.
+    """
+    item = plot.getPlotItem() if hasattr(plot, "getPlotItem") else plot
+    label = getattr(item, "titleLabel", None)
+    if label is None or not label.isVisible():
+        return
+    try:
+        needed = int(label.item.boundingRect().height()) + 4
+    except AttributeError:
+        return
+    height = max(30, needed)
+    label.setMaximumHeight(height)
+    item.layout.setRowFixedHeight(0, height)
 
 
 def _style(plot: Any, background: str, axis_fg: str) -> None:

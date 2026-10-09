@@ -146,6 +146,51 @@ def swatch_icon(sw: Swatch, size: int = 16) -> QtGui.QIcon:
     return QtGui.QIcon(pixmap)
 
 
+class ElidedCheckBox(QtWidgets.QCheckBox):
+    """A row's check box that fits a narrow panel: its text is drawn elided ("...") when the row is too narrow, while
+    ``text()`` stays the full name (what tests, ``shown()`` and the export message read), and the full name leads the
+    tooltip whenever it is cut. Nothing else differs from a ``QCheckBox``."""
+
+    MIN_TEXT_PX = 48
+
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
+        # Preferred, not Minimum: the row may be narrower than its text (it is then elided)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Fixed)
+
+    def _available(self) -> int:
+        opt = QtWidgets.QStyleOptionButton()
+        self.initStyleOption(opt)
+        contents = self.style().subElementRect(QtWidgets.QStyle.SubElement.SE_CheckBoxContents, opt, self)
+        icon = 0 if self.icon().isNull() else self.iconSize().width() + 4
+        return int(max(0, contents.width() - icon))
+
+    def is_elided(self) -> bool:
+        return bool(self.fontMetrics().horizontalAdvance(self.text()) > self._available())
+
+    def minimumSizeHint(self) -> QtCore.QSize:  # noqa: N802 - Qt's name
+        full = super().minimumSizeHint()
+        width = full.width() - self.fontMetrics().horizontalAdvance(self.text()) + self.MIN_TEXT_PX
+        return QtCore.QSize(min(full.width(), max(0, width)), full.height())
+
+    def paintEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        if not self.is_elided():
+            super().paintEvent(event)
+            return
+        opt = QtWidgets.QStyleOptionButton()
+        self.initStyleOption(opt)
+        opt.text = self.fontMetrics().elidedText(self.text(), QtCore.Qt.TextElideMode.ElideRight, self._available())
+        painter = QtWidgets.QStylePainter(self)
+        painter.drawControl(QtWidgets.QStyle.ControlElement.CE_CheckBox, opt)
+
+    def event(self, e: QtCore.QEvent) -> bool:
+        if e.type() == QtCore.QEvent.Type.ToolTip and self.is_elided():
+            tip = self.toolTip()
+            QtWidgets.QToolTip.showText(e.globalPos(), self.text() + (f"\n\n{tip}" if tip else ""), self)
+            return True
+        return bool(super().event(e))
+
+
 @dataclass
 class _Layer:
     key: str
@@ -193,9 +238,11 @@ class LayerPanel(QtWidgets.QWidget):
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None, *, dark: bool = False,
                  max_width: int = PANEL_MAX_WIDTH, scroll: bool = False,
-                 title_style: Optional[Callable[[bool], str]] = None, hide_disabled: bool = False) -> None:
+                 title_style: Optional[Callable[[bool], str]] = None, hide_disabled: bool = False,
+                 elide: bool = False) -> None:
         super().__init__(parent)
         self._dark = bool(dark)
+        self._elide = bool(elide)
         self._hide_disabled = bool(hide_disabled)
         self._layers: Dict[str, _Layer] = {}
         self._state: Dict[str, bool] = {}
@@ -346,7 +393,8 @@ class LayerPanel(QtWidgets.QWidget):
         if key in self._layers:
             raise ValueError(f"layer {key!r} is already in the panel")
         owned = checkbox is None
-        box = checkbox if checkbox is not None else QtWidgets.QCheckBox()
+        box = checkbox if checkbox is not None else (
+            ElidedCheckBox() if self._elide else QtWidgets.QCheckBox())
         if owned:
             box.setObjectName(f"layer_{key}")
             on = bool(self._state.get(key, visible))
