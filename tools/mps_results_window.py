@@ -132,7 +132,7 @@ _CROSSING_ROW = "  CDF crossing"
 
 # How much of the plot column the map takes when the window opens (the rest
 # is the tabs under it): the map keeps at least 55 % of a 1366 x 728 window.
-MAP_SHARE = 0.68
+MAP_SHARE = 0.74
 
 
 @dataclass
@@ -572,11 +572,38 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.plot_scatter.setXRange(0.0, 360.0, padding=0.0)
         self.tabs.addTab(self.plot_scatter, "Scatter off the outline")
         self.plot_splitter.addWidget(self.tabs)
-        self.plot_splitter.setStretchFactor(0, 2)
+        # The map keeps MAP_SHARE of the plot column through every show and
+        # resize, until the user drags the divider (then it stays there).
+        self.plot_splitter.setStretchFactor(0, 3)
         self.plot_splitter.setStretchFactor(1, 1)
-        total = 1000
-        self.plot_splitter.setSizes([int(total * MAP_SHARE), total - int(total * MAP_SHARE)])
+        self._split_done = False
+        self.plot_splitter.splitterMoved.connect(self._on_split_moved)
         return self.plot_splitter
+
+    def _on_split_moved(self, _pos: int, _index: int) -> None:
+        if not getattr(self, "_applying_share", False):
+            self._split_done = True
+
+    def _apply_map_share(self) -> None:
+        total = self.plot_splitter.height()
+        if total <= 0:
+            return
+        top = int(total * MAP_SHARE)
+        self._applying_share = True
+        try:
+            self.plot_splitter.setSizes([top, total - top])
+        finally:
+            self._applying_share = False
+
+    def showEvent(self, event: Any) -> None:
+        super().showEvent(event)
+        if not self._split_done:
+            self._apply_map_share()
+
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
+        if not self._split_done:
+            QtCore.QTimer.singleShot(0, self._apply_map_share)
 
     # ------------------------------------------------------------------
     # refresh

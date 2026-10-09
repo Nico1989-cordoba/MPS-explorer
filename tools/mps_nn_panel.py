@@ -119,6 +119,7 @@ class NearestNeighboursPanel(QtWidgets.QWidget):
         self.lbl_note.setObjectName("nn_note")
         self.lbl_note.setWordWrap(True)
         root.addWidget(self.lbl_note)
+        self.lbl_note.setVisible(False)
         plots = QtWidgets.QHBoxLayout()
         left = QtWidgets.QVBoxLayout()
         hist_row = QtWidgets.QHBoxLayout()
@@ -166,6 +167,8 @@ class NearestNeighboursPanel(QtWidgets.QWidget):
         self.spin_neighbours.setEnabled(top >= 1)
         self.btn_save.setEnabled(top >= 1)
         self.lbl_note.setText("" if top >= 1 else "Fewer than two clusters: no distance between centres.")
+        # Shown only when it says something: an empty line costs the map its room on a short screen.
+        self.lbl_note.setVisible(top < 1)
         self.redraw()
 
     def n(self) -> int:

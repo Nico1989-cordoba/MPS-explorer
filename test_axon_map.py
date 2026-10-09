@@ -2,21 +2,28 @@
 """
 Layer parity of the stage-2 builders (UI stage 2, design 8.4; ``tools/mps_axon_map_layers.py``).
 
-The axon map, the single axial view and the nearest-neighbours tab are drawn from pure builders. Before any old plot
-is removed (IMPL-C), this test proves that each builder hands its widget the SAME arrays the old drawing code drew:
+The axon map, the single axial view and the nearest-neighbours tab are drawn from pure builders. This test proves
+that each builder hands its widget the SAME arrays the old drawing code drew. The old drawing code was removed from
+the windows in IMPL-C (6c1ee21..9d1e86c); it is kept HERE as frozen test oracles, copied verbatim from 01e603f
+(the ``old_*`` functions and ``OldAxoplasmImage`` below: R1, Rz, Rn, Rc of the MPS analysis window, A1 of the
+Axoplasm panel, G1, Gz, Gh of the Rings window, M4 and M5 + "save dist data" of the main window), each drawing into
+a fresh pyqtgraph widget from the same inputs the window used to draw from. Never edit an oracle to make a check
+pass: a difference is a regression of a builder.
 
   1. the main window on a SIMULATED axon (the golden's axon A: ``batch_columns.write_simulated_input`` + three
      interior clusters + synthetic widefield images), "cluster Ch1", the Axoplasm panel with both images (shift
      measured) -> a discard comparison; the Rings window;
   2. map vs R1 (MPS analysis window, "Contour and centre") for every analysis the radio can show; vs M4 (the main
      window's "Clusters centers"); vs A1 (the Axoplasm panel's image, edges, localizations by class, the four
-     cluster groups, its contours and centre: the same objects, compared by value); vs G1 (the Rings window's
-     superimposed segments);
+     cluster groups, its contours and centre: the same objects, compared by value; also through the panel's own
+     ``map_state()``); vs G1 (the Rings window's superimposed segments); and the windows that replaced them really
+     draw from the builders (the MPS window's map, axial view and nearest-neighbours tab);
   3. axial view vs Rz (slab bars' data, components and their means, slab), Gz (bands, centre lines, valleys and
      their labels), Gh (each segment's own z);
   4. nearest neighbours vs Rn (bars, median, the reference value), M5 (pooled 1st..3rd distances), Rc (the two
-     CDFs and the crossing); "Save distances..." writes the bytes "save dist data" wrote, N = 1 and 3; CSV nn1_nm ==
-     a.nn.first_nn_nm (%.2f) for every analysis the radio can show;
+     CDFs and the crossing); "Save distances..." (the MPS window's tab and ``write_distances_csv``) writes the bytes
+     "save dist data" wrote, N = 1 and 3; CSV nn1_nm == a.nn.first_nn_nm (%.2f) for every analysis the radio can
+     show;
   5. titles and captions read from the drawn objects (an editor showing another value never reaches them), for each
      radio state, source and colouring; rows disabled with their reasons (discard only, segments' colours, a
      panel that classified other centres, a stale analysis, a missing channel 2).
@@ -123,6 +130,567 @@ def line_items(plot: Any) -> List[Any]:
 
 def pen_width(item: Any) -> float:
     return float(item.opts["pen"].widthF())
+
+
+# ============================================================================================ frozen oracles
+# The old drawing code, copied verbatim from 01e603f (``git show 01e603f:<file>``); ``self.<plot>`` became a fresh
+# widget and ``self.<attr>`` a parameter. Only what decides the drawn arrays matters to the checks, but the bodies
+# are kept whole (colours, sizes, symbols, pens) so the checks can still tell the items apart the way they did.
+
+def old_r1(plot: Any, a: Any, analysis: Any, comparison: Any, dark: bool = True) -> None:
+    """R1: tools/mps_results_window.py MPSResultsWindow._draw_contour at 01e603f (without its title).
+    ``a`` = self._shown(), ``analysis`` = self.analysis (measured), ``comparison`` = self.comparison."""
+    import pyqtgraph as pg
+    from PyQt5 import QtCore
+    from tools.cluster_quality import good_cluster_labels
+    from tools.mps_plot_style import neutral, rgba, role
+
+    def _neutral() -> str:
+        return neutral(dark=dark)
+    plot.clear()
+    if a.x_slab.size == 0:
+        return
+
+    bad = a.bad_report.bad_labels
+    noise = a.labels == -1
+    if np.any(noise):
+        plot.addItem(pg.ScatterPlotItem(
+            a.x_slab[noise], a.y_slab[noise], size=2, pen=None,
+            brush=pg.mkBrush(*rgba("noise", 90)), name="noise"))
+
+    bad_mask = np.isin(a.labels, list(bad)) if bad else np.zeros_like(noise)
+    if np.any(bad_mask):
+        plot.addItem(pg.ScatterPlotItem(
+            a.x_slab[bad_mask], a.y_slab[bad_mask], size=5, symbol="x",
+            pen=pg.mkPen(*rgba("curated", 160)), brush=None))
+
+    gone = (np.isin(a.labels, list(a.discarded_labels))
+            if a.discarded_labels else np.zeros_like(noise))
+    if np.any(gone):
+        plot.addItem(pg.ScatterPlotItem(
+            a.x_slab[gone], a.y_slab[gone], size=4, symbol="d",
+            pen=None, brush=pg.mkBrush(role("discarded"))))
+
+    good_mask = (~noise) & (~bad_mask) & (~gone)
+    if np.any(good_mask):
+        plot.addItem(pg.ScatterPlotItem(
+            a.x_slab[good_mask], a.y_slab[good_mask], size=3, pen=None,
+            brush=pg.mkBrush(*rgba("locs", 200))))
+
+    if a.discard_applied and comparison is not None:
+        every = comparison.all_clusters.perimeter
+        if every is not None:
+            closed = np.vstack([every.contour, every.contour[:1]])
+            plot.addItem(pg.PlotDataItem(
+                closed[:, 0], closed[:, 1],
+                pen=pg.mkPen(_neutral(), width=1,
+                             style=QtCore.Qt.PenStyle.DashLine)))
+            if every.centre is not None:
+                plot.addItem(pg.ScatterPlotItem(
+                    [every.centre.x_nm], [every.centre.y_nm], size=14,
+                    symbol="+", pen=pg.mkPen(_neutral()),
+                    brush=pg.mkBrush(_neutral())))
+        labels = good_cluster_labels(analysis.labels,
+                                     analysis.bad_report.bad_labels)
+        out = np.isin(labels, list(a.discarded_labels))
+        if np.any(out):
+            c = np.asarray(analysis.centroids)[out]
+            plot.addItem(pg.ScatterPlotItem(
+                c[:, 0], c[:, 1], size=9, symbol="d",
+                pen=pg.mkPen(_neutral()),
+                brush=pg.mkBrush(role("discarded"))))
+
+    if a.perimeter is not None:
+        c = a.perimeter.contour
+        closed = np.vstack([c, c[:1]])
+        plot.addItem(pg.PlotDataItem(
+            closed[:, 0], closed[:, 1],
+            pen=pg.mkPen(_neutral(), width=1.5)))
+
+    if a.occupancy is not None:
+        pts = a.occupancy.perimeter_points
+        occ = a.occupancy.occupied_mask
+        if np.any(occ):
+            idx = np.flatnonzero(occ)
+            breaks = np.flatnonzero(np.diff(idx) > 1)
+            starts = np.concatenate([[0], breaks + 1])
+            ends = np.concatenate([breaks, [len(idx) - 1]])
+            for s, e in zip(starts, ends):
+                run = pts[idx[s]:idx[e] + 1]
+                if len(run) >= 2:
+                    plot.addItem(pg.PlotDataItem(
+                        run[:, 0], run[:, 1],
+                        pen=pg.mkPen(role("occupied"), width=4)))
+
+    if a.centroids.size:
+        plot.addItem(pg.ScatterPlotItem(
+            a.centroids[:, 0], a.centroids[:, 1], size=7,
+            pen=pg.mkPen(_neutral()),
+            brush=pg.mkBrush(role("centroid"))))
+
+    if a.centre is not None:
+        plot.addItem(pg.ScatterPlotItem(
+            [a.centre.x_nm], [a.centre.y_nm], size=18, symbol="+",
+            pen=pg.mkPen(role("centre"), width=2),
+            brush=pg.mkBrush(role("centre"))))
+
+
+def old_rz(plot: Any, a: Any) -> None:
+    """Rz: MPSResultsWindow._draw_z at 01e603f; ``a`` = self._shown()."""
+    import pyqtgraph as pg
+    from PyQt5 import QtCore
+    from tools.mps_plot_style import rgba, role
+    plot.clear()
+    zr = a.z_result
+    if a.z_slab.size:
+        counts, edges = np.histogram(a.z_slab, bins=60, density=True)
+        centres = (edges[:-1] + edges[1:]) / 2
+        width = float(np.mean(np.diff(edges)))
+        plot.addItem(pg.BarGraphItem(
+            x=centres, height=counts, width=width,
+            brush=pg.mkBrush(*rgba("locs", 170)), pen=None))
+
+    lo, hi = a.slab_zmin_nm, a.slab_zmax_nm
+    span = max(hi - lo, 1.0)
+    grid = np.linspace(lo - 2 * span, hi + 2 * span, 1024)
+    for m, wgt, s in zip(zr.means_nm, zr.weights, zr.sigmas_nm):
+        if s <= 0:
+            continue
+        dens = wgt * np.exp(-0.5 * ((grid - m) / s) ** 2) / (
+            s * np.sqrt(2 * np.pi))
+        plot.addItem(pg.PlotDataItem(
+            grid, dens, pen=pg.mkPen(role("fit"), width=2,
+                                     style=QtCore.Qt.DashLine)))
+        plot.addItem(pg.InfiniteLine(
+            pos=float(m), angle=90,
+            pen=pg.mkPen(role("fit"), width=1,
+                         style=QtCore.Qt.DotLine)))
+
+    region = pg.LinearRegionItem(values=(lo, hi), movable=False)
+    region.setBrush(pg.mkBrush(*rgba("slab", 60)))
+    region.setZValue(-10)
+    plot.addItem(region)
+
+
+def old_rn(plot: Any, a: Any) -> None:
+    """Rn: MPSResultsWindow._draw_nn at 01e603f; ``a`` = self._shown()."""
+    import pyqtgraph as pg
+    from PyQt5 import QtCore
+    from tools.mps_plot_style import rgba, role
+    plot.clear()
+    if a.nn is None or a.nn.first_nn_nm.size == 0:
+        return
+    vals = a.nn.first_nn_nm
+    counts, edges = np.histogram(vals, bins=30)
+    centres = (edges[:-1] + edges[1:]) / 2
+    width = float(np.mean(np.diff(edges)))
+    plot.addItem(pg.BarGraphItem(
+        x=centres, height=counts, width=width,
+        brush=pg.mkBrush(*rgba("locs", 190)), pen=None))
+    med = a.nn.median_1nn_nm
+    if med is not None:
+        plot.addItem(pg.InfiniteLine(
+            pos=med, angle=90, pen=pg.mkPen(role("summary"), width=2),
+            label=f"median {med:,.0f} nm",
+            labelOpts={"position": 0.9, "color": role("summary")}))
+    plot.addItem(pg.InfiniteLine(
+        pos=260.0, angle=90,
+        pen=pg.mkPen(role("paper"), width=2, style=QtCore.Qt.DashLine),
+        label="paper 260 nm",
+        labelOpts={"position": 0.75, "color": role("paper")}))
+
+
+def old_rc(plot: Any, a: Any) -> None:
+    """Rc: MPSResultsWindow._draw_cdf at 01e603f; ``a`` = self._shown()."""
+    import pyqtgraph as pg
+    from PyQt5 import QtCore
+    from tools.mps_plot_style import role
+    plot.clear()
+    r = a.randomization
+    if r is None:
+        return
+
+    def cdf(v: Any) -> Tuple[np.ndarray, np.ndarray]:
+        v = np.sort(np.asarray(v, dtype=float))
+        return v, np.arange(1, v.size + 1) / v.size
+
+    xe, ye = cdf(r.experimental_1nn_nm)
+    xr, yr = cdf(r.randomized_1nn_nm)
+    plot.addItem(pg.PlotDataItem(
+        xr, yr, pen=pg.mkPen(role("randomized"), width=2),
+        name="randomized"))
+    plot.addItem(pg.PlotDataItem(
+        xe, ye, pen=pg.mkPen(role("observed"), width=2),
+        name="observed"))
+
+    if r.cdf_crossing is not None:
+        line = pg.InfiniteLine(
+            pos=r.cdf_crossing, angle=0,
+            pen=pg.mkPen(role("paper"), width=1,
+                         style=QtCore.Qt.DashLine),
+            label=f"crossing {r.cdf_crossing:.2f}",
+            labelOpts={"position": 0.05, "color": role("paper")})
+        plot.addItem(line)
+
+
+# A1: tools/mps_axoplasm_window.py at 01e603f (module constants, _cased_edge, _region_rect, _draw's image part).
+OLD_MAX_DRAWN = 20000
+
+
+def _old_outline_colours() -> Tuple[Any, Any]:
+    from tools.mps_plot_style import rgba
+    return rgba("image_tubulin", 255), rgba("image_spectrin", 255)   # _OUTLINE, _SPECTRIN_OUTLINE
+
+
+def old_cased_edge(edge: "np.ndarray", colour: tuple) -> "np.ndarray":
+    """_cased_edge at 01e603f."""
+    from scipy import ndimage
+    rim = ndimage.binary_dilation(edge) & ~edge
+    rgba = np.zeros(edge.shape + (4,), dtype=np.ubyte)
+    rgba[rim] = (0, 0, 0, 200)
+    rgba[edge] = colour
+    return rgba
+
+
+class OldAxoplasmImage:
+    """A1, the Axoplasm panel's image as AxoplasmWindow._draw drew it at 01e603f: the same items, in a fresh plot,
+    drawn from the panel's model attributes (``aw``). ``show_reference`` stands for ``check_reference``."""
+
+    def __init__(self) -> None:
+        import pyqtgraph as pg
+        from PyQt5 import QtCore
+        from tools.mps_plot_style import neutral, role
+        self.plot_image = pg.PlotWidget()
+        self.image_item = pg.ImageItem()
+        self.outline_item = pg.ImageItem()
+        self.spectrin_outline_item = pg.ImageItem()
+        self.membrane_item = pg.ScatterPlotItem(pen=None, brush=pg.mkBrush(role("locs")), size=2)
+        self.interior_item = pg.ScatterPlotItem(pen=None, brush=pg.mkBrush(role("discarded")), size=2)
+        self.contour_all_item = pg.PlotDataItem(pen=pg.mkPen(role("contour_all"), width=2,
+                                                             style=QtCore.Qt.PenStyle.DashLine))
+        self.contour_item = pg.PlotDataItem(pen=pg.mkPen(role("contour_kept"), width=2))
+        self.centre_item = pg.ScatterPlotItem(pen=pg.mkPen("k", width=2), brush=pg.mkBrush(neutral(dark=True)),
+                                              size=18, symbol="+")
+        self.cluster_item = pg.ScatterPlotItem(pen=pg.mkPen(neutral(dark=True)), brush=None, size=9)
+        self.tubulin_only_item = pg.ScatterPlotItem(pen=pg.mkPen(role("image_tubulin"), width=2), brush=None,
+                                                    size=10)
+        self.spectrin_only_item = pg.ScatterPlotItem(pen=pg.mkPen(role("image_spectrin"), width=2), brush=None,
+                                                     size=10, symbol="s")
+        self.discarded_item = pg.ScatterPlotItem(pen=pg.mkPen("k"), brush=pg.mkBrush(role("discarded")), size=10)
+        self.free_item = pg.ScatterPlotItem(pen=None, brush=pg.mkBrush(neutral(dark=True)), size=2)
+        for item in (self.image_item, self.outline_item, self.spectrin_outline_item, self.membrane_item,
+                     self.interior_item, self.free_item, self.cluster_item, self.tubulin_only_item,
+                     self.spectrin_only_item, self.discarded_item, self.contour_all_item, self.contour_item,
+                     self.centre_item):
+            self.plot_image.addItem(item)
+
+    @staticmethod
+    def _region_rect(aw: Any, rows: Tuple[int, int], cols: Tuple[int, int], offset: Tuple[float, float]) -> Any:
+        from PyQt5 import QtCore
+        sx, sy = aw._shift_px()
+        px = aw.pixel_nm
+        return QtCore.QRectF(
+            (cols[0] - 0.5 - offset[0] - sx) * px,
+            (rows[0] - 0.5 - offset[1] - sy) * px,
+            (cols[1] - cols[0]) * px, (rows[1] - rows[0]) * px)
+
+    def draw(self, aw: Any, show_reference: bool) -> None:
+        from scipy import ndimage
+        from tools import mps_axoplasm as ax
+        _OUTLINE, _SPECTRIN_OUTLINE = _old_outline_colours()
+        mask = aw.axoplasm
+        for item in (self.membrane_item, self.interior_item, self.free_item,
+                     self.cluster_item, self.tubulin_only_item,
+                     self.spectrin_only_item, self.discarded_item,
+                     self.contour_all_item, self.contour_item,
+                     self.centre_item):
+            item.setData([], [])
+        self.spectrin_outline_item.clear()
+        if mask is None or aw.tubulin is None:
+            self.image_item.clear()
+            self.outline_item.clear()
+            return
+        r0, r1, c0, c1 = mask.region
+        image, offset = aw.tubulin.image, aw.tubulin_offset
+        rows, cols = (r0, r1), (c0, c1)
+        if show_reference and aw.reference is not None:
+            dr = aw.reference_offset[1] - aw.tubulin_offset[1]
+            dc = aw.reference_offset[0] - aw.tubulin_offset[0]
+            height, width = aw.reference.shape
+            rows = (int(max(0, r0 + dr)), int(min(height, r1 + dr)))
+            cols = (int(max(0, c0 + dc)), int(min(width, c1 + dc)))
+            image, offset = aw.reference.image, aw.reference_offset
+        region = image[rows[0]:rows[1], cols[0]:cols[1]]
+        if region.size:
+            low, high = np.percentile(region, (1, 99.7))
+            self.image_item.setImage(region.T, levels=(low, max(high, low + 1)))
+            self.image_item.setRect(self._region_rect(aw, rows, cols, offset))
+        else:
+            self.image_item.clear()
+
+        edge = mask.mask & ~ndimage.binary_erosion(mask.mask)
+        self.outline_item.setImage(
+            np.transpose(old_cased_edge(edge, _OUTLINE), (1, 0, 2)),
+            levels=(0, 255))
+        self.outline_item.setRect(self._region_rect(aw, (r0, r1), (c0, c1), aw.tubulin_offset))
+
+        result = aw.result
+        loc = aw.inputs.loc
+        if result is not None:
+            rng = np.random.default_rng(0)
+            located = (aw.located if aw.located is not None
+                       else np.full(loc.n, ax.LOC_NO_CLUSTER, dtype=object))
+            for label, item in ((ax.LOC_NO_CLUSTER, self.free_item),
+                                (ax.LOC_MEMBRANE, self.membrane_item),
+                                (ax.LOC_INSIDE, self.interior_item)):
+                idx = np.nonzero(located == label)[0]
+                if idx.size > OLD_MAX_DRAWN:
+                    idx = rng.choice(idx, OLD_MAX_DRAWN, replace=False)
+                item.setData(loc.x_nm[idx], loc.y_nm[idx])
+        interior = aw.spectrin_interior
+        if interior is not None and interior.mask.any():
+            ring = interior.mask & ~ndimage.binary_erosion(interior.mask)
+            cased = old_cased_edge(ring, _SPECTRIN_OUTLINE)
+            self.spectrin_outline_item.setImage(
+                np.transpose(cased, (1, 0, 2)), levels=(0, 255))
+            ir0, ir1, ic0, ic1 = interior.region
+            self.spectrin_outline_item.setRect(self._region_rect(
+                aw, (ir0, ir1), (ic0, ic1), aw.reference_offset))
+        found = aw.anchored
+        if found is not None and aw.anchored_centroids is not None:
+            c = aw.anchored_centroids
+            for item, group in ((self.discarded_item, found.discarded),
+                                (self.tubulin_only_item, found.tubulin_only),
+                                (self.spectrin_only_item,
+                                 found.spectrin_only),
+                                (self.cluster_item, found.inside_neither)):
+                members = np.asarray(group, dtype=bool)
+                item.setData(c[members, 0], c[members, 1])
+            for item, drawn in ((self.contour_all_item, found.contour_all),
+                                (self.contour_item, found.contour_anchored)):
+                if drawn is not None:
+                    closed = np.vstack([drawn.contour, drawn.contour[:1]])
+                    item.setData(closed[:, 0], closed[:, 1])
+            new = found.contour_anchored
+            if new is not None and new.centre is not None:
+                self.centre_item.setData([new.centre.x_nm],
+                                         [new.centre.y_nm])
+        else:
+            centroids = aw.inputs.clusters()
+            if centroids is not None and len(centroids):
+                c = np.asarray(centroids, float)
+                self.cluster_item.setData(c[:, 0], c[:, 1])
+
+
+def _old_segments_with_locs(ms: Any, field: str) -> List[Any]:
+    """MPSRingsWindow._segments_with_locs at 01e603f."""
+    out = []
+    for k, (seg, an) in enumerate(zip(ms.segments, ms.analyses)):
+        if an is not None and getattr(an, field).size:
+            out.append((k, seg, an))
+    return out
+
+
+def old_g1(ms: Any) -> Tuple[Any, Any]:
+    """G1: the superimposed part of MPSRingsWindow._draw_spatial at 01e603f (the plot and its layer panel).
+    Returns (plot_overlay, overlay_layers)."""
+    import pyqtgraph as pg
+    from tools.mps_layer_panel import LayerPanel, Swatch
+    from tools.mps_plot_style import segment_colour, segment_symbol
+    plot_overlay = pg.PlotWidget()
+    overlay_layers = LayerPanel()
+    plot_overlay.clear()
+    overlay_layers.clear_layers(keep_state=True)
+    overlay_layers.add_group("Segments")
+    rows = _old_segments_with_locs(ms, "x_slab")
+    for k, seg, an in rows:
+        scatter = pg.ScatterPlotItem(
+            an.x_slab, an.y_slab, pen=pg.mkPen(segment_colour(k), width=1),
+            brush=None, size=5, symbol=segment_symbol(k))
+        plot_overlay.addItem(scatter)
+        overlay_layers.add_layer(
+            f"seg{seg.index}", f"Segment {seg.index}",
+            Swatch("symbol", segment_colour(k), symbol=segment_symbol(k),
+                   hollow=True),
+            items=[scatter], count=int(np.asarray(an.x_slab).size),
+            tip=f"Draw segment {seg.index}'s localizations in the "
+                "superimposed plot (the number is how many).")
+    return plot_overlay, overlay_layers
+
+
+def old_gz(plot: Any, ms: Any) -> None:
+    """Gz: MPSRingsWindow._draw_z at 01e603f."""
+    import pyqtgraph as pg
+    from PyQt5 import QtCore, QtGui
+    from tools.mps_plot_style import neutral, rgba, segment_colour
+    _C_NEUTRAL = neutral(dark=True)
+    plot.clear()
+    zr = ms.z_result
+
+    zs = [a.z_slab for a in ms.analyses if a is not None and a.z_slab.size]
+    if zs:
+        allz = np.concatenate(zs)
+        counts, edges = np.histogram(allz, bins=80, density=True)
+        centres = (edges[:-1] + edges[1:]) / 2
+        plot.addItem(pg.BarGraphItem(
+            x=centres, height=counts, width=float(np.mean(np.diff(edges))),
+            brush=pg.mkBrush(*rgba("dim", 80)), pen=None))
+
+        grid = np.linspace(allz.min(), allz.max(), 1024)
+        dens = zr.mixture_density(grid)
+        if np.any(dens > 0):
+            plot.addItem(pg.PlotDataItem(
+                grid, dens, pen=pg.mkPen(_C_NEUTRAL, width=2)))
+
+    for k, seg in enumerate(ms.segments):
+        region = pg.LinearRegionItem(
+            values=(seg.zmin_nm, seg.zmax_nm), movable=False)
+        col = QtGui.QColor(segment_colour(k))
+        col.setAlpha(55)
+        region.setBrush(pg.mkBrush(col))
+        region.setZValue(-10)
+        plot.addItem(region)
+        plot.addItem(pg.InfiniteLine(
+            pos=seg.center_nm, angle=90,
+            pen=pg.mkPen(segment_colour(k), width=2,
+                         style=QtCore.Qt.DotLine),
+            label=f"seg {seg.index}",
+            labelOpts={"position": 0.95,
+                       "color": segment_colour(k)}))
+
+    if ms.valleys is not None:
+        for pos, real, depth in zip(ms.valleys.positions_nm,
+                                    ms.valleys.is_true_valley,
+                                    ms.valleys.relative_depth):
+            plot.addItem(pg.InfiniteLine(
+                pos=float(pos), angle=90,
+                pen=pg.mkPen(
+                    _C_NEUTRAL, width=2,
+                    style=QtCore.Qt.SolidLine if real
+                    else QtCore.Qt.DashLine),
+                label=(f"valley {depth:.2f}" if real else "no valley"),
+                labelOpts={"position": 0.08, "color": _C_NEUTRAL}))
+
+
+def old_gh(grid: Any, ms: Any) -> None:
+    """Gh: MPSRingsWindow._draw_zhist at 01e603f, into ``grid`` (a GraphicsLayoutWidget)."""
+    import pyqtgraph as pg
+    from PyQt5 import QtCore, QtGui
+    from tools.mps_plot_style import segment_colour, set_title, style_dark
+    grid.clear()
+    rows = _old_segments_with_locs(ms, "z_slab")
+    if not rows:
+        return
+    lo = min(seg.zmin_nm for _, seg, _ in rows)
+    hi = max(seg.zmax_nm for _, seg, _ in rows)
+    pad = 0.05 * max(hi - lo, 1.0)
+    zr = (lo - pad, hi + pad)
+
+    first: Optional[Any] = None
+    for i, (k, seg, an) in enumerate(rows):
+        colour = segment_colour(k)
+        p = grid.addPlot(row=0, col=i)
+        style_dark(p)
+        set_title(p, f"segment {seg.index}")
+        counts, edges = np.histogram(an.z_slab, bins=40)
+        centres = (edges[:-1] + edges[1:]) / 2
+        width = float(np.mean(np.diff(edges))) if edges.size > 1 else 1.0
+        fill = QtGui.QColor(colour)
+        fill.setAlpha(170)
+        p.addItem(pg.BarGraphItem(
+            x=centres, height=counts, width=width,
+            brush=pg.mkBrush(fill), pen=None))
+        for bound in (seg.zmin_nm, seg.zmax_nm):
+            p.addItem(pg.InfiniteLine(
+                pos=float(bound), angle=90,
+                pen=pg.mkPen(colour, width=1, style=QtCore.Qt.DashLine)))
+        p.setLabels(bottom="z [nm]", left="count" if i == 0 else "")
+        p.setXRange(*zr, padding=0)
+        if first is None:
+            first = p
+        else:
+            p.setXLink(first)
+
+
+def old_m4(centroids: Any, xroi: Any, point_size: float) -> Any:
+    """M4: MPS_explorer._render_good_clusters_panel at 01e603f; returns the widget it put in the layout."""
+    import pyqtgraph as pg
+    from tools.mps_plot_style import role
+    brush3 = pg.mkBrush(role("centroid"))
+    good_clusters_widget = pg.GraphicsLayoutWidget()
+    good_clusters_plot = good_clusters_widget.addPlot(
+        title="Clusters centers and distances")
+    good_clusters_plot.setAspectLocked(True)
+    good_clusters_plot.setLabels(bottom='x [nm]', left='y [nm]')
+
+    if len(centroids):
+        good_clusters_plot.addItem(pg.ScatterPlotItem(
+            centroids[:, 0], centroids[:, 1],
+            size=point_size, brush=brush3))
+
+    if xroi is not None and len(xroi):
+        good_clusters_plot.setXRange(
+            np.min(xroi), np.max(xroi), padding=0)
+    return good_clusters_widget
+
+
+def old_m5(good_cluster_centroids: Any, n_text: str, lmin: Optional[float], lmax: Optional[float],
+           bins_: Optional[int]) -> Tuple[np.ndarray, Any]:
+    """M5: MPS_explorer.KNdist_hist at 01e603f (the message boxes left out). Returns (self.distances, the widget
+    it put in the layout, or None when nothing was in range)."""
+    import pyqtgraph as pg
+    from sklearn.neighbors import KDTree
+    from tools.mps_plot_style import role
+    brush3 = pg.mkBrush(role("centroid"))
+    Nneighbor = int(float(n_text))
+    tree = KDTree(good_cluster_centroids)
+    distances, indexes = tree.query(good_cluster_centroids, Nneighbor + 1)
+    distances = distances[:, 1:]
+
+    histzWidget3 = pg.GraphicsLayoutWidget()
+    histabcm = histzWidget3.addPlot(title="distances Histogram")
+    distances_full = distances
+    plot_distances = distances_full
+    if lmin is not None and lmax is not None:
+        in_range = ((distances_full > lmin)
+                    & (distances_full < lmax))
+        plot_distances = distances_full[in_range]
+    bins = bins_ if bins_ is not None else 20
+    if plot_distances.size == 0:
+        return distances, None
+    histcmdist, bin_edgescmdist = np.histogram(plot_distances, bins)
+    widthcmdist = np.mean(np.diff(bin_edgescmdist))
+    bincenterscmdist = np.mean(np.vstack([bin_edgescmdist[0:-1], bin_edgescmdist[1:]]), axis=0)
+    bargraphcmdist = pg.BarGraphItem(x=bincenterscmdist, height=histcmdist,
+                                     width=widthcmdist, brush=brush3, pen=None)
+    histabcm.addItem(bargraphcmdist)
+    histabcm.setXRange(lmin, lmax)
+    return distances, histzWidget3
+
+
+def old_savedistdata(filename: str, dist: np.ndarray, labels: Optional[np.ndarray]) -> None:
+    """MPS_explorer.savedistdata at 01e603f (after the file dialog); ``labels`` = self._current_cluster_labels()."""
+    import pandas as pd
+    data = {}
+    if labels is not None and len(labels) == len(dist):
+        data["cluster_label"] = np.asarray(labels, dtype=int)
+    for k in range(dist.shape[1]):
+        data[f"nn{k + 1}_nm"] = dist[:, k]
+    pd.DataFrame(data).to_csv(filename, index=False,
+                              float_format="%.2f")
+
+
+def old_current_cluster_labels(mw: Any) -> Optional[np.ndarray]:
+    """MPS_explorer._current_cluster_labels at 01e603f (with _current_cluster_centroids inlined)."""
+    from tools.cluster_quality import good_cluster_labels
+    analysis = mw.mps_analysis
+    current = mw._analysed_x is not None and (
+        mw._analysed_x is mw.xroi_unfiltered
+        or mw._analysed_x is mw.xroi)
+    if analysis is None or not current:
+        return None
+    return good_cluster_labels(np.asarray(analysis.labels),
+                               analysis.bad_report.bad_labels)
 
 
 def main() -> int:
@@ -234,8 +802,10 @@ def main() -> int:
             pump(app, 0.02)
             a = w._shown()
             groups = L.build_map(map_inputs(name))
-            scat = scatter_items(w.plot_contour)
-            lines = line_items(w.plot_contour)
+            r1 = pg.PlotWidget()                            # R1 as it drew, from the same objects
+            old_r1(r1, a, w.analysis, w.comparison, dark=w.dark)
+            scat = scatter_items(r1)
+            lines = line_items(r1)
 
             def by(size: float, symbol: Optional[str] = None) -> List[Any]:
                 return [s for s in scat if float(s.opts["size"]) == size
@@ -299,9 +869,12 @@ def main() -> int:
         return "the discard-applied contour equals A1's blue contour; every-cluster contour equals A1's orange one"
 
     def m4_parity() -> str:
+        import MPS_explorer
         mw = need(st, "mw")
-        layout = mw.ui.scatterlayout_goodclus
-        widget = layout.itemAt(layout.count() - 1).widget()
+        # run_mps_analysis drew M4 from analysis.centroids (it set good_cluster_centroids from the same array)
+        assert same(mw.good_cluster_centroids, need(st, "measured").centroids)
+        widget = old_m4(mw.mps_analysis.centroids, mw.xroi,
+                        getattr(MPS_explorer, "CLUSTER_CENTROID_POINT_SIZE", 10))
         plot = widget.ci.items if hasattr(widget, "ci") else None
         items = [it for p in (plot or []) for it in getattr(p, "items", []) if isinstance(it, pg.ScatterPlotItem)]
         assert items, "M4 drew no centres"
@@ -321,74 +894,86 @@ def main() -> int:
             selection_note=aw.selection_note, margin_nm=float(aw.anchored.margin_nm) if aw.anchored else None,
             registration="measured", has_result=aw.result is not None)
 
+    a1_keys = ("sel_inside", "sel_membrane", "sel_free", "c_both", "c_tubulin", "c_spectrin", "c_neither")
+
     def a1_parity() -> str:
         from tools import mps_axoplasm_window as axw
         from tools.mps_axon_map import cased_edge_rgba
         aw = need(st, "aw")
-        aw.check_reference.setChecked(False)
-        aw._draw()
+        _OUTLINE, _SPECTRIN_OUTLINE = _old_outline_colours()
+        a1 = OldAxoplasmImage()                             # A1 as it drew, check box off (the tubulin image)
+        a1.draw(aw, show_reference=False)
         state = axoplasm_state(aw)
         st["ax_state"] = state
         inp = map_inputs("discard", axoplasm=state, source="selection", colour_by="images")
         groups = L.build_map(inp)
-        for key, item in (("sel_inside", aw.interior_item), ("sel_membrane", aw.membrane_item),
-                          ("sel_free", aw.free_item), ("c_both", aw.discarded_item),
-                          ("c_tubulin", aw.tubulin_only_item), ("c_spectrin", aw.spectrin_only_item),
-                          ("c_neither", aw.cluster_item)):
+        old_items = dict(zip(a1_keys, (a1.interior_item, a1.membrane_item, a1.free_item, a1.discarded_item,
+                                       a1.tubulin_only_item, a1.spectrin_only_item, a1.cluster_item)))
+        for key, item in old_items.items():
             ox, oy = xy(item)
             lay = layer_of(groups, key)
             assert same(lay.data["x"], ox) and same(lay.data["y"], oy), key
         img = layer_of(groups, "image")
-        assert same(img.data["image"].T, aw.image_item.image), "tubulin image region"
-        r = aw.image_item.mapRectToParent(aw.image_item.boundingRect())
+        assert same(img.data["image"].T, a1.image_item.image), "tubulin image region"
+        r = a1.image_item.mapRectToParent(a1.image_item.boundingRect())
         assert np.allclose(img.data["rect"], (r.x(), r.y(), r.width(), r.height())), "tubulin image rect"
-        assert np.allclose(img.data["levels"], aw.image_item.levels), "levels p1-p99.7"
+        assert np.allclose(img.data["levels"], a1.image_item.levels), "levels p1-p99.7"
         edge = layer_of(groups, "tubulin_edge")
-        assert same(np.transpose(axw._cased_edge(edge.data["edge"], axw._OUTLINE), (1, 0, 2)),
-                    aw.outline_item.image), "tubulin edge"
-        assert same(cased_edge_rgba(edge.data["edge"], axw._OUTLINE), axw._cased_edge(edge.data["edge"],
-                                                                                       axw._OUTLINE))
+        assert same(np.transpose(old_cased_edge(edge.data["edge"], _OUTLINE), (1, 0, 2)),
+                    a1.outline_item.image), "tubulin edge"
+        r1_ = a1.outline_item.mapRectToParent(a1.outline_item.boundingRect())
+        assert np.allclose(edge.data["rect"], (r1_.x(), r1_.y(), r1_.width(), r1_.height())), "tubulin edge rect"
+        assert same(cased_edge_rgba(edge.data["edge"], _OUTLINE), old_cased_edge(edge.data["edge"], _OUTLINE))
         sedge = layer_of(groups, "spectrin_edge")
-        assert same(np.transpose(axw._cased_edge(sedge.data["edge"], axw._SPECTRIN_OUTLINE), (1, 0, 2)),
-                    aw.spectrin_outline_item.image), "spectrin edge"
-        r2 = aw.spectrin_outline_item.mapRectToParent(aw.spectrin_outline_item.boundingRect())
+        assert same(np.transpose(old_cased_edge(sedge.data["edge"], _SPECTRIN_OUTLINE), (1, 0, 2)),
+                    a1.spectrin_outline_item.image), "spectrin edge"
+        r2 = a1.spectrin_outline_item.mapRectToParent(a1.spectrin_outline_item.boundingRect())
         assert np.allclose(sedge.data["rect"], (r2.x(), r2.y(), r2.width(), r2.height()))
         # A1's contours and centre are the discard comparison's own objects
-        cx, cy = xy(aw.contour_item)
+        cx, cy = xy(a1.contour_item)
         lay = layer_of(groups, "contour")
         assert same(lay.data["x"], cx) and same(lay.data["y"], cy), "A1's blue contour"
-        ax_, ay_ = xy(aw.contour_all_item)
+        ax_, ay_ = xy(a1.contour_all_item)
         la = layer_of(groups, "contour_all")
         assert same(la.data["x"], ax_) and same(la.data["y"], ay_), "A1's orange dashed contour"
-        px, py = xy(aw.centre_item)
+        px, py = xy(a1.centre_item)
         assert same(layer_of(groups, "centre").data["x"], px) and same(layer_of(groups, "centre").data["y"], py)
         # the spectrin image, as A1's check box drew it
-        aw.check_reference.setChecked(True)
-        aw._draw()
+        a1.draw(aw, show_reference=True)
         sp = layer_of(L.build_map(map_inputs("discard", axoplasm=state, source="selection", colour_by="images",
                                              image="spectrin")), "image")
-        assert sp.data["which"] == "spectrin" and same(sp.data["image"].T, aw.image_item.image)
-        r3 = aw.image_item.mapRectToParent(aw.image_item.boundingRect())
+        assert sp.data["which"] == "spectrin" and same(sp.data["image"].T, a1.image_item.image)
+        r3 = a1.image_item.mapRectToParent(a1.image_item.boundingRect())
         assert np.allclose(sp.data["rect"], (r3.x(), r3.y(), r3.width(), r3.height()))
-        aw.check_reference.setChecked(False)
-        aw._draw()
-        n = {k: layer_of(groups, k).count for k in ("sel_inside", "sel_membrane", "sel_free", "c_both", "c_tubulin",
-                                                     "c_spectrin", "c_neither")}
-        assert L.MAX_DRAWN_PER_CLASS == axw.MAX_DRAWN
-        return "image (both), edges, 3 localization classes, 4 cluster groups, contours and centre equal: " + \
-            ", ".join(f"{k} {v}" for k, v in n.items())
+        # the panel's own map_state() (what the windows draw from) gives the same layers
+        a1.draw(aw, show_reference=False)
+        own = L.build_map(map_inputs("discard", axoplasm=aw.map_state(), source="selection", colour_by="images"))
+        for key, item in old_items.items():
+            ox, oy = xy(item)
+            lay = layer_of(own, key)
+            assert same(lay.data["x"], ox) and same(lay.data["y"], oy), ("map_state", key)
+        for key, fields in (("image", ("image", "rect", "levels")), ("tubulin_edge", ("edge", "rect")),
+                            ("spectrin_edge", ("edge", "rect"))):
+            for field in fields:
+                assert same(layer_of(own, key).data[field], layer_of(groups, key).data[field]), \
+                    ("map_state", key, field)
+        n = {k: layer_of(groups, k).count for k in a1_keys}
+        assert L.MAX_DRAWN_PER_CLASS == axw.MAX_DRAWN == OLD_MAX_DRAWN
+        return "image (both), edges, 3 localization classes, 4 cluster groups, contours and centre equal " \
+            "(also via map_state()): " + ", ".join(f"{k} {v}" for k, v in n.items())
 
     def g1_parity() -> str:
         rw = need(st, "mw").rings_window
         ms = rw.ms
         groups = L.build_map(map_inputs("measured", rings=ms, source="segments"))
         rows = [layer for layer in group_of(groups, "localizations").layers]
-        keys = rw.overlay_layers.keys()
+        _plot_overlay, overlay_layers = old_g1(ms)          # G1 as it drew, from the same ms
+        keys = overlay_layers.keys()
         assert [r.key for r in rows] == keys, (keys, [r.key for r in rows])
         for r in rows:
-            ox, oy = xy(rw.overlay_layers.items(r.key)[0])
+            ox, oy = xy(overlay_layers.items(r.key)[0])
             assert same(r.data["x"], ox) and same(r.data["y"], oy), r.key
-            assert rw.overlay_layers.checkbox(r.key).text() == f"{r.label} ({r.count})", r.key
+            assert overlay_layers.checkbox(r.key).text() == f"{r.label} ({r.count})", r.key
         for key in L.SEGMENTS_DISABLE:
             for g in groups:
                 for layer in g.layers:
@@ -396,7 +981,69 @@ def main() -> int:
                         assert not layer.enabled and layer.reason == L.SEGMENT_COLOUR_REASON, key
         return f"{len(rows)} segment rows: same keys, labels, counts and points as the rings panel"
 
+    def windows_use_builders() -> str:
+        # Light sanity: the MPS window that replaced R1, Rz, Rn and Rc draws what the builders build, and its
+        # drawn items carry the arrays the old code drew.
+        w = need(st, "w")
+        w.axon_map.set_view("mps")
+        nn = w.nn
+        bins0 = nn.spin_bins.value()
+        nn.radio_range_auto.setChecked(True)
+        nn.spin_neighbours.setValue(1)
+        nn.spin_bins.setValue(30)
+        out = []
+        try:
+            for name, radio in radios():
+                radio.setChecked(True)
+                pump(app, 0.02)
+                a = w._shown()
+                amap = w.axon_map
+                assert amap.inputs().shown == name and amap.inputs().source == "slab", name
+                built = L.build_map(map_inputs(name))
+                for key in ("slab_kept", "c_kept", "contour", "centre"):
+                    b = layer_of(built, key)
+                    drawn = amap.layer(key)
+                    assert same(drawn.data["x"], b.data["x"]) and same(drawn.data["y"], b.data["y"]), (name, key)
+                    items = amap.items(key)
+                    assert items, (name, key)
+                    for it in items:
+                        ix, iy = xy(it)
+                        assert same(ix, b.data["x"]) and same(iy, b.data["y"]), (name, key, "item")
+                # axial: the slab's own z and the components, as Rz drew them
+                rz = pg.PlotWidget()
+                old_rz(rz, a)
+                old_means = [float(it.value()) for it in rz.getPlotItem().items if isinstance(it, pg.InfiniteLine)]
+                comp_items = w.axial.items("components")
+                means = [float(it.value()) for it in comp_items if isinstance(it, pg.InfiniteLine)]
+                assert np.allclose(means, old_means), (name, means, old_means)
+                old_curves = [xy(it) for it in rz.getPlotItem().items if isinstance(it, pg.PlotDataItem)]
+                curves = [xy(it) for it in comp_items if isinstance(it, pg.PlotDataItem)]
+                assert len(curves) == len(old_curves) and all(
+                    same(c[0], o[0]) and same(c[1], o[1]) for c, o in zip(curves, old_curves)), name
+                assert same(np.sort(w.axial.layer("roi_in").data["z"]), np.sort(a.z_slab)), name
+                # nearest neighbours: the bars Rn drew, the CDFs Rc drew
+                rn, rc = pg.PlotWidget(), pg.PlotWidget()
+                old_rn(rn, a)
+                old_rc(rc, a)
+                ob = [it for it in rn.getPlotItem().items if isinstance(it, pg.BarGraphItem)][0]
+                nb = [it for it in nn.items_of("nn_bars") if isinstance(it, pg.BarGraphItem)][0]
+                assert same(nb.opts["height"], ob.opts["height"]) and same(nb.opts["x"], ob.opts["x"]), name
+                old_c = {it.opts["name"]: xy(it) for it in rc.getPlotItem().items if isinstance(it, pg.PlotDataItem)}
+                new_c = {it.opts["name"]: xy(it) for it in nn.plot_cdf.getPlotItem().items
+                         if isinstance(it, pg.PlotDataItem)}
+                for nm_ in ("observed", "randomized"):
+                    key = [k for k in new_c if k and nm_ in k.lower()]
+                    assert key, (name, nm_, list(new_c))
+                    assert same(new_c[key[0]][0], old_c[nm_][0]) and same(new_c[key[0]][1], old_c[nm_][1]), name
+                out.append(name)
+        finally:
+            nn.spin_bins.setValue(bins0)
+            w.radio_measured.setChecked(True)
+        return ("the MPS window's map items, axial components and slab z, NN bars and CDFs equal the builders' "
+                "and the old code's, for " + ", ".join(out))
+
     check("map vs R1 (each radio state): every layer's arrays", r1_parity)
+    check("the MPS window draws from the builders (map, axial, nearest neighbours)", windows_use_builders)
     check("map's contours by value with nothing to compare by identity", contour_by_value)
     check("map vs M4 (main window's cluster centres)", m4_parity)
     check("map vs A1 (image, edges, classes, groups, contours, centre)", a1_parity)
@@ -414,7 +1061,9 @@ def main() -> int:
             a = w._shown()
             inp = L.AxialInputs(z_roi=mw.zroi_unfiltered, analysis=a, cut=(float(mw.zmin), float(mw.zmax)))
             groups = L.build_axial(inp)
-            items = w.plot_z.getPlotItem().items
+            rz = pg.PlotWidget()                            # Rz as it drew
+            old_rz(rz, a)
+            items = rz.getPlotItem().items
             bars = [it for it in items if isinstance(it, pg.BarGraphItem)][0]
             roi_in = layer_of(groups, "roi_in")
             assert same(np.sort(roi_in.data["z"]), np.sort(a.z_slab)), "the slab's own z"
@@ -448,7 +1097,9 @@ def main() -> int:
         inp = L.AxialInputs(z_roi=mw.zroi_unfiltered, analysis=None, rings=ms, view="segments",
                             cut=(float(mw.zmin), float(mw.zmax)))
         groups = L.build_axial(inp)
-        items = rw.plot_z.getPlotItem().items
+        gz = pg.PlotWidget()                                # Gz as it drew, from the same ms
+        old_gz(gz, ms)
+        items = gz.getPlotItem().items
         regions = [it for it in items if isinstance(it, pg.LinearRegionItem)]
         lines = [it for it in items if isinstance(it, pg.InfiniteLine)]
         bands = [layer for layer in group_of(groups, "segments").layers if layer.key.startswith("segband")]
@@ -469,7 +1120,9 @@ def main() -> int:
         assert np.allclose(gy, ms.z_result.mixture_density(gx)), "the same mixture"
         assert not layer_of(groups, "components").enabled, "components disabled in Every segment"
         # Gh: each segment's own z (40-bin counts of the same array)
-        plots = [p for p in rw.zhist_grid.ci.items]
+        zhist_grid = pg.GraphicsLayoutWidget()              # Gh as it drew
+        old_gh(zhist_grid, ms)
+        plots = [p for p in zhist_grid.ci.items]
         hists = [layer for layer in group_of(groups, "segments").layers if layer.key.startswith("seghist")]
         assert len(plots) == len(hists)
         for p, h in zip(plots, hists):
@@ -494,7 +1147,10 @@ def main() -> int:
             pump(app, 0.02)
             a = w._shown()
             hist = L.nn_histogram(a, 1, 30)
-            items = w.plot_nn.getPlotItem().items
+            plot_nn, plot_cdf = pg.PlotWidget(), pg.PlotWidget()   # Rn and Rc as they drew
+            old_rn(plot_nn, a)
+            old_rc(plot_cdf, a)
+            items = plot_nn.getPlotItem().items
             bars = [it for it in items if isinstance(it, pg.BarGraphItem)][0]
             nl = L.nn_layers(a, hist)
             nb = [x for x in nl if x.key == "nn_bars"][0]
@@ -503,7 +1159,7 @@ def main() -> int:
             med = [x for x in nl if x.key == "nn_median"][0]
             ref = [x for x in nl if x.key == "nn_reference"][0]
             assert lines == med.data["positions"] + ref.data["positions"], (name, lines)
-            cdf_items = w.plot_cdf.getPlotItem().items
+            cdf_items = plot_cdf.getPlotItem().items
             curves = {it.opts["name"]: xy(it) for it in cdf_items if isinstance(it, pg.PlotDataItem)}
             cl = {x.key: x for x in L.cdf_layers(a)}
             for key, nm in (("cdf_observed", "observed"), ("cdf_randomized", "randomized")):
@@ -515,48 +1171,65 @@ def main() -> int:
         w.radio_measured.setChecked(True)
         return "bars, median and reference value equal Rn; the two CDFs and the crossing equal Rc, for each radio"
 
+    # M5's display state when nothing was typed in its three fields (MPS_explorer.__init__ at 01e603f)
+    def m5_state() -> Tuple[float, float, int]:
+        import MPS_explorer
+        return 0.0, float(MPS_explorer.MAX_LATERAL_DISTANCE_NM), int(MPS_explorer.DEFAULT_KNN_BINS)
+
     def m5_parity() -> str:
         mw = need(st, "mw")
         a = need(st, "measured")
-        mw.ui.lineEdit_Nneighbor.setText("3")
-        mw.KNdist_hist()
+        lmin, lmax, bins = m5_state()
+        distances, widget = old_m5(mw.good_cluster_centroids, "3", lmin, lmax, bins)   # M5 as it drew, N = 3
         pooled = L.knn_distances(a.centroids, 3)
-        assert same(pooled, mw.distances), "the same KD-tree distances"
-        h = L.nn_histogram(a, 3, int(mw.bins))
-        assert same(np.sort(h["values"]), np.sort(np.asarray(mw.distances).ravel()))
-        layout = mw.ui.zhistlayout_cmdist
-        widget = layout.itemAt(layout.count() - 1).widget()
+        assert same(pooled, distances), "the same KD-tree distances"
+        h = L.nn_histogram(a, 3, int(bins))
+        assert same(np.sort(h["values"]), np.sort(np.asarray(distances).ravel()))
+        assert widget is not None, "M5 drew nothing: every distance outside its range"
         bars = [it for p in widget.ci.items for it in getattr(p, "items", []) if isinstance(it, pg.BarGraphItem)][0]
-        d = np.asarray(mw.distances)
-        shown = d[(d > mw.lmin) & (d < mw.lmax)]
-        counts, edges = np.histogram(shown, int(mw.bins))
+        d = np.asarray(distances)
+        shown = d[(d > lmin) & (d < lmax)]
+        counts, edges = np.histogram(shown, int(bins))
         assert same(bars.opts["height"], counts)
         if shown.size == d.size:
             assert same(h["counts"], counts) and same(h["edges"], edges), "nothing outside: the same histogram"
-        hr = L.nn_histogram(a, 3, int(mw.bins), (float(mw.lmin), float(mw.lmax)))
-        assert hr["outside"] == int(np.sum((d < mw.lmin) | (d > mw.lmax)))
+        hr = L.nn_histogram(a, 3, int(bins), (lmin, lmax))
+        assert hr["outside"] == int(np.sum((d < lmin) | (d > lmax)))
         assert L.nn_max_neighbours(a.n_clusters_kept) == min(10, a.n_clusters_kept - 1)
-        return f"pooled 1st..3rd distances = M5's ({d.size}); the bars equal M5's; N capped at clusters - 1"
+        # the MPS window's tab starts where M5 started: its bins and its range
+        nn = need(st, "w").nn
+        assert nn.spin_bins.value() == bins and (nn.spin_range_min.value(), nn.spin_range_max.value()) == \
+            (lmin, lmax), (nn.spin_bins.value(), nn.spin_range_min.value(), nn.spin_range_max.value())
+        return (f"pooled 1st..3rd distances = M5's ({d.size}); the bars equal M5's; N capped at clusters - 1; the "
+                f"tab starts at M5's {bins} bins and {lmin:g}-{lmax:g} nm")
 
     def csv_bytes() -> str:
-        mw = need(st, "mw")
+        mw, w = need(st, "mw"), need(st, "w")
         a = need(st, "measured")
+        labels = old_current_cluster_labels(mw)
+        assert labels is not None, "the analysis does not describe the current selection"
+        w.radio_measured.setChecked(True)
+        pump(app, 0.02)
         out = []
         for n in (1, 3):
-            mw.ui.lineEdit_Nneighbor.setText(str(n))
-            mw.KNdist_hist()
+            distances, _widget = old_m5(mw.good_cluster_centroids, str(n), *m5_state())
             old = os.path.join(WORK, f"old_{n}.csv")
-            st["save_queue"].append(old)
-            mw.savedistdata()
+            old_savedistdata(old, distances, labels)      # "save dist data" as it wrote
             new = os.path.join(WORK, f"new_{n}.csv")
             L.write_distances_csv(new, a, a, n)
-            with open(old, "rb") as f1, open(new, "rb") as f2:
-                b1, b2 = f1.read(), f2.read()
-            assert b1 == b2, f"N={n}: the bytes differ"
+            tab = os.path.join(WORK, f"tab_{n}.csv")
+            w.nn.spin_neighbours.setValue(n)
+            assert w.nn.n() == n and w.nn.shown is a
+            w.nn.save_to(tab)                             # the MPS window's "Save distances..."
+            with open(old, "rb") as f1, open(new, "rb") as f2, open(tab, "rb") as f3:
+                b1, b2, b3 = f1.read(), f2.read(), f3.read()
+            assert b1 == b2, f"N={n}: write_distances_csv's bytes differ"
+            assert b1 == b3, f"N={n}: the tab's bytes differ"
             out.append(f"N={n}: {len(b1)} bytes")
+        w.nn.spin_neighbours.setValue(1)
         root = mw.get_root_filename()
         assert L.default_distances_name(root, 3) == f"{root}_3neighbor_distances.csv"
-        return "; ".join(out) + " identical to 'save dist data'"
+        return "; ".join(out) + " identical to 'save dist data' (write_distances_csv and the tab's save_to)"
 
     def nn1_csv_parity() -> str:
         import csv

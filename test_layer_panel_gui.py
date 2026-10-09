@@ -19,8 +19,9 @@ centres). What this test fixes:
      hidden, the membranes and the widefield image underneath toggle the real items.
   3. The Z quality view on a SIMULATED axon: every entry of both legends is bound to real items (labels unchanged),
      a click hides all of them and nothing else, and a redraw (criteria, cluster set, report) keeps it hidden.
-  4. The rings window: the segments are named in a layer panel beside the superimposed plot (no legend inside it);
-     a row hides that segment there only, and a redraw keeps it hidden.
+  4. The segments superimposed (UI stage 2): the rings window has no superimposed plot and its small multiples
+     still draw every segment; the axon map's segment rows (built from the same segments) sit in the layer panel
+     beside its plot (no legend inside it), a row hides that segment there only, and a redraw keeps it hidden.
 
 Column statistics are computed only on simulated axons (tools.mps_zquality_window.DEMO_CASES through
 batch_columns.write_simulated_input); every file goes to a temporary folder (MPS_SELECTION_LOG_DIR included).
@@ -627,9 +628,14 @@ def main() -> int:
     check("the profile tooltip mentions the legend clicks", zq_tooltip)
 
     # ------------------------------------------------------------------ 4. the rings window
-    print("\n4. The rings window's superimposed plot (simulated axon)")
+    print("\n4. The segments superimposed: on the axon map, not in the rings window (simulated axon)")
 
     def rings_overlay() -> str:
+        # Design (UI stage 2, IMPL-C): the rings window has no superimposed plot and its small multiples still
+        # draw every segment; the axon map's segment rows (built from the same ms) drive only their own items,
+        # keep their state through a redraw, sit beside the plot, and there is no legend inside it.
+        from tools import mps_axon_map_layers as L
+        from tools.mps_axon_map import AxonMap
         from tools.mps_multisegment import analyze_all_segments
         from tools.mps_rings_window import MPSRingsWindow
         inp = need(st, "inp_viable")
@@ -638,35 +644,64 @@ def main() -> int:
         w = MPSRingsWindow(ms)
         w.show()
         tabs = w.findChild(QtWidgets.QTabWidget)
-        tabs.setCurrentIndex(1)                     # "Spatial (x,y)": laid out only when shown
+        tabs.setCurrentIndex(1)                     # "Each segment": laid out only when shown
         pump(app, 0.3)
         st["rings"] = w
-        assert w.plot_overlay.getPlotItem().legend is None, "a legend inside the superimposed plot"
-        panel = w.overlay_layers
-        keys = panel.keys()
-        assert keys and all(k.startswith("seg") for k in keys), keys
-        scat = [it for it in w.plot_overlay.getPlotItem().items if isinstance(it, pg.ScatterPlotItem)]
-        assert len(scat) == len(keys)
-        k0 = keys[0]
-        item = panel.items(k0)[0]
-        assert panel.checkbox(k0).text().endswith(f"({len(item.points())})")
-        multiples = [it for p in w.spatial_grid.ci.items for it in getattr(p, "items", [])
-                     if isinstance(it, pg.ScatterPlotItem)]
-        panel.checkbox(k0).setChecked(False)
-        assert not item.isVisible() and all(s.isVisible() for s in scat if s is not item)
-        assert multiples and all(m.isVisible() for m in multiples), "the small multiples must keep every segment"
-        w._draw_spatial()
-        pump(app, 0.05)
-        new_item = w.overlay_layers.items(k0)[0]
-        assert new_item is not item and not new_item.isVisible() and not w.overlay_layers.checkbox(k0).isChecked()
-        w.overlay_layers.show_all()
-        assert new_item.isVisible()
-        g1, g2 = w.plot_overlay.geometry(), panel.geometry()
-        assert not g1.intersects(g2)
-        w.close()
-        return f"{len(keys)} segment rows beside the plot; a row hides its segment there only; kept through a redraw"
+        for gone in ("plot_overlay", "overlay_layers", "plot_z", "zhist_grid"):
+            assert not hasattr(w, gone), f"the rings window still has {gone}"
+        with_locs = [(k, seg, an) for k, (seg, an) in enumerate(zip(ms.segments, ms.analyses))
+                     if an is not None and np.asarray(an.x_slab).size]
+        assert with_locs, "no segment with localizations"
+        plots = list(w.spatial_grid.ci.items)
+        assert len(plots) == len(with_locs), (len(plots), len(with_locs))
+        multiples = []
+        for p, (_k, _seg, an) in zip(plots, with_locs):
+            scat = [it for it in p.items if isinstance(it, pg.ScatterPlotItem)]
+            assert len(scat) == 1 and len(scat[0].points()) == np.asarray(an.x_slab).size
+            multiples.append(scat[0])
 
-    check("rings window: segment rows in a panel beside the superimposed plot", rings_overlay)
+        amap = AxonMap(dark=True)
+        an0 = next(a for a in ms.analyses if a is not None)
+        amap.set_inputs(L.MapInputs(analysis=an0, rings=ms, source="segments"), view="segments")
+        amap.resize(1000, 700)
+        amap.show()
+        pump(app, 0.3)
+        assert amap.view() == "segments" and amap.inputs().source == "segments"
+        assert amap.plot.getPlotItem().legend is None, "a legend inside the map's plot"
+        panel = amap.layers
+        keys = [k for k in panel.keys() if k.startswith("seg") and k[3:].isdigit()]
+        assert keys == [f"seg{seg.index}" for _k, seg, _an in with_locs], keys
+        all_scat = [it for it in amap.plot.getPlotItem().items if isinstance(it, pg.ScatterPlotItem)]
+        seg_items = {k: panel.items(k) for k in keys}
+        for k, (_kk, seg, an) in zip(keys, with_locs):
+            items = seg_items[k]
+            assert len(items) == 1 and items[0].isVisible(), k
+            assert len(items[0].points()) == np.asarray(an.x_slab).size
+            assert panel.checkbox(k).isChecked() and panel.checkbox(k).text().endswith(f"({len(items[0].points())})")
+        k0 = keys[0]
+        item = seg_items[k0][0]
+        before = {id(it): it.isVisible() for it in all_scat}
+        panel.checkbox(k0).setChecked(False)
+        assert not item.isVisible()
+        assert all(it.isVisible() == before[id(it)] for it in all_scat if it is not item), \
+            "a segment row hid more than its own items"
+        assert all(m.isVisible() for m in multiples), "the small multiples must keep every segment"
+        # a redraw from the same inputs (set_inputs, no preset): the row keeps its state on the new items
+        amap.set_inputs(L.MapInputs(analysis=an0, rings=ms, source="segments"))
+        pump(app, 0.05)
+        new_item = panel.items(k0)[0]
+        assert new_item is not item and not new_item.isVisible() and not panel.checkbox(k0).isChecked()
+        assert all(panel.items(k)[0].isVisible() for k in keys[1:])
+        panel.checkbox(k0).setChecked(True)
+        assert new_item.isVisible()
+        g1, g2 = amap.plot.geometry(), panel.geometry()
+        assert not g1.intersects(g2) and g2.left() >= g1.right(), (g1, g2)
+        amap.close()
+        w.close()
+        return (f"rings window: no superimposed plot, {len(plots)} multiples with every segment; map: {len(keys)} "
+                "segment rows beside the plot, a row hides only its segment, kept through a redraw, no legend")
+
+    check("segments: rings window multiples only; the map's segment rows beside its plot", rings_overlay)
 
     # ------------------------------------------------------------------ 5. groups (UI stage 2, IMPL-B)
     print("\n5. LayerPanel groups, swatch size and casing, scroll, title hook (UI stage 2)")
