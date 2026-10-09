@@ -441,7 +441,7 @@ def main() -> int:
                 # a plot in a hidden tab: another tab is current before the export
                 hidden_tab = w._tab_of(name)
                 if hidden_tab is not None:
-                    other = w.plot_scatter if hidden_tab is not w.plot_scatter else w.plot_area
+                    other = w.plot_scatter if hidden_tab is not w.plot_scatter else w.area_tab
                     w.tabs.setCurrentWidget(other)
                     pump(app, 0.05)
                     assert w.tabs.currentWidget() is not hidden_tab

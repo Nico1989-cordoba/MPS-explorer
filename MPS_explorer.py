@@ -479,6 +479,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.mps_settings = load_settings()          # persisted across sessions
         self._apply_mps_settings()
         self._build_param_mirrors()
+        self._build_measurement_panel()
 
         # Connect the close event to your method
         self.closeEvent = self.onCloseEvent
@@ -2042,6 +2043,36 @@ class MPS_explorer(QtWidgets.QMainWindow):
             lambda: self.show_mps_window())
         self._render_mirrors()
 
+    def _build_measurement_panel(self) -> None:
+        """
+        The Measurement panel (design 12.7): each loaded channel's pixel
+        size with its source, and the per-measurement z calibration
+        ("none read", the file's own record, the inputs disabled until
+        SCI-1). Inserted from code - the .ui is frozen - in the free space
+        of the Clustering box under "Show the MPS analysis window". A
+        display: it stores nothing and passes nothing to any analysis.
+        """
+        from tools.mps_measurement_panel import MeasurementPanel
+
+        self._loaded_paths: Dict[int, str] = {}
+        self.measurement_panel = MeasurementPanel(self.ui.groupBox)
+        self.measurement_panel.setGeometry(QtCore.QRect(20, 540, 640, 134))
+        self._refresh_measurement_panel()
+
+    def _refresh_measurement_panel(self) -> None:
+        """Redraw the Measurement panel from the loaded files (read only)."""
+        panel = getattr(self, "measurement_panel", None)
+        if panel is None:
+            return
+        from tools.mps_measurement_panel import ChannelFile
+
+        files = []
+        for channel, loc in ((1, self.locs1), (2, self.locs2)):
+            if loc is not None:
+                files.append(ChannelFile.from_localizations(
+                    channel, self._loaded_paths.get(channel, ""), loc))
+        panel.set_files(files)
+
     def _render_mirrors(self) -> None:
         """The main window's boxes, rendered from the one value in today's
         formats (they are never read back)."""
@@ -3429,6 +3460,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.locs2 = loc
         else:
             self.locs1 = loc
+        if hasattr(self, "_loaded_paths"):
+            self._loaded_paths[2 if channel == 2 else 1] = str(filename)
+        self._refresh_measurement_panel()
 
         if loc.pixel_size_nm is not None:
             self.logger.info(

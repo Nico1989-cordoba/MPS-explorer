@@ -47,6 +47,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools import export_ui
 from tools import mps_param_registry as reg
+from tools.mps_origin_ui import ParamField
 from tools.mps_gaps import RingAnalysis, analyze_rings
 from tools.mps_identity import AxonIdentity, axon_id
 from tools.mps_plot_style import (
@@ -217,7 +218,10 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "partition: cut at the midpoint between peaks, which assumes a\n"
             "  symmetry the two rings do not have. Kept for comparison."
         )
-        lay.addWidget(self.combo_mode)
+        # Its origin badge after it (design 12.3); the combo keeps its name,
+        # items and signals.
+        self.field_mode = ParamField("rings.mode", self.combo_mode, show_range=False)
+        lay.addWidget(self.field_mode)
 
         lay.addSpacing(12)
         lay.addWidget(QtWidgets.QLabel("Guard band [nm]:"))
@@ -233,7 +237,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "wide guard band, it is not axial bleed-through.\n"
             "Ignored in 'paper' mode, which has no boundary."
         )
-        lay.addWidget(self.spin_guard)
+        self.field_guard = ParamField("rings.guard_nm", self.spin_guard)
+        lay.addWidget(self.field_guard)
 
         lay.addStretch(1)
 
@@ -485,7 +490,9 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         ms = self.ms
         first = next((a for a in ms.analyses if a is not None), None)
         guard = float(getattr(ms, "guard_nm", getattr(self, "_guard_nm", 0.0)))
-        mode = f"mode {getattr(ms, 'mode', 'valley')}, guard {guard:g} nm"
+        mode_key = str(getattr(ms, 'mode', 'valley'))
+        mode = (f"mode {mode_key}{reg.bracket('rings.mode', mode_key)}, "
+                f"guard {guard:g} nm{reg.bracket('rings.guard_nm', guard)}")
         if first is None:
             self.lbl_params.setText(f"Segments: {mode}; no segment could be analysed.")
             return
@@ -494,12 +501,16 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         half = float(first.slab_half_width_nm)
         maha = float(first.mahalanobis_threshold)
         self.lbl_params.setText(
-            f"Computed with eps {eps:g} nm{reg.user_mark('dbscan.eps_nm', eps)}, "
-            f"min samples {minimum}{reg.user_mark('dbscan.min_samples', minimum)}, "
-            f"half-width {half:g} nm{reg.user_mark('slab.half_width_nm', half)}, "
-            f"Mahalanobis {maha:g}{reg.user_mark('occupancy.mahalanobis', maha)} "
+            f"Computed with eps {eps:g} nm{reg.bracket('dbscan.eps_nm', eps)}, "
+            f"min samples {minimum}{reg.bracket('dbscan.min_samples', minimum)}, "
+            f"half-width {half:g} nm{reg.bracket('slab.half_width_nm', half)}, "
+            f"Mahalanobis {maha:g}{reg.bracket('occupancy.mahalanobis', maha)} "
             f"(as the segments carry them); {mode}. A contour drawn by hand "
             f"is not applied to the segments.")
+        self.lbl_params.setToolTip("\n\n".join(
+            reg.tooltip(k, v) for k, v in (("dbscan.eps_nm", eps), ("dbscan.min_samples", minimum),
+                                           ("slab.half_width_nm", half), ("occupancy.mahalanobis", maha),
+                                           ("rings.mode", mode_key), ("rings.guard_nm", guard))))
         self.btn_export.setToolTip(
             "Write one row per segment and one row per segment pair.\n\n"
             f"The occupancy columns were measured at Mahalanobis {maha:g}; the "
@@ -519,6 +530,9 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.spin_guard.setValue(float(getattr(self, "_guard_nm", 0.0)))
         for w in (self.combo_mode, self.spin_guard):
             w.blockSignals(False)
+        for field in (getattr(self, "field_mode", None), getattr(self, "field_guard", None)):
+            if field is not None:
+                field.refresh()
 
     def _fill_header(self) -> None:
         ms = self.ms

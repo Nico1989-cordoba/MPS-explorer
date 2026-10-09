@@ -72,7 +72,7 @@ from tools.mps_analysis import AxonAnalysis, DiscardComparison
 from tools.mps_axial_view import AxialView
 from tools.mps_axon_map import AxonMap
 from tools.mps_nn_panel import NearestNeighboursPanel
-from tools.mps_origin_ui import MoreLine, OriginBadge, ParamField
+from tools.mps_origin_ui import DetailsPanel, MoreLine, OriginBadge, ParamField
 from tools.mps_params_panel import FlowLayout
 from tools.mps_plot_style import (
     AXIS_FG_LIGHT, neutral, rgba, role, set_title, style_dark, style_light, verdict)
@@ -831,7 +831,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         style_dark(self.plot_area)
         set_title(self.plot_area, AREA_TITLE)
         self.plot_area.setLabels(bottom="area [nm^2]", left="count")
-        self.tabs.addTab(self.plot_area, "Cluster area")
+        # The plot with its details panel under it (12.8): the median area
+        # and effective radius with the reference values, read-only.
+        self.area_tab = QtWidgets.QWidget()
+        self.area_tab.setObjectName("area_tab")
+        area_lay = QtWidgets.QVBoxLayout(self.area_tab)
+        area_lay.setContentsMargins(0, 0, 0, 0)
+        area_lay.setSpacing(2)
+        area_lay.addWidget(self.plot_area, 1)
+        self.details_area = DetailsPanel(object_name="details_area", collapsed=True)
+        area_lay.addWidget(self.details_area)
+        self.tabs.addTab(self.area_tab, "Cluster area")
 
         # Each centre's distance from the centres' mean against its
         # angle, with the smooth outline fitted to them and a band of the
@@ -1020,7 +1030,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _tab_of(self, name: str) -> Optional[QtWidgets.QWidget]:
         """The tab a plot sits in (None: the map, always visible)."""
-        return {PLOT_AXIAL: self.axial, PLOT_AREA: self.plot_area, PLOT_NN: self.nn,
+        return {PLOT_AXIAL: self.axial, PLOT_AREA: self.area_tab, PLOT_NN: self.nn,
                 PLOT_CDF: self.nn, PLOT_SCATTER: self.plot_scatter}.get(name)
 
     def _apply_background(self) -> None:
@@ -1252,16 +1262,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 f"<b>{name or '(unnamed ROI)'}</b><br>{NO_ANALYSIS}")
             return
         px = "unknown" if a.pixel_size_nm is None else f"{a.pixel_size_nm:g} nm"
-        src = {"yaml": "from Picasso YAML",
-               "hdf5": "from the metadata inside the HDF5",
-               "yaml_scan": "from Picasso YAML",
-               "override": "given explicitly",
-               "manual": "entered manually",
-               "neighbour": "from a file beside it, not this one",
-               "remembered": "typed by hand for this folder earlier",
-               "unknown": "UNKNOWN"}.get(a.pixel_size_source, a.pixel_size_source)
+        # One dictionary of source words, shared with the main window's
+        # Measurement panel (design 12.7): the text is today's, byte for byte.
+        src = reg.pixel_source_words(a.pixel_size_source)
         colour = (AXIS_FG_LIGHT
-                  if a.pixel_size_source in ("yaml", "hdf5", "yaml_scan")
+                  if a.pixel_size_source in reg.PIXEL_SOURCES_FROM_FILE
                   else _C_TEXT_WARN)
         self.lbl_provenance.setText(
             f"<b>{os.path.basename(a.source_name) or '(unnamed ROI)'}</b><br>"
@@ -1486,6 +1491,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.plot_area.clear()
         words = self._shown_words(a)
         set_title(self.plot_area, AREA_TITLE + (f" ({words})" if words else ""), dark=self.dark)
+        self.details_area.set_rows(L.area_details(a))
         if a is None or a.areas is None or a.areas.areas_nm2.size == 0:
             return
         vals = a.areas.areas_nm2

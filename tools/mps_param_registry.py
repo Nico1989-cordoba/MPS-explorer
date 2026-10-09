@@ -52,7 +52,8 @@ __all__ = [
     "ORIGINS", "TRANSITIONAL", "BADGES", "BADGE_MEANING", "HOMES", "PAPER", "ParamInfo", "Reader", "UNSET",
     "info", "entries", "keys", "by_home", "default", "badge", "tooltip", "outside_range", "range_hint",
     "user_mark", "format_value", "more_items", "more_line", "MORE_GROUPS", "RESET_KEYS", "reset_values",
-    "reset_tooltip", "describe_default",
+    "reset_tooltip", "describe_default", "bracket", "PIXEL_SOURCE_WORDS", "PIXEL_SOURCES_FROM_FILE",
+    "pixel_source_words",
 ]
 
 # --------------------------------------------------------------------------- vocabulary (12.1)
@@ -623,6 +624,34 @@ def range_hint(key: str, value: Any = UNSET) -> str:
 def user_mark(key: str, value: Any) -> str:
     """" [user]" after a value that departs from its default (titles and captions, 12.3); "" otherwise."""
     return " [user]" if badge(key, value) == "user" else ""
+
+
+def bracket(key: str, value: Any = UNSET) -> str:
+    """" [badge]" after a value, whatever its badge (the rings window's parameter line, 12.3)."""
+    return f" [{badge(key, value)}]"
+
+
+# --------------------------------------------------------------------------- pixel size: its source in words (12.7)
+# The program's pixel-size vocabulary, one dictionary for every place that shows it (the MPS analysis window's
+# provenance line and the main window's Measurement panel), so the two cannot drift. A measurement input shows its
+# source in words, not a badge (12.1).
+PIXEL_SOURCE_WORDS: Dict[str, str] = {
+    "yaml": "from Picasso YAML",
+    "hdf5": "from the metadata inside the HDF5",
+    "yaml_scan": "from Picasso YAML",
+    "override": "given explicitly",
+    "manual": "entered manually",
+    "neighbour": "from a file beside it, not this one",
+    "remembered": "typed by hand for this folder earlier",
+    "unknown": "UNKNOWN",
+}
+# The sources read from the file itself; the others are shown in the warning text colour.
+PIXEL_SOURCES_FROM_FILE: Tuple[str, ...] = ("yaml", "hdf5", "yaml_scan")
+
+
+def pixel_source_words(token: Any) -> str:
+    """The words for a pixel-size source token (``Localizations.pixel_size_source``); an unknown token as itself."""
+    return PIXEL_SOURCE_WORDS.get(token, token)
 
 
 def tooltip(key: str, value: Any = UNSET) -> str:

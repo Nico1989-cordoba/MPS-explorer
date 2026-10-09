@@ -58,7 +58,9 @@ from PyQt5 import QtCore, QtWidgets
 from tools import mps_axoplasm as ax
 from tools import mps_axon_map_layers as map_layers
 from tools import mps_file_drop
+from tools import mps_param_registry as param_registry
 from tools.mps_io import load_localizations
+from tools.mps_origin_ui import OriginBadge, ParamField, RangeHint
 from tools.mps_plot_style import (
     AXIS_FG, PANEL_BG, TEXT_DIM, TITLE_FG, marked, neutral, role,
     set_title, style_dark)
@@ -432,6 +434,12 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.slider_threshold, 0, 1)
         lay.addWidget(self.spin_threshold, 0, 2)
         lay.addWidget(self.btn_otsu, 0, 3)
+        # Origin badges (design 12.3). Otsu's threshold is "derived"; one set
+        # by hand (slider or box) is "user". The registry's value is the
+        # method (its bins), so this badge follows the panel's own record of
+        # a hand-set threshold, never the grey level.
+        self.badge_threshold = OriginBadge("axoplasm.threshold", dark=True)
+        lay.addWidget(self.badge_threshold, 0, 4)
         self.spin_smooth = _spin(0, 2000, 10, suffix=" nm")
         self.spin_smooth.setValue(ax.DEFAULT_SMOOTH_SIGMA_PX * self.pixel_nm)
         self.spin_smooth.setToolTip(
@@ -440,9 +448,15 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.spin_smooth.valueChanged.connect(
             lambda _v: self._schedule("rebuild"))
         lay.addWidget(_label("Smoothing:", _DIM), 1, 0)
-        lay.addWidget(self.spin_smooth, 1, 1)
+        # The registry keeps the smoothing in pixels (the module constant)
+        # while the box shows nm: the badge reads the box in pixels, and the
+        # documented range (in px) stays in the tooltip, not beside nm.
+        self.field_smooth = ParamField(
+            "axoplasm.smoothing_px", self.spin_smooth, dark=True, show_range=False,
+            value=lambda: float(self.spin_smooth.value()) / float(self.pixel_nm))
+        lay.addWidget(self.field_smooth, 1, 1, 1, 4)
         self.label_mask = _label("")
-        lay.addWidget(self.label_mask, 2, 0, 1, 4)
+        lay.addWidget(self.label_mask, 2, 0, 1, 5)
         return box
 
     def _build_classification(self) -> QtWidgets.QWidget:
@@ -461,6 +475,19 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             lambda _v: self._schedule("reclassify"))
         lay.addWidget(_label("Margin:", _DIM), 0, 0)
         lay.addWidget(self.spin_margin, 0, 1)
+        # The margin's badge and documented range under the box (the row
+        # beside it holds the two export buttons).
+        origin = QtWidgets.QWidget()
+        origin_lay = QtWidgets.QHBoxLayout(origin)
+        origin_lay.setContentsMargins(0, 0, 0, 0)
+        origin_lay.setSpacing(4)
+        self.badge_margin = OriginBadge("axoplasm.margin_nm", dark=True)
+        self.hint_margin = RangeHint("axoplasm.margin_nm", dark=True)
+        origin_lay.addWidget(self.badge_margin)
+        origin_lay.addWidget(self.hint_margin)
+        origin_lay.addStretch(1)
+        lay.addWidget(origin, 1, 1, 1, 3)
+        self.spin_margin.valueChanged.connect(lambda _v: self._refresh_badges())
         self.btn_export = QtWidgets.QPushButton("Export axon...")
         self.btn_export.setToolTip(
             "Write this axon to the tables: the analysis, this panel and "
@@ -478,7 +505,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.btn_image.clicked.connect(self._on_export_image)
         lay.addWidget(self.btn_image, 0, 3)
         self.label_result = _label("")
-        lay.addWidget(self.label_result, 1, 0, 1, 3)
+        lay.addWidget(self.label_result, 2, 0, 1, 4)
         return box
 
     def _build_anchored(self) -> QtWidgets.QWidget:
@@ -946,7 +973,23 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             contour_cache=self._contour_cache,
             registration=self._registration_state())
 
+    def _refresh_badges(self) -> None:
+        """The origin badges of the threshold and the margin (display only)."""
+        badge = getattr(self, "badge_threshold", None)
+        if badge is not None:
+            manual = self._manual_threshold
+            badge.set_value(param_registry.UNSET if manual is None else float(manual))
+            if manual is not None:
+                badge.setToolTip(f"Threshold set by hand: {manual:g} (grey level).\n\n"
+                                 + param_registry.tooltip("axoplasm.threshold"))
+        margin = getattr(self, "badge_margin", None)
+        if margin is not None:
+            value = float(self.spin_margin.value())
+            margin.set_value(value)
+            self.hint_margin.set_value(value)
+
     def _sync_threshold(self) -> None:
+        self._refresh_badges()
         mask = self.axoplasm
         if mask is None:
             return
@@ -971,6 +1014,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         # built from it waits for the drag to stop.
         self._manual_threshold = low + (high - low) * position / 1000.0
         self.selection_note = None
+        self._refresh_badges()
         self._schedule("rebuild")
 
     def _threshold_typed(self, value: float) -> None:
@@ -978,11 +1022,13 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             return
         self._manual_threshold = float(value)
         self.selection_note = None
+        self._refresh_badges()
         self._schedule("rebuild")
 
     def _use_otsu(self) -> None:
         self._manual_threshold = None
         self.selection_note = None
+        self._refresh_badges()
         self._rebuild()
 
     # ---------------------------------------------------------- display
