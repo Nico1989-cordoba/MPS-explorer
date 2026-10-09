@@ -22,6 +22,16 @@ as a number measured between two rings.
 The correlation is reported with the p-value of its rotation null, never
 with a textbook Pearson p-value, for the reason given in ``mps_gaps``.
 
+UI stage 2 (design 3.1, 4): the segments superimposed in x, y and their z
+(the slabs, the boundaries, each segment's own localizations) are drawn on
+the MPS analysis window's axon map (Segments view) and axial view (Every
+segment), one map and one axial axis for the whole program; the button
+"Show the segments on the axon map and the axial view" raises it beside
+this window. A line under the header says which parameters the segments
+were computed with, read from the segments themselves, and a banner says
+when they are of another selection or other parameters than the MPS
+analysis.
+
 @author: Nicolas (ngomez) + Claude
 """
 
@@ -36,12 +46,14 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools import export_ui
+from tools import mps_param_registry as reg
+from tools.mps_origin_ui import ParamField
 from tools.mps_gaps import RingAnalysis, analyze_rings
 from tools.mps_identity import AxonIdentity, axon_id
-from tools.mps_layer_panel import LayerPanel, Swatch
 from tools.mps_plot_style import (
-    PLOT_BG, marked, neutral, rgba, role, segment_colour,
+    PLOT_BG, marked, neutral, role, segment_colour,
     segment_glyph, segment_symbol, set_title, style_dark, verdict)
+from tools.mps_stale_banner import StaleBanner, rings_stale_lines
 from tools.results_table import (
     append_rows, cell_text, check_appendable, refuse_other_analysis,
     replace_rows)
@@ -71,6 +83,19 @@ _C_DIM = verdict("dim", dark=False)
 # so it is never read as one more segment.
 _C_NEUTRAL = neutral(dark=True)
 
+# Where the superimposed segments went (UI stage 2): a pointer, and the
+# button that raises the MPS analysis window in its Segments view.
+SEGMENTS_POINTER = (
+    "The segments superimposed, and their z with every slab and boundary, are "
+    "on the axon map and the axial view: MPS analysis window, Segments view "
+    "and Axial tab (Every segment). Patches at the same angle in two segments "
+    "can be checked there at the same physical spot.")
+SHOW_SEGMENTS = "Show the segments on the axon map and the axial view"
+SHOW_SEGMENTS_TIP = (
+    "Raise the MPS analysis window beside this one, with the axon map in its "
+    "Segments view (each segment's own slab, superimposed) and the axial view "
+    "on Every segment.")
+
 
 class MPSRingsWindow(QtWidgets.QMainWindow):
     """Panel showing every axial segment, its gaps and patches, and the
@@ -87,6 +112,9 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         zquality_callback: Optional[Callable[[], Any]] = None,
         batch_callback: Optional[Callable[[], Any]] = None,
         explorer_callback: Optional[Callable[[], Any]] = None,
+        segments_callback: Optional[Callable[[], Any]] = None,
+        status_callback: Optional[Callable[[], Tuple[str, str]]] = None,
+        refreshed_callback: Optional[Callable[[], Any]] = None,
     ):
         """
         Parameters
@@ -114,6 +142,14 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             viability criteria selects on many axons (H6 toggles, D-43:
             tools.mps_viability_explorer; geometry only). None adds no
             such button.
+        segments_callback : called when the user presses "Show the
+            segments on the axon map and the axial view" (the MPS analysis
+            window's Segments view). None hides that button.
+        status_callback : (selection reason, parameters reason): why these
+            segments are not of the current selection, or not of the MPS
+            analysis' parameters ("" when they are). None: always current.
+        refreshed_callback : called after every redraw with other segments,
+            so the axon map and the axial view that draw them follow.
         """
         super().__init__(parent)
         self.ms = ms
@@ -124,8 +160,11 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.zquality_callback = zquality_callback
         self.batch_callback = batch_callback
         self.explorer_callback = explorer_callback
-        # Target (x, y) range shared by the overlay and the small multiples,
-        # re-applied whenever one of them is resized. See _build_spatial_tab.
+        self.segments_callback = segments_callback
+        self.status_callback = status_callback
+        self.refreshed_callback = refreshed_callback
+        # Target (x, y) range shared by the small multiples, re-applied
+        # whenever one of them is resized. See _build_spatial_tab.
         self._spatial_range: Optional[Tuple[Tuple[float, float],
                                             Tuple[float, float]]] = None
         self._spatial_viewboxes: List[Any] = []
@@ -137,6 +176,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(central)
         root = QtWidgets.QVBoxLayout(central)
         root.addWidget(self._build_controls())
+        self.banner = StaleBanner(object_name="rings_stale_banner")
+        root.addWidget(self.banner)
 
         splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         splitter.addWidget(self._build_left_column())
@@ -177,7 +218,10 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "partition: cut at the midpoint between peaks, which assumes a\n"
             "  symmetry the two rings do not have. Kept for comparison."
         )
-        lay.addWidget(self.combo_mode)
+        # Its origin badge after it (design 12.3); the combo keeps its name,
+        # items and signals.
+        self.field_mode = ParamField("rings.mode", self.combo_mode, show_range=False)
+        lay.addWidget(self.field_mode)
 
         lay.addSpacing(12)
         lay.addWidget(QtWidgets.QLabel("Guard band [nm]:"))
@@ -193,7 +237,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "wide guard band, it is not axial bleed-through.\n"
             "Ignored in 'paper' mode, which has no boundary."
         )
-        lay.addWidget(self.spin_guard)
+        self.field_guard = ParamField("rings.guard_nm", self.spin_guard)
+        lay.addWidget(self.field_guard)
 
         lay.addStretch(1)
 
@@ -252,6 +297,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.btn_export = QtWidgets.QPushButton("Export CSV...")
         self.btn_export.setToolTip(
             "Write one row per segment and one row per segment pair.")
+        self.btn_export.setObjectName("btn_export_rings")
         self.btn_export.clicked.connect(self._on_export)
         lay.addWidget(self.btn_export)
 
@@ -273,6 +319,16 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             QtCore.Qt.TextSelectableByMouse)
         lay.addWidget(self.lbl_header)
 
+        # The parameters the segments were computed with, read from them
+        # (never from the MPS analysis window's controls).
+        self.lbl_params = QtWidgets.QLabel()
+        self.lbl_params.setObjectName("lbl_rings_params")
+        self.lbl_params.setWordWrap(True)
+        self.lbl_params.setTextInteractionFlags(
+            QtCore.Qt.TextSelectableByMouse)
+        self.lbl_params.setStyleSheet(f"color: {_C_DIM};")
+        lay.addWidget(self.lbl_params)
+
         lay.addWidget(QtWidgets.QLabel("Segments"))
         self.table_seg = QtWidgets.QTableWidget(0, 8)
         self.table_seg.setToolTip(
@@ -293,6 +349,11 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.table_pair.setHorizontalHeaderLabels([
             "Pair", "dz", "boundary", "r(0)", "p", "z vs null"])
         self._prepare_table(self.table_pair)
+        self.table_pair.horizontalHeaderItem(2).setToolTip(
+            "Whether the axial density has a minimum between the two "
+            "segments, and how deep it is. Green from a depth of "
+            + reg.format_value("rings.valley_depth_colour") + ":\n"
+            + reg.tooltip("rings.valley_depth_colour"))
         self.table_pair.itemSelectionChanged.connect(self._draw_correlation)
         lay.addWidget(self.table_pair, stretch=2)
 
@@ -316,33 +377,29 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         table.setAlternatingRowColors(True)
 
     def _build_plots(self) -> QtWidgets.QWidget:
-        tabs = QtWidgets.QTabWidget()
-        tabs.addTab(self._build_axial_tab(), "Axial + correlation")
-        tabs.addTab(self._build_spatial_tab(), "Spatial (x,y)")
-        tabs.addTab(self._build_zhist_tab(), "Z histograms per ring")
-        return tabs
+        self.tabs = QtWidgets.QTabWidget()
+        self.tabs.setObjectName("rings_tabs")
+        self.tabs.addTab(self._build_correlation_tab(), "Correlation")
+        self.tabs.addTab(self._build_spatial_tab(), "Each segment")
+        return self.tabs
 
-    def _build_axial_tab(self) -> QtWidgets.QWidget:
+    def _build_correlation_tab(self) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()
         grid = QtWidgets.QGridLayout(w)
         grid.setContentsMargins(0, 0, 0, 0)
-
-        self.plot_z = pg.PlotWidget()
-        style_dark(self.plot_z)
-        set_title(self.plot_z,
-                   "Axial distribution: components, slabs and boundaries")
-        self.plot_z.setLabels(bottom="z [nm]", left="density")
-        grid.addWidget(self.plot_z, 0, 0)
 
         self.plot_profiles = pg.PlotWidget()
         style_dark(self.plot_profiles)
         set_title(self.plot_profiles,
                    "Patches around the perimeter, one track per segment "
                    "(filled = covered by spectrin)")
+        # The origin of these angles is drawable on the axon map (its Rings
+        # group, off by default).
         self.plot_profiles.setLabels(
-            bottom="angle about the axon centre [deg]", left="segment")
+            bottom="angle about the pooled centre of every segment's clusters [deg]",
+            left="segment")
         self.plot_profiles.setXRange(0, 360)
-        grid.addWidget(self.plot_profiles, 1, 0)
+        grid.addWidget(self.plot_profiles, 0, 0)
 
         self.plot_corr = pg.PlotWidget()
         style_dark(self.plot_corr)
@@ -353,39 +410,34 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         # automatic SI prefix relabels the axis "r (x0.001)" and prints
         # 0.2 as 200, which invites reading the effect as 1000x its size.
         self.plot_corr.getAxis("left").enableAutoSIPrefix(False)
-        grid.addWidget(self.plot_corr, 2, 0)
+        grid.addWidget(self.plot_corr, 1, 0)
 
-        grid.setRowStretch(0, 2)
-        grid.setRowStretch(1, 3)
-        grid.setRowStretch(2, 2)
+        grid.setRowStretch(0, 3)
+        grid.setRowStretch(1, 2)
         return w
 
     def _build_spatial_tab(self) -> QtWidgets.QWidget:
-        """Real (x, y) localizations of every segment: superimposed, to see
-        directly whether patches at the same angle really sit at the same
-        physical spot, and individually, on the SAME range so the
-        superimposed view and the small multiples are one consistent
-        picture rather than independently zoomed crops."""
+        """Real (x, y) localizations of every segment, each on its own and on
+        the SAME range, so that a patch that looks the same size in two
+        segments is at one physical scale. Superimposed, they are on the
+        axon map (the pointer and the button above the multiples)."""
         w = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
 
-        self.plot_overlay = pg.PlotWidget()
-        style_dark(self.plot_overlay)
-        # The segments are named in a panel BESIDE the plot (UI stage 0:
-        # a legend inside it covered the localizations): one row per
-        # segment, rebuilt on every redraw, that hides or shows that
-        # segment here (never in the small multiples underneath). What
-        # was hidden stays hidden through a redraw.
-        self.overlay_layers = LayerPanel()
-        self.overlay_layers.setObjectName("overlay_layers")
-        self.overlay_layers.setToolTip(
-            "Tick the segments the superimposed plot draws. The plots of "
-            "each segment underneath always draw theirs.")
-        set_title(self.plot_overlay,
-                   "Every segment's localizations, superimposed")
-        self.plot_overlay.setAspectLocked(True)
-        self.plot_overlay.setLabels(bottom="x [nm]", left="y [nm]")
+        pointer = QtWidgets.QHBoxLayout()
+        self.lbl_segments_pointer = QtWidgets.QLabel(SEGMENTS_POINTER)
+        self.lbl_segments_pointer.setObjectName("lbl_segments_pointer")
+        self.lbl_segments_pointer.setWordWrap(True)
+        pointer.addWidget(self.lbl_segments_pointer, 1)
+        self.btn_show_segments = QtWidgets.QPushButton(SHOW_SEGMENTS)
+        self.btn_show_segments.setObjectName("btn_show_segments")
+        self.btn_show_segments.setToolTip(SHOW_SEGMENTS_TIP)
+        self.btn_show_segments.clicked.connect(self._on_show_segments)
+        self.btn_show_segments.setVisible(self.segments_callback is not None)
+        pointer.addWidget(self.btn_show_segments)
+        lay.addLayout(pointer)
+
         # An aspect-locked view keeps nm-per-pixel fixed across a resize,
         # which means it EXPANDS the visible range as the widget grows. The
         # range is set while these widgets are still at their pre-layout
@@ -394,36 +446,12 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         # space. Re-applying the target range on resize is what keeps the
         # fit tight; panning and zooming do not emit this signal, so it
         # does not fight the user.
-        self.plot_overlay.getViewBox().sigResized.connect(
-            self._reapply_spatial_range)
-        overlay_row = QtWidgets.QHBoxLayout()
-        overlay_row.setContentsMargins(0, 0, 0, 0)
-        overlay_row.addWidget(self.plot_overlay, stretch=1)
-        overlay_row.addWidget(self.overlay_layers)
-        lay.addLayout(overlay_row, stretch=3)
-
         lay.addWidget(QtWidgets.QLabel(
-            "Each segment on its own, in nm, same x/y range as above "
-            "(linked pan/zoom)"))
+            "Each segment on its own, in nm, on one x/y range shared by "
+            "all of them (linked pan/zoom)"))
         self.spatial_grid = pg.GraphicsLayoutWidget()
         self.spatial_grid.setBackground(PLOT_BG)
-        lay.addWidget(self.spatial_grid, stretch=2)
-        return w
-
-    def _build_zhist_tab(self) -> QtWidgets.QWidget:
-        """One Z histogram per segment, on a shared axial axis so their
-        relative position along the axon is visible, unlike the pooled
-        histogram in the axial tab which cannot show one segment's own
-        internal shape separately from the others."""
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(QtWidgets.QLabel(
-            "Axial (z) distribution of each segment's own slab, dashed "
-            "lines mark its boundaries"))
-        self.zhist_grid = pg.GraphicsLayoutWidget()
-        self.zhist_grid.setBackground(PLOT_BG)
-        lay.addWidget(self.zhist_grid)
+        lay.addWidget(self.spatial_grid, stretch=1)
         return w
 
     # ------------------------------------------------------------------
@@ -434,14 +462,64 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         """Redraw everything from ``self.ms`` and ``self.rings``."""
         self._sync_controls()
         self._fill_header()
+        self._fill_params()
         self._fill_segment_table()
         self._fill_pair_table()
         self._fill_warnings()
-        self._draw_z()
+        self.status_changed()
         self._draw_profiles()
         self._draw_correlation()
         self._draw_spatial()
-        self._draw_zhist()
+        if self.refreshed_callback is not None:
+            self.refreshed_callback()
+
+    def status_changed(self) -> None:
+        """The main window's selection, or the MPS analysis' parameters,
+        changed: say whether these segments still describe them (3.4 rule
+        4). Nothing is recomputed."""
+        selection, params = ("", "") if self.status_callback is None \
+            else self.status_callback()
+        self.banner.set_state(rings_stale_lines(selection_reason=selection,
+                                                params_reason=params))
+
+    def _fill_params(self) -> None:
+        """The parameters the segments were computed with, as every
+        segment's analysis carries them (never the MPS analysis window's
+        controls), with the mode and the guard; and the threshold the
+        exported occupancy columns depend on, in the Export tooltip."""
+        ms = self.ms
+        first = next((a for a in ms.analyses if a is not None), None)
+        guard = float(getattr(ms, "guard_nm", getattr(self, "_guard_nm", 0.0)))
+        mode_key = str(getattr(ms, 'mode', 'valley'))
+        mode = (f"mode {mode_key}{reg.bracket('rings.mode', mode_key)}, "
+                f"guard {guard:g} nm{reg.bracket('rings.guard_nm', guard)}")
+        if first is None:
+            self.lbl_params.setText(f"Segments: {mode}; no segment could be analysed.")
+            return
+        eps = float(first.eps_nm)
+        minimum = int(first.min_samples)
+        half = float(first.slab_half_width_nm)
+        maha = float(first.mahalanobis_threshold)
+        self.lbl_params.setText(
+            f"Computed with eps {eps:g} nm{reg.bracket('dbscan.eps_nm', eps)}, "
+            f"min samples {minimum}{reg.bracket('dbscan.min_samples', minimum)}, "
+            f"half-width {half:g} nm{reg.bracket('slab.half_width_nm', half)}, "
+            f"Mahalanobis {maha:g}{reg.bracket('occupancy.mahalanobis', maha)} "
+            f"(as the segments carry them); {mode}. A contour drawn by hand "
+            f"is not applied to the segments.")
+        self.lbl_params.setToolTip("\n\n".join(
+            reg.tooltip(k, v) for k, v in (("dbscan.eps_nm", eps), ("dbscan.min_samples", minimum),
+                                           ("slab.half_width_nm", half), ("occupancy.mahalanobis", maha),
+                                           ("rings.mode", mode_key), ("rings.guard_nm", guard))))
+        self.btn_export.setToolTip(
+            "Write one row per segment and one row per segment pair.\n\n"
+            f"The occupancy columns were measured at Mahalanobis {maha:g}; the "
+            "segments file records it, the pairs file does not.")
+
+    def _on_show_segments(self) -> None:
+        """Raise the MPS analysis window in its Segments view (3.1)."""
+        if self.segments_callback is not None:
+            self.segments_callback()
 
     def _sync_controls(self) -> None:
         for w in (self.combo_mode, self.spin_guard):
@@ -452,6 +530,9 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.spin_guard.setValue(float(getattr(self, "_guard_nm", 0.0)))
         for w in (self.combo_mode, self.spin_guard):
             w.blockSignals(False)
+        for field in (getattr(self, "field_mode", None), getattr(self, "field_guard", None)):
+            if field is not None:
+                field.refresh()
 
     def _fill_header(self) -> None:
         ms = self.ms
@@ -557,63 +638,6 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
     # plots
     # ------------------------------------------------------------------
 
-    def _draw_z(self) -> None:
-        self.plot_z.clear()
-        ms = self.ms
-        zr = ms.z_result
-
-        zs = [a.z_slab for a in ms.analyses if a is not None and a.z_slab.size]
-        if zs:
-            allz = np.concatenate(zs)
-            counts, edges = np.histogram(allz, bins=80, density=True)
-            centres = (edges[:-1] + edges[1:]) / 2
-            # Every segment pooled, as context behind them: grey, so it
-            # is not read as one more segment.
-            self.plot_z.addItem(pg.BarGraphItem(
-                x=centres, height=counts, width=float(np.mean(np.diff(edges))),
-                brush=pg.mkBrush(*rgba("dim", 80)), pen=None))
-
-            grid = np.linspace(allz.min(), allz.max(), 1024)
-            dens = zr.mixture_density(grid)
-            if np.any(dens > 0):
-                self.plot_z.addItem(pg.PlotDataItem(
-                    grid, dens, pen=pg.mkPen(_C_NEUTRAL, width=2)))
-
-        for k, seg in enumerate(ms.segments):
-            region = pg.LinearRegionItem(
-                values=(seg.zmin_nm, seg.zmax_nm), movable=False)
-            col = QtGui.QColor(segment_colour(k))
-            col.setAlpha(55)
-            region.setBrush(pg.mkBrush(col))
-            region.setZValue(-10)
-            self.plot_z.addItem(region)
-            # The number on the line, because this is the one plot where
-            # the bands were told apart by their colour alone.
-            self.plot_z.addItem(pg.InfiniteLine(
-                pos=seg.center_nm, angle=90,
-                pen=pg.mkPen(segment_colour(k), width=2,
-                             style=QtCore.Qt.DotLine),
-                label=f"seg {seg.index}",
-                labelOpts={"position": 0.95,
-                           "color": segment_colour(k)}))
-
-        if ms.valleys is not None:
-            for pos, real, depth in zip(ms.valleys.positions_nm,
-                                        ms.valleys.is_true_valley,
-                                        ms.valleys.relative_depth):
-                self.plot_z.addItem(pg.InfiniteLine(
-                    pos=float(pos), angle=90,
-                    # Neutral, solid for a real valley and dashed for
-                    # one that is not: the five segment colours are five
-                    # of the eight the palette has, so an annotation that
-                    # took a sixth would be read as a sixth segment.
-                    pen=pg.mkPen(
-                        _C_NEUTRAL, width=2,
-                        style=QtCore.Qt.SolidLine if real
-                        else QtCore.Qt.DashLine),
-                    label=(f"valley {depth:.2f}" if real else "no valley"),
-                    labelOpts={"position": 0.08, "color": _C_NEUTRAL}))
-
     def _draw_profiles(self) -> None:
         """One filled track per segment, stacked.
 
@@ -712,9 +736,6 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             vb.setRange(xRange=xr, yRange=yr, padding=0)
 
     def _draw_spatial(self) -> None:
-        self.plot_overlay.clear()
-        self.overlay_layers.clear_layers(keep_state=True)
-        self.overlay_layers.add_group("Segments")
         self.spatial_grid.clear()
         self._spatial_range = None
         self._spatial_viewboxes = []
@@ -723,7 +744,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         if not rows:
             return
 
-        # One shared bounding box for the overlay AND every small multiple.
+        # One shared bounding box for every small multiple.
         # Without it, each subplot auto-ranges to its own data and a patch
         # that looks the same size in two segments could actually be at two
         # different physical scales -- the plots would agree with each
@@ -736,23 +757,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         yr = (float(all_y.min() - pad_y), float(all_y.max() + pad_y))
 
         self._spatial_range = (xr, yr)
-        self._spatial_viewboxes = [self.plot_overlay.getViewBox()]
-
-        for k, seg, an in rows:
-            # A symbol as well as a colour: five segments is more than the
-            # palette can keep apart by hue, and this is the only plot
-            # where they are superimposed rather than side by side.
-            scatter = pg.ScatterPlotItem(
-                an.x_slab, an.y_slab, pen=pg.mkPen(segment_colour(k), width=1),
-                brush=None, size=5, symbol=segment_symbol(k))
-            self.plot_overlay.addItem(scatter)
-            self.overlay_layers.add_layer(
-                f"seg{seg.index}", f"Segment {seg.index}",
-                Swatch("symbol", segment_colour(k), symbol=segment_symbol(k),
-                       hollow=True),
-                items=[scatter], count=int(np.asarray(an.x_slab).size),
-                tip=f"Draw segment {seg.index}'s localizations in the "
-                    "superimposed plot (the number is how many).")
+        self._spatial_viewboxes = []
 
         # setXLink/setYLink only sync FUTURE range changes (they fire off
         # the linked view's sigRangeChanged), not the range already in
@@ -773,9 +778,9 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             style_dark(p)
             set_title(p, f"segment {seg.index}")
             p.setAspectLocked(True)
-            # The same symbol as in the overlay above, so the eye keeps
-            # the mapping between the two: segments 0 and 2 are two
-            # blues, which is the closest the palette can do for three.
+            # The same symbol as on the axon map's Segments view, so the
+            # eye keeps the mapping between the two: segments 0 and 2 are
+            # two blues, which is the closest the palette can do for three.
             p.addItem(pg.ScatterPlotItem(
                 an.x_slab, an.y_slab, pen=pg.mkPen(segment_colour(k), width=1),
                 brush=None, size=3, symbol=segment_symbol(k)))
@@ -791,47 +796,6 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
                 p.setYLink(first)
 
         self._reapply_spatial_range()
-
-    def _draw_zhist(self) -> None:
-        self.zhist_grid.clear()
-
-        rows = self._segments_with_locs("z_slab")
-        if not rows:
-            return
-
-        # Shared range from the SLAB BOUNDS, not the data extent: locs
-        # thin out near the edges of a slab, so ranging on the data would
-        # crop each subplot to a different window and hide exactly the
-        # relative axial position the shared axis exists to show.
-        lo = min(seg.zmin_nm for _, seg, _ in rows)
-        hi = max(seg.zmax_nm for _, seg, _ in rows)
-        pad = 0.05 * max(hi - lo, 1.0)
-        zr = (lo - pad, hi + pad)
-
-        first: Optional[Any] = None
-        for i, (k, seg, an) in enumerate(rows):
-            colour = segment_colour(k)
-            p = self.zhist_grid.addPlot(row=0, col=i)
-            style_dark(p)
-            set_title(p, f"segment {seg.index}")
-            counts, edges = np.histogram(an.z_slab, bins=40)
-            centres = (edges[:-1] + edges[1:]) / 2
-            width = float(np.mean(np.diff(edges))) if edges.size > 1 else 1.0
-            fill = QtGui.QColor(colour)
-            fill.setAlpha(170)
-            p.addItem(pg.BarGraphItem(
-                x=centres, height=counts, width=width,
-                brush=pg.mkBrush(fill), pen=None))
-            for bound in (seg.zmin_nm, seg.zmax_nm):
-                p.addItem(pg.InfiniteLine(
-                    pos=float(bound), angle=90,
-                    pen=pg.mkPen(colour, width=1, style=QtCore.Qt.DashLine)))
-            p.setLabels(bottom="z [nm]", left="count" if i == 0 else "")
-            p.setXRange(*zr, padding=0)
-            if first is None:
-                first = p
-            else:
-                p.setXLink(first)
 
     # ------------------------------------------------------------------
     # interaction

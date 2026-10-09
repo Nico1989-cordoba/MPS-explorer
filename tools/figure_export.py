@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from pyqtgraph.exporters import ImageExporter, SVGExporter
 
@@ -106,21 +106,3 @@ def suggested_name(source: str, plot: str, folder: str = "") -> str:
     where = folder if folder and os.path.isdir(folder) else (
         os.path.dirname(str(source)) or os.getcwd())
     return os.path.join(where, name)
-
-
-def on_white(redraw: Callable[[bool], None]) -> Callable[[], None]:
-    """
-    Redraw on white, and give back the call that puts the panel back.
-
-    The panels draw on black because that is what a screen is read on;
-    a figure is printed on white. Rather than translating colours at
-    export time -- which is where a white contour line on a white page
-    comes from -- the plot is drawn again with the light palette, saved,
-    and drawn again as it was.
-    """
-    redraw(False)
-
-    def restore() -> None:
-        redraw(True)
-
-    return restore

@@ -1,26 +1,42 @@
 # -*- coding: utf-8 -*-
 """
-Results window for the automatic per-axon MPS analysis.
+Results window for the automatic per-axon MPS analysis: the axon's page.
 
 Shows every parameter computed by ``tools.mps_analysis.analyze_axon`` next
 to the corresponding value from Gazal et al. (2026), together with the
-plots that make the numbers interpretable (reconstructed contour, cluster
-area distribution, 1NN distribution, axial histogram with the GMM fit and
-the selected slab).
+plots that make the numbers interpretable. Since UI stage 2 (design 3-5)
+the plots are:
+
+  * the Axon map (``tools.mps_axon_map``), at the top: the analysis'
+    localizations, cluster centres, contour, occupied stretches and centre,
+    and - through its views - the Axoplasm panel's image and classes and
+    the Rings window's segments, every layer in a group named after the
+    computation it comes from;
+  * under it, tabs: Axial (the single axial view, ``tools.mps_axial_view``),
+    Nearest neighbours (``tools.mps_nn_panel``), Cluster area, Scatter off
+    the outline.
 
 Design principle requested by the user: the analysis runs automatically and
 instantly, but *every* automatic choice stays editable, because reading the
-histograms is where expert judgement enters. Editable here:
+histograms is where expert judgement enters. The parameter strip at the top
+is, since UI stage 2 (design 6), the ONE editor of each MPS-analysis
+parameter in the program:
 
-  * the axial peak the 180 nm slab is centred on (a selector listing every
-    peak the GMM found -- this is what the "ambiguous main peak" warning
-    refers to)
-  * the slab half-width
+  * the axial slab: its centre (automatic, or a component of the fitted
+    mixture -- what the "ambiguous main peak" warning refers to), its
+    half-width, or a typed range that decides it
   * DBSCAN eps and min_samples
-  * the DBCV threshold used for automatic bad-cluster removal
+  * the Mahalanobis threshold of the occupancy and the randomization
+  * the contour drawn by hand, and "Reset to defaults"
 
-Changing any of them re-runs the analysis on the same localizations and
-redraws everything.
+What the strip sets is written into the main window's one settings object
+(``WindowLinks.store``), which every consumer reads: "cluster Ch1", "MPS
+analysis", Rings, Batch, Two channels, the main-window cut and the next
+session. The main window's boxes only show it. Changing a value re-runs the
+analysis on the same localizations and redraws everything; a typed range
+only applies the cut, as the main window's "Apply ROI" does, and the banner
+offers to run the analysis. Every value carries its origin badge and its
+documented range (``tools.mps_param_registry``).
 
 Once the axoplasm panel has found the clusters not anchored to the
 membrane, another column appears: every parameter again with the discard
@@ -29,8 +45,12 @@ every start, so they differ only by the clusters left out. (An analysis
 refined from one start, as this program did before 2026-09-19, gets a
 third column in between: all the clusters, every start.) The plots show any of them,
 and each has its own export, so the user decides which numbers go to the
-statistics. The contour plot marks the centre of each contour, its area
-centroid, with a cross.
+statistics. Every exported figure carries in its own title which analysis
+it shows.
+
+The window can be opened before any analysis (it then draws the current
+selection only), and it says when what it shows is the analysis of a
+previous selection (the stale banner, ``tools.mps_stale_banner``).
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -38,29 +58,38 @@ centroid, with a cross.
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
+from numpy.typing import NDArray
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from tools.cluster_quality import good_cluster_labels
+from tools import mps_axon_map_layers as L
+from tools import mps_param_registry as reg
 from tools.mps_analysis import AxonAnalysis, DiscardComparison
+from tools.mps_axial_view import AxialView
+from tools.mps_axon_map import AxonMap
+from tools.mps_nn_panel import NearestNeighboursPanel
+from tools.mps_origin_ui import DetailsPanel, MoreLine, OriginBadge, ParamField
+from tools.mps_params_panel import FlowLayout
 from tools.mps_plot_style import (
-    AXIS_FG, AXIS_FG_LIGHT, neutral, rgba, role, set_title, style_dark,
-    style_light, verdict)
+    AXIS_FG_LIGHT, neutral, rgba, role, set_title, style_dark, style_light, verdict)
 from tools.mps_settings import (
     DEFAULT_DBCV_THRESHOLD, DEFAULT_MAHALANOBIS_THRESHOLD)
+from tools.mps_stale_banner import (
+    StaleBanner, analysis_stale_lines, showing_current_lines)
 
 
 # Every colour comes from tools.mps_plot_style, by the role it plays.
 # Which roles may share a plot, and which pairs have to be told apart by
 # a symbol as well, is checked by validate_plot_colours.py.
 #
-# The one colour that depends on the background -- the contour, the
-# outline of a marker -- is asked for through self._neutral(), because
-# this window draws on black on screen and on white when it exports a
-# figure for a journal.
+# The one colour that depends on the background -- a line, the outline of
+# a marker -- is asked for through self._neutral(), because this window
+# draws on black on screen and on white when it exports a figure for a
+# journal.
 # Text on the window's own white chrome (tables, the warning list), where
 # the neutral for a dark plot would be invisible.
 _C_TEXT_WARN = verdict("warn", dark=False)
@@ -69,16 +98,169 @@ _C_TEXT_WARN = verdict("warn", dark=False)
 # which is why the palette carries one of each.
 _C_TEXT_DIM = verdict("dim", dark=False)
 
-# The contour plot's title, which gains what it is drawing when there is
-# more than one thing it could be drawing.
-CONTOUR_TITLE = "Clusters, reconstructed perimeter and its centre (+)"
 # The radial profile plot's title; gains the measured scatter when there is
 # one.
 SCATTER_TITLE = "Scatter of the centres off a smooth outline"
+AREA_TITLE = "Cluster area"
+NO_ANALYSIS = "No MPS analysis of this selection yet"
+RERUN_FAILED = ("The analysis could not be re-run with these values; what is shown was computed with the previous "
+                "ones.")
 
 # Columns of the parameter table.
 (_COL_NAME, _COL_MEASURED, _COL_EVERY, _COL_DISCARD, _COL_PAPER,
  _COL_NOTE) = range(6)
+
+# The plots "Export image..." lists, in this order (design 3.6).
+PLOT_MAP = "Axon map"
+PLOT_AXIAL = "Axial distribution"
+PLOT_AREA = "Cluster area"
+PLOT_NN = "Nearest neighbours"
+PLOT_CDF = "1NN CDF"
+PLOT_SCATTER = "Scatter off the outline"
+
+# Tooltips of the results table (rev 3, 12.8): what each reference value is,
+# and the two cells whose number is this program's heuristic or has no
+# valid reading. The texts of the cells themselves are unchanged.
+PAPER_HEADER_TIP = (
+    "Values of Gazal et al. 2026 (preprint v1): another dataset and another pipeline; agreeing with them is not a "
+    "validation criterion. A later version renames this column.")
+KS_P_TIP = (
+    "This p treats the K distances as independent and the 1,000 randomizations as a second sample; neither holds. "
+    "Under a true null it rejects up to about four times as often as its nominal 5 % (9-22 % at a nominal 5 % in "
+    "this project's simulations). A later version replaces it with Monte Carlo p-values.")
+CROSSING_TIP = ("This program's heuristic; a later version reports a crossing only where the curves leave the band "
+                "the randomizations themselves give.")
+# The reference cell of each row, by the row's name (summary_rows), and the registry entry that says what it is.
+_REFERENCE_KEYS: Dict[str, str] = {
+    "Clusters per um": "reference.clusters_per_um",
+    "Cluster area (median)": "reference.cluster_area_nm2",
+    "Effective radius (median)": "reference.r_eff_nm",
+    "1NN spacing (median)": "reference.nn1_median_nm",
+    "Perimeter occupancy": "reference.occupancy_percent",
+    "Randomization KS test": "reference.ks",
+    "  CDF crossing": "reference.cdf_crossing",
+}
+_KS_ROW = "Randomization KS test"
+_CROSSING_ROW = "  CDF crossing"
+
+# How much of the plot column the map takes when the window opens (the rest
+# is the tabs under it): the map keeps at least 55 % of a 1366 x 728 window.
+MAP_SHARE = 0.74
+# On a short screen the tabs under the map keep at least this height (a plot
+# of ~30 px cannot be read), as long as the map keeps MAP_MIN_OF_WINDOW of the
+# window's height.
+TABS_MIN_PX = 230
+MAP_MIN_OF_WINDOW = 0.56
+# The table column's width when the window opens: wide enough for the name,
+# "Measured" and the reference column (1366 px screens; the user's divider
+# wins afterwards).
+LEFT_MIN_PX = 430
+
+
+class _Row:
+    """One line of a strip item: widgets and layouts left to right (the grid positions the strip's code gives are
+    ignored: an item is one line, and the flow wraps whole items)."""
+
+    def __init__(self, frame: QtWidgets.QFrame) -> None:
+        self.lay = QtWidgets.QHBoxLayout(frame)
+        self.lay.setContentsMargins(0, 0, 0, 0)
+        self.lay.setSpacing(4)
+
+    def addWidget(self, widget: QtWidgets.QWidget, *_grid: int) -> None:  # noqa: N802 - Qt's name
+        self.lay.addWidget(widget)
+
+    def addLayout(self, layout: QtWidgets.QLayout, *_grid: int) -> None:  # noqa: N802
+        self.lay.addLayout(layout)
+
+
+@dataclass
+class SelectionView:
+    """What the main window knows about the current selection and the analysis, for display only (Appendix B).
+    Nothing here is ever passed back to an analysis."""
+    z_roi: Optional[NDArray[np.float64]] = None      # the current ROI's z before the cut
+    n_locs: Optional[int] = None
+    roi_words: str = ""                              # "ROI circle ..." | "whole field of view, no ROI drawn"
+    current_words: str = ""                          # the current selection, for the banner
+    cut: Optional[Tuple[float, float]] = None        # the main-window cut (Z min, Z max)
+    cut_from_histogram_mode: bool = False
+    fit: Any = None                                  # the prefill's ZPeriodicityResult (or one on demand)
+    fit_reason: str = "the mixture could not be fitted"
+    ch2_z: Optional[NDArray[np.float64]] = None      # channel 2 in the ROI before the cut, as loaded
+    ch2_reason: str = "no channel 2 is loaded"
+    analysis: Any = None                             # the main window's current analysis
+    analysis_current: bool = False                   # it describes the current selection
+    analysed_z: Optional[NDArray[np.float64]] = None  # z of the selection the analysis was given
+    analysed_after_cut: bool = False                 # it was given the cut selection (fallback)
+    analysed_words: str = ""                         # the selection then, for the banner
+    analysed_roi_words: str = ""
+    analysed_cut: Optional[Tuple[float, float]] = None
+    discard_dropped: bool = False                    # the comparison was dropped by the panel's move
+    discard_failed: str = ""                         # why the discard comparison could not be made
+    rerun_failed: bool = False                       # a slab change's re-run failed (design 6.3)
+    guide_note: str = ""                             # a drawn contour was dropped by a new ROI or file (B11)
+
+
+def _no_selection() -> Optional[SelectionView]:
+    return None
+
+
+def _no_axoplasm() -> Tuple[Any, str]:
+    return None, "the Axoplasm panel is not open on this selection"
+
+
+def _no_rings() -> Tuple[Any, str]:
+    return None, "press Rings... to compute the segments"
+
+
+def _no_params() -> Optional[Tuple[float, int, float, float]]:
+    return None
+
+
+def _no_name() -> str:
+    return "distances"
+
+
+def _no_slab_state() -> Tuple[str, Optional[float], Optional[Tuple[float, float]]]:
+    return "automatic", None, None
+
+
+@dataclass
+class WindowLinks:
+    """The providers and callbacks the main window gives this window (Appendix B). Every default is the standalone
+    window's: no selection, no panel, no rings."""
+    selection: Callable[[], Optional[SelectionView]] = field(default=_no_selection)
+    axoplasm: Callable[[], Tuple[Any, str]] = field(default=_no_axoplasm)
+    rings: Callable[[], Tuple[Any, str]] = field(default=_no_rings)
+    run_analysis: Optional[Callable[[], Any]] = None
+    params: Callable[[], Optional[Tuple[float, int, float, float]]] = field(default=_no_params)
+    root_name: Callable[[], str] = field(default=_no_name)
+    # The one value of each parameter (design 6.2): the strip's setters write it through ``store`` (eps_nm,
+    # min_samples, slab_half_width_nm, mahalanobis_threshold, randomization, slab = ("automatic", None) |
+    # ("component", centre), reset); ``slab_state`` says how the slab is chosen now (mode, component centre, the
+    # typed range or None); ``apply_typed`` applies a typed range, or clears it with None (the cut only, no re-run).
+    # None / the defaults: a window on its own, whose controls only re-run its own analysis.
+    store: Optional[Callable[[Dict[str, Any]], Any]] = None
+    slab_state: Callable[[], Tuple[str, Optional[float], Optional[Tuple[float, float]]]] = field(
+        default=_no_slab_state)
+    apply_typed: Optional[Callable[[Optional[Tuple[float, float]]], Any]] = None
+    nn_bins: int = L.NN_DEFAULT_BINS
+    nn_range: Tuple[float, float] = (0.0, 800.0)
+
+
+def beside_position(anchor: QtCore.QRect, size: QtCore.QSize,
+                    available: QtCore.QRect) -> Optional[QtCore.QPoint]:
+    """Where a window of frame ``size`` goes beside the frame ``anchor`` (3.1): to its right when it fits in the
+    ``available`` geometry, else to its left, else None (only raised)."""
+    top = max(available.top(), min(anchor.top(), available.bottom() - size.height() + 1))
+    if size.height() > available.height():
+        return None
+    right = anchor.right() + 1
+    if right + size.width() - 1 <= available.right():
+        return QtCore.QPoint(right, top)
+    left = anchor.left() - size.width()
+    if left >= available.left():
+        return QtCore.QPoint(left, top)
+    return None
 
 
 class MPSResultsWindow(QtWidgets.QMainWindow):
@@ -86,18 +268,20 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def __init__(
         self,
-        analysis: AxonAnalysis,
+        analysis: Optional[AxonAnalysis],
         rerun_callback: Optional[Callable[..., AxonAnalysis]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
         rings_callback: Optional[Callable[[], Any]] = None,
         discard_callback: Optional[
             Callable[[AxonAnalysis], Optional[DiscardComparison]]] = None,
         export_callback: Optional[Callable[[], Any]] = None,
+        links: Optional[WindowLinks] = None,
     ):
         """
         Parameters
         ----------
-        analysis : the initial result to display.
+        analysis : the initial result to display, or None to open the
+            window on the current selection before any analysis.
         rerun_callback : called with keyword overrides
             (main_peak_override_nm, slab_half_width_nm, eps_nm,
             min_samples, dbcv_threshold) when the user edits a control;
@@ -113,6 +297,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             window's single export, which sees the analysis, the discard
             and the axoplasm panel at once; this window only asks for it.
             None disables the button.
+        links : what the main window tells this window about the current
+            selection, the Axoplasm panel and the rings (``WindowLinks``);
+            None for a window on its own.
         """
         super().__init__(parent)
         self.analysis = analysis
@@ -120,9 +307,19 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.rings_callback = rings_callback
         self.discard_callback = discard_callback
         self.export_callback = export_callback
+        self.links = links if links is not None else WindowLinks()
         self.comparison: Optional[DiscardComparison] = None
         # Black on screen; white while a figure is being written.
         self.dark = True
+        # The selection as the main window last described it, whether the
+        # analysis is of a previous one, and whether the user asked to see
+        # the current selection instead ("Show the current selection").
+        self._sel: Optional[SelectionView] = None
+        self._stale = False
+        self._show_current = False
+        self._last_analysis: Any = analysis
+        # Windows this one was placed beside once already (3.1).
+        self._placed_beside: set = set()
 
         self.setWindowTitle("MPS analysis - per-axon parameters")
         self.resize(1250, 860)
@@ -132,6 +329,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         root = QtWidgets.QVBoxLayout(central)
 
         root.addWidget(self._build_controls())
+        self.banner = StaleBanner(object_name="mps_stale_banner")
+        self.banner.show_current_toggled.connect(self._on_show_current)
+        self.banner.run_requested.connect(self._on_run_requested)
+        root.addWidget(self.banner)
 
         splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         splitter.addWidget(self._build_left_column())
@@ -143,6 +344,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # The table is widened once when its extra columns appear; after
         # that the divider stays where the user leaves it.
         self._widened = False
+        self._left_done = False
+        splitter.splitterMoved.connect(self._on_left_moved)
 
         self.refresh()
 
@@ -151,22 +354,76 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_controls(self) -> QtWidgets.QWidget:
-        box = QtWidgets.QGroupBox("Parameters (editable - the analysis re-runs on change)")
-        lay = QtWidgets.QHBoxLayout(box)
+        """The parameter strip (design 6.1, 12.3-12.5): the one editor of
+        each MPS-analysis parameter. Two rows of groups that wrap (a flow
+        layout) so nothing is clipped on a 1366-px screen: the parameters
+        (Axial slab, DBSCAN, Occupancy, Randomization, Contour) and the
+        actions. Every value carries its origin badge and its documented
+        range; each group has one collapsed "More" line with the read-only
+        research values. The editors keep their names and limits (G4,
+        12.4): nothing is clamped, nothing new is editable."""
+        box = QtWidgets.QWidget()
+        box.setObjectName("param_strip")
+        outer = QtWidgets.QVBoxLayout(box)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+        params_row = QtWidgets.QWidget()
+        params_row.setObjectName("strip_params")
+        # One flow of one-line items, the parameters and "Reset to
+        # defaults": it wraps onto a second line at 1366 px, so the map
+        # keeps its share of the height (a "More" line opened widens its
+        # item, which then wraps whole).
+        self.strip_flow = FlowLayout(params_row, spacing=8)
+        self.actions_flow = self.strip_flow
+        outer.addWidget(params_row)
 
-        lay.addWidget(QtWidgets.QLabel("Axial peak:"))
+        def group(title: str, name: str) -> Tuple[QtWidgets.QFrame, "_Row"]:
+            g = QtWidgets.QFrame()
+            g.setObjectName(name)
+            row = _Row(g)
+            if title:
+                head = QtWidgets.QLabel(f"<b>{title}</b>")
+                head.setObjectName(name + "_title")
+                row.addWidget(head)
+            self.strip_flow.addWidget(g)
+            return g, row
+
+        # --- Axial slab: centre (automatic / a component), half-width, or a
+        # typed range that decides it.
+        g_slab, ls = group("Axial slab", "group_slab")
         self.combo_peak = QtWidgets.QComboBox()
-        self.combo_peak.setMinimumWidth(230)
+        self.combo_peak.setMinimumWidth(205)
+        # A fixed width: the items' length must not widen the strip's line.
+        self.combo_peak.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_peak.setMinimumContentsLength(24)
         self.combo_peak.setToolTip(
             "Centre of the 180 nm axial slab that isolates one MPS segment.\n"
             "Defaults to the main peak of the fitted Gaussian mixture. When\n"
             "two peaks have comparable weight the choice is ambiguous and\n"
             "changes which segment is analysed - pick it yourself here."
         )
-        lay.addWidget(self.combo_peak)
+        centre_row = QtWidgets.QHBoxLayout()
+        centre_row.setSpacing(4)
+        centre_row.addWidget(self.combo_peak)
+        self.badge_centre = OriginBadge("slab.centre", None)
+        centre_row.addWidget(self.badge_centre)
+        self.btn_slab_auto = QtWidgets.QPushButton("Automatic")
+        self.btn_slab_auto.setObjectName("btn_slab_auto")
+        self.btn_slab_auto.setToolTip(
+            "Centre the slab on the density peak of the fitted mixture again\n"
+            "(the automatic choice), and run the analysis.")
+        self.btn_slab_auto.clicked.connect(self._on_slab_automatic)
+        centre_row.addWidget(self.btn_slab_auto)
+        centre_row.addStretch(1)
+        ls.addLayout(centre_row, 0, 1)
+        self.lbl_slab_mode = QtWidgets.QLabel("")
+        self.lbl_slab_mode.setObjectName("lbl_slab_mode")
+        self.lbl_slab_mode.setStyleSheet(f"color: {_C_TEXT_DIM};")
+        ls.addWidget(self.lbl_slab_mode, 1, 1)
 
-        lay.addSpacing(12)
-        lay.addWidget(QtWidgets.QLabel("Slab half-width [nm]:"))
+        g_half, ls = group("", "group_slab_half")
+        ls.addWidget(QtWidgets.QLabel("half-width [nm]:"), 2, 0)
         self.spin_half = QtWidgets.QDoubleSpinBox()
         self.spin_half.setRange(1.0, 5000.0)
         self.spin_half.setDecimals(1)
@@ -174,10 +431,47 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.spin_half.setToolTip(
             "Half of the axial window. The paper uses 90 nm, i.e. a 180 nm slab."
         )
-        lay.addWidget(self.spin_half)
+        self.field_half = ParamField("slab.half_width_nm", self.spin_half)
+        ls.addWidget(self.field_half, 2, 1)
 
-        lay.addSpacing(12)
-        lay.addWidget(QtWidgets.QLabel("eps [nm]:"))
+        self.chk_typed = QtWidgets.QCheckBox("typed [nm]:")
+        self.chk_typed.setObjectName("chk_typed")
+        self.chk_typed.setToolTip(
+            "Type the slab's bounds yourself. Applying them sets the main\n"
+            "window's cut, as its 'Apply ROI' does, and does not re-run the\n"
+            "analysis: the banner says the analysis is of the previous slab\n"
+            "and offers to run it. While a range is typed, the centre and\n"
+            "the half-width are not used. Untick to go back to them.")
+        g_typed, ls = group("", "group_slab_typed")
+        ls.addWidget(self.chk_typed, 3, 0)
+        typed_row = QtWidgets.QHBoxLayout()
+        typed_row.setSpacing(4)
+        self.edit_typed_min = QtWidgets.QLineEdit()
+        self.edit_typed_min.setObjectName("edit_typed_min")
+        self.edit_typed_max = QtWidgets.QLineEdit()
+        self.edit_typed_max.setObjectName("edit_typed_max")
+        for edit in (self.edit_typed_min, self.edit_typed_max):
+            edit.setMaximumWidth(62)
+            edit.setPlaceholderText("nm")
+            typed_row.addWidget(edit)
+        self.btn_typed_apply = QtWidgets.QPushButton("Apply")
+        self.btn_typed_apply.setObjectName("btn_typed_apply")
+        self.btn_typed_apply.setToolTip(
+            "Apply this axial range to the main window's cut (the analysis\n"
+            "is not re-run: the banner offers it).")
+        self.btn_typed_apply.clicked.connect(self._on_typed_apply)
+        typed_row.addWidget(self.btn_typed_apply)
+        self.badge_typed = OriginBadge("slab.typed_range", None)
+        typed_row.addWidget(self.badge_typed)
+        typed_row.addStretch(1)
+        ls.addLayout(typed_row, 3, 1)
+        self.chk_typed.toggled.connect(self._on_typed_toggled)
+
+        # --- DBSCAN (MPS analysis): eps, min samples; the curation and the
+        # contour in its "More" line (the TODO-B6 hook, filled by B6).
+        g_db, ld = group("DBSCAN", "group_dbscan")
+        g_db.setToolTip("DBSCAN of the MPS analysis (not the main window's window clustering).")
+        ld.addWidget(QtWidgets.QLabel("eps [nm]:"), 0, 0)
         self.spin_eps = QtWidgets.QDoubleSpinBox()
         self.spin_eps.setRange(0.1, 1000.0)
         self.spin_eps.setDecimals(1)
@@ -185,29 +479,32 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "DBSCAN search radius. The paper uses 25 nm, matching its ~20 nm\n"
             "lateral localization precision."
         )
-        lay.addWidget(self.spin_eps)
-
-        lay.addWidget(QtWidgets.QLabel("min samples:"))
+        self.field_eps = ParamField("dbscan.eps_nm", self.spin_eps)
+        ld.addWidget(self.field_eps, 0, 1)
+        ld.addWidget(QtWidgets.QLabel("min samples:"), 1, 0)
         self.spin_min = QtWidgets.QSpinBox()
         self.spin_min.setRange(1, 10000)
         self.spin_min.setToolTip(
             "DBSCAN minimum points per cluster. The paper uses 10, matching\n"
             "the expected number of blinking cycles per fluorophore."
         )
-        lay.addWidget(self.spin_min)
+        self.field_min = ParamField("dbscan.min_samples", self.spin_min)
+        ld.addWidget(self.field_min, 1, 1)
+        self.more_dbscan = MoreLine("dbscan")
+        ld.addWidget(self.more_dbscan, 2, 0, 1, 2)
 
-        # A "DBCV thr." spin box stood here until 2026-09-20. Measured
-        # on unpublished pilot axons, the score correlates strongly and
-        # negatively with log10(cluster area), and in many axons the
-        # LARGEST cluster is among the lowest-scoring ones: every
-        # threshold above off removes
-        # the big clusters first. There is no setting of it that curates
-        # without doing that, so it is gone rather than defaulted. The
-        # analysis still takes the parameter and the export still records
-        # it, so older tables stay readable; what curates is the
-        # edge-touching criterion.
+        # A "DBCV thr." spin box stood here until 2026-09-20. On real axons
+        # the per-cluster score falls with the cluster's extent, and in
+        # many axons the LARGEST cluster is among the lowest-scoring ones:
+        # every threshold above off removes the big clusters first. There
+        # is no setting of it that curates without doing that, so it is
+        # gone rather than defaulted. The analysis still takes the
+        # parameter and the export still records it, so older tables stay
+        # readable; what curates is the edge-touching criterion.
 
-        lay.addWidget(QtWidgets.QLabel("Mahalanobis:"))
+        # --- Occupancy: the Mahalanobis threshold; the sigma cap in "More".
+        g_occ, lo = group("", "group_occupancy")
+        lo.addWidget(QtWidgets.QLabel("<b>Occupancy</b> Mahalanobis:"), 0, 0)
         self.spin_maha = QtWidgets.QDoubleSpinBox()
         self.spin_maha.setRange(0.1, 10.0)
         self.spin_maha.setDecimals(1)
@@ -222,8 +519,14 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "it lies within this Mahalanobis distance of some cluster's\n"
             "constrained Gaussian. The paper uses 3."
         )
-        lay.addWidget(self.spin_maha)
+        self.field_maha = ParamField("occupancy.mahalanobis", self.spin_maha)
+        lo.addWidget(self.field_maha, 0, 1)
+        self.more_occupancy = MoreLine("occupancy")
+        lo.addWidget(self.more_occupancy, 1, 0, 1, 2)
 
+        # --- Randomization: the switch (no badge: a switch carries none,
+        # 12.1); its parameters, read-only in stage 2, in "More".
+        g_rand, lr = group("", "group_randomization")
         self.chk_random = QtWidgets.QCheckBox("Randomization")
         self.chk_random.setChecked(True)
         self.chk_random.setToolTip(
@@ -232,27 +535,55 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "off while tuning the other parameters and back on for the\n"
             "final numbers."
         )
-        lay.addWidget(self.chk_random)
+        lr.addWidget(self.chk_random, 0, 0)
+        self.more_randomization = MoreLine("randomization")
+        lr.addWidget(self.more_randomization, 1, 0)
 
-        lay.addStretch(1)
+        # --- Contour
+        g_con, lc = group("", "group_contour")
+        self.btn_contour = QtWidgets.QPushButton("Draw contour...")
+        self.btn_contour.setToolTip(
+            "Drag a path along the membrane and join the cluster centres in\n"
+            "the order they fall along it, instead of the automatic 2-opt\n"
+            "contour. For axons where the automatic contour runs through\n"
+            "centres that are not on the membrane, or cuts a concavity.\n\n"
+            "The path is kept for this axon: changing eps, min samples or\n"
+            "the slab re-orders the new clusters along it, and the clusters\n"
+            "the axoplasm panel keeps are joined along it too. 'cluster Ch1'\n"
+            "and 'MPS analysis' keep it while the file and the ROI are the\n"
+            "same; a new ROI or file drops it, and says so. It is written\n"
+            "to the table, so the contour can be rebuilt from there.")
+        self.btn_contour.clicked.connect(self._on_draw_contour)
+        lc.addWidget(self.btn_contour, 0, 0)
+
+        for more in (self.more_dbscan, self.more_occupancy, self.more_randomization):
+            more.button.toggled.connect(lambda _on: self._strip_relayout())
+
+        # --- the actions
+        self.btn_reset = QtWidgets.QPushButton("Reset to defaults")
+        self.btn_reset.setObjectName("btn_reset")
+        self.btn_reset.setToolTip(reg.reset_tooltip())
+        self.btn_reset.clicked.connect(self._on_reset)
+        self.actions_flow.addWidget(self.btn_reset)
+
+        # The axon's actions sit at the right of the plot tabs' bar, a line
+        # that is otherwise empty: the strip keeps two lines at 1366 px and
+        # the map its share of the height.
+        self.actions_box = QtWidgets.QWidget()
+        self.actions_box.setObjectName("strip_actions")
+        actions = QtWidgets.QHBoxLayout(self.actions_box)
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(4)
 
         self.btn_rings = QtWidgets.QPushButton("Rings...")
         self.btn_rings.setToolTip(
             "Analyse EVERY axial segment of this axon, not just this slab,\n"
-            "and compare the gap/patch pattern of consecutive segments."
+            "and compare the gap/patch pattern of consecutive segments.\n"
+            "Pressed again, it keeps the rings window's mode and guard."
         )
         self.btn_rings.clicked.connect(self._on_rings)
         self.btn_rings.setEnabled(self.rings_callback is not None)
-        lay.addWidget(self.btn_rings)
-
-        self.btn_reset = QtWidgets.QPushButton("Reset to paper defaults")
-        self.btn_reset.setToolTip(
-            "Put the parameters above back to the values Gazal et al. "
-            "(2026) report, and run the analysis again.\n\n"
-            "It touches the parameters only. The axial slab stays where "
-            "it is and the randomization stays as it is set.")
-        self.btn_reset.clicked.connect(self._on_reset)
-        lay.addWidget(self.btn_reset)
+        actions.addWidget(self.btn_rings)
 
         self.btn_export = QtWidgets.QPushButton("Export axon...")
         self.btn_export.setToolTip(
@@ -262,36 +593,154 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "written from the state on screen, in one go.")
         self.btn_export.clicked.connect(self._on_export)
         self.btn_export.setEnabled(self.export_callback is not None)
-        lay.addWidget(self.btn_export)
+        actions.addWidget(self.btn_export)
 
         self.btn_image = QtWidgets.QPushButton("Export image...")
         self.btn_image.setToolTip(
             "Write one of these plots as a figure: at the width a journal\n"
             "asks for, at 300 to 1200 dpi or as an SVG of curves, and drawn\n"
-            "on white rather than on the screen's black.")
+            "on white rather than on the screen's black. Its title says\n"
+            "which analysis, which localizations and which colouring it\n"
+            "draws, and the message after writing it repeats the provenance.")
         self.btn_image.clicked.connect(self._on_export_image)
-        lay.addWidget(self.btn_image)
-
-        self.btn_contour = QtWidgets.QPushButton("Draw contour...")
-        self.btn_contour.setToolTip(
-            "Drag a path along the membrane and join the cluster centres in\n"
-            "the order they fall along it, instead of the automatic 2-opt\n"
-            "contour. For axons where the automatic contour runs through\n"
-            "centres that are not on the membrane, or cuts a concavity.\n\n"
-            "The path is kept for this axon: changing eps, min samples or\n"
-            "the slab re-orders the new clusters along it, and the clusters\n"
-            "the axoplasm panel keeps are joined along it too. It is written\n"
-            "to the table, so the contour can be rebuilt from there.")
-        self.btn_contour.clicked.connect(self._on_draw_contour)
-        lay.addWidget(self.btn_contour)
+        actions.addWidget(self.btn_image)
 
         enabled = self.rerun_callback is not None
         for w in (self.combo_peak, self.spin_half, self.spin_eps,
                   self.spin_min, self.spin_maha,
-                  self.chk_random, self.btn_reset, self.btn_contour):
+                  self.chk_random, self.btn_reset, self.btn_contour,
+                  self.btn_slab_auto, self.chk_typed, self.edit_typed_min,
+                  self.edit_typed_max, self.btn_typed_apply):
             w.setEnabled(enabled)
+        # A typed range needs the main window's cut: a window on its own
+        # has none.
+        if self.links.apply_typed is None:
+            for w in (self.chk_typed, self.edit_typed_min, self.edit_typed_max,
+                      self.btn_typed_apply):
+                w.setEnabled(False)
+        for spin in (self.spin_half, self.spin_eps, self.spin_min, self.spin_maha):
+            spin.valueChanged.connect(lambda *_a: self._sync_reset())
 
         return box
+
+    def _strip_relayout(self) -> None:
+        """A "More" line opened or closed: the flow re-places the groups."""
+        self.strip_flow.invalidate()
+        self.centralWidget().updateGeometry()
+
+    # ------------------------------------------------------------------
+    # the strip and the one value (design 6.2, 6.3, 12.5)
+    # ------------------------------------------------------------------
+
+    def _store_values(self, reset: bool = False) -> None:
+        """Write what the strip shows into the one settings object (the
+        main window's setters): the strip is the only editor, and nothing
+        reads a mirror back. A window on its own has no store."""
+        if self.links.store is None:
+            return
+        values: Dict[str, Any] = dict(
+            eps_nm=float(self.spin_eps.value()),
+            min_samples=int(self.spin_min.value()),
+            slab_half_width_nm=float(self.spin_half.value()),
+            mahalanobis_threshold=float(self.spin_maha.value()),
+            randomization=bool(self.chk_random.isChecked()))
+        _mode, _centre, typed = self.links.slab_state()
+        i, n = self.combo_peak.currentIndex(), self.combo_peak.count()
+        if typed is None and 0 <= i < n - 1:
+            # A component of the mixture (the last item is "the current
+            # slab centre": choosing it keeps the slab as it is).
+            values["slab"] = ("component", float(self.combo_peak.itemData(i)))
+        if reset:
+            values["reset"] = True
+        self.links.store(values)
+
+    def _sync_slab_widgets(self) -> None:
+        """The slab's mode in words, its badges, and the typed range."""
+        mode, centre, typed = self.links.slab_state()
+        from tools.mps_params_panel import SlabChoice, mode_words
+        choice = SlabChoice("component", centre) if (mode == "component" and centre is not None) \
+            else SlabChoice()
+        self.lbl_slab_mode.setText(mode_words(choice, typed))
+        self.badge_centre.set_value(
+            None if (mode == "automatic" or typed is not None) else centre)
+        self.badge_typed.set_value(typed)
+        self.chk_typed.blockSignals(True)
+        self.chk_typed.setChecked(typed is not None)
+        self.chk_typed.blockSignals(False)
+        if typed is not None:
+            self.edit_typed_min.setText(f"{typed[0]:.1f}")
+            self.edit_typed_max.setText(f"{typed[1]:.1f}")
+        enabled = self.rerun_callback is not None
+        typed_on = typed is not None
+        reason = ("A typed range decides the slab: untick 'typed range' to use the "
+                  "centre and the half-width again.")
+        for w in (self.combo_peak, self.btn_slab_auto):
+            w.setEnabled(enabled and not typed_on)
+        # Disabling a box that has the focus moves the focus out of it, and
+        # its editingFinished would re-run the analysis on the typed range
+        # just applied without a re-run (Q12): not a user's edit.
+        was = self.spin_half.blockSignals(True)
+        try:
+            self.spin_half.setEnabled(enabled and not typed_on)
+        finally:
+            self.spin_half.blockSignals(was)
+        self.btn_slab_auto.setEnabled(enabled and not typed_on and mode == "component")
+        self.lbl_slab_mode.setToolTip(reason if typed_on else "")
+
+    def _sync_reset(self) -> None:
+        """'Reset to defaults' is highlighted while any of its four values
+        departs from its default (display only). The badges follow the
+        values too (a refresh sets them with the signals blocked)."""
+        for f in (self.field_half, self.field_eps, self.field_min, self.field_maha):
+            f.refresh()
+        departs = any(reg.badge(key, value) == "user" for key, value in (
+            ("dbscan.eps_nm", float(self.spin_eps.value())),
+            ("dbscan.min_samples", int(self.spin_min.value())),
+            ("slab.half_width_nm", float(self.spin_half.value())),
+            ("occupancy.mahalanobis", float(self.spin_maha.value()))))
+        self.btn_reset.setStyleSheet("font-weight: bold;" if departs else "")
+
+    def _on_slab_automatic(self) -> None:
+        """Back to the automatic slab centre, and run the analysis."""
+        if self.links.store is None or self.rerun_callback is None:
+            return
+        self.links.store({"slab": ("automatic", None)})
+        self._rerun(main_peak_override_nm=None)
+
+    def _on_typed_toggled(self, on: bool) -> None:
+        if self.links.apply_typed is None:
+            return
+        if on:
+            # The bounds are applied with "Apply"; start from the cut.
+            sel = self._sel
+            if sel is not None and sel.cut is not None and not self.edit_typed_min.text():
+                self.edit_typed_min.setText(f"{sel.cut[0]:.1f}")
+                self.edit_typed_max.setText(f"{sel.cut[1]:.1f}")
+            return
+        # Unticked: only a range that was applied is cleared. Ticking and
+        # unticking without "Apply" changed nothing, so nothing is re-cut
+        # (a re-cut would hand the Axoplasm panel a "new" selection and
+        # drop its hand-set threshold).
+        if self.links.slab_state()[2] is not None:
+            self.links.apply_typed(None)
+        self._sync_slab_widgets()
+
+    def _on_typed_apply(self) -> None:
+        if self.links.apply_typed is None:
+            return
+        try:
+            a = float(self.edit_typed_min.text().strip())
+            b = float(self.edit_typed_max.text().strip())
+        except ValueError:
+            QtWidgets.QMessageBox.warning(
+                self, "Typed range", "Type both bounds as numbers, in nm.")
+            return
+        if not a < b:
+            QtWidgets.QMessageBox.warning(
+                self, "Typed range", "The lower bound must be below the upper one.")
+            return
+        self.links.apply_typed((a, b))
+        self._sync_slab_widgets()
 
     def _on_rings(self) -> None:
         if self.rings_callback is not None:
@@ -301,12 +750,6 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         w = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-
-        self.lbl_provenance = QtWidgets.QLabel()
-        self.lbl_provenance.setWordWrap(True)
-        self.lbl_provenance.setTextInteractionFlags(
-            QtCore.Qt.TextSelectableByMouse)
-        lay.addWidget(self.lbl_provenance)
 
         # Which analysis the plots show, once the discard is compared.
         self.box_shown = QtWidgets.QWidget()
@@ -323,15 +766,14 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         for radio in (self.radio_measured, self.radio_every,
                       self.radio_discard):
             radio.setToolTip(
-                "Which clusters every plot on the right is drawn from. The "
-                "contour, the areas, the 1NN and the randomization all\n"
-                "follow this, and the plot's own title says which one it "
+                "Which clusters every plot is drawn from. The axon map, the "
+                "areas, the nearest neighbours and the randomization all\n"
+                "follow this, and each plot's own title says which one it "
                 "is showing.\n\n"
                 "'Discard applied' leaves out the clusters both widefield "
                 "images place inside the axon (axoplasm panel,\n"
-                "section 5); they are drawn as orange diamonds, and the "
-                "contour with "
-                "every cluster stays as a grey dashed line.")
+                "section 5); on the axon map they are vermillion diamonds, "
+                "and the contour with every cluster stays as a dashed line.")
         self.radio_measured.setChecked(True)
         self._shown_group = QtWidgets.QButtonGroup(self)
         for radio in (self.radio_measured, self.radio_every,
@@ -357,6 +799,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "analysis used one start, which can settle on a longer tour --\n"
             "by a few percent on real axons -- and would blur the\n"
             "comparison with the next column.")
+        self.table.horizontalHeaderItem(_COL_PAPER).setToolTip(PAPER_HEADER_TIP)
         for col in (_COL_EVERY, _COL_DISCARD):
             self.table.setColumnHidden(col, True)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -388,44 +831,43 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         return w
 
     def _build_plots(self) -> QtWidgets.QWidget:
-        w = QtWidgets.QWidget()
-        grid = QtWidgets.QGridLayout(w)
-        grid.setContentsMargins(0, 0, 0, 0)
+        """The axon map above, the tabs under it (design 3.1, Q4)."""
+        self.plot_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        self.plot_splitter.setObjectName("plot_splitter")
 
-        self.plot_contour = pg.PlotWidget()
-        style_dark(self.plot_contour)
-        set_title(self.plot_contour, CONTOUR_TITLE, dark=self.dark)
-        self.plot_contour.setAspectLocked(True)
-        self.plot_contour.setLabels(bottom="x [nm]", left="y [nm]")
-        grid.addWidget(self.plot_contour, 0, 0, 2, 1)
+        self.axon_map = AxonMap(dark=self.dark)
+        # The map's first provenance line IS the provenance this window has
+        # always shown (file, pixel size and its source, eps, min samples,
+        # slab): one label, now above the map, where a figure is read.
+        self.lbl_provenance = self.axon_map.lbl_line1
+        self.axon_map.view_changed.connect(self._on_map_view)
+        self.plot_splitter.addWidget(self.axon_map)
 
-        self.plot_z = pg.PlotWidget()
-        style_dark(self.plot_z)
-        set_title(self.plot_z, "Axial (z) distribution, GMM fit and slab")
-        self.plot_z.setLabels(bottom="z [nm]", left="density")
-        grid.addWidget(self.plot_z, 0, 1)
+        self.tabs = QtWidgets.QTabWidget()
+        self.tabs.setObjectName("plot_tabs")
+        self.tabs.setCornerWidget(self.actions_box, QtCore.Qt.Corner.TopRightCorner)
+        self.axial = AxialView(dark=self.dark)
+        self.tabs.addTab(self.axial, "Axial")
+        self.nn = NearestNeighboursPanel(
+            dark=self.dark, bins=int(self.links.nn_bins), range_nm=self.links.nn_range,
+            root_name=self.links.root_name, current=lambda: self._analysis_is_current(fresh=True))
+        self.tabs.addTab(self.nn, "Nearest neighbours")
 
         self.plot_area = pg.PlotWidget()
         style_dark(self.plot_area)
-        set_title(self.plot_area, "Cluster area")
+        set_title(self.plot_area, AREA_TITLE)
         self.plot_area.setLabels(bottom="area [nm^2]", left="count")
-        grid.addWidget(self.plot_area, 1, 1)
-
-        self.plot_nn = pg.PlotWidget()
-        style_dark(self.plot_nn)
-        set_title(self.plot_nn, "1NN distance between cluster centres")
-        self.plot_nn.setLabels(bottom="distance [nm]", left="count")
-        grid.addWidget(self.plot_nn, 2, 0)
-
-        self.plot_cdf = pg.PlotWidget()
-        style_dark(self.plot_cdf)
-        set_title(self.plot_cdf, "1NN CDF: observed vs randomized")
-        self.plot_cdf.setLabels(bottom="distance [nm]", left="cumulative")
-        # The legend takes its text colour from the application's global
-        # foreground, which is black: on the dark background it would be an
-        # empty box.
-        self.plot_cdf.addLegend(offset=(-10, 10), labelTextColor=AXIS_FG)
-        grid.addWidget(self.plot_cdf, 2, 1)
+        # The plot with its details panel under it (12.8): the median area
+        # and effective radius with the reference values, read-only.
+        self.area_tab = QtWidgets.QWidget()
+        self.area_tab.setObjectName("area_tab")
+        area_lay = QtWidgets.QVBoxLayout(self.area_tab)
+        area_lay.setContentsMargins(0, 0, 0, 0)
+        area_lay.setSpacing(2)
+        area_lay.addWidget(self.plot_area, 1)
+        self.details_area = DetailsPanel(object_name="details_area", collapsed=True)
+        area_lay.addWidget(self.details_area)
+        self.tabs.addTab(self.area_tab, "Cluster area")
 
         # Each centre's distance from the centres' mean against its
         # angle, with the smooth outline fitted to them and a band of the
@@ -438,15 +880,66 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             bottom="angle about the centres' mean [deg]",
             left="distance from it [nm]")
         self.plot_scatter.setXRange(0.0, 360.0, padding=0.0)
-        grid.addWidget(self.plot_scatter, 3, 0, 1, 2)
+        self.tabs.addTab(self.plot_scatter, "Scatter off the outline")
+        self.plot_splitter.addWidget(self.tabs)
+        # The map keeps MAP_SHARE of the plot column through every show and
+        # resize, until the user drags the divider (then it stays there).
+        self.plot_splitter.setStretchFactor(0, 3)
+        self.plot_splitter.setStretchFactor(1, 1)
+        self._split_done = False
+        self.plot_splitter.splitterMoved.connect(self._on_split_moved)
+        return self.plot_splitter
 
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        grid.setRowStretch(0, 2)
-        grid.setRowStretch(1, 2)
-        grid.setRowStretch(2, 2)
-        grid.setRowStretch(3, 2)
-        return w
+    def _on_split_moved(self, _pos: int, _index: int) -> None:
+        if not getattr(self, "_applying_share", False):
+            self._split_done = True
+
+    def _on_left_moved(self, _pos: int, _index: int) -> None:
+        if not getattr(self, "_applying_share", False):
+            self._left_done = True
+
+    def _apply_left_width(self) -> None:
+        """The table column at least LEFT_MIN_PX wide (never more than a
+        third of the window), until the user drags the divider."""
+        if self._left_done or self._widened:
+            return
+        sizes = self.splitter.sizes()
+        total = sum(sizes)
+        if total <= 0 or len(sizes) != 2:
+            return
+        left = int(min(LEFT_MIN_PX, total / 3.0))
+        if sizes[0] >= left:
+            return
+        self._applying_share = True
+        try:
+            self.splitter.setSizes([left, total - left])
+        finally:
+            self._applying_share = False
+
+    def _apply_map_share(self) -> None:
+        self._apply_left_width()
+        total = self.plot_splitter.height()
+        if total <= 0:
+            return
+        top = int(total * MAP_SHARE)
+        if total - top < TABS_MIN_PX:
+            # a short screen: the tabs get their minimum, the map keeps its share of the window
+            top = max(total - TABS_MIN_PX, int(MAP_MIN_OF_WINDOW * self.height()))
+        self._applying_share = True
+        try:
+            self.plot_splitter.setSizes([top, total - top])
+        finally:
+            self._applying_share = False
+
+    def showEvent(self, event: Any) -> None:
+        super().showEvent(event)
+        if not self._split_done:
+            self._apply_map_share()
+
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
+        if not self._split_done:
+            QtCore.QTimer.singleShot(0, self._apply_map_share)
 
     # ------------------------------------------------------------------
     # refresh
@@ -455,24 +948,94 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
     def refresh(self) -> None:
         """Redraw everything from ``self.analysis``, and the analysis
         without the discarded clusters when there is one for it."""
+        if self.analysis is not self._last_analysis:
+            # A new analysis is shown as itself.
+            self._last_analysis = self.analysis
+            self._show_current = False
         self.comparison = self._ask_discard()
+        self._read_selection()
         self._sync_controls()
+        self._sync_slab_widgets()
+        self._sync_reset()
         self._sync_discard_widgets()
         self._fill_provenance()
         self._fill_table()
         self._fill_warnings()
+        self._update_banner()
         self._draw_plots()
 
+    def selection_changed(self) -> None:
+        """The main window applied another selection (an ROI moved, an
+        axial range was applied). Only what depends on the selection is
+        redrawn: the banner, the map, the axial view. The analysis, the
+        table and the comparison stay as they are."""
+        self._read_selection()
+        if self._show_current:
+            self._fill_provenance()
+            self._fill_table()
+            self._fill_warnings()
+        self._sync_slab_widgets()
+        self._update_banner()
+        self._draw_plots()
+
+    def axoplasm_changed(self) -> None:
+        """The Axoplasm panel changed its picture (threshold, smoothing,
+        margin, shift, images): redraw the map."""
+        self._draw_map()
+
+    def rings_changed(self) -> None:
+        """The rings window shows other segments: the map and the axial
+        view redraw their segment groups."""
+        self._draw_map()
+        self._draw_axial()
+
+    def show_view(self, view: str, beside: Optional[QtWidgets.QWidget] = None) -> None:
+        """Bring the window up in a view of the map ("mps", "axoplasm",
+        "segments"; the segments view also sets the axial view's "Every
+        segment"), placed beside ``beside`` the first time (3.1)."""
+        # Read the providers first: the segments or the panel that asked
+        # for this view may be newer than the last redraw.
+        self._read_selection()
+        self._draw_map()
+        self._draw_axial()
+        self.axon_map.set_view(view)
+        if view == "segments":
+            self.axial.set_view("segments")
+            self.tabs.setCurrentWidget(self.axial)
+        self.show()
+        if beside is not None:
+            self.place_beside(beside)
+        self.raise_()
+        self.activateWindow()
+
+    def place_beside(self, anchor: QtWidgets.QWidget) -> bool:
+        """Move beside ``anchor`` the first time it is asked for that
+        window, when the screen has room; False when it was not moved."""
+        key = anchor.objectName() or type(anchor).__name__
+        if key in self._placed_beside:
+            return False
+        self._placed_beside.add(key)
+        screen = anchor.screen() if hasattr(anchor, "screen") else None
+        if screen is None:
+            screen = QtWidgets.QApplication.primaryScreen()
+        if screen is None:
+            return False
+        frame = self.frameGeometry()
+        where = beside_position(anchor.frameGeometry(), frame.size(), screen.availableGeometry())
+        if where is None:
+            return False
+        self.move(where)
+        return True
+
     def _draw_plots(self) -> None:
-        self._draw_contour()
-        self._draw_z()
+        self._draw_map()
+        self._draw_axial()
         self._draw_area()
         self._draw_nn()
-        self._draw_cdf()
         self._draw_scatter()
 
     def _ask_discard(self) -> Optional[DiscardComparison]:
-        if self.discard_callback is None:
+        if self.discard_callback is None or self.analysis is None:
             return None
         found = self.discard_callback(self.analysis)
         # Only analyses of these same clusters.
@@ -482,32 +1045,69 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             return None
         return found
 
+    def _read_selection(self) -> None:
+        """What the main window says about the current selection, and
+        whether the analysis shown is of a previous one."""
+        sel = self.links.selection()
+        self._sel = sel
+        self._stale = (self.analysis is not None and sel is not None
+                       and not (sel.analysis is self.analysis and sel.analysis_current))
+
+    def _analysis_is_current(self, fresh: bool = False) -> bool:
+        """Whether the analysis describes the current selection (a window
+        on its own: always). ``fresh`` asks the main window again instead of
+        trusting the last redraw (a save must never write an analysis of
+        another file or selection)."""
+        sel = self.links.selection() if fresh else self._sel
+        if sel is None:
+            return True
+        return bool(sel.analysis is self.analysis and sel.analysis_current)
+
+    def _display_analysis(self) -> Optional[AxonAnalysis]:
+        """The measured analysis drawn, or None in the empty state."""
+        if self.analysis is None or self._show_current:
+            return None
+        return self.analysis
+
     def _neutral(self) -> str:
-        """The contour and outline colour for the background in use."""
+        """The line and outline colour for the background in use."""
         return neutral(dark=self.dark)
 
     def _plots(self) -> "dict":
         """Every plot of this window, by the name the export shows."""
-        return {"Contour and centre": self.plot_contour,
-                "Axial distribution": self.plot_z,
-                "Cluster area": self.plot_area,
-                "1NN distance": self.plot_nn,
-                "1NN CDF": self.plot_cdf,
-                "Scatter off the outline": self.plot_scatter}
+        return {PLOT_MAP: self.axon_map.plot,
+                PLOT_AXIAL: self.axial.plot,
+                PLOT_AREA: self.plot_area,
+                PLOT_NN: self.nn.plot_nn,
+                PLOT_CDF: self.nn.plot_cdf,
+                PLOT_SCATTER: self.plot_scatter}
+
+    def _tab_of(self, name: str) -> Optional[QtWidgets.QWidget]:
+        """The tab a plot sits in (None: the map, always visible)."""
+        return {PLOT_AXIAL: self.axial, PLOT_AREA: self.area_tab, PLOT_NN: self.nn,
+                PLOT_CDF: self.nn, PLOT_SCATTER: self.plot_scatter}.get(name)
 
     def _apply_background(self) -> None:
         """Style every plot for the background in use, and redraw."""
-        for plot in self._plots().values():
+        for plot in (self.plot_area, self.plot_scatter):
             (style_dark if self.dark else style_light)(plot)
-        for plot, title in ((self.plot_z,
-                             "Axial (z) distribution, GMM fit and slab"),
-                            (self.plot_area, "Cluster area"),
-                            (self.plot_nn,
-                             "1NN distance between cluster centres"),
-                            (self.plot_cdf,
-                             "1NN CDF: observed vs randomized")):
-            set_title(plot, title, dark=self.dark)
+        self.axon_map.set_dark(self.dark)
+        self.axial.set_dark(self.dark)
+        self.nn.set_dark(self.dark)
         self._draw_plots()
+
+    def _export_message(self, name: str) -> str:
+        """What the export says beside the file: the visible layers, the
+        hidden count and the provenance lines (map, axial), or the title."""
+        if name == PLOT_MAP:
+            return self.axon_map.export_message()
+        if name == PLOT_AXIAL:
+            return self.axial.export_message()
+        plot = self._plots().get(name)
+        if plot is None:
+            return ""
+        title = plot.getPlotItem().titleLabel.text
+        return "Title: " + " | ".join(_strip(str(title)).split("<br>"))
 
     def _on_export_image(self) -> None:
         """Write one plot as a figure."""
@@ -516,13 +1116,23 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         plots = self._plots()
         suggested = figure_export.suggested_name(
-            self.analysis.source_name, next(iter(plots)))
-        request = ask(list(plots), suggested, parent=self)
+            self.analysis.source_name if self.analysis is not None
+            else self.links.root_name(), next(iter(plots)))
+        # A white redraw is offered for every plot but the map while it
+        # draws the widefield image: a photograph is not redrawn (3.6).
+        white = {name for name in plots
+                 if name != PLOT_MAP or self.axon_map.offers_white()}
+        request = ask(list(plots), suggested, parent=self, offer_white=white)
         if request is None:
             return
         plot = plots.get(request.plot)
         if plot is None:
             return
+        tab = self._tab_of(request.plot)
+        if tab is not None and self.tabs.currentWidget() is not tab:
+            # pyqtgraph exports a laid-out item: show its tab once.
+            self.tabs.setCurrentWidget(tab)
+            QtWidgets.QApplication.processEvents()
         was_dark = self.dark
         try:
             if request.white and was_dark:
@@ -530,6 +1140,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 self._apply_background()
                 QtWidgets.QApplication.processEvents()
             written = figure_export.write(plot.getPlotItem(), request)
+            message = self._export_message(request.plot)
         except Exception as error:                        # noqa: BLE001
             QtWidgets.QMessageBox.critical(
                 self, "Export failed",
@@ -541,39 +1152,33 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 self._apply_background()
         QtWidgets.QMessageBox.information(
             self, "Image written",
-            f"{figure_export.describe(request)}\n\n{written}")
+            f"{figure_export.describe(request)}\n\n{written}"
+            + (f"\n\n{message}" if message else ""))
 
-    def _title_contour(self, shown: AxonAnalysis) -> None:
-        """
-        Say in the plot's own title which clusters it is drawing.
-
-        The window can show the axon measured or without the clusters the
-        axoplasm panel discarded, and the two contours differ by metres of
-        perimeter; with one title for both, a reader who has not noticed
-        the radio buttons above the table has no way to tell which one is
-        on screen.
-        """
-        title = CONTOUR_TITLE
-        if self.comparison is not None:
-            # Short: the plot is half the window wide, and a title it
-            # truncates says less than no title at all.
-            total = self.comparison.all_clusters.n_clusters_kept
-            if shown.discard_applied:
-                title = (f"Contour and centre (+): {shown.n_clusters_kept} "
-                         f"of {total}, {len(shown.discarded_labels)} "
-                         f"discarded")
-            else:
-                title = f"Contour and centre (+): all {total} clusters"
-        set_title(self.plot_contour, title, dark=self.dark)
-
-    def _shown(self) -> AxonAnalysis:
-        """The analysis the plots show."""
+    def _shown(self) -> Optional[AxonAnalysis]:
+        """The analysis the plots show (None in the empty state)."""
+        a = self._display_analysis()
+        if a is None:
+            return None
         if self.comparison is not None:
             if self.radio_every.isChecked():
                 return self.comparison.all_clusters
             if self.radio_discard.isChecked():
                 return self.comparison.discard_applied
-        return self.analysis
+        return a
+
+    def _shown_key(self) -> str:
+        if self.comparison is not None:
+            if self.radio_every.isChecked():
+                return "every"
+            if self.radio_discard.isChecked():
+                return "discard"
+        return "measured"
+
+    def _shown_words(self, shown: Optional[AxonAnalysis]) -> str:
+        """Which analysis a plot shows, as its title ends with it when a
+        discard comparison exists (3.6)."""
+        return L.shown_words(shown, self.comparison, self.analysis)
 
     def _every_column(self) -> bool:
         """Whether 'All clusters' says something the measured column does
@@ -600,7 +1205,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.radio_measured.setChecked(True)
         self.table.setColumnHidden(_COL_EVERY, not every)
         self.table.setColumnHidden(_COL_DISCARD, not compared)
-        one_start = self.analysis.contour_2opt == "one start"
+        one_start = (self.analysis is not None
+                     and self.analysis.contour_2opt == "one start")
         self.table.horizontalHeaderItem(_COL_MEASURED).setToolTip(
             "As the MPS analysis measures every axon: the contour refined\n"
             + ("by 2-opt from one start, as before 2026-09-19."
@@ -627,31 +1233,53 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             wdg.blockSignals(True)
 
         self.combo_peak.clear()
-        means = a.z_result.means_nm
-        weights = a.z_result.weights
-        centre = (a.slab_zmin_nm + a.slab_zmax_nm) / 2.0
-        best_i, best_d = 0, float("inf")
-        for i, (m, wgt) in enumerate(zip(means, weights)):
+        if a is not None:
+            means = a.z_result.means_nm
+            weights = a.z_result.weights
+            centre = (a.slab_zmin_nm + a.slab_zmax_nm) / 2.0
+            best_i, best_d = 0, float("inf")
+            for i, (m, wgt) in enumerate(zip(means, weights)):
+                self.combo_peak.addItem(
+                    f"z = {m:8.1f} nm   (weight {wgt:.2f})", float(m))
+                d = abs(float(m) - centre)
+                if d < best_d:
+                    best_i, best_d = i, d
+            # The automatic centre is the density peak, which need not coincide
+            # with any component mean; expose it as its own entry so the user
+            # can always get back to it.
             self.combo_peak.addItem(
-                f"z = {m:8.1f} nm   (weight {wgt:.2f})", float(m))
-            d = abs(float(m) - centre)
-            if d < best_d:
-                best_i, best_d = i, d
-        # The automatic centre is the density peak, which need not coincide
-        # with any component mean; expose it as its own entry so the user
-        # can always get back to it.
-        self.combo_peak.addItem(
-            f"z = {centre:8.1f} nm   (current slab centre)", float(centre))
-        self.combo_peak.setCurrentIndex(
-            self.combo_peak.count() - 1 if best_d > 1e-6 else best_i)
+                f"z = {centre:8.1f} nm   (current slab centre)", float(centre))
+            self.combo_peak.setCurrentIndex(
+                self.combo_peak.count() - 1 if best_d > 1e-6 else best_i)
 
-        self.spin_half.setValue(a.slab_half_width_nm)
-        self.spin_eps.setValue(a.eps_nm)
-        self.spin_min.setValue(int(a.min_samples))
-        # From the analysis, not from its occupancy: an analysis with too
-        # few clusters to measure occupancy still ran with a threshold, and
-        # reading it back from the widget is what let 0.1 through.
-        self.spin_maha.setValue(a.mahalanobis_threshold)
+            params = self.links.params() if self.links.store is not None else None
+            if params is not None:
+                # The one value of each parameter (design 6.2): what the strip
+                # set, which every consumer reads - the analysis shown is of
+                # those values unless the banner says otherwise.
+                eps, minimum, half, maha = params
+                self.spin_half.setValue(float(half))
+                self.spin_eps.setValue(float(eps))
+                self.spin_min.setValue(int(minimum))
+                self.spin_maha.setValue(float(maha))
+            else:
+                self.spin_half.setValue(a.slab_half_width_nm)
+                self.spin_eps.setValue(a.eps_nm)
+                self.spin_min.setValue(int(a.min_samples))
+                # From the analysis, not from its occupancy: an analysis with
+                # too few clusters to measure occupancy still ran with a
+                # threshold, and reading it back from the widget is what let
+                # 0.1 through.
+                self.spin_maha.setValue(a.mahalanobis_threshold)
+        else:
+            # No analysis yet: the values the next run will use.
+            params = self.links.params()
+            if params is not None:
+                eps, minimum, half, maha = params
+                self.spin_eps.setValue(float(eps))
+                self.spin_min.setValue(int(minimum))
+                self.spin_half.setValue(float(half))
+                self.spin_maha.setValue(float(maha))
 
         for wdg in (self.combo_peak, self.spin_half, self.spin_eps,
                     self.spin_min, self.spin_maha):
@@ -680,18 +1308,19 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.chk_random.stateChanged.connect(self._on_param_changed)
 
     def _fill_provenance(self) -> None:
-        a = self.analysis
+        a = self._display_analysis()
+        if a is None:
+            name = (os.path.basename(self.analysis.source_name)
+                    if self.analysis is not None else os.path.basename(self.links.root_name()))
+            self.lbl_provenance.setText(
+                f"<b>{name or '(unnamed ROI)'}</b><br>{NO_ANALYSIS}")
+            return
         px = "unknown" if a.pixel_size_nm is None else f"{a.pixel_size_nm:g} nm"
-        src = {"yaml": "from Picasso YAML",
-               "hdf5": "from the metadata inside the HDF5",
-               "yaml_scan": "from Picasso YAML",
-               "override": "given explicitly",
-               "manual": "entered manually",
-               "neighbour": "from a file beside it, not this one",
-               "remembered": "typed by hand for this folder earlier",
-               "unknown": "UNKNOWN"}.get(a.pixel_size_source, a.pixel_size_source)
+        # One dictionary of source words, shared with the main window's
+        # Measurement panel (design 12.7): the text is today's, byte for byte.
+        src = reg.pixel_source_words(a.pixel_size_source)
         colour = (AXIS_FG_LIGHT
-                  if a.pixel_size_source in ("yaml", "hdf5", "yaml_scan")
+                  if a.pixel_size_source in reg.PIXEL_SOURCES_FROM_FILE
                   else _C_TEXT_WARN)
         self.lbl_provenance.setText(
             f"<b>{os.path.basename(a.source_name) or '(unnamed ROI)'}</b><br>"
@@ -701,6 +1330,13 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         )
 
     def _fill_table(self) -> None:
+        if self._display_analysis() is None:
+            self.table.setRowCount(1)
+            for col in range(self.table.columnCount()):
+                self.table.setItem(0, col, QtWidgets.QTableWidgetItem(
+                    NO_ANALYSIS if col == _COL_NAME else ""))
+            return
+        assert self.analysis is not None
         rows = self.analysis.summary_rows()
         # The same rows, in the same order, for the other two analyses:
         # summary_rows does not depend on the values.
@@ -732,7 +1368,23 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
+                self._cell_tip(item, name, col, str(text))
                 self.table.setItem(r, col, item)
+
+    @staticmethod
+    def _cell_tip(item: QtWidgets.QTableWidgetItem, name: str, col: int, text: str) -> None:
+        """The tooltips of the reference cells, the KS p cells and the CDF
+        crossing cells (rev 3, 12.8); their texts stay as they are."""
+        key = _REFERENCE_KEYS.get(name)
+        if col == _COL_PAPER and key is not None:
+            item.setToolTip(f"{text}: {reg.format_value(key)}.\n{reg.tooltip(key)}")
+        elif col in (_COL_MEASURED, _COL_EVERY, _COL_DISCARD):
+            own = item.toolTip()
+            if name == _KS_ROW:
+                item.setToolTip(KS_P_TIP + (f"\n\n{own}" if own else ""))
+            elif name == _CROSSING_ROW:
+                item.setToolTip(CROSSING_TIP + "\n" + reg.tooltip("randomization.cdf_crossing_floor")
+                                + (f"\n\n{own}" if own else ""))
 
     @staticmethod
     def _italic() -> QtGui.QFont:
@@ -742,6 +1394,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _fill_warnings(self) -> None:
         self.list_warnings.clear()
+        if self._display_analysis() is None:
+            self.list_warnings.addItem(QtWidgets.QListWidgetItem(NO_ANALYSIS + "."))
+            return
+        assert self.analysis is not None
         messages: List[str] = list(self.analysis.warnings)
         if self.comparison is not None:
             # Their own warnings, once each: those shared with an analysis
@@ -764,152 +1420,139 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 QtWidgets.QListWidgetItem("No warnings."))
 
     # ------------------------------------------------------------------
+    # the banner (3.4 rule 5)
+    # ------------------------------------------------------------------
+
+    def _update_banner(self) -> None:
+        sel = self._sel
+        run = self.links.run_analysis is not None
+        if self.analysis is None:
+            words = "" if sel is None else sel.current_words
+            self.banner.set_state([NO_ANALYSIS + (f" ({words})." if words else ".")], offer_run=run)
+            return
+        if self._show_current:
+            self.banner.set_state(showing_current_lines(current_words="" if sel is None else sel.current_words),
+                                  offer_show=True, showing_current=True, offer_run=run)
+            return
+        note = [] if sel is None or not sel.guide_note else [sel.guide_note]
+        if not self._stale or sel is None:
+            if sel is not None and sel.rerun_failed:
+                # A failed re-run with the same selection (eps, min samples,
+                # Mahalanobis): the values shown are not the analysis' (6.3).
+                self.banner.set_state([RERUN_FAILED] + note, offer_run=run)
+                return
+            self.banner.set_state(note)
+            return
+        lines = analysis_stale_lines(analysed_words=sel.analysed_words or "as analysed",
+                                     current_words=sel.current_words or "another one",
+                                     discard_dropped=sel.discard_dropped,
+                                     cut_only=bool(sel.analysed_roi_words == sel.roi_words
+                                                   and sel.analysed_cut != sel.cut))
+        if sel.rerun_failed:
+            lines.insert(0, RERUN_FAILED)
+        self.banner.set_state(lines + note, offer_show=True, showing_current=False, offer_run=run)
+
+    def _on_show_current(self, on: bool) -> None:
+        """'Show the current selection' / 'Show the analysed selection'."""
+        if self.analysis is None:
+            return
+        self._show_current = bool(on)
+        self._fill_provenance()
+        self._fill_table()
+        self._fill_warnings()
+        self._update_banner()
+        self._draw_plots()
+
+    def _on_run_requested(self) -> None:
+        if self.links.run_analysis is not None:
+            self.links.run_analysis()
+
+    # ------------------------------------------------------------------
     # plots
     # ------------------------------------------------------------------
 
-    def _draw_contour(self) -> None:
-        a = self._shown()
-        self._title_contour(a)
-        self.plot_contour.clear()
-        if a.x_slab.size == 0:
-            return
+    def _map_inputs(self) -> L.MapInputs:
+        prev = self.axon_map.inputs()
+        a = self._display_analysis()
+        sel = self._sel
+        if a is not None and self._stale:
+            # The Axoplasm panel follows the current selection: never
+            # drawn against the clusters of the previous one (P2).
+            state, state_reason = None, "this analysis is of the previous selection"
+        else:
+            state, state_reason = self.links.axoplasm()
+        ms, ms_reason = self.links.rings()
+        return L.MapInputs(
+            analysis=a, comparison=self.comparison if a is not None else None,
+            shown=self._shown_key(), stale=bool(self._stale and a is not None),
+            given_after_cut=bool(sel is not None and a is not None and sel.analysed_after_cut),
+            discard_failed=("" if sel is None or a is None else sel.discard_failed),
+            axoplasm=state, axoplasm_reason=state_reason or prev.axoplasm_reason,
+            rings=ms, rings_reason=ms_reason or prev.rings_reason,
+            source=prev.source, colour_by=prev.colour_by, image=prev.image,
+            selection_n=None if sel is None else sel.n_locs)
 
-        bad = a.bad_report.bad_labels
-        noise = a.labels == -1
-        if np.any(noise):
-            self.plot_contour.addItem(pg.ScatterPlotItem(
-                a.x_slab[noise], a.y_slab[noise], size=2, pen=None,
-                brush=pg.mkBrush(*rgba("noise", 90)), name="noise"))
+    def _draw_map(self) -> None:
+        self.axon_map.set_inputs(self._map_inputs())
+        a = self._display_analysis()
+        sel = self._sel
+        if a is not None:
+            shown = self._shown()
+            roi = "" if sel is None else (sel.analysed_roi_words or sel.roi_words)
+            cut = None if sel is None else (sel.analysed_cut or sel.cut)
+            line2 = L.provenance_line2(shown, roi_words=roi, cut=cut,
+                                       given_after_cut=bool(sel is not None and sel.analysed_after_cut))
+        else:
+            line2 = L.provenance_line2(None, roi_words="" if sel is None else sel.roi_words,
+                                       cut=None if sel is None else sel.cut)
+        self.axon_map.set_provenance(self.lbl_provenance.text(), line2)
 
-        bad_mask = np.isin(a.labels, list(bad)) if bad else np.zeros_like(noise)
-        if np.any(bad_mask):
-            # An x, not a dot: what the curation removed and what DBSCAN
-            # never clustered are drawn in the same grey -- both mean "not
-            # in the analysis" -- and the symbol says which of the two.
-            self.plot_contour.addItem(pg.ScatterPlotItem(
-                a.x_slab[bad_mask], a.y_slab[bad_mask], size=5, symbol="x",
-                pen=pg.mkPen(*rgba("curated", 160)), brush=None))
+    def _draw_axial(self) -> None:
+        prev = self.axial.inputs()
+        sel = self._sel
+        a = self._display_analysis()
+        ms, ms_reason = self.links.rings()
+        if a is not None:
+            z = (sel.analysed_z if sel is not None and sel.analysis is self.analysis else None)
+            ch2 = None if (sel is None or self._stale) else sel.ch2_z
+            ch2_reason = ("the analysis is of the previous selection" if self._stale
+                          else ("no channel 2 is loaded" if sel is None else sel.ch2_reason))
+            inp = L.AxialInputs(
+                z_roi=z, analysis=self._shown(), cut=None if sel is None else sel.cut,
+                cut_from_histogram_mode=bool(sel is not None and sel.cut_from_histogram_mode),
+                cut_stale=self._stale, given_after_cut=bool(sel is not None and sel.analysed_after_cut),
+                ch2_z=ch2, ch2_reason=ch2_reason, ch2_shown=prev.ch2_shown,
+                rings=ms, rings_reason=ms_reason or prev.rings_reason, view=prev.view)
+        else:
+            inp = L.AxialInputs(
+                z_roi=None if sel is None else sel.z_roi, analysis=None,
+                fit=None if sel is None else sel.fit,
+                cut=None if sel is None else sel.cut,
+                cut_from_histogram_mode=bool(sel is not None and sel.cut_from_histogram_mode),
+                ch2_z=None if sel is None else sel.ch2_z,
+                ch2_reason="no channel 2 is loaded" if sel is None else sel.ch2_reason,
+                ch2_shown=prev.ch2_shown, rings=ms, rings_reason=ms_reason or prev.rings_reason,
+                view=prev.view, fit_reason="the mixture could not be fitted" if sel is None else sel.fit_reason)
+        self.axial.set_inputs(inp)
 
-        gone = (np.isin(a.labels, list(a.discarded_labels))
-                if a.discarded_labels else np.zeros_like(noise))
-        if np.any(gone):
-            self.plot_contour.addItem(pg.ScatterPlotItem(
-                a.x_slab[gone], a.y_slab[gone], size=4, symbol="d",
-                pen=None, brush=pg.mkBrush(role("discarded"))))
+    def _draw_nn(self) -> None:
+        self.nn.set_analysis(self._shown(), measured=self._display_analysis(), comparison=self.comparison)
 
-        good_mask = (~noise) & (~bad_mask) & (~gone)
-        if np.any(good_mask):
-            self.plot_contour.addItem(pg.ScatterPlotItem(
-                a.x_slab[good_mask], a.y_slab[good_mask], size=3, pen=None,
-                brush=pg.mkBrush(*rgba("locs", 200))))
-
-        if a.discard_applied and self.comparison is not None:
-            # The contour with every cluster, and its centre, for what the
-            # discard changed.
-            every = self.comparison.all_clusters.perimeter
-            if every is not None:
-                closed = np.vstack([every.contour, every.contour[:1]])
-                self.plot_contour.addItem(pg.PlotDataItem(
-                    closed[:, 0], closed[:, 1],
-                    pen=pg.mkPen(self._neutral(), width=1,
-                                 style=QtCore.Qt.PenStyle.DashLine)))
-                if every.centre is not None:
-                    self.plot_contour.addItem(pg.ScatterPlotItem(
-                        [every.centre.x_nm], [every.centre.y_nm], size=14,
-                        symbol="+", pen=pg.mkPen(self._neutral()),
-                        brush=pg.mkBrush(self._neutral())))
-            labels = good_cluster_labels(self.analysis.labels,
-                                         self.analysis.bad_report.bad_labels)
-            out = np.isin(labels, list(a.discarded_labels))
-            if np.any(out):
-                c = np.asarray(self.analysis.centroids)[out]
-                self.plot_contour.addItem(pg.ScatterPlotItem(
-                    c[:, 0], c[:, 1], size=9, symbol="d",
-                    pen=pg.mkPen(self._neutral()),
-                    brush=pg.mkBrush(role("discarded"))))
-
-        if a.perimeter is not None:
-            c = a.perimeter.contour
-            closed = np.vstack([c, c[:1]])
-            self.plot_contour.addItem(pg.PlotDataItem(
-                closed[:, 0], closed[:, 1],
-                pen=pg.mkPen(self._neutral(), width=1.5)))
-
-        # Occupied stretches drawn on top of the contour: this is what makes
-        # the occupancy percentage legible -- the paper's central claim is
-        # that most of the perimeter carries no spectrin, and that is only
-        # convincing when you can see the gaps.
-        if a.occupancy is not None:
-            pts = a.occupancy.perimeter_points
-            occ = a.occupancy.occupied_mask
-            if np.any(occ):
-                # Split into contiguous runs so each occupied stretch is one
-                # polyline; a single scatter of 10,000 points would hide the
-                # segment structure and is far slower to draw.
-                idx = np.flatnonzero(occ)
-                breaks = np.flatnonzero(np.diff(idx) > 1)
-                starts = np.concatenate([[0], breaks + 1])
-                ends = np.concatenate([breaks, [len(idx) - 1]])
-                for s, e in zip(starts, ends):
-                    run = pts[idx[s]:idx[e] + 1]
-                    if len(run) >= 2:
-                        self.plot_contour.addItem(pg.PlotDataItem(
-                            run[:, 0], run[:, 1],
-                            pen=pg.mkPen(role("occupied"), width=4)))
-
-        if a.centroids.size:
-            self.plot_contour.addItem(pg.ScatterPlotItem(
-                a.centroids[:, 0], a.centroids[:, 1], size=7,
-                pen=pg.mkPen(self._neutral()),
-                brush=pg.mkBrush(role("centroid"))))
-
-        # The centre of the contour drawn: its area centroid.
-        if a.centre is not None:
-            self.plot_contour.addItem(pg.ScatterPlotItem(
-                [a.centre.x_nm], [a.centre.y_nm], size=18, symbol="+",
-                pen=pg.mkPen(role("centre"), width=2),
-                brush=pg.mkBrush(role("centre"))))
-
-    def _draw_z(self) -> None:
-        a = self._shown()
-        self.plot_z.clear()
-        # Full ROI z-distribution is not carried in the analysis object;
-        # the slab's own z values plus the fitted components still convey
-        # where the slab sits relative to the peaks.
-        zr = a.z_result
-        if a.z_slab.size:
-            counts, edges = np.histogram(a.z_slab, bins=60, density=True)
-            centres = (edges[:-1] + edges[1:]) / 2
-            width = float(np.mean(np.diff(edges)))
-            self.plot_z.addItem(pg.BarGraphItem(
-                x=centres, height=counts, width=width,
-                brush=pg.mkBrush(*rgba("locs", 170)), pen=None))
-
-        lo, hi = a.slab_zmin_nm, a.slab_zmax_nm
-        span = max(hi - lo, 1.0)
-        grid = np.linspace(lo - 2 * span, hi + 2 * span, 1024)
-        for m, wgt, s in zip(zr.means_nm, zr.weights, zr.sigmas_nm):
-            if s <= 0:
-                continue
-            dens = wgt * np.exp(-0.5 * ((grid - m) / s) ** 2) / (
-                s * np.sqrt(2 * np.pi))
-            self.plot_z.addItem(pg.PlotDataItem(
-                grid, dens, pen=pg.mkPen(role("fit"), width=2,
-                                         style=QtCore.Qt.DashLine)))
-            self.plot_z.addItem(pg.InfiniteLine(
-                pos=float(m), angle=90,
-                pen=pg.mkPen(role("fit"), width=1,
-                             style=QtCore.Qt.DotLine)))
-
-        region = pg.LinearRegionItem(values=(lo, hi), movable=False)
-        region.setBrush(pg.mkBrush(*rgba("slab", 60)))
-        region.setZValue(-10)
-        self.plot_z.addItem(region)
+    def _on_map_view(self, view: str) -> None:
+        """The Axoplasm view shows the discard applied when there is one, as
+        A1 drew both contours (3.2): the radio follows, and with it the
+        table's emphasis and every tab."""
+        if view == "axoplasm" and self.comparison is not None \
+                and not self.radio_discard.isChecked():
+            self.radio_discard.setChecked(True)
 
     def _draw_area(self) -> None:
         a = self._shown()
         self.plot_area.clear()
-        if a.areas is None or a.areas.areas_nm2.size == 0:
+        words = self._shown_words(a)
+        set_title(self.plot_area, AREA_TITLE + (f" ({words})" if words else ""), dark=self.dark)
+        self.details_area.set_rows(L.area_details(a))
+        if a is None or a.areas is None or a.areas.areas_nm2.size == 0:
             return
         vals = a.areas.areas_nm2
         counts, edges = np.histogram(vals, bins=30)
@@ -923,37 +1566,16 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.plot_area.addItem(pg.InfiniteLine(
                 pos=med, angle=90,
                 pen=pg.mkPen(role("summary"), width=2),
-                label=f"median {med:,.0f}",
-                labelOpts={"position": 0.9, "color": role("summary")}))
+                label=f"median {med:,.0f} nm^2",
+                labelOpts={"position": 0.9, "color": role("summary"), "anchors": [(1, 0.5), (1, 0.5)]}))
+        # The published value, in the paper role: the line itself is the
+        # badge (P5), and its label names the publication.
+        ref = float(reg.default("reference.cluster_area_nm2"))
         self.plot_area.addItem(pg.InfiniteLine(
-            pos=1965.0, angle=90,
+            pos=ref, angle=90,
             pen=pg.mkPen(role("paper"), width=2, style=QtCore.Qt.DashLine),
-            label="paper 1,965",
-            labelOpts={"position": 0.75, "color": role("paper")}))
-
-    def _draw_nn(self) -> None:
-        a = self._shown()
-        self.plot_nn.clear()
-        if a.nn is None or a.nn.first_nn_nm.size == 0:
-            return
-        vals = a.nn.first_nn_nm
-        counts, edges = np.histogram(vals, bins=30)
-        centres = (edges[:-1] + edges[1:]) / 2
-        width = float(np.mean(np.diff(edges)))
-        self.plot_nn.addItem(pg.BarGraphItem(
-            x=centres, height=counts, width=width,
-            brush=pg.mkBrush(*rgba("locs", 190)), pen=None))
-        med = a.nn.median_1nn_nm
-        if med is not None:
-            self.plot_nn.addItem(pg.InfiniteLine(
-                pos=med, angle=90, pen=pg.mkPen(role("summary"), width=2),
-                label=f"median {med:,.0f} nm",
-                labelOpts={"position": 0.9, "color": role("summary")}))
-        self.plot_nn.addItem(pg.InfiniteLine(
-            pos=260.0, angle=90,
-            pen=pg.mkPen(role("paper"), width=2, style=QtCore.Qt.DashLine),
-            label="paper 260 nm",
-            labelOpts={"position": 0.75, "color": role("paper")}))
+            label=f"Gazal 2026 (preprint v1): {ref:,.0f} nm^2",
+            labelOpts={"position": 0.75, "color": role("paper"), "anchors": [(0, 0.5), (0, 0.5)]}))
 
     def _draw_scatter(self) -> None:
         """Each centre against the smooth outline, with the scatter band."""
@@ -962,12 +1584,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
         a = self._shown()
         self.plot_scatter.clear()
+        words = self._shown_words(a)
+        title = SCATTER_TITLE + (f" ({words})" if words else "")
+        if a is None:
+            set_title(self.plot_scatter, title, dark=self.dark)
+            return
         contour = None if a.perimeter is None else a.perimeter.contour
         profile = None if contour is None else radial_profile(contour)
         h = a.contour_health
         if profile is None or h is None:
             set_title(self.plot_scatter,
-                      SCATTER_TITLE + ": too few centres to fit one",
+                      title + ": too few centres to fit one",
                       dark=self.dark)
             return
         deg = np.degrees(np.mod(profile.theta, 2 * np.pi))
@@ -1011,55 +1638,46 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 brush=pg.mkBrush(verdict("bad")), pen=pg.mkPen(None)))
         set_title(
             self.plot_scatter,
-            f"{SCATTER_TITLE}: {s:,.0f} nm = {h.scatter_percent:.1f} % of "
+            f"{title}: {s:,.0f} nm = {h.scatter_percent:.1f} % of "
             f"the hull radius"
             + ("" if not deep.any() else
                f"; {int(beyond.sum())} deeper than that scatter explains "
                f"(filled), {int(within.sum())} within it (hollow)"),
             dark=self.dark)
 
-    def _draw_cdf(self) -> None:
-        """Observed vs randomized 1NN cumulative distributions (Fig. 4E)."""
-        a = self._shown()
-        self.plot_cdf.clear()
-        r = a.randomization
-        if r is None:
-            return
-
-        def cdf(v):
-            v = np.sort(np.asarray(v, dtype=float))
-            return v, np.arange(1, v.size + 1) / v.size
-
-        xe, ye = cdf(r.experimental_1nn_nm)
-        xr, yr = cdf(r.randomized_1nn_nm)
-        self.plot_cdf.addItem(pg.PlotDataItem(
-            xr, yr, pen=pg.mkPen(role("randomized"), width=2),
-            name="randomized"))
-        self.plot_cdf.addItem(pg.PlotDataItem(
-            xe, ye, pen=pg.mkPen(role("observed"), width=2),
-            name="observed"))
-
-        if r.cdf_crossing is not None:
-            line = pg.InfiniteLine(
-                pos=r.cdf_crossing, angle=0,
-                pen=pg.mkPen(role("paper"), width=1,
-                             style=QtCore.Qt.DashLine),
-                label=f"crossing {r.cdf_crossing:.2f}",
-                labelOpts={"position": 0.05, "color": role("paper")})
-            self.plot_cdf.addItem(line)
-
     # ------------------------------------------------------------------
     # interaction
     # ------------------------------------------------------------------
 
     def _on_param_changed(self) -> None:
+        """A strip value changed: write it into the one settings object,
+        then re-run with today's keyword arguments (rule K, design 6.3: this
+        is the window's re-run of before stage 2, moved, not rewritten)."""
         if self.rerun_callback is None:
             return
+        self._store_values(reset=getattr(self, "_resetting", False))
+        if self.analysis is None:
+            # No analysis yet (B10): the value is stored, and the banner
+            # offers "Run the MPS analysis"; a focus-out runs nothing.
+            self._update_banner()
+            return
         peak = self.combo_peak.currentData()
+        mode, centre, typed = self.links.slab_state()
+        if (self.links.store is not None and typed is None
+                and getattr(self.analysis, "slab_source", "") == "range typed"):
+            # The analysis shown ran on a typed range that is no longer
+            # applied: its "current slab centre" is the typed range's, not
+            # the slab's now. The re-run takes the slab the mode gives.
+            peak = centre if mode == "component" else None
+        self._rerun(main_peak_override_nm=(None if peak is None else float(peak)))
+
+    def _rerun(self, main_peak_override_nm: Optional[float]) -> None:
+        if self.rerun_callback is None:
+            return
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
             self.analysis = self.rerun_callback(
-                main_peak_override_nm=(None if peak is None else float(peak)),
+                main_peak_override_nm=main_peak_override_nm,
                 slab_half_width_nm=float(self.spin_half.value()),
                 eps_nm=float(self.spin_eps.value()),
                 min_samples=int(self.spin_min.value()),
@@ -1073,13 +1691,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 # clusters -- would drop it and hand back the automatic
                 # contour without a word: the 19.31 -> 8.96 um kind of jump
                 # this program must not make on its own.
-                contour_guide=self.analysis.contour_guide,
+                contour_guide=(None if self.analysis is None
+                               else self.analysis.contour_guide),
             )
         except Exception as exc:                      # noqa: BLE001
             QtWidgets.QApplication.restoreOverrideCursor()
             QtWidgets.QMessageBox.critical(
                 self, "Analysis failed",
                 f"Could not re-run the analysis with these parameters:\n\n{exc}")
+            # The banner says what is shown was computed with the previous
+            # values (design 6.3).
+            self.refresh()
             return
         QtWidgets.QApplication.restoreOverrideCursor()
         self.refresh()
@@ -1091,7 +1713,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         a = self.analysis
         if self.rerun_callback is None:
             return
-        if a.centroids is None or len(a.centroids) < 3:
+        if a is None or a.centroids is None or len(a.centroids) < 3:
             QtWidgets.QMessageBox.information(
                 self, "Contour",
                 "This axon has fewer than three clusters: there is no "
@@ -1104,6 +1726,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             current_guide=a.contour_guide)
         if answer not in (APPLY, AUTOMATIC):
             return
+        self._store_values()
         peak = self.combo_peak.currentData()
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         try:
@@ -1127,6 +1750,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.refresh()
 
     def _on_reset(self) -> None:
+        """Reset to defaults (design 12.5): the same four values as before
+        stage 2, read from the same constants (which the registry reads
+        too); the slab centre, a typed range, the randomization switch and
+        the drawn contour are kept. The values are saved (B12)."""
         from tools.mps_settings import (
             DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES, DEFAULT_SLAB_HALF_WIDTH_NM,
         )
@@ -1143,7 +1770,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         for w in (self.spin_half, self.spin_eps, self.spin_min,
                   self.spin_maha):
             w.blockSignals(False)
-        self._on_param_changed()
+        self._resetting = True
+        try:
+            self._on_param_changed()
+        finally:
+            self._resetting = False
 
     def _on_export(self) -> None:
         """
@@ -1161,3 +1792,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 "tables. Use 'Export axon' in the main window.")
             return
         self.export_callback()
+
+
+def _strip(text: str) -> str:
+    import re
+    return re.sub(r"<(?!br>)[^>]+>", "", text).replace("&nbsp;", " ")

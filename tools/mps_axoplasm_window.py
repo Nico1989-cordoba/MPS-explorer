@@ -33,6 +33,14 @@ which it was.
 
 The calculations are in ``tools.mps_axoplasm``.
 
+UI stage 2 (design 3.1): the image, its two edges, the localizations by
+class and the clusters in four groups are drawn on the axon map of the MPS
+analysis window (its Axoplasm view), the program's one map; "Show on the
+axon map" raises it beside this panel, and every change made here redraws
+it live (``AxoplasmInputs.map_changed``, ``map_state``). This panel keeps
+its controls, its findings and the histogram of the distances to the
+tubulin mask's edge.
+
 @author: Nicolas (ngomez) + Claude
 """
 
@@ -45,72 +53,39 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtGui, QtWidgets
-from scipy import ndimage
+from PyQt5 import QtCore, QtWidgets
 
 from tools import mps_axoplasm as ax
+from tools import mps_axon_map_layers as map_layers
 from tools import mps_file_drop
+from tools import mps_param_registry as param_registry
 from tools.mps_io import load_localizations
+from tools.mps_origin_ui import OriginBadge, ParamField, RangeHint
 from tools.mps_plot_style import (
-    AXIS_FG, PANEL_BG, TEXT_DIM, TITLE_FG, marked, neutral, rgba, role,
+    AXIS_FG, PANEL_BG, TEXT_DIM, TITLE_FG, marked, neutral, role,
     set_title, style_dark)
 from tools.cluster_quality import describe_roi
 
-# Every colour is a role from tools.mps_plot_style, so a cluster the
-# discard leaves out is the same vermillion here and in the MPS analysis
-# window. The old palette had the kept contour in green and the discarded
-# clusters in red, which is the one pair a deuteranope cannot separate,
-# and cyan against yellow, which is the one a tritanope cannot.
-#
-# This panel draws on a grey widefield image rather than on black, so the
-# two contours are the saturated blue and orange rather than the neutral
-# the MPS window uses: a white line is lost over a bright patch of image
-# and a dark one over a dim patch.
+# Every colour is a role from tools.mps_plot_style. The image, its edges,
+# the localizations by class and the clusters are drawn on the axon map
+# (tools.mps_axon_map), in the roles validate_plot_colours.py checks there.
 # A finding is text, not a mark on the image: the verdict roles, the
 # same three as in every other panel, each with the mark for its kind.
 _TEXT_OK = role("good")
 _WARN = role("warn")
 _DIM = TEXT_DIM
-# Localizations of the clusters the discard leaves out.
+# The margin on the distance histogram: the discard's vermillion.
 _INTERIOR = role("discarded")
-# Localizations of the clusters that stay: the data.
-_MEMBRANE = role("locs")
-_OUTLINE = rgba("image_tubulin", 255)      # the same role, as an image
-_SPECTRIN_OUTLINE = rgba("image_spectrin", 255)
-_DISCARDED = role("discarded")
-# Clusters only one image puts inside, in the colour of that image's own
-# edge: green for the tubulin mask, purple for the spectrin interior.
-_TUBULIN_ONLY = role("image_tubulin")
-_SPECTRIN_ONLY = role("image_spectrin")
-# The contour through every cluster: orange, dashed.
-_ALL_CONTOUR = role("contour_all")
-# The contour without the discarded clusters.
-_KEPT_CONTOUR = role("contour_kept")
-# The centre of that contour: white with a dark rim, so it is legible
-# wherever on the image it falls. Its shape is what names it.
-_CENTRE = neutral(dark=True)
-# Localizations in no cluster, or not placed yet: light, and small.
-_NO_CLUSTER = neutral(dark=True)
-# The ring around a cluster neither image decided about. Structural, like
-# the centre and the unplaced localizations, and told apart from them by
-# being a ring of 9 pixels rather than a cross or a 2 pixel dot.
-_NO_DECISION = neutral(dark=True)
-def _cased_edge(edge: "np.ndarray", colour: tuple) -> "np.ndarray":
-    """
-    An edge image with a dark casing, so it is legible wherever on the
-    widefield it falls.
-
-    A line drawn in one colour over a photograph is only as visible as
-    that colour is different from whatever grey is under it, and the two
-    edges here are drawn in hues whose lightness is close to a mid grey.
-    A one-pixel dark casing makes both of them stand off any background,
-    the way a map draws a road.
-    """
-    rim = ndimage.binary_dilation(edge) & ~edge
-    rgba = np.zeros(edge.shape + (4,), dtype=np.ubyte)
-    rgba[rim] = (0, 0, 0, 200)
-    rgba[edge] = colour
-    return rgba
+# Where the image went, said where it used to be drawn.
+ON_THE_MAP = ("The image, the mask's and the spectrin interior's edges, the "
+              "localizations by class and the clusters in their four groups are "
+              "drawn on the axon map: MPS analysis window, Axoplasm view. It "
+              "follows every change made here.")
+SHOW_ON_MAP = "Show on the axon map"
+SHOW_ON_MAP_TIP = ("Open or raise the MPS analysis window with the axon map in "
+                   "its Axoplasm view (the image, the edges, the classes and the "
+                   "clusters), beside this panel the first time, and keep it "
+                   "following the threshold, smoothing, margin and shift.")
 
 
 # Contours rebuilt with every 2-opt start, kept per set of cluster centres.
@@ -125,47 +100,12 @@ CONTOUR_CACHE_SIZE = 32
 # slow -- it is frozen.
 RECOMPUTE_DELAY_MS = 250
 
-# Points drawn per class; the classification itself uses all of them.
-MAX_DRAWN = 20000
+# Points drawn per class on the map; the classification itself uses all of
+# them (tools.mps_axon_map_layers.MAX_DRAWN_PER_CLASS).
+MAX_DRAWN = map_layers.MAX_DRAWN_PER_CLASS
 # Histogram of the distances to the edge.
 HIST_RANGE_NM = 1500.0
 HIST_BIN_NM = 25.0
-
-
-def _swatch(colour: str, shape: str, size: int = 14) -> QtGui.QIcon:
-    """
-    The mark the image draws a layer with, for its box in the legend:
-    "disc" (filled, dark rim), "ring", "dot", "line", "dash" or "plus".
-    """
-    pixmap = QtGui.QPixmap(size, size)
-    pixmap.fill(QtCore.Qt.GlobalColor.transparent)
-    painter = QtGui.QPainter(pixmap)
-    painter.setRenderHint(QtGui.QPainter.Antialiasing)
-    ink = QtGui.QColor(colour)
-    if shape == "disc":
-        painter.setPen(QtGui.QPen(QtGui.QColor("#000000"), 1))
-        painter.setBrush(QtGui.QBrush(ink))
-        painter.drawEllipse(2, 2, size - 4, size - 4)
-    elif shape == "ring":
-        painter.setPen(QtGui.QPen(ink, 2))
-        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(2, 2, size - 4, size - 4)
-    elif shape == "dot":
-        painter.setPen(QtCore.Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QBrush(ink))
-        painter.drawEllipse(size // 2 - 2, size // 2 - 2, 5, 5)
-    elif shape == "plus":
-        painter.setPen(QtGui.QPen(ink, 3))
-        painter.drawLine(size // 2, 1, size // 2, size - 1)
-        painter.drawLine(1, size // 2, size - 1, size // 2)
-    else:
-        pen = QtGui.QPen(ink, 2)
-        if shape == "dash":
-            pen.setStyle(QtCore.Qt.PenStyle.DashLine)
-        painter.setPen(pen)
-        painter.drawLine(0, size // 2, size, size // 2)
-    painter.end()
-    return QtGui.QIcon(pixmap)
 
 
 def _label(text: str, colour: str = TITLE_FG,
@@ -231,6 +171,10 @@ class AxoplasmInputs:
     # a cluster by that label, the main window's own export included.
     cluster_labels: Callable[[], Optional[np.ndarray]] = field(
         default=lambda: None)
+    # Told every time the panel's picture changes (threshold, smoothing,
+    # margin, shift, images, a new selection or new clusters), so the axon
+    # map that draws it can redraw: called where the panel drew its image.
+    map_changed: Callable[[], None] = field(default=lambda: None)
 
 
 @dataclass
@@ -251,9 +195,14 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
 
     def __init__(self, inputs: AxoplasmInputs,
                  parent: Optional[QtWidgets.QWidget] = None,
-                 export_callback: Optional[Callable[[], Any]] = None) -> None:
+                 export_callback: Optional[Callable[[], Any]] = None,
+                 map_callback: Optional[Callable[[], Any]] = None) -> None:
         super().__init__(parent)
+        self.setObjectName("axoplasm_window")
         self.inputs = inputs
+        # "Show on the axon map": the main window raises the MPS analysis
+        # window in its Axoplasm view. None hides the button.
+        self.map_callback = map_callback
         # Writes this axon's tables. The main window's single export: it
         # sees this panel, the analysis and the discard at once, which is
         # what keeps the rows of one axon describing one state.
@@ -349,47 +298,19 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
 
         right = QtWidgets.QVBoxLayout()
         body.addLayout(right, stretch=1)
-        self.check_reference = QtWidgets.QCheckBox(
-            "Show the betaII-spectrin widefield image instead")
-        self.check_reference.setToolTip(
-            "The spectrin rings of the localizations should lie on the "
-            "widefield membranes when the alignment is right.")
-        self.check_reference.toggled.connect(lambda _on: self._draw())
-        right.addWidget(self.check_reference)
-        self.plot_image = pg.PlotWidget()
-        style_dark(self.plot_image)
-        self.plot_image.setAspectLocked(True)
-        self.plot_image.setLabel("bottom", "x [nm]", color=AXIS_FG)
-        self.plot_image.setLabel("left", "y [nm]", color=AXIS_FG)
-        self.image_item = pg.ImageItem()
-        self.outline_item = pg.ImageItem()
-        self.spectrin_outline_item = pg.ImageItem()
-        self.membrane_item = pg.ScatterPlotItem(
-            pen=None, brush=pg.mkBrush(_MEMBRANE), size=2)
-        self.interior_item = pg.ScatterPlotItem(
-            pen=None, brush=pg.mkBrush(_INTERIOR), size=2)
-        self.contour_all_item = pg.PlotDataItem(
-            pen=pg.mkPen(_ALL_CONTOUR, width=2,
-                         style=QtCore.Qt.PenStyle.DashLine))
-        self.contour_item = pg.PlotDataItem(
-            pen=pg.mkPen(_KEPT_CONTOUR, width=2))
-        self.centre_item = pg.ScatterPlotItem(
-            pen=pg.mkPen("k", width=2), brush=pg.mkBrush(_CENTRE), size=18,
-            symbol="+")
-        legend = self._build_layers()
-        for item in (self.image_item, self.outline_item,
-                     self.spectrin_outline_item, self.free_item,
-                     self.membrane_item, self.interior_item,
-                     self.contour_all_item,
-                     self.contour_item, self.cluster_item,
-                     self.tubulin_only_item, self.spectrin_only_item,
-                     self.discarded_item, self.centre_item):
-            self.plot_image.addItem(item)
-        # The image is square, so the legend takes the room beside it.
-        image_row = QtWidgets.QHBoxLayout()
-        image_row.addWidget(self.plot_image, stretch=1)
-        image_row.addWidget(legend)
-        right.addLayout(image_row, stretch=3)
+        # The image moved to the axon map (UI stage 2): one line says where,
+        # and one button brings it up beside this panel.
+        on_map = QtWidgets.QHBoxLayout()
+        self.label_on_map = _label(ON_THE_MAP, _DIM)
+        self.label_on_map.setObjectName("label_on_map")
+        on_map.addWidget(self.label_on_map, stretch=1)
+        self.btn_show_map = QtWidgets.QPushButton(SHOW_ON_MAP)
+        self.btn_show_map.setObjectName("btn_show_on_map")
+        self.btn_show_map.setToolTip(SHOW_ON_MAP_TIP)
+        self.btn_show_map.clicked.connect(self._on_show_map)
+        self.btn_show_map.setVisible(self.map_callback is not None)
+        on_map.addWidget(self.btn_show_map)
+        right.addLayout(on_map)
         self.plot_hist = pg.PlotWidget()
         style_dark(self.plot_hist)
         set_title(self.plot_hist,
@@ -402,172 +323,6 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self._refresh()
 
     # ------------------------------------------------------------ layout
-    def _build_layers(self) -> QtWidgets.QWidget:
-        """
-        The legend beside the image: one box per thing drawn on it, to show
-        or hide each one, and two buttons to show or hide them all.
-
-        The clusters come in the four groups the two images put them in.
-        The groups do not overlap: together they are every cluster.
-        """
-        self.cluster_item = pg.ScatterPlotItem(
-            pen=pg.mkPen(_NO_DECISION), brush=None, size=9)
-        # Circles for one image, squares for the other: on a grey
-        # photograph the two hues are close for a deuteranope, and the
-        # shape is what a reader can always separate.
-        self.tubulin_only_item = pg.ScatterPlotItem(
-            pen=pg.mkPen(_TUBULIN_ONLY, width=2), brush=None, size=10)
-        self.spectrin_only_item = pg.ScatterPlotItem(
-            pen=pg.mkPen(_SPECTRIN_ONLY, width=2), brush=None, size=10,
-            symbol="s")
-        self.discarded_item = pg.ScatterPlotItem(
-            pen=pg.mkPen("k"), brush=pg.mkBrush(_DISCARDED), size=10)
-        clusters = (
-            ("both", self.discarded_item, _DISCARDED, "disc",
-             "Clusters both widefield images put more than the margin inside\n"
-             "the axon: inside the betaIII-tubulin mask AND inside the dark\n"
-             "area the betaII-spectrin ring encloses. These are the ones the\n"
-             "discard leaves out of the MPS analysis."),
-            ("tubulin", self.tubulin_only_item, _TUBULIN_ONLY, "ring",
-             "Clusters only the betaIII-tubulin mask puts more than the margin\n"
-             "inside the axon. The spectrin image does not agree, so they are\n"
-             "kept. Green, like the edge of the tubulin mask."),
-            ("spectrin", self.spectrin_only_item, _SPECTRIN_ONLY, "ring",
-             "Clusters only the dark inside of the betaII-spectrin ring puts\n"
-             "more than the margin inside the axon. The tubulin mask does not\n"
-             "agree, so they are kept. Purple, like the edge of the\n"
-             "spectrin interior."),
-            ("neither", self.cluster_item, _NO_DECISION, "ring",
-             "Clusters neither image puts more than the margin inside the\n"
-             "axon: on the membrane, or off the region an image was analysed\n"
-             "in. They are kept."),
-        )
-        lines = (
-            ("tubulin_edge", self.outline_item, _TUBULIN_ONLY, "line",
-             "Edge of the axoplasm mask found in the betaIII-tubulin image\n"
-             "(section 3)."),
-            ("spectrin_edge", self.spectrin_outline_item, _SPECTRIN_ONLY,
-             "line",
-             "Edge of the dark area the betaII-spectrin ring encloses in its\n"
-             "widefield image (section 5)."),
-            ("contour_all", self.contour_all_item, _ALL_CONTOUR, "dash",
-             "The contour through every cluster, as the MPS analysis\n"
-             "connects them."),
-            ("contour_kept", self.contour_item, _KEPT_CONTOUR, "line",
-             "The contour without the discarded clusters: the one the MPS\n"
-             "analysis window uses for its 'Discard applied' column."),
-        )
-        self.free_item = pg.ScatterPlotItem(
-            pen=None, brush=pg.mkBrush(_NO_CLUSTER), size=2)
-        points = (
-            ("locs_inside", self.interior_item, _INTERIOR, "dot",
-             "Localizations inside the axon: those of the clusters both\n"
-             "widefield images put inside (the discarded ones). The tubulin\n"
-             "mask alone never makes a localization count as inside."),
-            ("locs_membrane", self.membrane_item, _MEMBRANE, "dot",
-             "Localizations at the membrane: those of the kept clusters."),
-            ("locs_free", self.free_item, _NO_CLUSTER, "dot",
-             "Localizations in no cluster: left out by DBSCAN or in a\n"
-             "cluster the automatic curation removed. Before both images\n"
-             "have placed the clusters, every localization is drawn here."),
-            ("centre", self.centre_item, _CENTRE, "plus",
-             "The centre of the contour without the discarded clusters:\n"
-             "its area centroid, as the MPS analysis reports it."),
-        )
-        panel = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(panel)
-        lay.setContentsMargins(4, 0, 0, 0)
-        self.cluster_toggles: Dict[str, QtWidgets.QCheckBox] = {}
-        self.layer_toggles: Dict[str, QtWidgets.QCheckBox] = {}
-        for title, rows, into in (("Clusters", clusters, self.cluster_toggles),
-                                  ("Lines", lines, self.layer_toggles),
-                                  ("Localizations and centre", points,
-                                   self.layer_toggles)):
-            lay.addWidget(_label(title, TITLE_FG, bold=True))
-            for key, item, colour, shape, tip in rows:
-                box = QtWidgets.QCheckBox()
-                box.setChecked(True)
-                box.setIcon(_swatch(colour, shape))
-                box.setToolTip(tip)
-                box.toggled.connect(lambda on, drawn=item: drawn.setVisible(on))
-                into[key] = box
-                lay.addWidget(box)
-            lay.addSpacing(6)
-        buttons = QtWidgets.QHBoxLayout()
-        show_all = QtWidgets.QPushButton("Show all")
-        show_all.setToolTip("Draw everything the legend lists.")
-        show_all.clicked.connect(lambda: self._show_layers(True))
-        hide_all = QtWidgets.QPushButton("Hide all")
-        hide_all.setToolTip(
-            "Leave only the image, then tick what you want to see.")
-        hide_all.clicked.connect(lambda: self._show_layers(False))
-        buttons.addWidget(show_all)
-        buttons.addWidget(hide_all)
-        lay.addLayout(buttons)
-        lay.addStretch(1)
-        self.layer_toggles["centre"].setText("Centre of the contour")
-        self.layer_toggles["tubulin_edge"].setText("Tubulin mask edge")
-        self.layer_toggles["spectrin_edge"].setText("Spectrin interior edge")
-        self.layer_toggles["contour_all"].setText("Contour, all clusters")
-        self.layer_toggles["contour_kept"].setText(
-            "Contour without the discarded")
-        self._sync_cluster_toggles(None)
-        self._sync_localization_toggles(None)
-        return panel
-
-    def _show_layers(self, on: bool) -> None:
-        for box in (*self.cluster_toggles.values(),
-                    *self.layer_toggles.values()):
-            box.setChecked(on)
-
-    def _sync_localization_toggles(self, located: Optional[np.ndarray]
-                                   ) -> None:
-        """The localization boxes' texts, with how many each holds."""
-        boxes = self.layer_toggles
-        if located is None:
-            # Not placed yet: every localization is drawn plain.
-            for key in ("locs_inside", "locs_membrane"):
-                boxes[key].setEnabled(False)
-            boxes["locs_inside"].setText("Localizations inside")
-            boxes["locs_membrane"].setText("Localizations at the membrane")
-            boxes["locs_free"].setText("Localizations (not placed yet)")
-            return
-        for key in ("locs_inside", "locs_membrane"):
-            boxes[key].setEnabled(True)
-        for key, label, text in (
-                ("locs_inside", ax.LOC_INSIDE, "Localizations inside"),
-                ("locs_membrane", ax.LOC_MEMBRANE,
-                 "Localizations at the membrane"),
-                ("locs_free", ax.LOC_NO_CLUSTER,
-                 "Localizations in no cluster")):
-            boxes[key].setText(f"{text} ({int(np.sum(located == label)):,})")
-
-    def _sync_cluster_toggles(self, found: Optional[ax.AnchoredClusters]
-                              ) -> None:
-        """The boxes' texts, with how many clusters each group holds."""
-        boxes = self.cluster_toggles
-        if found is None:
-            # Not classified yet: every cluster is drawn plain, under the
-            # last box, and the three groups that need both images wait.
-            for key in ("both", "tubulin", "spectrin"):
-                boxes[key].setEnabled(False)
-            boxes["both"].setText("Discarded: inside both images")
-            boxes["tubulin"].setText("Inside the tubulin mask only")
-            boxes["spectrin"].setText("Inside the spectrin interior only")
-            boxes["neither"].setText("Clusters (not classified yet)")
-            return
-        for key in ("both", "tubulin", "spectrin"):
-            boxes[key].setEnabled(True)
-        boxes["both"].setText(
-            f"Discarded: inside both images ({found.n_discarded})")
-        boxes["tubulin"].setText(
-            f"Inside the tubulin mask only ({found.n_tubulin_only})")
-        boxes["spectrin"].setText(
-            f"Inside the spectrin interior only ({found.n_spectrin_only})")
-        boxes["neither"].setText(
-            f"Inside neither: on the membrane "
-            f"({int(found.inside_neither.sum())})")
-
     def _build_images(self) -> QtWidgets.QWidget:
         box = QtWidgets.QGroupBox("1. Images")
         lay = QtWidgets.QGridLayout(box)
@@ -679,6 +434,12 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.slider_threshold, 0, 1)
         lay.addWidget(self.spin_threshold, 0, 2)
         lay.addWidget(self.btn_otsu, 0, 3)
+        # Origin badges (design 12.3). Otsu's threshold is "derived"; one set
+        # by hand (slider or box) is "user". The registry's value is the
+        # method (its bins), so this badge follows the panel's own record of
+        # a hand-set threshold, never the grey level.
+        self.badge_threshold = OriginBadge("axoplasm.threshold", dark=True)
+        lay.addWidget(self.badge_threshold, 0, 4)
         self.spin_smooth = _spin(0, 2000, 10, suffix=" nm")
         self.spin_smooth.setValue(ax.DEFAULT_SMOOTH_SIGMA_PX * self.pixel_nm)
         self.spin_smooth.setToolTip(
@@ -687,9 +448,15 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.spin_smooth.valueChanged.connect(
             lambda _v: self._schedule("rebuild"))
         lay.addWidget(_label("Smoothing:", _DIM), 1, 0)
-        lay.addWidget(self.spin_smooth, 1, 1)
+        # The registry keeps the smoothing in pixels (the module constant)
+        # while the box shows nm: the badge reads the box in pixels, and the
+        # documented range (in px) stays in the tooltip, not beside nm.
+        self.field_smooth = ParamField(
+            "axoplasm.smoothing_px", self.spin_smooth, dark=True, show_range=False,
+            value=lambda: float(self.spin_smooth.value()) / float(self.pixel_nm))
+        lay.addWidget(self.field_smooth, 1, 1, 1, 4)
         self.label_mask = _label("")
-        lay.addWidget(self.label_mask, 2, 0, 1, 4)
+        lay.addWidget(self.label_mask, 2, 0, 1, 5)
         return box
 
     def _build_classification(self) -> QtWidgets.QWidget:
@@ -708,6 +475,19 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             lambda _v: self._schedule("reclassify"))
         lay.addWidget(_label("Margin:", _DIM), 0, 0)
         lay.addWidget(self.spin_margin, 0, 1)
+        # The margin's badge and documented range under the box (the row
+        # beside it holds the two export buttons).
+        origin = QtWidgets.QWidget()
+        origin_lay = QtWidgets.QHBoxLayout(origin)
+        origin_lay.setContentsMargins(0, 0, 0, 0)
+        origin_lay.setSpacing(4)
+        self.badge_margin = OriginBadge("axoplasm.margin_nm", dark=True)
+        self.hint_margin = RangeHint("axoplasm.margin_nm", dark=True)
+        origin_lay.addWidget(self.badge_margin)
+        origin_lay.addWidget(self.hint_margin)
+        origin_lay.addStretch(1)
+        lay.addWidget(origin, 1, 1, 1, 3)
+        self.spin_margin.valueChanged.connect(lambda _v: self._refresh_badges())
         self.btn_export = QtWidgets.QPushButton("Export axon...")
         self.btn_export.setToolTip(
             "Write this axon to the tables: the analysis, this panel and "
@@ -718,13 +498,14 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.btn_export, 0, 2)
         self.btn_image = QtWidgets.QPushButton("Export image...")
         self.btn_image.setToolTip(
-            "Write the image above, or the distance histogram, as a figure: "
-            "at the width a journal asks for, at 300 to 1200 dpi, or as an "
-            "SVG. What is drawn is what the checkboxes leave on.")
+            "Write the distance histogram as a figure: at the width a journal "
+            "asks for, at 300 to 1200 dpi, or as an SVG. The image with the "
+            "masks and the clusters is exported from the axon map (MPS "
+            "analysis window, Export image..., Axon map).")
         self.btn_image.clicked.connect(self._on_export_image)
         lay.addWidget(self.btn_image, 0, 3)
         self.label_result = _label("")
-        lay.addWidget(self.label_result, 1, 0, 1, 3)
+        lay.addWidget(self.label_result, 2, 0, 1, 4)
         return box
 
     def _build_anchored(self) -> QtWidgets.QWidget:
@@ -1192,7 +973,23 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             contour_cache=self._contour_cache,
             registration=self._registration_state())
 
+    def _refresh_badges(self) -> None:
+        """The origin badges of the threshold and the margin (display only)."""
+        badge = getattr(self, "badge_threshold", None)
+        if badge is not None:
+            manual = self._manual_threshold
+            badge.set_value(param_registry.UNSET if manual is None else float(manual))
+            if manual is not None:
+                badge.setToolTip(f"Threshold set by hand: {manual:g} (grey level).\n\n"
+                                 + param_registry.tooltip("axoplasm.threshold"))
+        margin = getattr(self, "badge_margin", None)
+        if margin is not None:
+            value = float(self.spin_margin.value())
+            margin.set_value(value)
+            self.hint_margin.set_value(value)
+
     def _sync_threshold(self) -> None:
+        self._refresh_badges()
         mask = self.axoplasm
         if mask is None:
             return
@@ -1217,6 +1014,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         # built from it waits for the drag to stop.
         self._manual_threshold = low + (high - low) * position / 1000.0
         self.selection_note = None
+        self._refresh_badges()
         self._schedule("rebuild")
 
     def _threshold_typed(self, value: float) -> None:
@@ -1224,11 +1022,13 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             return
         self._manual_threshold = float(value)
         self.selection_note = None
+        self._refresh_badges()
         self._schedule("rebuild")
 
     def _use_otsu(self) -> None:
         self._manual_threshold = None
         self.selection_note = None
+        self._refresh_badges()
         self._rebuild()
 
     # ---------------------------------------------------------- display
@@ -1318,7 +1118,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             lines.append("No spectrin interior was found, so no cluster is "
                          "discarded.")
         lines.append(
-            f"Discarded (orange discs): {found.n_discarded} of {found.n} "
+            f"Discarded (vermillion discs on the axon map): {found.n_discarded} of {found.n} "
             f"clusters, "
             f"inside both images by more than {found.margin_nm:.0f} nm. "
             f"Kept although one image alone puts them inside: "
@@ -1329,8 +1129,8 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         if found.contour_all is not None:
             parts.append(f"{found.contour_all.perimeter_um:.2f} µm with all "
                          f"clusters, as the MPS analysis connects them"
-                         + (" (2-opt from every start; orange, dashed)"
-                            if same else " (orange, dashed)"))
+                         + (" (2-opt from every start; dashed on the axon map)"
+                            if same else " (dashed on the axon map)"))
         if found.contour_all_starts is not None and not same:
             parts.append(f"{found.contour_all_starts.perimeter_um:.2f} µm with "
                          f"all clusters and 2-opt from every start")
@@ -1339,7 +1139,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             spread = new.start_spread_um
             parts.append(
                 f"{new.perimeter_um:.2f} µm without the discarded ones "
-                f"(blue; 2-opt from all {new.n_starts} starts"
+                f"(solid on the axon map; 2-opt from all {new.n_starts} starts"
                 + (f", which a single start could have missed by up to "
                    f"{spread:.2f} µm" if spread else "") + ")")
         if parts:
@@ -1451,130 +1251,62 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             text += "Section 5 has not placed the clusters yet."
         return text
 
-    def _region_rect(self, rows: Tuple[int, int], cols: Tuple[int, int],
-                     offset: Tuple[float, float]) -> QtCore.QRectF:
-        """Where image pixels [rows) x [cols) lie, in localization nm."""
-        sx, sy = self._shift_px()
-        px = self.pixel_nm
-        return QtCore.QRectF(
-            (cols[0] - 0.5 - offset[0] - sx) * px,
-            (rows[0] - 0.5 - offset[1] - sy) * px,
-            (cols[1] - cols[0]) * px, (rows[1] - rows[0]) * px)
-
     def _draw(self) -> None:
-        mask = self.axoplasm
-        for item in (self.membrane_item, self.interior_item, self.free_item,
-                     self.cluster_item, self.tubulin_only_item,
-                     self.spectrin_only_item, self.discarded_item,
-                     self.contour_all_item, self.contour_item,
-                     self.centre_item):
-            item.setData([], [])
-        self.spectrin_outline_item.clear()
-        self._sync_cluster_toggles(self.anchored
-                                   if self.anchored_centroids is not None
-                                   else None)
-        self._sync_localization_toggles(self.located)
-        if mask is None or self.tubulin is None:
-            self.image_item.clear()
-            self.outline_item.clear()
-            self.plot_hist.clear()
-            set_title(self.plot_image, "betaIII-tubulin around the axon")
-            return
-        r0, r1, c0, c1 = mask.region
-        image, offset, title = (
-            self.tubulin.image, self.tubulin_offset,
-            "betaIII-tubulin around the axon")
-        rows, cols = (r0, r1), (c0, c1)
-        if self.check_reference.isChecked() and self.reference is not None:
-            # The same area, in the reference image's pixels.
-            dr = self.reference_offset[1] - self.tubulin_offset[1]
-            dc = self.reference_offset[0] - self.tubulin_offset[0]
-            height, width = self.reference.shape
-            rows = (int(max(0, r0 + dr)), int(min(height, r1 + dr)))
-            cols = (int(max(0, c0 + dc)), int(min(width, c1 + dc)))
-            image, offset = self.reference.image, self.reference_offset
-            title = "betaII-spectrin widefield around the axon"
-        region = image[rows[0]:rows[1], cols[0]:cols[1]]
-        set_title(self.plot_image, title)
-        if region.size:
-            low, high = np.percentile(region, (1, 99.7))
-            self.image_item.setImage(region.T, levels=(low, max(high, low + 1)))
-            self.image_item.setRect(self._region_rect(rows, cols, offset))
-        else:
-            self.image_item.clear()
+        """Draw what this panel draws itself - the distance histogram - and
+        tell the axon map that the picture changed (it reads ``map_state``)."""
+        self._draw_hist()
+        self.inputs.map_changed()
 
-        edge = mask.mask & ~ndimage.binary_erosion(mask.mask)
-        self.outline_item.setImage(
-            np.transpose(_cased_edge(edge, _OUTLINE), (1, 0, 2)),
-            levels=(0, 255))
-        self.outline_item.setRect(self._region_rect((r0, r1), (c0, c1),
-                                                    self.tubulin_offset))
-
+    def _draw_hist(self) -> None:
         result = self.result
-        loc = self.inputs.loc
-        if result is not None:
-            rng = np.random.default_rng(0)
-            # Where each localization is through its cluster; before both
-            # images have placed the clusters, all of them are drawn plain.
-            located = (self.located if self.located is not None
-                       else np.full(loc.n, ax.LOC_NO_CLUSTER, dtype=object))
-            for label, item in ((ax.LOC_NO_CLUSTER, self.free_item),
-                                (ax.LOC_MEMBRANE, self.membrane_item),
-                                (ax.LOC_INSIDE, self.interior_item)):
-                idx = np.nonzero(located == label)[0]
-                if idx.size > MAX_DRAWN:
-                    idx = rng.choice(idx, MAX_DRAWN, replace=False)
-                item.setData(loc.x_nm[idx], loc.y_nm[idx])
-        interior = self.spectrin_interior
-        if interior is not None and interior.mask.any():
-            ring = interior.mask & ~ndimage.binary_erosion(interior.mask)
-            cased = _cased_edge(ring, _SPECTRIN_OUTLINE)
-            self.spectrin_outline_item.setImage(
-                np.transpose(cased, (1, 0, 2)), levels=(0, 255))
-            ir0, ir1, ic0, ic1 = interior.region
-            self.spectrin_outline_item.setRect(self._region_rect(
-                (ir0, ir1), (ic0, ic1), self.reference_offset))
-        found = self.anchored
-        if found is not None and self.anchored_centroids is not None:
-            c = self.anchored_centroids
-            # The four groups the boxes above the image show or hide.
-            for item, group in ((self.discarded_item, found.discarded),
-                                (self.tubulin_only_item, found.tubulin_only),
-                                (self.spectrin_only_item,
-                                 found.spectrin_only),
-                                (self.cluster_item, found.inside_neither)):
-                members = np.asarray(group, dtype=bool)
-                item.setData(c[members, 0], c[members, 1])
-            for item, drawn in ((self.contour_all_item, found.contour_all),
-                                (self.contour_item, found.contour_anchored)):
-                if drawn is not None:
-                    closed = np.vstack([drawn.contour, drawn.contour[:1]])
-                    item.setData(closed[:, 0], closed[:, 1])
-            new = found.contour_anchored
-            if new is not None and new.centre is not None:
-                self.centre_item.setData([new.centre.x_nm],
-                                         [new.centre.y_nm])
-        else:
-            centroids = self.inputs.clusters()
-            if centroids is not None and len(centroids):
-                c = np.asarray(centroids, float)
-                self.cluster_item.setData(c[:, 0], c[:, 1])
-
         self.plot_hist.clear()
-        if result is not None:
-            d = result.distance_nm[np.isfinite(result.distance_nm)]
-            if d.size:
-                edges = np.arange(-HIST_RANGE_NM, HIST_RANGE_NM + HIST_BIN_NM,
-                                  HIST_BIN_NM)
-                counts, _ = np.histogram(np.clip(d, edges[0], edges[-1]),
-                                         bins=edges)
-                self.plot_hist.plot(edges, counts, stepMode="center",
-                                    pen=pg.mkPen(TITLE_FG, width=1.5))
-            self.plot_hist.addItem(pg.InfiniteLine(
-                pos=0, angle=90,
-                pen=pg.mkPen(neutral(dark=True), style=QtCore.Qt.DashLine)))
-            self.plot_hist.addItem(pg.InfiniteLine(
-                pos=result.margin_nm, angle=90, pen=pg.mkPen(_INTERIOR)))
+        if self.axoplasm is None or self.tubulin is None or result is None:
+            return
+        d = result.distance_nm[np.isfinite(result.distance_nm)]
+        if d.size:
+            edges = np.arange(-HIST_RANGE_NM, HIST_RANGE_NM + HIST_BIN_NM,
+                              HIST_BIN_NM)
+            counts, _ = np.histogram(np.clip(d, edges[0], edges[-1]),
+                                     bins=edges)
+            self.plot_hist.plot(edges, counts, stepMode="center",
+                                pen=pg.mkPen(TITLE_FG, width=1.5))
+        self.plot_hist.addItem(pg.InfiniteLine(
+            pos=0, angle=90,
+            pen=pg.mkPen(neutral(dark=True), style=QtCore.Qt.DashLine)))
+        self.plot_hist.addItem(pg.InfiniteLine(
+            pos=result.margin_nm, angle=90, pen=pg.mkPen(_INTERIOR)))
+
+    def map_state(self) -> map_layers.AxoplasmMapState:
+        """What this panel draws on the axon map, computed as its image used
+        to be drawn: the tubulin region of the mask (and the same area in the
+        spectrin image), the two cased edges, the localizations of the
+        selection by class, the anchored classification, and the words the
+        map's captions need (threshold source, the selection note, margin,
+        registration). Whatever a drag left pending is done first."""
+        self.flush()
+        mask = self.axoplasm
+        found = self.anchored if self.anchored_centroids is not None else None
+        loc = self.inputs.loc
+        return map_layers.axoplasm_map_state(
+            tubulin_image=None if self.tubulin is None else self.tubulin.image,
+            tubulin_offset=self.tubulin_offset,
+            reference_image=None if self.reference is None else self.reference.image,
+            reference_offset=self.reference_offset,
+            mask=mask, interior=self.spectrin_interior,
+            shift_px=self._shift_px(), pixel_nm=self.pixel_nm,
+            loc_x=np.asarray(loc.x_nm, dtype=float), loc_y=np.asarray(loc.y_nm, dtype=float),
+            located=self.located, anchored=found,
+            anchored_centroids=None if found is None else self.anchored_centroids,
+            clusters=self.inputs.clusters(),
+            threshold_source=("otsu" if mask is None or mask.threshold_source == "otsu" else "manual"),
+            selection_note=self.selection_note, margin_nm=float(self.spin_margin.value()),
+            registration=self._registration_state(), has_result=self.result is not None)
+
+    def _on_show_map(self) -> None:
+        """"Show on the axon map" (3.1)."""
+        self.flush()
+        if self.map_callback is not None:
+            self.map_callback()
 
     # ------------------------------------------------------------ export
     def summary_row(self) -> Dict[str, Any]:
@@ -1663,11 +1395,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
 
     def _on_export_image(self) -> None:
         """
-        Write the image plot, or the histogram, as a figure.
+        Write the distance histogram as a figure.
 
-        Not redrawn on white, unlike the MPS window's plots: what this
-        panel draws on is a widefield photograph, and a figure of it is
-        that photograph with the edges and the clusters on top.
+        The image with the masks and the clusters is the axon map's: its
+        export is the MPS analysis window's "Export image...", "Axon map".
         """
         # A figure written within the pause a drag opened would show the
         # mask from before the drag.
@@ -1675,8 +1406,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         from tools import figure_export
         from tools.figure_export_ui import ask
 
-        plots = {"Axon with the masks and the clusters": self.plot_image,
-                 "Distance to the tubulin mask's edge": self.plot_hist}
+        plots = {"Distance to the tubulin mask's edge": self.plot_hist}
         suggested = figure_export.suggested_name(
             str(self.inputs.movie.path), "axoplasm")
         request = ask(list(plots), suggested, parent=self, offer_white=False)
@@ -1719,10 +1449,12 @@ def show_axoplasm_window(
     inputs: AxoplasmInputs,
     parent: Optional[QtWidgets.QWidget] = None,
     export_callback: Optional[Callable[[], Any]] = None,
+    map_callback: Optional[Callable[[], Any]] = None,
 ) -> AxoplasmWindow:
     """Open the axoplasm panel."""
     window = AxoplasmWindow(inputs, parent=parent,
-                            export_callback=export_callback)
+                            export_callback=export_callback,
+                            map_callback=map_callback)
     window.show()
     window.raise_()
     window.activateWindow()

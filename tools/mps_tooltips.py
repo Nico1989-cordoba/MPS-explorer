@@ -70,26 +70,31 @@ MAIN_WINDOW: Dict[str, str] = {
         "Select with a rectangle. Drag the middle to move it, drag the "
         "handle to resize it.",
     "radioButton_polygonROI":
-        "Select by clicking one vertex at a time; ENTER closes the "
-        "shape.\n\n"
+        "Select with a polygon. It starts as a four-sided shape: drag a "
+        "vertex to move it, click a side to add a vertex there, "
+        "right-click a vertex and choose 'Remove handle' to take it out "
+        "(the shape keeps at least three), drag the inside to move the "
+        "whole shape.\n\n"
         "For an axon that is not round, or when a neighbouring one has "
         "to be left out of a circle that would otherwise contain it.",
     "lineEdit_zmin":
-        "Lower edge of the axial slab, in nanometres.\n\n"
-        "Filled in from the main peak of the z distribution when a file "
-        "is loaded, and left alone once you edit it. Localizations below "
-        "it are not in the selection. Leave both empty to keep the whole "
-        "depth.",
+        "Lower edge of the axial cut, in nanometres (read-only here).\n\n"
+        "It shows the slab chosen in the MPS analysis window: the main "
+        "peak of the z distribution +/- the half-width, a mixture "
+        "component you chose there, or a range you typed there. "
+        "Localizations below it are not in the selection.",
     "lineEdit_zmax":
-        "Upper edge of the axial slab, in nanometres.\n\n"
-        "Filled in from the main peak of the z distribution when a file "
-        "is loaded, and left alone once you edit it. Localizations above "
-        "it are not in the selection. Leave both empty to keep the whole "
-        "depth.",
+        "Upper edge of the axial cut, in nanometres (read-only here).\n\n"
+        "It shows the slab chosen in the MPS analysis window: the main "
+        "peak of the z distribution +/- the half-width, a mixture "
+        "component you chose there, or a range you typed there. "
+        "Localizations above it are not in the selection.",
     "pushButton_zrange":
-        "Apply the z range above to the selection and redraw it.\n\n"
-        "The selection shape and the z range are one cut: this is what "
-        "puts both into effect.",
+        "Apply the ROI drawn on the scatter plot, with the axial cut "
+        "above, to the selection and redraw it.\n\n"
+        "The selection shape and the axial cut are one selection: this is "
+        "what puts both into effect. The slab itself is chosen in the MPS "
+        "analysis window.",
     # --- clustering ----------------------------------------------------
     "comboBox_algorithm":
         "Which algorithm groups the localizations into clusters.\n\n"
@@ -99,14 +104,21 @@ MAIN_WINDOW: Dict[str, str] = {
         "a choice about speed, not about the data.",
     "lineEdit_eps":
         "DBSCAN's epsilon, in nanometres: how far apart two "
-        "localizations can be and still belong to the same cluster.\n\n"
-        "Too small breaks one cluster into several; too large merges "
-        "neighbouring ones into a blob. Not used by HDBSCAN.",
+        "localizations can be and still belong to the same cluster. Too "
+        "small breaks one cluster into several; too large merges "
+        "neighbours.\n\n"
+        "Set as 'eps' in the MPS analysis window's parameter strip "
+        "('Change...'); this box only shows it. The MPS analysis, the "
+        "window clustering, Rings, Batch and Two channels all use that one "
+        "value for channel 1; channel 2 has its own. Not used by HDBSCAN.",
     "lineEdit_minsamples":
         "DBSCAN's Min Pts: how many localizations have to sit within "
-        "epsilon of a point for it to start a cluster.\n\n"
-        "Raising it leaves more localizations as noise, which the plots "
-        "draw as grey crosses. Not used by HDBSCAN.",
+        "epsilon of a point for it to start a cluster. Raising it leaves "
+        "more localizations as noise.\n\n"
+        "Set as 'min samples' in the MPS analysis window's parameter strip "
+        "('Change...'); this box only shows it, and every analysis of "
+        "channel 1 uses that one value; channel 2 has its own. Not used by "
+        "HDBSCAN.",
     "lineEdit_minclustersize":
         "HDBSCAN's smallest number of localizations a group must have to "
         "count as a cluster.\n\n"
@@ -135,26 +147,6 @@ MAIN_WINDOW: Dict[str, str] = {
         "it compares. With 'auto' in the boxes this button is how you "
         "find a number to put in them. The per-axon analysis stays on "
         "channel 1.",
-    # --- the distance histogram ----------------------------------------
-    "lineEdit_Nneighbor":
-        "Which neighbour the distance histogram shows: 1 is the nearest "
-        "cluster centre, 2 the second nearest, and so on.\n\n"
-        "The per-axon analysis always reports the first; this is how to "
-        "look at the others.",
-    "pushButton_Distances":
-        "Measure the distances between cluster centres and draw the "
-        "histogram below.\n\n"
-        "Centre to centre, in the plane.",
-    "lineEdit_bin":
-        "How many bars the distance histogram is drawn with.",
-    "lineEdit_latmin":
-        "Left edge of the distance histogram, in nanometres.\n\n"
-        "Distances outside the range are left out of the DRAWING only; "
-        "what is exported is unchanged.",
-    "lineEdit_latmax":
-        "Right edge of the distance histogram, in nanometres.\n\n"
-        "Distances outside the range are left out of the DRAWING only; "
-        "what is exported is unchanged.",
 }
 
 
