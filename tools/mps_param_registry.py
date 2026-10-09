@@ -21,10 +21,18 @@ constant and checks that the registry follows (``test_param_registry.py``).
 Badges (12.1)
 -------------
 Six labels - paper, derived, simulation, pilot suggestion, user, blank - and two transitional ones, "ad hoc" (no
-written derivation yet; the entry names the science PR that replaces it) and "unreviewed" (no verified research record
-yet: the DBSCAN batch, TODO-B6; DNA-PAINT, TODO-B9; or not inventoried). The badge describes the value in use today,
-never the value a science PR will bring. "user" wins when a value departs from its default; "blank" is a value that is
-not there (not measured, not given), and whatever needs it says so instead of falling back on a number.
+written derivation yet; the entry names the science PR that replaces it) and "unreviewed" (no verified research record:
+not inventoried by the research). The badge describes the value in use today, never the value a science PR will bring.
+"user" wins when a value departs from its default; "blank" is a value that is not there (not measured, not given), and
+whatever needs it says so instead of falling back on a number.
+
+Source of the labels and ranges: the research's final proposal (all nine batches verified, 2026-10-09; its JSON is
+authoritative). A record that keeps a value gives the badge of its label after the research (literature -> paper;
+first principles, standard method, convention with a written derivation -> derived; own simulation -> simulation; pilot
+suggestion -> pilot suggestion); a record whose science PR changes the value gives the badge of the value BEFORE it
+(design 12.1), and the entry names that PR (SCI-1 .. SCI-9, SCI-B6 for clustering and geometry, SCI-B9 for DNA-PAINT).
+The hooks of the two batches that came last - the DBSCAN group (TODO-B6) and the DNA-PAINT namespace (TODO-B9) - are
+filled from them.
 
 Texts are English and public: no figure measured on unpublished data and no private path (design 12.2, U2).
 
@@ -65,9 +73,10 @@ BADGE_MEANING: Dict[str, str] = {
 HOMES: Tuple[str, ...] = ("strip", "rings", "axoplasm", "measurement", "main", "none")
 # The publication the "paper" badges name.
 PAPER = "Gazal et al. 2026 (preprint v1)"
-# The science PRs (design 13) and the two batches still to come (12.9).
+# The science PRs (design 13): SCI-1 .. SCI-9, and SCI-B6 / SCI-B9 for the two batches that filled the hooks
+# TODO-B6 (clustering and geometry) and TODO-B9 (DNA-PAINT) (12.9, 13.3).
 SCIENCE_PRS: Tuple[str, ...] = ("SCI-1", "SCI-2", "SCI-3", "SCI-4", "SCI-5", "SCI-6", "SCI-7", "SCI-8", "SCI-9",
-                                "TODO-B6", "TODO-B9")
+                                "SCI-B6", "SCI-B9")
 NOT_INVENTORIED = "not inventoried"
 
 
@@ -204,67 +213,97 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
     _e(key="slab.typed_range", label="Typed axial range", unit="nm", home="strip", default=None, origin="blank",
        origin_note="no range is typed by default; 'user' when one is typed (it then decides the slab)",
        shown_as="parameter strip (typed range)", editable=True),
-    # ---------------------------------------------------------------- DBSCAN (TODO-B6 hook, 12.9)
+    # ---------------------------------------------------------------- DBSCAN (the TODO-B6 hook, 12.9; filled by B6)
     _e(key="dbscan.eps_nm", label="eps", unit="nm", home="strip", default=_const(_S, "DEFAULT_EPS_NM"),
-       origin="paper", origin_note=f"DBSCAN neighbourhood radius of {PAPER}, kept in tools/mps_settings.py",
-       shown_as="parameter strip; main-window mirror; batch label; rings parameter line",
-       range_text="pending B6", range_note="the DBSCAN batch (B6) is still to come", changes_in="TODO-B6",
-       editable=True),
+       origin="paper",
+       origin_note=f"the published DBSCAN radius of {PAPER} (Ester et al. 1996 for the method); the research keeps "
+                   "it and documents no range for it: automatic estimates are never used by the per-axon analysis",
+       shown_as="parameter strip; main-window mirror; batch label; rings parameter line", editable=True),
     _e(key="dbscan.min_samples", label="min samples", unit="", home="strip",
        default=_const(_S, "DEFAULT_MIN_SAMPLES"), origin="paper",
-       origin_note=f"DBSCAN minimum neighbourhood count of {PAPER}, kept in tools/mps_settings.py",
+       origin_note=f"the published DBSCAN minimum count of {PAPER}, matched to the mean switching cycles of the "
+                   "fluorophore (Dempsey et al. 2011); kept in every DBSCAN path",
        shown_as="parameter strip; main-window mirror; batch label; rings parameter line",
-       range_text="pending B6", range_note="the DBSCAN batch (B6) is still to come", changes_in="TODO-B6",
-       editable=True),
+       documented_range=(2.0, 50.0), range_text="2-50", range_note="record minsamples-fallback-5-and-hdbscan-defaults",
+       records=("minsamples-fallback-5-and-hdbscan-defaults",), editable=True),
     _e(key="curation.edge_criterion", label="curation: edge criterion", unit="", home="none",
-       default=_in_code("tools/mps_analysis.py", r"edge_margin_nm=(eps_nm)", str), origin="unreviewed",
+       default=_in_code("tools/mps_analysis.py", r"edge_margin_nm=(eps_nm)", str), origin="ad hoc",
        value_text="on: a cluster within eps of the ROI edge is removed",
-       origin_note="applied by every analysis with a margin equal to eps", shown_as="DBSCAN 'More' line",
-       range_text="pending B6", changes_in="TODO-B6", unreviewed_because="TODO-B6",
+       origin_note="a cluster cut by the drawn ROI's edge is removed (margin eps); the rule is switched off for a "
+                   "ROI where it would remove more than half of the clusters, a safeguard with no written "
+                   "derivation yet",
+       shown_as="DBSCAN 'More' line", records=("edge-runaway-guard-50pct", "edge-reference-convex-hull-fallback"),
+       changes_in="SCI-B6",
+       change_note="SCI-B6 makes the safeguard editable (documented range 0.2-0.9) and applies no rule where no "
+                   "ROI is drawn, instead of the convex hull",
        not_editable_because="e1: analyze_axon takes no switch for it"),
     _e(key="curation.dbcv_threshold", label="curation: DBCV", unit="", home="none",
-       default=_const(_S, "DEFAULT_DBCV_THRESHOLD"), origin="unreviewed",
+       default=_const(_S, "DEFAULT_DBCV_THRESHOLD"), origin="derived",
        words=lambda v: (f"DBCV off (threshold {v:g}: no score is below it)" if v <= -1.0
                         else f"DBCV on, threshold {v:g}"),
-       origin_note="DBCV curation is off by default",
-       shown_as="DBSCAN 'More' line", range_text="pending B6", changes_in="TODO-B6",
-       unreviewed_because="TODO-B6", not_editable_because="e1"),
-    _e(key="contour.two_opt_starts", label="contour: 2-opt starts", unit="", home="none",
-       default=_keyword("tools.mps_analysis", "analyze_axon", "all_starts"), origin="unreviewed",
-       words=lambda v: ("contour: 2-opt from every start" if v else "contour: 2-opt from one start"),
-       origin_note="the contour through the cluster centres is refined by 2-opt from every start",
-       shown_as="DBSCAN 'More' line", range_text="pending B6", changes_in="TODO-B6",
-       unreviewed_because="TODO-B6", not_editable_because="e1"),
-    _e(key="contour.health.deep_vertex_fraction", label="deep vertex fraction", unit="", home="none",
-       default=_const("tools.mps_geometry", "DEEP_VERTEX_FRACTION"), origin="unreviewed",
-       origin_note="a contour vertex deeper than this fraction of the hull radius is counted as deep",
-       changes_in="TODO-B6", unreviewed_because="TODO-B6", not_editable_because="e1"),
-    _e(key="contour.health.max_over_median", label="longest edge over the median edge", unit="", home="none",
-       default=_const("tools.mps_geometry", "MAX_OVER_MEDIAN_LIMIT"), origin="unreviewed",
-       origin_note="contour health: the longest edge against the median edge", changes_in="TODO-B6",
-       unreviewed_because="TODO-B6", not_editable_because="e1"),
-    _e(key="membrane.knot_spacing_nm", label="membrane P-spline knot spacing", unit="nm", home="none",
-       default=_const("tools.mps_membrane", "MEMBRANE_KNOT_SPACING_NM"), origin="unreviewed",
-       origin_note="knot spacing of the membrane P-spline", changes_in="TODO-B6", unreviewed_because="TODO-B6",
+       origin_note="standard method (DBCV, Moulavi et al. 2014), off by default: a threshold removes the largest "
+                   "clusters first; the two export columns stay, recorded as off",
+       shown_as="DBSCAN 'More' line", documented_range=(-1.0, 1.0), range_text="-1 to 1 (advanced)",
+       range_note="record dbcv-threshold-default-off", records=("dbcv-threshold-default-off",),
        not_editable_because="e1"),
+    _e(key="contour.two_opt_starts", label="contour: 2-opt starts", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "all_starts"), origin="derived",
+       words=lambda v: ("contour: 2-opt from every start" if v else "contour: 2-opt from one start"),
+       origin_note="standard method (2-opt, Croes 1958) from every start of the polar cycle; the shortest tour is "
+                   "kept, so the perimeter does not depend on the order the clusters are listed in",
+       shown_as="DBSCAN 'More' line", records=("two-opt-all-starts-default", "perimeter-order-polar-plus-2opt"),
+       not_editable_because="e1"),
+    _e(key="contour.health.deep_vertex_fraction", label="deep vertex fraction", unit="", home="none",
+       default=_const("tools.mps_geometry", "DEEP_VERTEX_FRACTION"), origin="simulation",
+       origin_note="a contour vertex deeper than this fraction of the hull radius is counted as deep; calibrated on "
+                   "simulated rings, valid up to a radial scatter of about 5-8 % of the radius",
+       documented_range=(0.3, 0.6), range_text="0.30-0.60", range_note="record contour-deep-vertex-fraction-0.40",
+       records=("contour-deep-vertex-fraction-0.40",), changes_in="SCI-B6",
+       change_note="SCI-B6 makes it editable within its documented range", not_editable_because="e1", fmt=".2f"),
+    _e(key="contour.health.max_over_median", label="longest edge over the median edge", unit="", home="none",
+       default=_const("tools.mps_geometry", "MAX_OVER_MEDIAN_LIMIT"), origin="simulation",
+       origin_note="contour health: the longest step against the median step, set above what simulated rings with "
+                   "random spacing reach",
+       records=("contour-max-over-median-limit-20",), changes_in="SCI-B6",
+       change_note="SCI-B6 replaces it by the longest step as a fraction of the contour length, tested against "
+                   "Fisher's exact null for the largest of K spacings (alpha 0.001, documented range 1e-4 to 0.05)",
+       not_editable_because="e1"),
+    _e(key="membrane.knot_spacing_nm", label="membrane P-spline knot spacing", unit="nm", home="none",
+       default=_const("tools.mps_membrane", "MEMBRANE_KNOT_SPACING_NM"), origin="derived",
+       origin_note="convention with a written derivation: the knot spacing of the membrane P-spline bounds the "
+                   "smoothing bias at a micrometre radius (Hall and Meyer 1976)",
+       documented_range=(400.0, 800.0), range_text="400-800", range_note="record membrane-knot-spacing-600",
+       records=("membrane-knot-spacing-600",), changes_in="SCI-B6",
+       change_note="SCI-B6 makes it editable within its documented range", not_editable_because="e1", fmt=",.0f"),
     _e(key="window.clustering", label="window clustering (algorithm, min cluster size)", unit="", home="main",
-       default=None, origin="unreviewed", value_text="as typed in the main window (the window clustering only)",
-       origin_note="the main window's own clustering preview, not the MPS analysis", changes_in="TODO-B6",
-       unreviewed_because="TODO-B6"),
-    _e(key="channel2.eps_nm", label="channel 2: eps", unit="nm", home="main", default=None, origin="unreviewed",
-       value_text="typed per folder, or 'auto'", origin_note="channel 2's own DBSCAN radius", changes_in="TODO-B6",
-       unreviewed_because="TODO-B6"),
+       default=None, origin="ad hoc", value_text="as typed in the main window (the window clustering only)",
+       origin_note="the main window's own clustering preview, not the MPS analysis; its 'Auto' algorithm switches "
+                   "to HDBSCAN on large selections and its automatic eps reads a fixed neighbour rank",
+       records=("dbscan-hdbscan-auto-switch-100k", "kdist-k-5", "kdist-percentile-90"), changes_in="SCI-B6",
+       change_note="SCI-B6 removes the automatic switch to HDBSCAN (DBSCAN always; HDBSCAN only explicitly) and "
+                   "ties the automatic eps to the (min samples - 1)-th neighbour, shown as a graph to read"),
+    _e(key="channel2.eps_nm", label="channel 2: eps", unit="nm", home="main", default=None, origin="blank",
+       value_text="typed per folder, or 'auto'",
+       origin_note="standard method: a second channel is never clustered with channel 1's parameters (Ester et al. "
+                   "1996): its own value is typed once per acquisition folder",
+       range_text="1-5 x the channel's NeNA precision", range_note="record dbscan-channel2-own-parameters",
+       records=("dbscan-channel2-own-parameters",), changes_in="SCI-B6",
+       change_note="SCI-B6 writes a suggestion beside the empty field, never pre-filled: eps_2 = eps_1 x "
+                   "sigma_2 / sigma_1 from each channel's NeNA"),
     _e(key="channel2.min_samples", label="channel 2: min samples", unit="", home="main", default=None,
-       origin="unreviewed", value_text="typed per folder, or 'auto'",
-       origin_note="channel 2's own DBSCAN count (B8 suggests a min_samples_B)", changes_in="TODO-B6",
-       unreviewed_because="TODO-B6"),
+       origin="blank", value_text="typed per folder, or 'auto'",
+       origin_note="standard method: channel 2's own DBSCAN count, typed once per acquisition folder",
+       documented_range=(2.0, 50.0), range_text="2-50", range_note="record dbscan-channel2-own-parameters",
+       records=("dbscan-channel2-own-parameters",), changes_in="SCI-B6",
+       change_note="SCI-B6 writes a suggestion beside the empty field, never pre-filled: the expected number of one "
+                   "molecule's localizations within eps_2 of one of them"),
     # ---------------------------------------------------------------- occupancy
     _e(key="occupancy.mahalanobis", label="Mahalanobis", unit="", home="strip",
        default=_const(_S, "DEFAULT_MAHALANOBIS_THRESHOLD"), origin="paper",
-       origin_note=f"a perimeter point is occupied within this Mahalanobis distance of a cluster ({PAPER})",
-       shown_as="parameter strip; batch label; rings parameter line; captions",
-       range_text="no verified record yet", range_note="checked when the DBSCAN batch (B6) arrives",
-       editable=True),
+       origin_note=f"a perimeter point is occupied within this Mahalanobis distance of a cluster ({PAPER}); the "
+                   "research documents no range for it: it is recorded in every exported row (98.9 % of an "
+                   "isotropic Gaussian cluster lies within 3 standard deviations)",
+       shown_as="parameter strip; batch label; rings parameter line; captions", editable=True),
     _e(key="occupancy.sigma_cap_fraction", label="sigma cap", unit="", home="none",
        default=_const("tools.mps_occupancy", "SIGMA_CAP_FRACTION"), origin="paper",
        words=lambda v: f"sigma capped at d_max/{1.0 / v:.3g}",
@@ -297,7 +336,8 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        origin_note="scipy's s = K (the number of contour points); the paper states no smoothing factor",
        shown_as="Randomization 'More' line", range_text="RMS residual 0-50 nm",
        records=("rand-bspline-smoothing-s-equals-K",), changes_in="SCI-3",
-       change_note="SCI-3: an RMS residual of 1 nm, the contour closed", not_editable_because="e1"),
+       change_note="SCI-3 closes the contour before the fit; s = K (an RMS residual of 1 nm) is kept",
+       not_editable_because="e1"),
     _e(key="randomization.incomplete_iterations", label="incomplete iterations", unit="", home="none",
        default=None, origin="ad hoc", value_text="kept in the pool",
        origin_note="an iteration that could not place every centre is still pooled",
@@ -333,11 +373,11 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        changes_in="SCI-3", change_note="SCI-3 adds the regularity index r beside it"),
     _e(key="reference.cluster_area_nm2", label="cluster area (median)", unit="nm^2", home="none",
        default=_const("tools.mps_geometry", "PAPER_MEDIAN_CLUSTER_AREA_NM2"), origin="paper",
-       origin_note=f"{PAPER}", shown_as="Cluster-area reference line; results table", changes_in="TODO-B6",
-       fmt=",.0f"),
+       origin_note=f"{PAPER}: another dataset and another pipeline", shown_as="Cluster-area reference line; "
+                                                                            "results table", fmt=",.0f"),
     _e(key="reference.r_eff_nm", label="effective radius (median)", unit="nm", home="none",
-       default=_const("tools.mps_geometry", "PAPER_MEDIAN_R_EFF_NM"), origin="paper", origin_note=f"{PAPER}",
-       shown_as="results table", changes_in="TODO-B6"),
+       default=_const("tools.mps_geometry", "PAPER_MEDIAN_R_EFF_NM"), origin="paper",
+       origin_note=f"{PAPER}: another dataset and another pipeline", shown_as="results table"),
     _e(key="reference.occupancy_percent", label="occupancy", unit="%", home="none",
        default=_const("tools.mps_occupancy", "PAPER_OCCUPANCY_PERCENT"), origin="paper", origin_note=f"{PAPER}",
        shown_as="results table"),
@@ -374,12 +414,16 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        default=_keyword("tools.mps_axoplasm", "otsu_threshold", "bins"), origin="derived",
        words=lambda v: f"Otsu's threshold ({v} bins)",
        origin_note="standard method: Otsu (1979) on the smoothed tubulin image; 'user' when set by hand",
-       shown_as="axoplasm window (slider); the map's image caption", records=("axoplasm-otsu-threshold-tubulin",),
-       editable=True),
+       shown_as="axoplasm window (slider); the map's image caption", range_text="64-1024 bins",
+       range_note="record axoplasm-otsu-threshold-tubulin (the histogram's bins, not the threshold)",
+       records=("axoplasm-otsu-threshold-tubulin",), editable=True),
     _e(key="axoplasm.smoothing_px", label="smoothing", unit="px", home="axoplasm",
-       default=_const("tools.mps_axoplasm", "DEFAULT_SMOOTH_SIGMA_PX"), origin="unreviewed",
-       origin_note="Gaussian smoothing of the widefield image before the threshold",
-       shown_as="axoplasm window (spin, in nm)", unreviewed_because=NOT_INVENTORIED, editable=True),
+       default=_const("tools.mps_axoplasm", "DEFAULT_SMOOTH_SIGMA_PX"), origin="derived",
+       origin_note="convention with a written derivation: Gaussian smoothing of the widefield image before the "
+                   "threshold, below the image's own blur",
+       shown_as="axoplasm window (spin, in nm)", documented_range=(0.5, 2.0), range_text="0.5-2",
+       range_note="record axoplasm-mask-smoothing-upsample-region", records=("axoplasm-mask-smoothing-upsample-region",),
+       editable=True),
     _e(key="axoplasm.margin_nm", label="margin", unit="nm", home="axoplasm",
        default=_const("tools.mps_axoplasm", "DEFAULT_MARGIN_NM"), origin="ad hoc",
        origin_note="how far inside the mask edge a cluster must be to count as inside",
@@ -409,32 +453,53 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
     _e(key="measurement.bead_stack", label="bead stack", unit="", home="measurement", default=None,
        origin="blank", value_text="- (not given)", origin_note="a localized bead stack comes with SCI-1",
        shown_as="Measurement panel", changes_in="SCI-1", not_editable_because="the input is disabled until SCI-1"),
-    # ---------------------------------------------------------------- DNA-PAINT (reserved, TODO-B9)
+    # ---------------------------------------------------------------- DNA-PAINT (the TODO-B9 hook, 12.9; filled by
+    # B9). The DNA-PAINT window is not a stage-2 window: these entries are metadata for SCI-B9 and stage 3.
     _e(key="paint.link_radius_precisions", label="linking radius", unit="x precision", home="none",
-       default=_const("tools.mps_paint", "LINK_RADIUS_IN_PRECISIONS"), origin="unreviewed",
-       origin_note="events are linked within this many lateral precisions", changes_in="TODO-B9",
-       unreviewed_because="TODO-B9"),
+       default=_const("tools.mps_paint", "LINK_RADIUS_IN_PRECISIONS"), origin="ad hoc",
+       origin_note="events are linked within this many lateral precisions; a radius of k precisions breaks a "
+                   "fraction exp(-k^2/4) of one emitter's genuine steps",
+       documented_range=(2.0, 8.0), range_text="2-8", range_note="record paint-link-radius-factor",
+       records=("paint-link-radius-factor",), changes_in="SCI-B9",
+       change_note="SCI-B9 links within 5 precisions, one rule with the column pipeline (breaks 0.19 % of genuine "
+                   "steps instead of 10.5 %)"),
     _e(key="paint.max_dark_frames", label="max dark time", unit="frame(s)", home="none",
-       default=_const("tools.mps_paint", "DEFAULT_MAX_DARK_TIME"), origin="unreviewed",
-       origin_note="frames of darkness tolerated inside one binding event", changes_in="TODO-B9",
-       unreviewed_because="TODO-B9"),
+       default=_const("tools.mps_paint", "DEFAULT_MAX_DARK_TIME"), origin="derived",
+       origin_note="convention with a written derivation: frames of darkness tolerated inside one binding event, "
+                   "the same rule as the column pipeline",
+       documented_range=(0.0, 5.0), range_text="0-5", range_note="record paint-max-dark-time-default (more allowed, "
+                                                                 "flagged)",
+       records=("paint-max-dark-time-default",)),
     _e(key="paint.exposure_s", label="exposure", unit="s", home="none", default=None, origin="unreviewed",
        value_text="read from the file, or typed", origin_note="used only to give times in seconds",
-       changes_in="TODO-B9", unreviewed_because="TODO-B9"),
+       unreviewed_because=NOT_INVENTORIED),
     _e(key="paint.qpaint_calibration", label="qPAINT calibration", unit="", home="none", default=None,
-       origin="unreviewed", value_text="none: relative units only",
-       origin_note="an uncalibrated qPAINT is never reported as a count", changes_in="TODO-B9",
-       unreviewed_because="TODO-B9"),
+       origin="paper", value_text="none: relative units only",
+       origin_note="the qPAINT literature (Jungmann et al. 2016): an uncalibrated qPAINT is never reported as a "
+                   "count",
+       records=("qpaint-uncalibrated-never-a-count-policy",)),
     _e(key="paint.frame_analysis", label="frame analysis", unit="", home="none",
        default=_consts("tools.mps_paint", ("_FA_MEAN_FRAME_LOW", "_FA_MEAN_FRAME_HIGH", "_FA_N_WINDOWS",
                                            "_FA_MAX_SHARE_IN_WINDOW")),
-       origin="unreviewed", origin_note="Picasso's basic frame analysis", changes_in="TODO-B9",
-       unreviewed_because="TODO-B9"),
-    _e(key="paint.fragmentation", label="fragmentation", unit="", home="none",
-       default=_consts("tools.mps_paint", ("FRAGMENTATION_MARGIN", "FRAGMENTATION_EXCESS",
-                                           "FRAGMENTATION_MIN_FRACTION")),
-       origin="unreviewed", origin_note="when the short dark gaps are called fragmented binding events",
-       changes_in="TODO-B9", unreviewed_because="TODO-B9"),
+       origin="unreviewed",
+       origin_note="Picasso's basic frame analysis; the warning built on it (more than half of the clusters "
+                   "rejected) is replaced in SCI-B9 by a comparison with what sparse sampling alone rejects",
+       records=("paint-frame-analysis-warning-half",), unreviewed_because=NOT_INVENTORIED),
+    _e(key="paint.fragmentation_margin", label="fragmentation: shortest observable gap", unit="frame(s)",
+       home="none", default=_const("tools.mps_paint", "FRAGMENTATION_MARGIN"), origin="derived",
+       origin_note="first-principles derivation: the cutoff max dark time + 2 is the shortest gap the linking can "
+                   "observe", records=("paint-fragmentation-margin",)),
+    _e(key="paint.fragmentation_excess", label="fragmentation: excess factor", unit="", home="none",
+       default=_const("tools.mps_paint", "FRAGMENTATION_EXCESS"), origin="ad hoc",
+       origin_note="short gaps more than this many times what a single exponential predicts",
+       records=("paint-fragmentation-excess-factor",), changes_in="SCI-B9",
+       change_note="SCI-B9 replaces it by an exact binomial test (alpha 0.01, material excess 0.10)"),
+    _e(key="paint.fragmentation_min_fraction", label="fragmentation: minimum share", unit="", home="none",
+       default=_const("tools.mps_paint", "FRAGMENTATION_MIN_FRACTION"), origin="derived",
+       origin_note="convention with a written derivation: the short gaps must be at least this share of a "
+                   "cluster's gaps", documented_range=(0.05, 0.30), range_text="0.05-0.30",
+       range_note="record paint-fragmentation-min-fraction", records=("paint-fragmentation-min-fraction",),
+       fmt=".2f"),
 )
 
 _BY_KEY: Dict[str, ParamInfo] = {e.key: e for e in _ENTRIES}
@@ -582,7 +647,10 @@ def tooltip(key: str, value: Any = UNSET) -> str:
         if value is not UNSET and outside_range(key, value):
             lines.append("This value is outside it: nothing is changed, it is only flagged.")
     if e.changes_in:
-        lines.append(f"Changes in {e.changes_in}" + (f": {e.change_note}." if e.change_note else "."))
+        note = e.change_note
+        if note.startswith(e.changes_in):
+            note = note[len(e.changes_in):].lstrip(": ")
+        lines.append(f"Changes in {e.changes_in}" + (f": {note}." if note else "."))
     if e.unreviewed_because:
         lines.append("Unreviewed: " + ("not inventoried by the research yet." if e.unreviewed_because ==
                                        NOT_INVENTORIED else f"its research batch ({e.unreviewed_because}) is pending."))

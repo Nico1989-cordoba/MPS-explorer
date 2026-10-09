@@ -73,7 +73,7 @@ def main() -> int:
         assert field.editor is spin and spin.objectName() == "spin_eps"
         assert (spin.minimum(), spin.maximum()) == (0.1, 1000.0), "the editor's limits must stay today's"
         assert field.badge.text() == "paper" and "font-weight: bold" not in field.badge.styleSheet()
-        assert field.hint.text() == "pending B6"
+        assert field.hint.text() == ""          # B6 documents no range for the analysis eps
         spin.setValue(30.0)
         assert field.badge.text() == "user" and "font-weight: bold" in field.badge.styleSheet()
         assert "you set 30 nm; default 25 nm (paper)" in field.badge.toolTip()

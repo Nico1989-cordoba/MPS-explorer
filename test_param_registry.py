@@ -8,7 +8,8 @@ default, its documented range and the science PR that will change it. It must ne
   1. every default is read from the code when asked - a patched module constant, a patched keyword default and the
      text of the code are followed, and a reader whose code is gone fails loudly;
   2. keys are unique and ASCII; every badge is in the vocabulary of 12.1; every "ad hoc" entry names the science PR
-     that replaces it and every "unreviewed" entry its batch (TODO-B6, TODO-B9) or "not inventoried"; documented
+     that replaces it and every "unreviewed" entry says it was not inventoried (the research is final: the hooks
+     TODO-B6 and TODO-B9 are filled, their science PRs are SCI-B6 and SCI-B9); documented
      ranges are ordered; no display text carries a number of its own (numbers come from the code);
   3. Appendix C: every entry stage 2 creates exists, with the badge, home and editability the design gives it;
   4. badge / tooltip / range semantics: "user" when a value departs and back when it returns, "blank" for a value
@@ -55,16 +56,17 @@ def check(name: str, fn: Callable[[], Optional[str]]) -> None:
     print(f"  ok    {name}" + (f"   [{detail}]" if detail else ""))
 
 
-# Appendix C (design rev 3): key -> (badge now, home, editable in stage 2)
+# Appendix C (design rev 3), with the labels of the FINAL research proposal (2026-10-09; B6 and B9 verified):
+# key -> (badge now, home, editable in stage 2)
 APPENDIX_C: Dict[str, Any] = {
     "slab.centre": ("derived", "strip", True),
     "slab.half_width_nm": ("paper", "strip", True),
     "slab.typed_range": ("blank", "strip", True),
     "dbscan.eps_nm": ("paper", "strip", True),
     "dbscan.min_samples": ("paper", "strip", True),
-    "curation.edge_criterion": ("unreviewed", "none", False),
-    "curation.dbcv_threshold": ("unreviewed", "none", False),
-    "contour.two_opt_starts": ("unreviewed", "none", False),
+    "curation.edge_criterion": ("ad hoc", "none", False),
+    "curation.dbcv_threshold": ("derived", "none", False),
+    "contour.two_opt_starts": ("derived", "none", False),
     "occupancy.mahalanobis": ("paper", "strip", True),
     "occupancy.sigma_cap_fraction": ("paper", "none", False),
     "randomization.band_half_width_nm": ("paper", "none", False),
@@ -86,14 +88,14 @@ APPENDIX_C: Dict[str, Any] = {
     "rings.guard_nm": ("derived", "rings", True),
     "rings.valley_depth_colour": ("derived", "none", False),
     "axoplasm.threshold": ("derived", "axoplasm", True),
-    "axoplasm.smoothing_px": ("unreviewed", "axoplasm", True),
+    "axoplasm.smoothing_px": ("derived", "axoplasm", True),
     "axoplasm.margin_nm": ("ad hoc", "axoplasm", True),
     "axoplasm.registration_thresholds": ("pilot suggestion", "none", False),
     "measurement.pixel_size_nm": ("blank", "measurement", False),
     "measurement.z_calibration": ("blank", "measurement", False),
     "measurement.bead_stack": ("blank", "measurement", False),
 }
-# 12.9: reserved for the DBSCAN batch (B6) and the DNA-PAINT batch (B9)
+# 12.9: the entries reserved for the DBSCAN batch (B6), now filled from it
 TODO_B6_RESERVED = ("dbscan.eps_nm", "dbscan.min_samples", "curation.edge_criterion", "curation.dbcv_threshold",
                     "contour.two_opt_starts", "contour.health.deep_vertex_fraction",
                     "contour.health.max_over_median", "reference.cluster_area_nm2", "reference.r_eff_nm",
@@ -225,12 +227,13 @@ def main() -> int:
         for e in ad_hoc:
             assert e.changes_in in reg.SCIENCE_PRS and e.changes_in.startswith("SCI-"), (e.key, e.changes_in)
         for e in unrev:
-            assert e.unreviewed_because in ("TODO-B6", "TODO-B9", reg.NOT_INVENTORIED), (e.key, e.unreviewed_because)
+            assert e.unreviewed_because == reg.NOT_INVENTORIED, (e.key, e.unreviewed_because)
+        assert "TODO-B6" not in reg.SCIENCE_PRS and "TODO-B9" not in reg.SCIENCE_PRS
         for e in reg.entries():
             if e.changes_in:
                 assert e.changes_in in reg.SCIENCE_PRS, (e.key, e.changes_in)
         listing = ", ".join(f"{e.key} -> {e.changes_in}" for e in ad_hoc)
-        return f"ad hoc: {listing}; unreviewed: {len(unrev)} (each with its batch or 'not inventoried')"
+        return f"ad hoc: {listing}; unreviewed: {len(unrev)} (each 'not inventoried')"
 
     def ranges_ordered() -> str:
         n = 0
@@ -269,13 +272,20 @@ def main() -> int:
             assert (e.origin, e.home, e.editable) == (badge, home, editable), (key, e.origin, e.home, e.editable)
         for key in TODO_B6_RESERVED:
             reg.info(key)
-        b6 = [e.key for e in reg.entries() if e.changes_in == "TODO-B6"]
+        b6 = [e.key for e in reg.entries() if e.changes_in == "SCI-B6"]
         paint = [e for e in reg.entries() if e.key.startswith("paint.")]
-        assert paint and all(e.origin == "unreviewed" and e.changes_in == "TODO-B9" for e in paint)
+        # The TODO-B9 hook, filled by B9: every DNA-PAINT entry has a record, or says it was not inventoried, and
+        # whatever a science PR changes names SCI-B9.
+        assert paint and all(e.records or e.unreviewed_because for e in paint)
+        assert all(e.changes_in in ("", "SCI-B9") for e in paint)
+        assert reg.info("paint.link_radius_precisions").origin == "ad hoc"
+        # The TODO-B6 hook, filled by B6: eps and min samples keep the paper's values; min samples has a range.
+        assert reg.info("dbscan.eps_nm").origin == "paper" and reg.info("dbscan.eps_nm").changes_in == ""
+        assert reg.info("dbscan.min_samples").documented_range == (2.0, 50.0)
         strip = sorted(e.key for e in reg.by_home("strip"))
         assert strip == sorted(["slab.centre", "slab.half_width_nm", "slab.typed_range", "dbscan.eps_nm",
                                 "dbscan.min_samples", "occupancy.mahalanobis"]), strip
-        return (f"{len(APPENDIX_C)} Appendix-C entries as designed; {len(b6)} entries wait for B6; "
+        return (f"{len(APPENDIX_C)} Appendix-C entries as designed; {len(b6)} entries change in SCI-B6; "
                 f"{len(paint)} in the paint.* namespace; the strip edits exactly the six values of revision 2")
 
     def no_new_editable() -> str:
@@ -322,9 +332,11 @@ def main() -> int:
         assert reg.outside_range("randomization.iterations", 1000) and not reg.outside_range(
             "randomization.iterations", 999)
         assert "only flagged" in reg.tooltip("slab.half_width_nm", 250.0)
-        assert reg.range_hint("dbscan.eps_nm") == "pending B6"
+        assert reg.range_hint("dbscan.eps_nm") == ""
+        assert reg.range_hint("dbscan.min_samples", 10) == "2-50"
+        assert reg.range_hint("dbscan.min_samples", 60) == "outside 2-50"
         assert reg.range_hint("slab.typed_range") == "" and not reg.outside_range("slab.typed_range", None)
-        return "hint '40-200', 'outside 40-200' when outside (only flagged); discrete sets; 'pending B6'"
+        return "hint '40-200', 'outside 40-200' when outside (only flagged); discrete sets; B6's 2-50"
 
     def reset_same_constants() -> str:
         from tools import mps_settings
@@ -350,7 +362,7 @@ def main() -> int:
                        "attempts 20 x n [derived; 5-100] - grid 5 nm [derived; 1-20]"), rnd
         assert reg.more_line("occupancy") == "sigma capped at d_max/3 [paper; 0.2-1.0]", reg.more_line("occupancy")
         dbs = reg.more_line("dbscan")
-        assert "edge criterion on [unreviewed; TODO-B6]" in dbs and "2-opt from every start [unreviewed; TODO-B6]" in dbs
+        assert "edge criterion on [ad hoc; SCI-B6]" in dbs and "2-opt from every start [derived]" in dbs, dbs
         return "randomization, occupancy and DBSCAN lines say today's values with badge and range (12.4)"
 
     check("badge semantics", badge_semantics)
