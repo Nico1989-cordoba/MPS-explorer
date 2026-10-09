@@ -99,7 +99,7 @@ class FlowLayout(QtWidgets.QLayout):
         return True
 
     def heightForWidth(self, width: int) -> int:  # noqa: N802
-        return self._place(QtCore.QRect(0, 0, width, 0), move=False)
+        return int(self._place(QtCore.QRect(0, 0, width, 0), move=False))
 
     def setGeometry(self, rect: QtCore.QRect) -> None:  # noqa: N802
         super().setGeometry(rect)
@@ -134,4 +134,4 @@ class FlowLayout(QtWidgets.QLayout):
                 item.setGeometry(QtCore.QRect(QtCore.QPoint(x, y), hint))
             x = nxt
             line = max(line, hint.height())
-        return y + line - rect.y() + m.bottom()
+        return int(y + line - rect.y() + m.bottom())
