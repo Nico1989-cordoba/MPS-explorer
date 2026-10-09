@@ -948,7 +948,8 @@ def build_axial(inp: AxialInputs) -> List[Group]:
                      None, "Each dominant component, weighted, and its mean.")
         if inp.view == "segments":
             comp.enabled, comp.reason = False, "orange is segment 3's colour; the segment lines mark the same places"
-        elif inp.ch2_shown:
+        elif inp.ch2_shown and ch2f is not None and ch2f.size and n_roi:
+            # only while channel 2 is really drawn (its row ticked and available)
             comp.enabled, comp.reason = False, CH2_HIDES_COMPONENTS
         gm.layers.append(comp)
         grid_m = (np.linspace(float(zf.min()), float(zf.max()), 1024) if zf.size else grid_c)
@@ -1112,6 +1113,10 @@ def nn_histogram(shown: Any, n: int = 1, bins: int = NN_DEFAULT_BINS,
         counts, edges = np.histogram(vals, bins=int(bins))
     else:
         lo, hi = float(value_range[0]), float(value_range[1])
+        if not hi > lo:
+            # A range being typed passes through "from 900 to 800": nothing is drawn, and the title says why.
+            out.update(counts=np.empty(0), edges=np.empty(0), range_invalid=True)
+            return out
         counts, edges = np.histogram(vals, bins=int(bins), range=(lo, hi))
         out["outside"] = int(np.sum((vals < lo) | (vals > hi)))
     out["counts"], out["edges"] = counts, edges
@@ -1135,7 +1140,9 @@ def nn_title(hist: Dict[str, Any], shown: Any, comparison: Any, measured: Any,
     else:
         title = (f"Distances to the 1st..{ordinal(n)} nearest centre, pooled (N = {n}"
                  + (f"; {words}" if words else "") + ")")
-    if value_range is not None and hist.get("outside"):
+    if value_range is not None and hist.get("range_invalid"):
+        title += "; nothing drawn: the range's upper bound must be above its lower bound"
+    elif value_range is not None and hist.get("outside"):
         title += f"; {int(hist['outside'])} distances outside the range not shown"
     return title
 

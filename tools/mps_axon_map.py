@@ -595,11 +595,32 @@ class AxonMap(QtWidgets.QWidget):
             self.set_view(view)
 
     def _on_header(self, _index: int) -> None:
+        old_source, old_colour = self._inputs.source, self._inputs.colour_by
         self._inputs.source = str(self.combo_source.currentData())
         self._inputs.colour_by = str(self.combo_colour.currentData())
         self._inputs.image = str(self.combo_image.currentData())
         self._to_custom()
         self.redraw()
+        # The rows of a source or a colouring chosen here start as the view that uses it ticks them; left
+        # unticked, the map would lose its localizations or centres without a word.
+        picks: List[Tuple[str, List[str]]] = []
+        if self._inputs.source != old_source:
+            picks.append(("localizations", [v for v, src in L.VIEW_SOURCE.items() if src == self._inputs.source]))
+        if self._inputs.colour_by != old_colour:
+            picks.append(("centres", [v for v, c in L.VIEW_COLOUR_BY.items() if c == self._inputs.colour_by]))
+        if not picks:
+            return
+        was = self._applying
+        self._applying = True
+        try:
+            for group, views in picks:
+                for key in self.layers.keys():
+                    if self.layers.group_of(key) == group:
+                        self.layers.set_visible(key, any(L.view_on(v, key) for v in views))
+        finally:
+            self._applying = was
+        self._apply_rules()
+        self._retitle()
 
     def _on_toggled(self, key: str, _on: bool) -> None:
         if key == "image":

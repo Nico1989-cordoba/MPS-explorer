@@ -36,15 +36,22 @@ SHOW_ANALYSED_TIP = "Draw the analysis of the previous selection again."
 RUN_TIP = "The main window's \"MPS analysis\": analyse the current selection."
 
 
-def analysis_stale_lines(*, analysed_words: str, current_words: str, discard_dropped: bool) -> List[str]:
-    """The banner over an analysis of a previous selection (3.4 rule 5)."""
+def analysis_stale_lines(*, analysed_words: str, current_words: str, discard_dropped: bool,
+                         cut_only: bool = False) -> List[str]:
+    """The banner over an analysis of a previous selection (3.4 rule 5). ``cut_only``: the ROI is the analysed one
+    and only the axial cut changed - "Export axon" then does not refuse (it compares the file and the ROI), so the
+    banner must not say it does."""
     lines = [f"This analysis is of the previous selection ({analysed_words}); the current selection is "
              f"{current_words}."]
     if discard_dropped:
         lines.append("Its comparison without the discarded clusters was dropped when the Axoplasm panel moved to "
                      "the new selection.")
-    lines.append("Export axon writes this analysis, as before; it refuses while the Axoplasm panel shows another "
-                 "selection.")
+    if cut_only:
+        lines.append("Export axon would write this analysis beside what the panels measure on the current cut "
+                     "(the Axoplasm panel's rows included), with a warning: run the analysis first.")
+    else:
+        lines.append("Export axon writes this analysis, as before; it refuses while the Axoplasm panel shows "
+                     "another selection.")
     return lines
 
 

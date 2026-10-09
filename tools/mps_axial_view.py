@@ -105,6 +105,9 @@ class AxialView(QtWidgets.QWidget):
         if view not in L.AXIAL_VIEWS:
             raise ValueError(f"unknown view {view!r}")
         self._inputs.view = view
+        # The preset decides whether channel 2 is drawn; its rows are set below with the toggles muted, so the
+        # flag that hides the components follows the preset here.
+        self._inputs.ch2_shown = L.axial_on(view, "ch2_roi")
         self.combo_view.blockSignals(True)
         self.combo_view.setCurrentIndex(self.combo_view.findData(view))
         self.combo_view.blockSignals(False)

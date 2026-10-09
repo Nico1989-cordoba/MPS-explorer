@@ -751,6 +751,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         x_all = np.asarray(self.xroi_unfiltered)
         y_all = np.asarray(self.yroi_unfiltered)
         z_all = np.asarray(self.zroi_unfiltered)
+        before = (self._cut_now(), self._applied_slab)
         if not self._z_range_user_edited:
             self._prefill_fit_key = None
             self._prefill_z_range(z_all)
@@ -762,6 +763,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.zmax = float(zmax_text) if zmax_text else None
         except ValueError:
             self.zmin = self.zmax = None
+        if (self.roi_indices is not None
+                and (self._cut_now(), self._slab_for_panels()) == before):
+            # The same cut, said the same way: the selection is the same
+            # one, and the panels keep what they hold for it (a hand-set
+            # threshold, a discard comparison).
+            return False
         base = np.asarray(self.roi_indices_unfiltered)
         if self.zmin is None or self.zmax is None:
             self.xroi, self.yroi, self.zroi = x_all.copy(), y_all.copy(), z_all.copy()
@@ -796,6 +803,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         offers "Run the MPS analysis" (B9, Q12).
         """
         if bounds is None:
+            if not self._z_range_user_edited:
+                return                    # no typed range to clear
             self._z_range_user_edited = False
         else:
             self.ui.lineEdit_zmin.setText(f"{float(bounds[0]):.1f}")
@@ -1365,6 +1374,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """
         if self._analysed_x is None or self.mps_analysis is None:
             return None, None, None
+        # The same before-cut arrays with another cut (a typed range set in
+        # the strip): the analysis' slab is not the cut on screen any more.
+        if self._analysed_cut != self._cut_now():
+            return None, None, None
         for x, y, z in ((self.xroi_unfiltered, self.yroi_unfiltered,
                          self.zroi_unfiltered),
                         (self.xroi, self.yroi, self.zroi)):
@@ -1728,6 +1741,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # is of the previous slab (design 6.3).
         if current and self._analysed_cut != self._cut_now():
             current = False
+        # An analysis of a typed range is not of the slab the mode gives
+        # once the range is cleared, whatever the cut's bounds say.
+        if (current and analysis is not None and not self._z_range_user_edited
+                and getattr(analysis, "slab_source", "") == "range typed"):
+            current = False
         if analysis is None or not current:
             return None
         return np.asarray(analysis.centroids, dtype=float)
@@ -1903,6 +1921,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
                         f"{'n/a' if every is None else f'{every:.2f}'} -> "
                         f"{'n/a' if kept is None else f'{kept:.2f}'} um")
             if comparison is not None:
+                # A comparison exists now: an earlier failure is not said
+                # any more (the contour caption reads this).
+                self._discard_failed = (None, "")
                 held = _HeldDiscard(base=analysis, key=key,
                                     comparison=comparison)
                 self._discard_cache[key] = comparison
@@ -2409,13 +2430,15 @@ class MPS_explorer(QtWidgets.QMainWindow):
             recut, self._pending_recut = self._pending_recut, False
             before = self.mps_analysis
             result = self.run_mps_analysis(show_window=False, **kw)
+            if result is None:
+                # The banner says the analysis shown was computed with the
+                # previous values (design 6.3), with or without a new cut.
+                self._rerun_failed_for = before
             if recut:
                 # Step 3 of a slab change (design 6.3): the panels hear of
                 # the new cut once, after the re-run. A failed re-run leaves
                 # the analysis marked not current (its cut is the previous
-                # one) and the banner says so.
-                if result is None:
-                    self._rerun_failed_for = before
+                # one).
                 self._notify_cut(windows=False)
             if result is None:
                 raise RuntimeError(
@@ -2449,7 +2472,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """
         if self.mps_window is None:
             self.mps_window = self._make_mps_window(self.mps_analysis)
-        elif self.mps_window.analysis is None and self.mps_analysis is not None:
+        elif self.mps_window.analysis is not self.mps_analysis:
+            # The analysis shown is not the main window's any more (a new
+            # file emptied it, or another one was run): show the current
+            # one, or the empty state.
             self.mps_window.analysis = self.mps_analysis
             self.mps_window.refresh()
         if view is None:
@@ -2516,7 +2542,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if (self._prefill_fit_key is not None
                 and self._prefill_fit_key is self.zroi_unfiltered):
             fit = self._prefill_fit
-        elif z is not None and len(z) >= 2 and self.mps_analysis is None:
+        elif (z is not None and len(z) >= 2
+              and (self.mps_analysis is None
+                   or self._current_cluster_centroids() is None)):
+            # No analysis, or one of another selection ("Show the current
+            # selection" draws this one's mixture): fitted once per
+            # selection, display only (4.5).
             fit = self._display_fit(z)
         ch2_z, ch2_reason = self._channel2_roi_z()
         a = self.mps_analysis
@@ -2787,6 +2818,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.rings_window._guard_nm = guard_nm
             self.rings_window.refresh()
         self.rings_window._guard_nm = guard_nm
+        # Its banner asks this window, which had not assigned it yet when
+        # the rings window was built.
+        self.rings_window.status_changed()
         # The map and the axial view draw these segments too (the window's
         # own refresh ran before it was assigned).
         self._rings_refreshed()
@@ -3212,6 +3246,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
                        self.two_channel_window, self.axoplasm_window):
             if window is not None:
                 window.close()
+        # The MPS analysis window is kept and reopened: it must not show
+        # (or save) the previous file's analysis under the new file's name.
+        if self.mps_window is not None:
+            self.mps_window.analysis = None
+            self.mps_window.refresh()
+        # A contour drawn by hand belongs to the previous file (B11).
+        if self._guide is not None:
+            self._guide = None
+            self._guide_note = ("The contour drawn for the previous ROI is not "
+                                "applied to this one.")
+            self._guide_note_runs = 0
         # Its rings were built from the previous file's rows.
         self._close_columns_review()
         if self.axoplasm_window is not None:

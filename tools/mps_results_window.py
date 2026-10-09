@@ -103,6 +103,8 @@ _C_TEXT_DIM = verdict("dim", dark=False)
 SCATTER_TITLE = "Scatter of the centres off a smooth outline"
 AREA_TITLE = "Cluster area"
 NO_ANALYSIS = "No MPS analysis of this selection yet"
+RERUN_FAILED = ("The analysis could not be re-run with these values; what is shown was computed with the previous "
+                "ones.")
 
 # Columns of the parameter table.
 (_COL_NAME, _COL_MEASURED, _COL_EVERY, _COL_DISCARD, _COL_PAPER,
@@ -662,7 +664,14 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                   "centre and the half-width again.")
         for w in (self.combo_peak, self.btn_slab_auto):
             w.setEnabled(enabled and not typed_on)
-        self.spin_half.setEnabled(enabled and not typed_on)
+        # Disabling a box that has the focus moves the focus out of it, and
+        # its editingFinished would re-run the analysis on the typed range
+        # just applied without a re-run (Q12): not a user's edit.
+        was = self.spin_half.blockSignals(True)
+        try:
+            self.spin_half.setEnabled(enabled and not typed_on)
+        finally:
+            self.spin_half.blockSignals(was)
         self.btn_slab_auto.setEnabled(enabled and not typed_on and mode == "component")
         self.lbl_slab_mode.setToolTip(reason if typed_on else "")
 
@@ -696,7 +705,12 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 self.edit_typed_min.setText(f"{sel.cut[0]:.1f}")
                 self.edit_typed_max.setText(f"{sel.cut[1]:.1f}")
             return
-        self.links.apply_typed(None)
+        # Unticked: only a range that was applied is cleared. Ticking and
+        # unticking without "Apply" changed nothing, so nothing is re-cut
+        # (a re-cut would hand the Axoplasm panel a "new" selection and
+        # drop its hand-set threshold).
+        if self.links.slab_state()[2] is not None:
+            self.links.apply_typed(None)
         self._sync_slab_widgets()
 
     def _on_typed_apply(self) -> None:
@@ -824,7 +838,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.axial, "Axial")
         self.nn = NearestNeighboursPanel(
             dark=self.dark, bins=int(self.links.nn_bins), range_nm=self.links.nn_range,
-            root_name=self.links.root_name, current=self._analysis_is_current)
+            root_name=self.links.root_name, current=lambda: self._analysis_is_current(fresh=True))
         self.tabs.addTab(self.nn, "Nearest neighbours")
 
         self.plot_area = pg.PlotWidget()
@@ -1001,10 +1015,12 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._stale = (self.analysis is not None and sel is not None
                        and not (sel.analysis is self.analysis and sel.analysis_current))
 
-    def _analysis_is_current(self) -> bool:
+    def _analysis_is_current(self, fresh: bool = False) -> bool:
         """Whether the analysis describes the current selection (a window
-        on its own: always)."""
-        sel = self._sel
+        on its own: always). ``fresh`` asks the main window again instead of
+        trusting the last redraw (a save must never write an analysis of
+        another file or selection)."""
+        sel = self.links.selection() if fresh else self._sel
         if sel is None:
             return True
         return bool(sel.analysis is self.analysis and sel.analysis_current)
@@ -1382,14 +1398,20 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             return
         note = [] if sel is None or not sel.guide_note else [sel.guide_note]
         if not self._stale or sel is None:
+            if sel is not None and sel.rerun_failed:
+                # A failed re-run with the same selection (eps, min samples,
+                # Mahalanobis): the values shown are not the analysis' (6.3).
+                self.banner.set_state([RERUN_FAILED] + note, offer_run=run)
+                return
             self.banner.set_state(note)
             return
         lines = analysis_stale_lines(analysed_words=sel.analysed_words or "as analysed",
                                      current_words=sel.current_words or "another one",
-                                     discard_dropped=sel.discard_dropped)
+                                     discard_dropped=sel.discard_dropped,
+                                     cut_only=bool(sel.analysed_roi_words == sel.roi_words
+                                                   and sel.analysed_cut != sel.cut))
         if sel.rerun_failed:
-            lines.insert(0, "The analysis could not be re-run with these values; what is shown was computed "
-                            "with the previous ones.")
+            lines.insert(0, RERUN_FAILED)
         self.banner.set_state(lines + note, offer_show=True, showing_current=False, offer_run=run)
 
     def _on_show_current(self, on: bool) -> None:
@@ -1596,7 +1618,19 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if self.rerun_callback is None:
             return
         self._store_values(reset=getattr(self, "_resetting", False))
+        if self.analysis is None:
+            # No analysis yet (B10): the value is stored, and the banner
+            # offers "Run the MPS analysis"; a focus-out runs nothing.
+            self._update_banner()
+            return
         peak = self.combo_peak.currentData()
+        mode, centre, typed = self.links.slab_state()
+        if (self.links.store is not None and typed is None
+                and getattr(self.analysis, "slab_source", "") == "range typed"):
+            # The analysis shown ran on a typed range that is no longer
+            # applied: its "current slab centre" is the typed range's, not
+            # the slab's now. The re-run takes the slab the mode gives.
+            peak = centre if mode == "component" else None
         self._rerun(main_peak_override_nm=(None if peak is None else float(peak)))
 
     def _rerun(self, main_peak_override_nm: Optional[float]) -> None:
