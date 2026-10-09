@@ -52,6 +52,7 @@ from tools.mps_picasso_tools import PicassoTools
 from tools import mps_plot_style as plot_style
 from tools.mps_tooltips import MAIN_WINDOW, apply_tooltips
 from tools.mps_settings import load_settings, save_settings
+from tools.mps_params_panel import SlabChoice
 
 # Import logging configuration
 from logging_config import setup_logging, get_log_filename
@@ -417,6 +418,25 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # to another selection dropped, and why a comparison failed.
         self._discard_dropped_for: Any = None
         self._discard_failed: Tuple[Any, str] = (None, "")
+        # UI stage 2 (design 6.2, 6.3): the one value of each MPS-analysis
+        # parameter. The settings object holds eps, min samples, the slab
+        # half-width and the Mahalanobis threshold; these hold the rest.
+        # Only the MPS analysis window's parameter strip writes them
+        # (_store_params); every consumer reads them; nothing reads the
+        # main window's boxes back.
+        self.slab_choice = SlabChoice()
+        self.mps_randomization: bool = True          # for this session
+        # A contour drawn by hand and the file and ROI (by value) it was
+        # drawn for: "cluster Ch1" and "MPS analysis" keep it while both
+        # are the same (B11); the note says when a new ROI or file dropped
+        # it.
+        self._guide: Optional[Tuple[Any, Any]] = None
+        self._guide_note: str = ""
+        self._guide_note_runs: int = 0
+        # A slab change recomputed the cut and its re-run is pending; the
+        # analysis whose re-run failed (design 6.3).
+        self._pending_recut: bool = False
+        self._rerun_failed_for: Any = None
         # The same analysis with all its clusters and without the ones the
         # axoplasm panel found inside the axon (a _HeldDiscard), or None.
         self.mps_discard: Optional[Any] = None
@@ -458,6 +478,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.identity_path: str = ""
         self.mps_settings = load_settings()          # persisted across sessions
         self._apply_mps_settings()
+        self._build_param_mirrors()
 
         # Connect the close event to your method
         self.closeEvent = self.onCloseEvent
@@ -522,6 +543,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         peak = self._compute_z_main_peak(z_values)
         if peak is None:
             return
+        if self.slab_choice.mode == "component" and self.slab_choice.centre_nm is not None:
+            # A component chosen in the MPS analysis window (design 6.3): the
+            # cut follows it, +/- the one half-width (B3). The fit above is
+            # still computed: the axial view draws it.
+            peak = float(self.slab_choice.centre_nm)
         half = float(self.mps_settings.slab_half_width_nm)
         self.ui.lineEdit_zmin.setText(f"{peak - half:.1f}")
         self.ui.lineEdit_zmax.setText(f"{peak + half:.1f}")
@@ -547,6 +573,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             localizations, or None when the whole field of view is used.
         """
         z_all = self.z if ind_inside_roi is None else self.z[ind_inside_roi]
+
+        # A chosen component belongs to the selection whose mixture it came
+        # from: a new ROI has a new fit and new components, so the slab goes
+        # back to automatic (design 6.3); the same ROI re-applied keeps it.
+        new_shape = None if ind_inside_roi is None else self._current_roi_shape()
+        if (self.slab_choice.mode == "component"
+                and repr(new_shape) != repr(self._applied_roi_shape)):
+            self.slab_choice = SlabChoice()
 
         self.xroi_unfiltered = np.asarray(self.xroi).copy()
         self.yroi_unfiltered = np.asarray(self.yroi).copy()
@@ -599,22 +633,16 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.yroi = self.yroi[keep]
             self.roi_indices = base[keep]
 
-        self._applied_roi_shape = (
-            None if ind_inside_roi is None else self._current_roi_shape())
-        self._applied_slab = (
-            (float(self.zmin), float(self.zmax))
-            if (self._z_range_user_edited and self.zmin is not None
-                and self.zmax is not None) else None)
+        self._applied_roi_shape = new_shape
+        self._applied_slab = self._slab_for_panels()
         # The centroids belong to the previous selection's analysis: saving
         # them now would write another selection's results. Clustering
         # again recomputes them. (The distances between them are computed
         # on demand by the MPS analysis window, which refuses to save them
         # while its analysis is of a previous selection.)
         self.good_cluster_centroids = None
-        if self.two_channel_window is not None and \
-                self.two_channel_window.isVisible():
-            self.two_channel_window.update_selection(
-                self._applied_roi_shape, self._applied_slab)
+        self._note_guide_for_selection()
+        self._notify_two_channels()
         if self.axoplasm_window is not None and \
                 self.axoplasm_window.isVisible():
             inputs = self._axoplasm_inputs()
@@ -624,6 +652,170 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # still of this selection (design 3.4 rule 5): they redraw the
         # banner, the map and the axial view, never the analysis.
         self._notify_selection_windows()
+
+    # ------------------------------------------------------------------
+    #  One place per parameter (UI stage 2, design 6.2-6.4)
+    # ------------------------------------------------------------------
+    def _slab_for_panels(self) -> Optional[Tuple[float, float]]:
+        """The slab the main-window cut gives the panels (Two channels, the
+        Axoplasm panel's word): the bounds when they were typed or centred
+        on a chosen component, None when automatic (design 6.3)."""
+        if self.zmin is None or self.zmax is None:
+            return None
+        if self._z_range_user_edited or self.slab_choice.mode == "component":
+            return (float(self.zmin), float(self.zmax))
+        return None
+
+    def _slab_source_word(self) -> str:
+        """Two channels' word for a slab that is neither typed nor
+        automatic ("peak chosen", design 6.3); "" keeps today's two."""
+        if (self._applied_slab is not None and not self._z_range_user_edited
+                and self.slab_choice.mode == "component"):
+            return "peak chosen"
+        return ""
+
+    def _notify_two_channels(self) -> None:
+        """Give the Two channels panel the cut's ROI and slab, how the slab
+        was chosen, and the one half-width (an automatic slab is drawn with
+        it)."""
+        if self.two_channel_window is not None and \
+                self.two_channel_window.isVisible():
+            self.two_channel_window.update_selection(
+                self._applied_roi_shape, self._applied_slab,
+                slab_source=self._slab_source_word(),
+                slab_half_width_nm=float(self.mps_settings.slab_half_width_nm))
+
+    def _slab_state(self) -> Tuple[str, Optional[float], Optional[Tuple[float, float]]]:
+        """How the slab is chosen now, for the strip: the mode, a chosen
+        component's centre, and the typed range (None unless typed)."""
+        typed = None
+        if self._z_range_user_edited and self.zmin is not None and self.zmax is not None:
+            typed = (float(self.zmin), float(self.zmax))
+            return "typed", None, typed
+        return self.slab_choice.mode, self.slab_choice.centre_nm, None
+
+    def _store_params(self, values: Dict[str, Any]) -> bool:
+        """
+        The parameter strip's setters (design 6.2): the only writer of the
+        one value of each MPS-analysis parameter. Writes the settings object
+        (eps, min samples, half-width, Mahalanobis), the randomization
+        switch and the slab choice; renders the main window's mirrors from
+        them. A slab change (another half-width or component) recomputes
+        the main-window cut first - step 1 of design 6.3 - and the re-run
+        that follows notifies the panels once, after it. "Reset to
+        defaults" is saved at once (B12); every run saves too.
+
+        Returns whether the cut was recomputed.
+        """
+        s = self.mps_settings
+        before = (float(s.slab_half_width_nm), self.slab_choice)
+        if "eps_nm" in values:
+            s.eps_nm = float(values["eps_nm"])
+        if "min_samples" in values:
+            s.min_samples = int(values["min_samples"])
+        if "slab_half_width_nm" in values:
+            s.slab_half_width_nm = float(values["slab_half_width_nm"])
+        if "mahalanobis_threshold" in values:
+            s.mahalanobis_threshold = float(values["mahalanobis_threshold"])
+        if "randomization" in values:
+            self.mps_randomization = bool(values["randomization"])
+        slab = values.get("slab")
+        if slab is not None and not self._z_range_user_edited:
+            mode, centre = slab
+            self.slab_choice = (SlabChoice("component", float(centre))
+                                if mode == "component" and centre is not None
+                                else SlabChoice())
+        s.validate()
+        self._render_mirrors()
+        if values.get("reset"):
+            save_settings(s)
+        changed = (not self._z_range_user_edited
+                   and (float(s.slab_half_width_nm), self.slab_choice) != before)
+        recut = bool(changed and self._recut())
+        self._pending_recut = self._pending_recut or recut
+        return recut
+
+    def _recut(self) -> bool:
+        """
+        Step 1 of a slab change (design 6.3): recompute the cut and the
+        after-cut arrays from the kept before-cut ones. The before-cut
+        arrays stay the same objects (the rings and the columns review stay
+        current) and the ROI widget is not read (a radio click redraws it
+        at a default place). Nothing is notified here.
+        """
+        if (self.xroi_unfiltered is None or self.yroi_unfiltered is None
+                or self.zroi_unfiltered is None
+                or self.roi_indices_unfiltered is None):
+            return False
+        x_all = np.asarray(self.xroi_unfiltered)
+        y_all = np.asarray(self.yroi_unfiltered)
+        z_all = np.asarray(self.zroi_unfiltered)
+        if not self._z_range_user_edited:
+            self._prefill_fit_key = None
+            self._prefill_z_range(z_all)
+            self._prefill_fit_key = self.zroi_unfiltered
+        zmin_text = self.ui.lineEdit_zmin.text().strip()
+        zmax_text = self.ui.lineEdit_zmax.text().strip()
+        try:
+            self.zmin = float(zmin_text) if zmin_text else None
+            self.zmax = float(zmax_text) if zmax_text else None
+        except ValueError:
+            self.zmin = self.zmax = None
+        base = np.asarray(self.roi_indices_unfiltered)
+        if self.zmin is None or self.zmax is None:
+            self.xroi, self.yroi, self.zroi = x_all.copy(), y_all.copy(), z_all.copy()
+            self.roi_indices = base.copy()
+        else:
+            keep = (z_all > self.zmin) & (z_all < self.zmax)
+            self.xroi, self.yroi, self.zroi = x_all[keep], y_all[keep], z_all[keep]
+            self.roi_indices = base[keep]
+        self._applied_slab = self._slab_for_panels()
+        self.good_cluster_centroids = None
+        return True
+
+    def _notify_cut(self, windows: bool = True) -> None:
+        """Step 3 of a slab change (design 6.3): tell the panels, once, after
+        the analysis (when there is one to run) was re-run."""
+        self._notify_two_channels()
+        window = self.axoplasm_window
+        if window is not None and window.isVisible() and \
+                window.inputs.selection_key is not self.roi_indices:
+            inputs = self._axoplasm_inputs()
+            if inputs is not None:
+                window.update_selection(inputs)
+        if windows:
+            self._notify_selection_windows()
+
+    def _apply_typed_range(self, bounds: Optional[Tuple[float, float]]) -> None:
+        """
+        The strip's typed range (design 6.3): set (or clear, with None) the
+        main-window cut as "Apply ROI" does - the same fields, the same
+        flag - without re-reading the ROI widget and without re-running the
+        analysis: the banner says the analysis is of the previous slab and
+        offers "Run the MPS analysis" (B9, Q12).
+        """
+        if bounds is None:
+            self._z_range_user_edited = False
+        else:
+            self.ui.lineEdit_zmin.setText(f"{float(bounds[0]):.1f}")
+            self.ui.lineEdit_zmax.setText(f"{float(bounds[1]):.1f}")
+            self._z_range_user_edited = True
+        if self._recut():
+            self._notify_cut(windows=True)
+
+    def _note_guide_for_selection(self) -> None:
+        """A contour drawn for another file or ROI is not applied to this
+        one: say so (B11)."""
+        if self._guide is not None and self._guide[1] != self._guide_key():
+            self._guide = None
+            self._guide_note = ("The contour drawn for the previous ROI is not "
+                                "applied to this one.")
+            self._guide_note_runs = 0
+
+    def _guide_key(self) -> Tuple[Any, str]:
+        """The file (by identity) and the applied ROI (by value) a drawn
+        contour belongs to."""
+        return (id(self.locs1), repr(self._applied_roi_shape))
 
     def _notify_selection_windows(self) -> None:
         """Tell the MPS analysis and rings windows the selection changed."""
@@ -1437,8 +1629,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 out["min_samples"] = int(minimum)
             return out
 
-        return (read(self.ui.lineEdit_eps, self.ui.lineEdit_minsamples,
-                     float(s.eps_nm), float(s.min_samples)),
+        # Channel 1: the one value (design 6.2), never the main window's
+        # boxes, which only show it.
+        return (dict(eps_nm=float(s.eps_nm), min_samples=int(s.min_samples)),
                 read_channel2())
 
     def show_two_channel_panel(self) -> None:
@@ -1505,7 +1698,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     loc_a=self.locs1, loc_b=self.locs2, roi=roi, slab=slab,
                     slab_half_width_nm=float(s.slab_half_width_nm),
                     kwargs_a=kwargs_a, kwargs_b=kwargs_b,
-                    channel_b_parameter_source=source),
+                    channel_b_parameter_source=source,
+                    slab_source=self._slab_source_word()),
                 parent=self, parameters=self._clustering_parameters,
                 identity_callback=self.current_identity)
             self.logger.info(
@@ -1528,6 +1722,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         current = self._analysed_x is not None and (
             self._analysed_x is self.xroi_unfiltered
             or self._analysed_x is self.xroi)
+        # The cut recomputed on the same before-cut arrays (a typed range,
+        # or a slab change whose re-run is pending or failed): the analysis
+        # is of the previous slab (design 6.3).
+        if current and self._analysed_cut != self._cut_now():
+            current = False
         if analysis is None or not current:
             return None
         return np.asarray(analysis.centroids, dtype=float)
@@ -1569,6 +1768,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                    else (float(self.zmin), float(self.zmax)))
         z_source = ("none" if z_range is None
                     else "typed" if self._z_range_user_edited
+                    else "peak chosen" if self.slab_choice.mode == "component"
                     else "axial peak")
         return AxoplasmInputs(
             loc=self.locs1.subset(self.roi_indices), movie=self.locs1,
@@ -1807,14 +2007,63 @@ class MPS_explorer(QtWidgets.QMainWindow):
             f"auto until a file is loaded"
         )
 
+    def _build_param_mirrors(self) -> None:
+        """
+        The main window's eps and min-samples boxes become read-only
+        mirrors of the one value (design 6.1, Q1(a)): rendered from the
+        settings object after every change, never read back. An origin
+        badge under each, and "Change..." opens the MPS analysis window,
+        where they are edited. The Z min / Z max fields stay the cut's
+        backing fields, read-only for the user: the slab is chosen in the
+        MPS analysis window (or typed there); "Apply ROI" applies the ROI
+        and that cut.
+        """
+        from tools.mps_origin_ui import OriginBadge
+
+        ui = self.ui
+        for edit in (ui.lineEdit_eps, ui.lineEdit_minsamples,
+                     ui.lineEdit_zmin, ui.lineEdit_zmax):
+            edit.setReadOnly(True)
+        ui.pushButton_zrange.setText("Apply ROI")
+        self.badge_minsamples = OriginBadge("dbscan.min_samples",
+                                            parent=ui.groupBox)
+        self.badge_minsamples.setGeometry(QtCore.QRect(20, 71, 75, 16))
+        self.badge_eps = OriginBadge("dbscan.eps_nm", parent=ui.groupBox)
+        self.badge_eps.setGeometry(QtCore.QRect(100, 71, 75, 16))
+        self.button_change_params = QtWidgets.QPushButton(
+            "Change...", ui.groupBox)
+        self.button_change_params.setObjectName("button_change_params")
+        self.button_change_params.setGeometry(QtCore.QRect(180, 72, 70, 18))
+        self.button_change_params.setToolTip(
+            "eps, min samples, the axial slab, the Mahalanobis threshold and "
+            "the randomization are set in the MPS analysis window's parameter "
+            "strip, the one place they are edited; this opens it.")
+        self.button_change_params.clicked.connect(
+            lambda: self.show_mps_window())
+        self._render_mirrors()
+
+    def _render_mirrors(self) -> None:
+        """The main window's boxes, rendered from the one value in today's
+        formats (they are never read back)."""
+        s = self.mps_settings
+        self.ui.lineEdit_eps.setText(f"{s.eps_nm:g}")
+        self.ui.lineEdit_minsamples.setText(f"{int(s.min_samples)}")
+        for name, key, value in (("badge_eps", "dbscan.eps_nm", float(s.eps_nm)),
+                                 ("badge_minsamples", "dbscan.min_samples",
+                                  int(s.min_samples))):
+            badge = getattr(self, name, None)
+            if badge is not None:
+                badge.set_value(value)
+                badge.setToolTip(badge.toolTip() + "\n\nSet in the MPS analysis "
+                                 "window's parameter strip.")
+
     def _persist_mps_settings(self) -> None:
-        """Store the parameters currently in the UI for the next session."""
-        try:
-            self.mps_settings.eps_nm = float(self.ui.lineEdit_eps.text())
-            self.mps_settings.min_samples = int(
-                float(self.ui.lineEdit_minsamples.text()))
-        except (ValueError, AttributeError):
-            pass
+        """Save the one value of each parameter for the next session.
+
+        Since UI stage 2 nothing is read from the main window's boxes: they
+        are mirrors rendered from the settings object (design 6.2). A box
+        left blank or saying "auto" can no longer write over what the MPS
+        analysis window set."""
         # Channel 2's are deliberately NOT read back from the boxes.
         # This runs after every channel-1 clustering and on close, and
         # the boxes were seeded from channel 1, so reading them back
@@ -2020,6 +2269,27 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 and self.zmax is not None):
             params["slab_override"] = (self.zmin, self.zmax)
 
+        # The one value of the rest (design 6.3, rule K): a keyword is added
+        # only when its value departs from what this entry point passed
+        # before stage 2 - a chosen component (B3, B4), the randomization
+        # switched off (B6), a contour drawn for this file and ROI (B11).
+        # The window's own re-run passes all three itself, as it always did.
+        if ("main_peak_override_nm" not in overrides
+                and self.slab_choice.mode == "component"
+                and self.slab_choice.centre_nm is not None
+                and "slab_override" not in params):
+            params["main_peak_override_nm"] = float(self.slab_choice.centre_nm)
+        if "run_randomization" not in overrides and not self.mps_randomization:
+            params["run_randomization"] = False
+        if "contour_guide" not in overrides and self._guide is not None:
+            if self._guide[1] == self._guide_key():
+                params["contour_guide"] = self._guide[0]
+            else:
+                self._guide = None
+                self._guide_note = ("The contour drawn for the previous ROI is "
+                                    "not applied to this one.")
+                self._guide_note_runs = 0
+
         self.logger.info(
             f"MPS analysis: {len(x_in):,} ROI localizations "
             f"(axial range {'manual' if 'slab_override' in params else 'automatic'}), "
@@ -2037,6 +2307,27 @@ class MPS_explorer(QtWidgets.QMainWindow):
         QtWidgets.QApplication.restoreOverrideCursor()
 
         self.mps_analysis = analysis
+        # The contour drawn by hand travels with the file and the ROI it was
+        # drawn for (B11); the analysis says whether it was used.
+        guide = getattr(analysis, "contour_guide", None)
+        if guide is not None:
+            self._guide = (guide, self._guide_key())
+            self._guide_note = ""
+        elif "contour_guide" in overrides:
+            self._guide = None
+        if self._guide_note:
+            # Said over the stale analysis and over the first one of the
+            # new selection; gone after that.
+            self._guide_note_runs += 1
+            if self._guide_note_runs > 1:
+                self._guide_note = ""
+        self._rerun_failed_for = None
+        # What was used is saved (B2): Rings, Batch and the next session
+        # read the same values.
+        try:
+            save_settings(self.mps_settings)
+        except Exception as exc:                          # noqa: BLE001
+            self.logger.warning(f"Could not save the MPS settings: {exc}")
         self._analysed_x = x_in
         self._analysed_z = z_in
         self._analysed_after_cut = x_in is self.xroi and x_in is not self.xroi_unfiltered
@@ -2084,7 +2375,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
         def rerun(**kw):
             # show_window=False: the window refreshes itself with the
             # returned analysis, so reopening it here would recurse.
+            recut, self._pending_recut = self._pending_recut, False
+            before = self.mps_analysis
             result = self.run_mps_analysis(show_window=False, **kw)
+            if recut:
+                # Step 3 of a slab change (design 6.3): the panels hear of
+                # the new cut once, after the re-run. A failed re-run leaves
+                # the analysis marked not current (its cut is the previous
+                # one) and the banner says so.
+                if result is None:
+                    self._rerun_failed_for = before
+                self._notify_cut(windows=False)
             if result is None:
                 raise RuntimeError(
                     "The analysis could not be re-run with those parameters.")
@@ -2092,7 +2393,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         return MPSResultsWindow(
             analysis, rerun_callback=rerun, parent=self,
-            rings_callback=self.run_ring_analysis,
+            rings_callback=self._on_rings_requested,
             discard_callback=self._discard_for,
             export_callback=self.export_axon,
             links=self._mps_window_links())
@@ -2133,15 +2434,18 @@ class MPS_explorer(QtWidgets.QMainWindow):
         Appendix B): display only, never passed to an analysis."""
         from tools.mps_results_window import WindowLinks
 
-        s = self.mps_settings
         return WindowLinks(
             selection=self._selection_view,
             axoplasm=self._axoplasm_map_state,
             rings=self._rings_for_map,
             run_analysis=lambda: self.run_mps_analysis(show_window=True),
-            params=lambda: (float(s.eps_nm), int(s.min_samples),
-                            float(s.slab_half_width_nm),
-                            float(s.mahalanobis_threshold)),
+            params=lambda: (float(self.mps_settings.eps_nm),
+                            int(self.mps_settings.min_samples),
+                            float(self.mps_settings.slab_half_width_nm),
+                            float(self.mps_settings.mahalanobis_threshold)),
+            store=self._store_params,
+            slab_state=self._slab_state,
+            apply_typed=self._apply_typed_range,
             root_name=self.get_root_filename,
             nn_bins=int(DEFAULT_KNN_BINS),
             nn_range=(0.0, float(MAX_LATERAL_DISTANCE_NM)))
@@ -2201,7 +2505,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
             analysed_words=self._selection_words(self._analysed_roi_words, self._analysed_cut),
             analysed_roi_words=self._analysed_roi_words, analysed_cut=self._analysed_cut,
             discard_dropped=bool(a is not None and self._discard_dropped_for is a),
-            discard_failed=(failed if (a is not None and failed_for is a) else ""))
+            discard_failed=(failed if (a is not None and failed_for is a) else ""),
+            rerun_failed=bool(a is not None and self._rerun_failed_for is a),
+            guide_note=self._guide_note)
 
     def _display_fit(self, z: Any) -> Optional[Any]:
         """The mixture of the current ROI's z when the prefill did not fit
@@ -2307,6 +2613,16 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None, selection or params
         return rw.ms, ""
 
+    def _on_rings_requested(self) -> Optional[Any]:
+        """"Rings..." (B5): with the rings window's own mode and guard when it
+        is open; valley and no guard the first time, as before."""
+        rw = self.rings_window
+        if rw is None:
+            return self.run_ring_analysis()
+        mode = rw.combo_mode.currentData() or "valley"
+        return self.run_ring_analysis(mode=str(mode),
+                                      guard_nm=float(rw.spin_guard.value()))
+
     def _rings_refreshed(self) -> None:
         """The rings window shows other segments: the map and the axial
         view redraw their segment groups."""
@@ -2352,6 +2668,16 @@ class MPS_explorer(QtWidgets.QMainWindow):
             x_in, y_in, z_in = self.xroi, self.yroi, self.zroi
 
         s = self.mps_settings
+        # The one Mahalanobis threshold (B1). Before stage 2 the rings always
+        # measured at analyze_axon's own default; the keyword is passed only
+        # when the one value departs from it (rule K).
+        import inspect
+        from tools import mps_analysis
+        maha_kw: Dict[str, Any] = {}
+        own_default = inspect.signature(mps_analysis.analyze_axon).parameters[
+            "mahalanobis_threshold"].default
+        if float(s.mahalanobis_threshold) != float(own_default):
+            maha_kw["mahalanobis_threshold"] = float(s.mahalanobis_threshold)
         self.logger.info(
             f"Ring analysis: {len(x_in):,} ROI localizations, mode={mode}, "
             f"guard={guard_nm:g} nm, eps={s.eps_nm:g}, "
@@ -2369,6 +2695,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 pixel_size_nm=self._channel1_pixel_size()[0],
                 pixel_size_source=self._channel1_pixel_size()[1],
                 roi=self._applied_roi_shape,
+                **maha_kw,
             )
         except Exception as exc:                          # noqa: BLE001
             QtWidgets.QApplication.restoreOverrideCursor()
@@ -2425,6 +2752,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         else:
             self.rings_window.ms = ms
             self.rings_window.rings = analyze_rings(ms)
+            # Before the refresh, which shows it (B5).
+            self.rings_window._guard_nm = guard_nm
             self.rings_window.refresh()
         self.rings_window._guard_nm = guard_nm
         # The map and the axial view draw these segments too (the window's
@@ -2819,6 +3148,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # New data means a new axial distribution, so the Z range goes back
         # to being derived automatically.
         self._z_range_user_edited = False
+        self.slab_choice = SlabChoice()
         # Everything derived from the previous file refers to ITS rows. Left
         # in place, the ROI button would cut the old coordinates, the panels
         # would index the new file with old row numbers, and the exports
@@ -3813,8 +4143,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             roi_brush = self.brush1  # Channel 1 color
             roi_pen = self.pen1      # Channel 1 border color
             scatter_layout_cluster = self.ui.scatterlayout_clusterch1  # Target UI layout
-            eps_input = self.ui.lineEdit_eps.text()
-            minsamples_input = self.ui.lineEdit_minsamples.text()
+            # The one value (design 6.2, Q3): the boxes only show it, so
+            # channel 1's window clustering can no longer take "auto" (B7).
+            eps_input = f"{self.mps_settings.eps_nm:g}"
+            minsamples_input = f"{int(self.mps_settings.min_samples)}"
 
         elif channel == 2:
             # Channel 2 data and parameters

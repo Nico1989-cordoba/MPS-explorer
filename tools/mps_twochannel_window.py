@@ -173,6 +173,12 @@ class TwoChannelInputs:
     kwargs_b: Dict[str, Any] = field(default_factory=dict)
     # Where channel 2's eps and min samples came from, for the export.
     channel_b_parameter_source: str = ""
+    # How the main window chose the axial slab, when it is not the two
+    # words the slab itself implies ("" = today's: "manual" when a slab
+    # is given, "automatic" when not). UI stage 2 (design 6.3) adds one:
+    # "peak chosen", a slab centred on the mixture component chosen in
+    # the MPS analysis window.
+    slab_source: str = ""
 
 
 @dataclass
@@ -401,23 +407,36 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
                 "registration, but not compare the channels.")
             self.label_selection.setStyleSheet(f"color: {_WARN};")
             return
-        axial = ("automatic, around channel 1's main peak" if slab is None
-                 else f"{slab[0]:.0f} .. {slab[1]:.0f} nm, set by hand")
+        if slab is None:
+            axial = "automatic, around channel 1's main peak"
+        elif self.inputs.slab_source == "peak chosen":
+            axial = (f"{slab[0]:.0f} .. {slab[1]:.0f} nm, around the component "
+                     f"chosen in the MPS analysis window")
+        else:
+            axial = f"{slab[0]:.0f} .. {slab[1]:.0f} nm, set by hand"
         self.label_selection.setText(
             f"ROI: {describe_roi(roi)}. Axial slab: {axial}. Clustering: "
             f"{describe_parameters(self.inputs)}.")
         self.label_selection.setStyleSheet(f"color: {TITLE_FG};")
 
     def update_selection(self, roi: Optional[Any],
-                         slab: Optional[Tuple[float, float]]) -> None:
-        """The main window applied another ROI or axial range."""
+                         slab: Optional[Tuple[float, float]],
+                         slab_source: str = "",
+                         slab_half_width_nm: Optional[float] = None) -> None:
+        """The main window applied another ROI or axial range (and, since UI
+        stage 2, says how the slab was chosen and the half-width an
+        automatic slab is drawn with: the one value of the MPS analysis
+        window, design 6.2)."""
         kwargs_a = dict(self.inputs.kwargs_a, roi=roi)
         kwargs_b = dict(self.inputs.kwargs_b)
         if "roi" in kwargs_b:
             kwargs_b["roi"] = roi
+        half = (self.inputs.slab_half_width_nm if slab_half_width_nm is None
+                else float(slab_half_width_nm))
         self.inputs = dataclasses.replace(
             self.inputs, roi=roi, slab=slab, kwargs_a=kwargs_a,
-            kwargs_b=kwargs_b)
+            kwargs_b=kwargs_b, slab_source=str(slab_source),
+            slab_half_width_nm=half)
         self._generation += 1
         self._close_progress()
         self.btn_run.setEnabled(True)
@@ -928,7 +947,9 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
                     else None)
         row["axon_id"] = axon_id(str(self.inputs.loc_a.path), row["roi"])
         row.update((identity or AxonIdentity()).columns())
-        row["slab_mode"] = "manual" if self.inputs.slab else "automatic"
+        row["slab_mode"] = ("peak chosen" if self.inputs.slab
+                            and self.inputs.slab_source == "peak chosen"
+                            else "manual" if self.inputs.slab else "automatic")
         row["n_locs_a"] = self.outcome.n_a
         row["n_locs_b"] = self.outcome.n_b
         # Both scales, and where each came from. A disagreement between

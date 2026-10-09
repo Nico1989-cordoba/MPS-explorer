@@ -78,21 +78,23 @@ MAIN_WINDOW: Dict[str, str] = {
         "For an axon that is not round, or when a neighbouring one has "
         "to be left out of a circle that would otherwise contain it.",
     "lineEdit_zmin":
-        "Lower edge of the axial slab, in nanometres.\n\n"
-        "Filled in from the main peak of the z distribution when a file "
-        "is loaded, and left alone once you edit it. Localizations below "
-        "it are not in the selection. Leave both empty to keep the whole "
-        "depth.",
+        "Lower edge of the axial cut, in nanometres (read-only here).\n\n"
+        "It shows the slab chosen in the MPS analysis window: the main "
+        "peak of the z distribution +/- the half-width, a mixture "
+        "component you chose there, or a range you typed there. "
+        "Localizations below it are not in the selection.",
     "lineEdit_zmax":
-        "Upper edge of the axial slab, in nanometres.\n\n"
-        "Filled in from the main peak of the z distribution when a file "
-        "is loaded, and left alone once you edit it. Localizations above "
-        "it are not in the selection. Leave both empty to keep the whole "
-        "depth.",
+        "Upper edge of the axial cut, in nanometres (read-only here).\n\n"
+        "It shows the slab chosen in the MPS analysis window: the main "
+        "peak of the z distribution +/- the half-width, a mixture "
+        "component you chose there, or a range you typed there. "
+        "Localizations above it are not in the selection.",
     "pushButton_zrange":
-        "Apply the z range above to the selection and redraw it.\n\n"
-        "The selection shape and the z range are one cut: this is what "
-        "puts both into effect.",
+        "Apply the ROI drawn on the scatter plot, with the axial cut "
+        "above, to the selection and redraw it.\n\n"
+        "The selection shape and the axial cut are one selection: this is "
+        "what puts both into effect. The slab itself is chosen in the MPS "
+        "analysis window.",
     # --- clustering ----------------------------------------------------
     "comboBox_algorithm":
         "Which algorithm groups the localizations into clusters.\n\n"
@@ -103,13 +105,16 @@ MAIN_WINDOW: Dict[str, str] = {
     "lineEdit_eps":
         "DBSCAN's epsilon, in nanometres: how far apart two "
         "localizations can be and still belong to the same cluster.\n\n"
-        "Too small breaks one cluster into several; too large merges "
-        "neighbouring ones into a blob. Not used by HDBSCAN.",
+        "Set in the MPS analysis window's parameter strip ('Change...'); "
+        "this box only shows it. The MPS analysis, the window clustering, "
+        "Rings, Batch and Two channels all use that one value. Not used "
+        "by HDBSCAN.",
     "lineEdit_minsamples":
         "DBSCAN's Min Pts: how many localizations have to sit within "
         "epsilon of a point for it to start a cluster.\n\n"
-        "Raising it leaves more localizations as noise, which the plots "
-        "draw as grey crosses. Not used by HDBSCAN.",
+        "Set in the MPS analysis window's parameter strip ('Change...'); "
+        "this box only shows it, and every analysis uses that one value. "
+        "Not used by HDBSCAN.",
     "lineEdit_minclustersize":
         "HDBSCAN's smallest number of localizations a group must have to "
         "count as a cluster.\n\n"

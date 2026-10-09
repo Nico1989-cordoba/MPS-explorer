@@ -18,17 +18,25 @@ the plots are:
 
 Design principle requested by the user: the analysis runs automatically and
 instantly, but *every* automatic choice stays editable, because reading the
-histograms is where expert judgement enters. Editable here:
+histograms is where expert judgement enters. The parameter strip at the top
+is, since UI stage 2 (design 6), the ONE editor of each MPS-analysis
+parameter in the program:
 
-  * the axial peak the 180 nm slab is centred on (a selector listing every
-    peak the GMM found -- this is what the "ambiguous main peak" warning
-    refers to)
-  * the slab half-width
+  * the axial slab: its centre (automatic, or a component of the fitted
+    mixture -- what the "ambiguous main peak" warning refers to), its
+    half-width, or a typed range that decides it
   * DBSCAN eps and min_samples
   * the Mahalanobis threshold of the occupancy and the randomization
+  * the contour drawn by hand, and "Reset to defaults"
 
-Changing any of them re-runs the analysis on the same localizations and
-redraws everything.
+What the strip sets is written into the main window's one settings object
+(``WindowLinks.store``), which every consumer reads: "cluster Ch1", "MPS
+analysis", Rings, Batch, Two channels, the main-window cut and the next
+session. The main window's boxes only show it. Changing a value re-runs the
+analysis on the same localizations and redraws everything; a typed range
+only applies the cut, as the main window's "Apply ROI" does, and the banner
+offers to run the analysis. Every value carries its origin badge and its
+documented range (``tools.mps_param_registry``).
 
 Once the axoplasm panel has found the clusters not anchored to the
 membrane, another column appears: every parameter again with the discard
@@ -64,6 +72,8 @@ from tools.mps_analysis import AxonAnalysis, DiscardComparison
 from tools.mps_axial_view import AxialView
 from tools.mps_axon_map import AxonMap
 from tools.mps_nn_panel import NearestNeighboursPanel
+from tools.mps_origin_ui import MoreLine, OriginBadge, ParamField
+from tools.mps_params_panel import FlowLayout
 from tools.mps_plot_style import (
     AXIS_FG_LIGHT, neutral, rgba, role, set_title, style_dark, style_light, verdict)
 from tools.mps_settings import (
@@ -158,6 +168,8 @@ class SelectionView:
     analysed_cut: Optional[Tuple[float, float]] = None
     discard_dropped: bool = False                    # the comparison was dropped by the panel's move
     discard_failed: str = ""                         # why the discard comparison could not be made
+    rerun_failed: bool = False                       # a slab change's re-run failed (design 6.3)
+    guide_note: str = ""                             # a drawn contour was dropped by a new ROI or file (B11)
 
 
 def _no_selection() -> Optional[SelectionView]:
@@ -180,6 +192,10 @@ def _no_name() -> str:
     return "distances"
 
 
+def _no_slab_state() -> Tuple[str, Optional[float], Optional[Tuple[float, float]]]:
+    return "automatic", None, None
+
+
 @dataclass
 class WindowLinks:
     """The providers and callbacks the main window gives this window (Appendix B). Every default is the standalone
@@ -190,6 +206,15 @@ class WindowLinks:
     run_analysis: Optional[Callable[[], Any]] = None
     params: Callable[[], Optional[Tuple[float, int, float, float]]] = field(default=_no_params)
     root_name: Callable[[], str] = field(default=_no_name)
+    # The one value of each parameter (design 6.2): the strip's setters write it through ``store`` (eps_nm,
+    # min_samples, slab_half_width_nm, mahalanobis_threshold, randomization, slab = ("automatic", None) |
+    # ("component", centre), reset); ``slab_state`` says how the slab is chosen now (mode, component centre, the
+    # typed range or None); ``apply_typed`` applies a typed range, or clears it with None (the cut only, no re-run).
+    # None / the defaults: a window on its own, whose controls only re-run its own analysis.
+    store: Optional[Callable[[Dict[str, Any]], Any]] = None
+    slab_state: Callable[[], Tuple[str, Optional[float], Optional[Tuple[float, float]]]] = field(
+        default=_no_slab_state)
+    apply_typed: Optional[Callable[[Optional[Tuple[float, float]]], Any]] = None
     nn_bins: int = L.NN_DEFAULT_BINS
     nn_range: Tuple[float, float] = (0.0, 800.0)
 
@@ -299,10 +324,42 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_controls(self) -> QtWidgets.QWidget:
-        box = QtWidgets.QGroupBox("Parameters (editable - the analysis re-runs on change)")
-        lay = QtWidgets.QHBoxLayout(box)
+        """The parameter strip (design 6.1, 12.3-12.5): the one editor of
+        each MPS-analysis parameter. Two rows of groups that wrap (a flow
+        layout) so nothing is clipped on a 1366-px screen: the parameters
+        (Axial slab, DBSCAN, Occupancy, Randomization, Contour) and the
+        actions. Every value carries its origin badge and its documented
+        range; each group has one collapsed "More" line with the read-only
+        research values. The editors keep their names and limits (G4,
+        12.4): nothing is clamped, nothing new is editable."""
+        box = QtWidgets.QWidget()
+        box.setObjectName("param_strip")
+        outer = QtWidgets.QVBoxLayout(box)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+        params_row = QtWidgets.QWidget()
+        params_row.setObjectName("strip_params")
+        self.strip_flow = FlowLayout(params_row)
+        actions_row = QtWidgets.QWidget()
+        actions_row.setObjectName("strip_actions")
+        self.actions_flow = FlowLayout(actions_row)
+        outer.addWidget(params_row)
+        outer.addWidget(actions_row)
 
-        lay.addWidget(QtWidgets.QLabel("Axial peak:"))
+        def group(title: str, name: str) -> Tuple[QtWidgets.QGroupBox, QtWidgets.QGridLayout]:
+            g = QtWidgets.QGroupBox(title)
+            g.setObjectName(name)
+            grid = QtWidgets.QGridLayout(g)
+            grid.setContentsMargins(6, 2, 6, 2)
+            grid.setHorizontalSpacing(4)
+            grid.setVerticalSpacing(2)
+            self.strip_flow.addWidget(g)
+            return g, grid
+
+        # --- Axial slab: centre (automatic / a component), half-width, or a
+        # typed range that decides it.
+        g_slab, ls = group("Axial slab", "group_slab")
+        ls.addWidget(QtWidgets.QLabel("centre:"), 0, 0)
         self.combo_peak = QtWidgets.QComboBox()
         self.combo_peak.setMinimumWidth(230)
         self.combo_peak.setToolTip(
@@ -311,10 +368,26 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "two peaks have comparable weight the choice is ambiguous and\n"
             "changes which segment is analysed - pick it yourself here."
         )
-        lay.addWidget(self.combo_peak)
+        centre_row = QtWidgets.QHBoxLayout()
+        centre_row.setSpacing(4)
+        centre_row.addWidget(self.combo_peak)
+        self.badge_centre = OriginBadge("slab.centre", None)
+        centre_row.addWidget(self.badge_centre)
+        self.btn_slab_auto = QtWidgets.QPushButton("Automatic")
+        self.btn_slab_auto.setObjectName("btn_slab_auto")
+        self.btn_slab_auto.setToolTip(
+            "Centre the slab on the density peak of the fitted mixture again\n"
+            "(the automatic choice), and run the analysis.")
+        self.btn_slab_auto.clicked.connect(self._on_slab_automatic)
+        centre_row.addWidget(self.btn_slab_auto)
+        centre_row.addStretch(1)
+        ls.addLayout(centre_row, 0, 1)
+        self.lbl_slab_mode = QtWidgets.QLabel("")
+        self.lbl_slab_mode.setObjectName("lbl_slab_mode")
+        self.lbl_slab_mode.setStyleSheet(f"color: {_C_TEXT_DIM};")
+        ls.addWidget(self.lbl_slab_mode, 1, 1)
 
-        lay.addSpacing(12)
-        lay.addWidget(QtWidgets.QLabel("Slab half-width [nm]:"))
+        ls.addWidget(QtWidgets.QLabel("half-width [nm]:"), 2, 0)
         self.spin_half = QtWidgets.QDoubleSpinBox()
         self.spin_half.setRange(1.0, 5000.0)
         self.spin_half.setDecimals(1)
@@ -322,10 +395,45 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.spin_half.setToolTip(
             "Half of the axial window. The paper uses 90 nm, i.e. a 180 nm slab."
         )
-        lay.addWidget(self.spin_half)
+        self.field_half = ParamField("slab.half_width_nm", self.spin_half)
+        ls.addWidget(self.field_half, 2, 1)
 
-        lay.addSpacing(12)
-        lay.addWidget(QtWidgets.QLabel("eps [nm]:"))
+        self.chk_typed = QtWidgets.QCheckBox("typed range [nm]:")
+        self.chk_typed.setObjectName("chk_typed")
+        self.chk_typed.setToolTip(
+            "Type the slab's bounds yourself. Applying them sets the main\n"
+            "window's cut, as its 'Apply ROI' does, and does not re-run the\n"
+            "analysis: the banner says the analysis is of the previous slab\n"
+            "and offers to run it. While a range is typed, the centre and\n"
+            "the half-width are not used. Untick to go back to them.")
+        ls.addWidget(self.chk_typed, 3, 0)
+        typed_row = QtWidgets.QHBoxLayout()
+        typed_row.setSpacing(4)
+        self.edit_typed_min = QtWidgets.QLineEdit()
+        self.edit_typed_min.setObjectName("edit_typed_min")
+        self.edit_typed_max = QtWidgets.QLineEdit()
+        self.edit_typed_max.setObjectName("edit_typed_max")
+        for edit in (self.edit_typed_min, self.edit_typed_max):
+            edit.setMaximumWidth(80)
+            edit.setPlaceholderText("nm")
+            typed_row.addWidget(edit)
+        self.btn_typed_apply = QtWidgets.QPushButton("Apply")
+        self.btn_typed_apply.setObjectName("btn_typed_apply")
+        self.btn_typed_apply.setToolTip(
+            "Apply this axial range to the main window's cut (the analysis\n"
+            "is not re-run: the banner offers it).")
+        self.btn_typed_apply.clicked.connect(self._on_typed_apply)
+        typed_row.addWidget(self.btn_typed_apply)
+        self.badge_typed = OriginBadge("slab.typed_range", None)
+        typed_row.addWidget(self.badge_typed)
+        typed_row.addStretch(1)
+        ls.addLayout(typed_row, 3, 1)
+        self.chk_typed.toggled.connect(self._on_typed_toggled)
+
+        # --- DBSCAN (MPS analysis): eps, min samples; the curation and the
+        # contour in its "More" line (the TODO-B6 hook, filled by B6).
+        g_db, ld = group("DBSCAN (MPS analysis)", "group_dbscan")
+        ld.addWidget(QtWidgets.QLabel("eps [nm]:"), 0, 0)
         self.spin_eps = QtWidgets.QDoubleSpinBox()
         self.spin_eps.setRange(0.1, 1000.0)
         self.spin_eps.setDecimals(1)
@@ -333,29 +441,32 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "DBSCAN search radius. The paper uses 25 nm, matching its ~20 nm\n"
             "lateral localization precision."
         )
-        lay.addWidget(self.spin_eps)
-
-        lay.addWidget(QtWidgets.QLabel("min samples:"))
+        self.field_eps = ParamField("dbscan.eps_nm", self.spin_eps)
+        ld.addWidget(self.field_eps, 0, 1)
+        ld.addWidget(QtWidgets.QLabel("min samples:"), 1, 0)
         self.spin_min = QtWidgets.QSpinBox()
         self.spin_min.setRange(1, 10000)
         self.spin_min.setToolTip(
             "DBSCAN minimum points per cluster. The paper uses 10, matching\n"
             "the expected number of blinking cycles per fluorophore."
         )
-        lay.addWidget(self.spin_min)
+        self.field_min = ParamField("dbscan.min_samples", self.spin_min)
+        ld.addWidget(self.field_min, 1, 1)
+        self.more_dbscan = MoreLine("dbscan")
+        ld.addWidget(self.more_dbscan, 2, 0, 1, 2)
 
-        # A "DBCV thr." spin box stood here until 2026-09-20. Measured
-        # on unpublished pilot axons, the score correlates strongly and
-        # negatively with log10(cluster area), and in many axons the
-        # LARGEST cluster is among the lowest-scoring ones: every
-        # threshold above off removes
-        # the big clusters first. There is no setting of it that curates
-        # without doing that, so it is gone rather than defaulted. The
-        # analysis still takes the parameter and the export still records
-        # it, so older tables stay readable; what curates is the
-        # edge-touching criterion.
+        # A "DBCV thr." spin box stood here until 2026-09-20. On real axons
+        # the per-cluster score falls with the cluster's extent, and in
+        # many axons the LARGEST cluster is among the lowest-scoring ones:
+        # every threshold above off removes the big clusters first. There
+        # is no setting of it that curates without doing that, so it is
+        # gone rather than defaulted. The analysis still takes the
+        # parameter and the export still records it, so older tables stay
+        # readable; what curates is the edge-touching criterion.
 
-        lay.addWidget(QtWidgets.QLabel("Mahalanobis:"))
+        # --- Occupancy: the Mahalanobis threshold; the sigma cap in "More".
+        g_occ, lo = group("Occupancy", "group_occupancy")
+        lo.addWidget(QtWidgets.QLabel("Mahalanobis:"), 0, 0)
         self.spin_maha = QtWidgets.QDoubleSpinBox()
         self.spin_maha.setRange(0.1, 10.0)
         self.spin_maha.setDecimals(1)
@@ -370,8 +481,14 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "it lies within this Mahalanobis distance of some cluster's\n"
             "constrained Gaussian. The paper uses 3."
         )
-        lay.addWidget(self.spin_maha)
+        self.field_maha = ParamField("occupancy.mahalanobis", self.spin_maha)
+        lo.addWidget(self.field_maha, 0, 1)
+        self.more_occupancy = MoreLine("occupancy")
+        lo.addWidget(self.more_occupancy, 1, 0, 1, 2)
 
+        # --- Randomization: the switch (no badge: a switch carries none,
+        # 12.1); its parameters, read-only in stage 2, in "More".
+        g_rand, lr = group("Randomization", "group_randomization")
         self.chk_random = QtWidgets.QCheckBox("Randomization")
         self.chk_random.setChecked(True)
         self.chk_random.setToolTip(
@@ -380,27 +497,46 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "off while tuning the other parameters and back on for the\n"
             "final numbers."
         )
-        lay.addWidget(self.chk_random)
+        lr.addWidget(self.chk_random, 0, 0)
+        self.more_randomization = MoreLine("randomization")
+        lr.addWidget(self.more_randomization, 1, 0)
 
-        lay.addStretch(1)
+        # --- Contour
+        g_con, lc = group("Contour", "group_contour")
+        self.btn_contour = QtWidgets.QPushButton("Draw contour...")
+        self.btn_contour.setToolTip(
+            "Drag a path along the membrane and join the cluster centres in\n"
+            "the order they fall along it, instead of the automatic 2-opt\n"
+            "contour. For axons where the automatic contour runs through\n"
+            "centres that are not on the membrane, or cuts a concavity.\n\n"
+            "The path is kept for this axon: changing eps, min samples or\n"
+            "the slab re-orders the new clusters along it, and the clusters\n"
+            "the axoplasm panel keeps are joined along it too. 'cluster Ch1'\n"
+            "and 'MPS analysis' keep it while the file and the ROI are the\n"
+            "same; a new ROI or file drops it, and says so. It is written\n"
+            "to the table, so the contour can be rebuilt from there.")
+        self.btn_contour.clicked.connect(self._on_draw_contour)
+        lc.addWidget(self.btn_contour, 0, 0)
+
+        for more in (self.more_dbscan, self.more_occupancy, self.more_randomization):
+            more.button.toggled.connect(lambda _on: self._strip_relayout())
+
+        # --- the actions
+        self.btn_reset = QtWidgets.QPushButton("Reset to defaults")
+        self.btn_reset.setObjectName("btn_reset")
+        self.btn_reset.setToolTip(reg.reset_tooltip())
+        self.btn_reset.clicked.connect(self._on_reset)
+        self.actions_flow.addWidget(self.btn_reset)
 
         self.btn_rings = QtWidgets.QPushButton("Rings...")
         self.btn_rings.setToolTip(
             "Analyse EVERY axial segment of this axon, not just this slab,\n"
-            "and compare the gap/patch pattern of consecutive segments."
+            "and compare the gap/patch pattern of consecutive segments.\n"
+            "Pressed again, it keeps the rings window's mode and guard."
         )
         self.btn_rings.clicked.connect(self._on_rings)
         self.btn_rings.setEnabled(self.rings_callback is not None)
-        lay.addWidget(self.btn_rings)
-
-        self.btn_reset = QtWidgets.QPushButton("Reset to paper defaults")
-        self.btn_reset.setToolTip(
-            "Put the parameters above back to the values Gazal et al. "
-            "(2026) report, and run the analysis again.\n\n"
-            "It touches the parameters only. The axial slab stays where "
-            "it is and the randomization stays as it is set.")
-        self.btn_reset.clicked.connect(self._on_reset)
-        lay.addWidget(self.btn_reset)
+        self.actions_flow.addWidget(self.btn_rings)
 
         self.btn_export = QtWidgets.QPushButton("Export axon...")
         self.btn_export.setToolTip(
@@ -410,7 +546,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "written from the state on screen, in one go.")
         self.btn_export.clicked.connect(self._on_export)
         self.btn_export.setEnabled(self.export_callback is not None)
-        lay.addWidget(self.btn_export)
+        self.actions_flow.addWidget(self.btn_export)
 
         self.btn_image = QtWidgets.QPushButton("Export image...")
         self.btn_image.setToolTip(
@@ -420,28 +556,132 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             "which analysis, which localizations and which colouring it\n"
             "draws, and the message after writing it repeats the provenance.")
         self.btn_image.clicked.connect(self._on_export_image)
-        lay.addWidget(self.btn_image)
-
-        self.btn_contour = QtWidgets.QPushButton("Draw contour...")
-        self.btn_contour.setToolTip(
-            "Drag a path along the membrane and join the cluster centres in\n"
-            "the order they fall along it, instead of the automatic 2-opt\n"
-            "contour. For axons where the automatic contour runs through\n"
-            "centres that are not on the membrane, or cuts a concavity.\n\n"
-            "The path is kept for this axon: changing eps, min samples or\n"
-            "the slab re-orders the new clusters along it, and the clusters\n"
-            "the axoplasm panel keeps are joined along it too. It is written\n"
-            "to the table, so the contour can be rebuilt from there.")
-        self.btn_contour.clicked.connect(self._on_draw_contour)
-        lay.addWidget(self.btn_contour)
+        self.actions_flow.addWidget(self.btn_image)
 
         enabled = self.rerun_callback is not None
         for w in (self.combo_peak, self.spin_half, self.spin_eps,
                   self.spin_min, self.spin_maha,
-                  self.chk_random, self.btn_reset, self.btn_contour):
+                  self.chk_random, self.btn_reset, self.btn_contour,
+                  self.btn_slab_auto, self.chk_typed, self.edit_typed_min,
+                  self.edit_typed_max, self.btn_typed_apply):
             w.setEnabled(enabled)
+        # A typed range needs the main window's cut: a window on its own
+        # has none.
+        if self.links.apply_typed is None:
+            for w in (self.chk_typed, self.edit_typed_min, self.edit_typed_max,
+                      self.btn_typed_apply):
+                w.setEnabled(False)
+        for spin in (self.spin_half, self.spin_eps, self.spin_min, self.spin_maha):
+            spin.valueChanged.connect(lambda *_a: self._sync_reset())
 
         return box
+
+    def _strip_relayout(self) -> None:
+        """A "More" line opened or closed: the flow re-places the groups."""
+        self.strip_flow.invalidate()
+        self.centralWidget().updateGeometry()
+
+    # ------------------------------------------------------------------
+    # the strip and the one value (design 6.2, 6.3, 12.5)
+    # ------------------------------------------------------------------
+
+    def _store_values(self, reset: bool = False) -> None:
+        """Write what the strip shows into the one settings object (the
+        main window's setters): the strip is the only editor, and nothing
+        reads a mirror back. A window on its own has no store."""
+        if self.links.store is None:
+            return
+        values: Dict[str, Any] = dict(
+            eps_nm=float(self.spin_eps.value()),
+            min_samples=int(self.spin_min.value()),
+            slab_half_width_nm=float(self.spin_half.value()),
+            mahalanobis_threshold=float(self.spin_maha.value()),
+            randomization=bool(self.chk_random.isChecked()))
+        _mode, _centre, typed = self.links.slab_state()
+        i, n = self.combo_peak.currentIndex(), self.combo_peak.count()
+        if typed is None and 0 <= i < n - 1:
+            # A component of the mixture (the last item is "the current
+            # slab centre": choosing it keeps the slab as it is).
+            values["slab"] = ("component", float(self.combo_peak.itemData(i)))
+        if reset:
+            values["reset"] = True
+        self.links.store(values)
+
+    def _sync_slab_widgets(self) -> None:
+        """The slab's mode in words, its badges, and the typed range."""
+        mode, centre, typed = self.links.slab_state()
+        from tools.mps_params_panel import SlabChoice, mode_words
+        choice = SlabChoice("component", centre) if (mode == "component" and centre is not None) \
+            else SlabChoice()
+        self.lbl_slab_mode.setText(mode_words(choice, typed))
+        self.badge_centre.set_value(
+            None if (mode == "automatic" or typed is not None) else centre)
+        self.badge_typed.set_value(typed)
+        self.chk_typed.blockSignals(True)
+        self.chk_typed.setChecked(typed is not None)
+        self.chk_typed.blockSignals(False)
+        if typed is not None:
+            self.edit_typed_min.setText(f"{typed[0]:.1f}")
+            self.edit_typed_max.setText(f"{typed[1]:.1f}")
+        enabled = self.rerun_callback is not None
+        typed_on = typed is not None
+        reason = ("A typed range decides the slab: untick 'typed range' to use the "
+                  "centre and the half-width again.")
+        for w in (self.combo_peak, self.btn_slab_auto):
+            w.setEnabled(enabled and not typed_on)
+        self.spin_half.setEnabled(enabled and not typed_on)
+        self.btn_slab_auto.setEnabled(enabled and not typed_on and mode == "component")
+        self.lbl_slab_mode.setToolTip(reason if typed_on else "")
+
+    def _sync_reset(self) -> None:
+        """'Reset to defaults' is highlighted while any of its four values
+        departs from its default (display only). The badges follow the
+        values too (a refresh sets them with the signals blocked)."""
+        for f in (self.field_half, self.field_eps, self.field_min, self.field_maha):
+            f.refresh()
+        departs = any(reg.badge(key, value) == "user" for key, value in (
+            ("dbscan.eps_nm", float(self.spin_eps.value())),
+            ("dbscan.min_samples", int(self.spin_min.value())),
+            ("slab.half_width_nm", float(self.spin_half.value())),
+            ("occupancy.mahalanobis", float(self.spin_maha.value()))))
+        self.btn_reset.setStyleSheet("font-weight: bold;" if departs else "")
+
+    def _on_slab_automatic(self) -> None:
+        """Back to the automatic slab centre, and run the analysis."""
+        if self.links.store is None or self.rerun_callback is None:
+            return
+        self.links.store({"slab": ("automatic", None)})
+        self._rerun(main_peak_override_nm=None)
+
+    def _on_typed_toggled(self, on: bool) -> None:
+        if self.links.apply_typed is None:
+            return
+        if on:
+            # The bounds are applied with "Apply"; start from the cut.
+            sel = self._sel
+            if sel is not None and sel.cut is not None and not self.edit_typed_min.text():
+                self.edit_typed_min.setText(f"{sel.cut[0]:.1f}")
+                self.edit_typed_max.setText(f"{sel.cut[1]:.1f}")
+            return
+        self.links.apply_typed(None)
+        self._sync_slab_widgets()
+
+    def _on_typed_apply(self) -> None:
+        if self.links.apply_typed is None:
+            return
+        try:
+            a = float(self.edit_typed_min.text().strip())
+            b = float(self.edit_typed_max.text().strip())
+        except ValueError:
+            QtWidgets.QMessageBox.warning(
+                self, "Typed range", "Type both bounds as numbers, in nm.")
+            return
+        if not a < b:
+            QtWidgets.QMessageBox.warning(
+                self, "Typed range", "The lower bound must be below the upper one.")
+            return
+        self.links.apply_typed((a, b))
+        self._sync_slab_widgets()
 
     def _on_rings(self) -> None:
         if self.rings_callback is not None:
@@ -619,6 +859,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.comparison = self._ask_discard()
         self._read_selection()
         self._sync_controls()
+        self._sync_slab_widgets()
+        self._sync_reset()
         self._sync_discard_widgets()
         self._fill_provenance()
         self._fill_table()
@@ -636,6 +878,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self._fill_provenance()
             self._fill_table()
             self._fill_warnings()
+        self._sync_slab_widgets()
         self._update_banner()
         self._draw_plots()
 
@@ -911,13 +1154,25 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.combo_peak.setCurrentIndex(
                 self.combo_peak.count() - 1 if best_d > 1e-6 else best_i)
 
-            self.spin_half.setValue(a.slab_half_width_nm)
-            self.spin_eps.setValue(a.eps_nm)
-            self.spin_min.setValue(int(a.min_samples))
-            # From the analysis, not from its occupancy: an analysis with too
-            # few clusters to measure occupancy still ran with a threshold, and
-            # reading it back from the widget is what let 0.1 through.
-            self.spin_maha.setValue(a.mahalanobis_threshold)
+            params = self.links.params() if self.links.store is not None else None
+            if params is not None:
+                # The one value of each parameter (design 6.2): what the strip
+                # set, which every consumer reads - the analysis shown is of
+                # those values unless the banner says otherwise.
+                eps, minimum, half, maha = params
+                self.spin_half.setValue(float(half))
+                self.spin_eps.setValue(float(eps))
+                self.spin_min.setValue(int(minimum))
+                self.spin_maha.setValue(float(maha))
+            else:
+                self.spin_half.setValue(a.slab_half_width_nm)
+                self.spin_eps.setValue(a.eps_nm)
+                self.spin_min.setValue(int(a.min_samples))
+                # From the analysis, not from its occupancy: an analysis with
+                # too few clusters to measure occupancy still ran with a
+                # threshold, and reading it back from the widget is what let
+                # 0.1 through.
+                self.spin_maha.setValue(a.mahalanobis_threshold)
         else:
             # No analysis yet: the values the next run will use.
             params = self.links.params()
@@ -1086,13 +1341,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.banner.set_state(showing_current_lines(current_words="" if sel is None else sel.current_words),
                                   offer_show=True, showing_current=True, offer_run=run)
             return
+        note = [] if sel is None or not sel.guide_note else [sel.guide_note]
         if not self._stale or sel is None:
-            self.banner.set_state([])
+            self.banner.set_state(note)
             return
-        self.banner.set_state(analysis_stale_lines(analysed_words=sel.analysed_words or "as analysed",
-                                                   current_words=sel.current_words or "another one",
-                                                   discard_dropped=sel.discard_dropped),
-                              offer_show=True, showing_current=False, offer_run=run)
+        lines = analysis_stale_lines(analysed_words=sel.analysed_words or "as analysed",
+                                     current_words=sel.current_words or "another one",
+                                     discard_dropped=sel.discard_dropped)
+        if sel.rerun_failed:
+            lines.insert(0, "The analysis could not be re-run with these values; what is shown was computed "
+                            "with the previous ones.")
+        self.banner.set_state(lines + note, offer_show=True, showing_current=False, offer_run=run)
 
     def _on_show_current(self, on: bool) -> None:
         """'Show the current selection' / 'Show the analysed selection'."""
@@ -1291,13 +1550,22 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_param_changed(self) -> None:
+        """A strip value changed: write it into the one settings object,
+        then re-run with today's keyword arguments (rule K, design 6.3: this
+        is the window's re-run of before stage 2, moved, not rewritten)."""
         if self.rerun_callback is None:
             return
+        self._store_values(reset=getattr(self, "_resetting", False))
         peak = self.combo_peak.currentData()
+        self._rerun(main_peak_override_nm=(None if peak is None else float(peak)))
+
+    def _rerun(self, main_peak_override_nm: Optional[float]) -> None:
+        if self.rerun_callback is None:
+            return
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
             self.analysis = self.rerun_callback(
-                main_peak_override_nm=(None if peak is None else float(peak)),
+                main_peak_override_nm=main_peak_override_nm,
                 slab_half_width_nm=float(self.spin_half.value()),
                 eps_nm=float(self.spin_eps.value()),
                 min_samples=int(self.spin_min.value()),
@@ -1319,6 +1587,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(
                 self, "Analysis failed",
                 f"Could not re-run the analysis with these parameters:\n\n{exc}")
+            # The banner says what is shown was computed with the previous
+            # values (design 6.3).
+            self.refresh()
             return
         QtWidgets.QApplication.restoreOverrideCursor()
         self.refresh()
@@ -1343,6 +1614,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             current_guide=a.contour_guide)
         if answer not in (APPLY, AUTOMATIC):
             return
+        self._store_values()
         peak = self.combo_peak.currentData()
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         try:
@@ -1366,6 +1638,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.refresh()
 
     def _on_reset(self) -> None:
+        """Reset to defaults (design 12.5): the same four values as before
+        stage 2, read from the same constants (which the registry reads
+        too); the slab centre, a typed range, the randomization switch and
+        the drawn contour are kept. The values are saved (B12)."""
         from tools.mps_settings import (
             DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES, DEFAULT_SLAB_HALF_WIDTH_NM,
         )
@@ -1382,7 +1658,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         for w in (self.spin_half, self.spin_eps, self.spin_min,
                   self.spin_maha):
             w.blockSignals(False)
-        self._on_param_changed()
+        self._resetting = True
+        try:
+            self._on_param_changed()
+        finally:
+            self._resetting = False
 
     def _on_export(self) -> None:
         """
