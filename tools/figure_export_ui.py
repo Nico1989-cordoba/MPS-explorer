@@ -9,7 +9,7 @@ what background.
 from __future__ import annotations
 
 import os
-from typing import Optional, Sequence
+from typing import AbstractSet, Optional, Sequence, Union
 
 from PyQt5 import QtWidgets
 
@@ -23,15 +23,29 @@ from tools.figure_export import (
 HINT_STYLE = f"color: {verdict('dim', dark=False)}; font-size: 11px;"
 
 
+# Whether a white redraw is offered: for every plot (True), for none
+# (False), or for the plots named in a set (UI stage 2, design 3.6: not for
+# the axon map while it draws a widefield photograph).
+WhiteOffer = Union[bool, AbstractSet[str]]
+
+
+def offers_white(offer: WhiteOffer, plot: str) -> bool:
+    """Whether ``offer`` offers the white redraw for ``plot``."""
+    if isinstance(offer, bool):
+        return offer
+    return plot in offer
+
+
 class ExportFigureDialog(QtWidgets.QDialog):
     """What to write, and how."""
 
     def __init__(self, plots: Sequence[str], suggested: str,
                  parent: Optional[QtWidgets.QWidget] = None,
-                 offer_white: bool = True):
+                 offer_white: WhiteOffer = True):
         super().__init__(parent)
         self.setWindowTitle("Export image")
         self._suggested = suggested
+        self._offer_white = offer_white
 
         layout = QtWidgets.QVBoxLayout(self)
         intro = QtWidgets.QLabel(
@@ -81,7 +95,8 @@ class ExportFigureDialog(QtWidgets.QDialog):
             "The panels draw on black because that is what a screen is read "
             "on. Ticked, the plot is drawn again on white with the same "
             "colours before it is saved, which is what a journal expects.")
-        self.chk_white.setVisible(offer_white)
+        self.chk_white.setVisible(
+            offers_white(offer_white, self.combo_plot.currentText()))
         layout.addWidget(self.chk_white)
 
         self.label_size = QtWidgets.QLabel("")
@@ -107,7 +122,9 @@ class ExportFigureDialog(QtWidgets.QDialog):
             path=self.edit_path.text().strip(),
             width_mm=float(self.combo_width.currentData()),
             dpi=int(self.combo_dpi.currentData()),
-            white=self.chk_white.isChecked() and self.chk_white.isVisible())
+            white=(self.chk_white.isChecked()
+                   and offers_white(self._offer_white,
+                                    self.combo_plot.currentText())))
 
     def _browse(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
@@ -117,6 +134,8 @@ class ExportFigureDialog(QtWidgets.QDialog):
             self.edit_path.setText(path)
 
     def _plot_changed(self) -> None:
+        self.chk_white.setVisible(
+            offers_white(self._offer_white, self.combo_plot.currentText()))
         # The proposed name follows the plot chosen, unless the user has
         # typed a path of their own.
         current = self.edit_path.text().strip()
@@ -148,8 +167,9 @@ class ExportFigureDialog(QtWidgets.QDialog):
 
 def ask(plots: Sequence[str], suggested: str,
         parent: Optional[QtWidgets.QWidget] = None,
-        offer_white: bool = True) -> Optional[FigureRequest]:
-    """Show the dialog; None when the user cancels."""
+        offer_white: WhiteOffer = True) -> Optional[FigureRequest]:
+    """Show the dialog; None when the user cancels. ``offer_white``: True,
+    False, or the set of plot names a white redraw is offered for."""
     dialog = ExportFigureDialog(plots, suggested, parent=parent,
                                 offer_white=offer_white)
     if dialog.exec_() != QtWidgets.QDialog.Accepted:

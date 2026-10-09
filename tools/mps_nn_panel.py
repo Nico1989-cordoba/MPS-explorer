@@ -14,8 +14,10 @@ pools the 1st..Nth distances as the main window's distances histogram did; a ran
 every distance) and the title counts what falls outside it. N is capped at clusters - 1 (today N + 1 > clusters
 raises inside sklearn).
 
-In IMPL-C it replaces the results window's 1NN plots and the main window's distances controls; until then nothing
-uses it.
+It replaces the results window's old 1NN plots and the main window's distances controls (M5: "N neighbor",
+"Distances", the lateral range, the binning and "save dist data"). While the analysis shown is not of the main
+window's current selection, "Save distances..." refuses with the two messages the main window's "Distances" and
+"save dist data" gave in that state, so nothing of another selection is written.
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -40,6 +42,12 @@ SAVE_TIP = ("KD-tree query, k = N, the centre itself excluded; the same numbers 
             "distance of the analysis shown (the range only limits what the histogram draws).")
 N_TIP = "Pool the distances from each centre to its 1st..Nth nearest centre (at most clusters - 1, and 10)."
 BINS_TIP = "Number of bins of the histogram (display only)."
+# What the main window's "Distances" and "save dist data" said when the analysis was not of the current selection
+# (its centres were cleared by a new ROI or axial cut): "Save distances..." says the same in that state.
+NOT_CURRENT_MESSAGES = (
+    ("No clusters", "Please run clustering and confirm cluster selection before computing distances."),
+    ("No distance data", "Please compute the nearest-neighbour distances first."),
+)
 RANGE_TIP = ("Automatic: the bins span the distances. From..to: the bins span this range, and the title counts the "
              "distances outside it (display only: the CSV keeps every distance).")
 
@@ -49,7 +57,8 @@ class NearestNeighboursPanel(QtWidgets.QWidget):
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None, *, dark: bool = True, bins: int = 30,
                  range_nm: Tuple[float, float] = (0.0, 800.0),
-                 root_name: Optional[Callable[[], str]] = None) -> None:
+                 root_name: Optional[Callable[[], str]] = None,
+                 current: Optional[Callable[[], bool]] = None) -> None:
         super().__init__(parent)
         self.setObjectName("nn_panel")
         self.dark = bool(dark)
@@ -57,6 +66,8 @@ class NearestNeighboursPanel(QtWidgets.QWidget):
         self.measured: Any = None
         self.comparison: Any = None
         self.root_name = root_name or (lambda: "distances")
+        # Whether the analysis shown describes the main window's current selection (a panel on its own: always).
+        self.current: Callable[[], bool] = current or (lambda: True)
         self._layers: Dict[str, L.Layer] = {}
         self._hist: Dict[str, Any] = {}
         root = QtWidgets.QVBoxLayout(self)
@@ -114,7 +125,7 @@ class NearestNeighboursPanel(QtWidgets.QWidget):
         self.plot_nn = pg.PlotWidget()
         self.plot_nn.setObjectName("nn_plot")
         self.plot_nn.setLabels(bottom="distance [nm]", left="count")
-        self.layers = LayerPanel(max_width=200, hide_disabled=True)
+        self.layers = LayerPanel(scroll=True, max_width=220, hide_disabled=True)
         self.layers.setObjectName("nn_layers")
         self.layers.toggled.connect(lambda _k, _on: None)
         hist_row.addWidget(self.plot_nn, 1)
@@ -185,6 +196,10 @@ class NearestNeighboursPanel(QtWidgets.QWidget):
 
     def on_save(self) -> Optional[str]:
         """"Save distances...": ask where, then write (the dialog title is the main window's)."""
+        if not self.current():
+            for title, text in NOT_CURRENT_MESSAGES:
+                QtWidgets.QMessageBox.warning(self, title, text)
+            return None
         if self.shown is None or L.nn_max_neighbours(int(self.shown.n_clusters_kept)) < 1:
             return None
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, SAVE_TITLE, self.default_name(), "CSV Files (*.csv)")
