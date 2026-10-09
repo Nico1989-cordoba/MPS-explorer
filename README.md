@@ -284,6 +284,29 @@ pytest test_mps_explorer.py -v
 
 ---
 
+## 🗺️ The MPS analysis window, and where each value comes from
+
+- **One page per axon.** The MPS analysis window shows the axon map (lab x, y; one layer per computation, each group
+  captioned with the function, clustering, slab and parameters it comes from) with the tabs Axial, Nearest
+  neighbours, Cluster area and Scatter off the outline under it. Every plot's title says which analysis it draws, and
+  that title travels with the exported figure. Read-only **Details** panels under the plots list numbers the analysis
+  already holds; nothing is computed for them.
+- **One editor per parameter.** eps, min samples, the axial slab, the Mahalanobis threshold, the randomization and
+  the drawn contour are edited only in the window's parameter strip; the main window shows them read-only.
+- **Origin of every value.** Each parameter, threshold and reference value carries a badge from one registry
+  (`tools/mps_param_registry.py`): *paper* (taken from a publication), *derived* (a written formula: first
+  principles, a standard method or a convention with its reasoning), *simulation* (calibrated by this project's own
+  simulation), *pilot suggestion* (a starting point meant to be changed), *user* (you set it away from its default)
+  and *blank* (no value: whatever needs it is not computed and says so). Two transitional badges mark what a later
+  change will replace: *ad hoc* (no written derivation yet) and *unreviewed* (no verified research record yet). The
+  tooltip of each badge gives the source, the documented range and what will change it; a value outside its
+  documented range is flagged, never clamped.
+- **Measurement panel** (main window). Each loaded channel's pixel size with the source of the number, and the
+  per-measurement z calibration: none is read yet, so z is used as the localization software fitted it; whether the
+  file carries its own calibration record is shown, and the inputs to read one are present but disabled.
+
+---
+
 ## 🧭 Column analysis within one axon (exploratory)
 
 Tools to ask, axon by axon, whether the spectrin clusters of consecutive rings line up along the axon ("columns"),
