@@ -203,7 +203,7 @@ def main() -> int:
         assert w.field_eps.badge.text() == "paper" and w.field_half.hint.text() == "40-200"
         assert w.field_min.hint.text() == "2-50" and w.field_eps.hint.text() == ""
         assert "More" == w.more_randomization.button.text() and not w.more_randomization.is_expanded()
-        assert "1,000 iterations [paper; SCI-3: 999]" in w.more_randomization.label.text()
+        assert "1,000 iterations [paper; later: 999]" in w.more_randomization.label.text()
         return "4 editors with today's limits; mirrors read-only, rendered as '25' / '10'; badges paper; ranges"
 
     check("1. one editor per parameter, mirrors read-only", one_editor)

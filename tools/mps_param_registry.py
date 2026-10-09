@@ -171,10 +171,10 @@ class ParamInfo:
     documented_range: Optional[Tuple[float, float]] = None   # numeric range of the research records
     allowed: Tuple[float, ...] = ()            # or a discrete set of allowed values
     range_text: str = ""                       # the range as shown ("40-200", "pending B6")
-    range_note: str = ""                       # where the range comes from
+    range_note: str = ""                       # what the range means, in words (no record id: those are in records)
     records: Tuple[str, ...] = ()              # research record ids, for traceability
     changes_in: str = ""                       # the science PR that changes it, or ""
-    change_note: str = ""                      # what that PR does to it
+    change_note: str = ""                      # what that PR does to it, in words ("a later version ..."): no id
     editable: bool = False                     # editable in stage 2 (rule E, 12.4)
     not_editable_because: str = ""             # the rule-E clause it fails (e1..e5), or why
     unreviewed_because: str = ""               # for "unreviewed": the batch (TODO-B6 / TODO-B9) or NOT_INVENTORIED
@@ -202,15 +202,15 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        origin_note="convention: the slab is centred on the mode of the Gaussian mixture fitted to the ROI's z; "
                    "'user' when a component or a range is chosen",
        shown_as="parameter strip (Axial slab)", records=("main-peak-density",), changes_in="SCI-6",
-       change_note="SCI-6 offers the density or the weight mode and shows the foreign fraction F", editable=True),
+       change_note="a later version offers the density mode or the weight mode as the centre, and shows the share "
+                   "of the slab that belongs to other components", editable=True),
     _e(key="slab.half_width_nm", label="Slab half-width", unit="nm", home="strip",
        default=_const(_S, "DEFAULT_SLAB_HALF_WIDTH_NM"), origin="paper",
        origin_note=f"the published 180 nm analysis window, {PAPER}; bounds inclusive",
        shown_as="parameter strip; batch label; rings parameter line",
        documented_range=(40.0, 200.0), range_text="40-200",
-       range_note="record main-peak-disagreement-warning; P/2 as an alternative comes with SCI-6",
        records=("slab-inclusive-bounds", "main-peak-disagreement-warning"), changes_in="SCI-6",
-       change_note="SCI-6 offers P/2 beside it", editable=True),
+       change_note="a later version offers half the ring period beside it", editable=True),
     _e(key="slab.typed_range", label="Typed axial range", unit="nm", home="strip", default=None, origin="blank",
        origin_note="no range is typed by default; 'user' when one is typed (it then decides the slab)",
        shown_as="parameter strip (typed range)", editable=True),
@@ -225,7 +225,7 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        origin_note=f"the published DBSCAN minimum count of {PAPER}, matched to the mean switching cycles of the "
                    "fluorophore (Dempsey et al. 2011); kept in every DBSCAN path",
        shown_as="parameter strip; main-window mirror; batch label; rings parameter line",
-       documented_range=(2.0, 50.0), range_text="2-50", range_note="record minsamples-fallback-5-and-hdbscan-defaults",
+       documented_range=(2.0, 50.0), range_text="2-50",
        records=("minsamples-fallback-5-and-hdbscan-defaults",), editable=True),
     _e(key="curation.edge_criterion", label="curation: edge criterion", unit="", home="none",
        default=_in_code("tools/mps_analysis.py", r"edge_margin_nm=(eps_nm)", str), origin="ad hoc",
@@ -235,8 +235,8 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
                    "derivation yet",
        shown_as="DBSCAN 'More' line", records=("edge-runaway-guard-50pct", "edge-reference-convex-hull-fallback"),
        changes_in="SCI-B6",
-       change_note="SCI-B6 makes the safeguard editable (documented range 0.2-0.9) and applies no rule where no "
-                   "ROI is drawn, instead of the convex hull",
+       change_note="a later version makes the safeguard editable (documented range 0.2-0.9) and applies no edge "
+                   "rule where no ROI is drawn, instead of the convex hull",
        not_editable_because="e1: analyze_axon takes no switch for it"),
     _e(key="curation.dbcv_threshold", label="curation: DBCV", unit="", home="none",
        default=_const(_S, "DEFAULT_DBCV_THRESHOLD"), origin="derived",
@@ -245,7 +245,7 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        origin_note="standard method (DBCV, Moulavi et al. 2014), off by default: a threshold removes the largest "
                    "clusters first; the two export columns stay, recorded as off",
        shown_as="DBSCAN 'More' line", documented_range=(-1.0, 1.0), range_text="-1 to 1 (advanced)",
-       range_note="record dbcv-threshold-default-off", records=("dbcv-threshold-default-off",),
+       records=("dbcv-threshold-default-off",),
        not_editable_because="e1"),
     _e(key="contour.two_opt_starts", label="contour: 2-opt starts", unit="", home="none",
        default=_keyword("tools.mps_analysis", "analyze_axon", "all_starts"), origin="derived",
@@ -258,45 +258,51 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        default=_const("tools.mps_geometry", "DEEP_VERTEX_FRACTION"), origin="simulation",
        origin_note="a contour vertex deeper than this fraction of the hull radius is counted as deep; calibrated on "
                    "simulated rings, valid up to a radial scatter of about 5-8 % of the radius",
-       documented_range=(0.3, 0.6), range_text="0.30-0.60", range_note="record contour-deep-vertex-fraction-0.40",
+       documented_range=(0.3, 0.6), range_text="0.30-0.60",
        records=("contour-deep-vertex-fraction-0.40",), changes_in="SCI-B6",
-       change_note="SCI-B6 makes it editable within its documented range", not_editable_because="e1", fmt=".2f"),
+       change_note="a later version makes it editable within its documented range", not_editable_because="e1",
+       fmt=".2f"),
     _e(key="contour.health.max_over_median", label="longest edge over the median edge", unit="", home="none",
        default=_const("tools.mps_geometry", "MAX_OVER_MEDIAN_LIMIT"), origin="simulation",
        origin_note="contour health: the longest step against the median step, set above what simulated rings with "
                    "random spacing reach",
        records=("contour-max-over-median-limit-20",), changes_in="SCI-B6",
-       change_note="SCI-B6 replaces it by the longest step as a fraction of the contour length, tested against "
-                   "Fisher's exact null for the largest of K spacings (alpha 0.001, documented range 1e-4 to 0.05)",
+       change_note="a later version replaces it by the longest step as a fraction of the contour length, tested "
+                   "against "
+                   "Fisher's exact null for the largest of K spacings (alpha 0.001, documented range 1e-4 to "
+                   "0.05)",
        not_editable_because="e1"),
     _e(key="membrane.knot_spacing_nm", label="membrane P-spline knot spacing", unit="nm", home="none",
        default=_const("tools.mps_membrane", "MEMBRANE_KNOT_SPACING_NM"), origin="derived",
        origin_note="convention with a written derivation: the knot spacing of the membrane P-spline bounds the "
                    "smoothing bias at a micrometre radius (Hall and Meyer 1976)",
-       documented_range=(400.0, 800.0), range_text="400-800", range_note="record membrane-knot-spacing-600",
+       documented_range=(400.0, 800.0), range_text="400-800",
        records=("membrane-knot-spacing-600",), changes_in="SCI-B6",
-       change_note="SCI-B6 makes it editable within its documented range", not_editable_because="e1", fmt=",.0f"),
+       change_note="a later version makes it editable within its documented range", not_editable_because="e1",
+       fmt=",.0f"),
     _e(key="window.clustering", label="window clustering (algorithm, min cluster size)", unit="", home="main",
        default=None, origin="ad hoc", value_text="as typed in the main window (the window clustering only)",
        origin_note="the main window's own clustering preview, not the MPS analysis; its 'Auto' algorithm switches "
                    "to HDBSCAN on large selections and its automatic eps reads a fixed neighbour rank",
        records=("dbscan-hdbscan-auto-switch-100k", "kdist-k-5", "kdist-percentile-90"), changes_in="SCI-B6",
-       change_note="SCI-B6 removes the automatic switch to HDBSCAN (DBSCAN always; HDBSCAN only explicitly) and "
+       change_note="a later version removes the automatic switch to HDBSCAN (DBSCAN always; HDBSCAN only when "
+                   "chosen) and "
                    "ties the automatic eps to the (min samples - 1)-th neighbour, shown as a graph to read"),
     _e(key="channel2.eps_nm", label="channel 2: eps", unit="nm", home="main", default=None, origin="blank",
        value_text="typed per folder, or 'auto'",
        origin_note="standard method: a second channel is never clustered with channel 1's parameters (Ester et al. "
                    "1996): its own value is typed once per acquisition folder",
-       range_text="1-5 x the channel's NeNA precision", range_note="record dbscan-channel2-own-parameters",
+       range_text="1-5 x the channel's NeNA precision",
        records=("dbscan-channel2-own-parameters",), changes_in="SCI-B6",
-       change_note="SCI-B6 writes a suggestion beside the empty field, never pre-filled: eps_2 = eps_1 x "
+       change_note="a later version writes a suggestion beside the empty field, never pre-filled: eps_2 = eps_1 x "
                    "sigma_2 / sigma_1 from each channel's NeNA"),
     _e(key="channel2.min_samples", label="channel 2: min samples", unit="", home="main", default=None,
        origin="blank", value_text="typed per folder, or 'auto'",
        origin_note="standard method: channel 2's own DBSCAN count, typed once per acquisition folder",
-       documented_range=(2.0, 50.0), range_text="2-50", range_note="record dbscan-channel2-own-parameters",
+       documented_range=(2.0, 50.0), range_text="2-50",
        records=("dbscan-channel2-own-parameters",), changes_in="SCI-B6",
-       change_note="SCI-B6 writes a suggestion beside the empty field, never pre-filled: the expected number of one "
+       change_note="a later version writes a suggestion beside the empty field, never pre-filled: the expected "
+                   "number of one "
                    "molecule's localizations within eps_2 of one of them"),
     # ---------------------------------------------------------------- occupancy
     _e(key="occupancy.mahalanobis", label="Mahalanobis", unit="", home="strip",
@@ -310,128 +316,152 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        words=lambda v: f"sigma capped at d_max/{1.0 / v:.3g}",
        origin_note=f"each cluster's Gaussian is constrained: sigma <= d_max / 3 ({PAPER})",
        shown_as="Occupancy 'More' line; the contour caption", documented_range=(0.2, 1.0), range_text="0.2-1.0",
-       range_note="record occupancy-sigma-cap-one-third", records=("occupancy-sigma-cap-one-third",),
-       changes_in="SCI-3", not_editable_because="e1", fmt=".3g"),
+       range_note="at 1.0 the cap never binds for Gaussian clusters", records=("occupancy-sigma-cap-one-third",),
+       changes_in="SCI-3", change_note="a later version makes it editable, within 0.2-1.0",
+       not_editable_because="e1", fmt=".3g"),
     # ---------------------------------------------------------------- randomization (read-only in stage 2)
     _e(key="randomization.band_half_width_nm", label="band", unit="nm", home="none",
        default=_const(_R, "DEFAULT_ANNULUS_HALF_WIDTH_NM"), origin="paper",
        origin_note=f"random centres are drawn within this distance of the smoothed contour ({PAPER})",
        shown_as="Randomization 'More' line; CDF details", documented_range=(20.0, 150.0), range_text="20-150",
-       range_note="record rand-annulus-half-width-50nm", records=("rand-annulus-half-width-50nm",),
-       changes_in="SCI-3", change_note="SCI-3 makes it editable and adds an export column",
+       records=("rand-annulus-half-width-50nm",),
+       changes_in="SCI-3", change_note="a later version makes it editable and adds an export column",
        not_editable_because="e1, e2: not an analyze_axon argument, not in the axon table"),
     _e(key="randomization.iterations", label="iterations", unit="", home="none",
        default=_const(_R, "DEFAULT_N_RANDOMIZATIONS"), origin="paper",
        origin_note=f"the number of randomizations ({PAPER})", shown_as="Randomization 'More' line; CDF details",
        allowed=(199.0, 399.0, 999.0, 1999.0), range_text="199 / 399 / 999 / 1999",
-       range_note="alpha (B + 1) an integer (C10, P-R52)", changes_in="SCI-3", change_note="SCI-3: 999",
+       range_note="a Monte Carlo p-value is exact at a level alpha when alpha (B + 1) is an integer",
+       changes_in="SCI-3", change_note="a later version uses 999", extra={"later": "999"},
        not_editable_because="e5: the research changes the default", fmt=",.0f"),
     _e(key="randomization.seed", label="seed", unit="", home="none",
        default=_keyword("tools.mps_analysis", "analyze_axon", "random_seed"), origin="derived",
        origin_note="convention: a fixed seed so that a run can be repeated", shown_as="Randomization 'More' line",
        range_text="any integer", records=("rand-random-seed-0",), changes_in="SCI-3",
+       change_note="a later version shows it as an advanced setting",
        not_editable_because="e4: Batch and the next session would need a settings field"),
     _e(key="randomization.smoothing", label="smoothing", unit="", home="none",
        default=_keyword(_R, "smooth_contour_bspline", "smoothing"), origin="ad hoc",
        value_text="s = K, open contour",
-       origin_note="scipy's s = K (the number of contour points); the paper states no smoothing factor",
+       origin_note="s = K (K the number of contour points) is kept by the research: with unit weights it bounds the "
+                   "RMS residual at 1 nm per point, i.e. near-interpolation, as the paper's 'B-spline interpolation'; "
+                   "fitting the open contour with a periodic spline has no derivation (the badge is for that)",
        shown_as="Randomization 'More' line", range_text="RMS residual 0-50 nm",
        records=("rand-bspline-smoothing-s-equals-K",), changes_in="SCI-3",
-       change_note="SCI-3 closes the contour before the fit; s = K (an RMS residual of 1 nm) is kept",
+       change_note="a later version closes the contour before the fit and keeps s = K",
        not_editable_because="e1"),
     _e(key="randomization.incomplete_iterations", label="incomplete iterations", unit="", home="none",
        default=None, origin="ad hoc", value_text="kept in the pool",
        origin_note="an iteration that could not place every centre is still pooled",
        shown_as="Randomization 'More' line; CDF details", records=("rand-placement-sequential-rejection",),
-       changes_in="SCI-3", change_note="SCI-3: excluded and drawn again", not_editable_because="e1"),
+       changes_in="SCI-3", change_note="a later version excludes such an iteration and draws it again",
+       not_editable_because="e1"),
     _e(key="randomization.max_attempts_factor", label="attempts", unit="", home="none",
        default=_keyword(_R, "place_with_min_distance", "max_attempts_factor"), origin="derived",
        words=lambda v: f"attempts {v} x n", origin_note="convention: at most this many draws per centre to place",
        shown_as="Randomization 'More' line", documented_range=(5.0, 100.0), range_text="5-100",
-       records=("rand-max-attempts-factor-20",), changes_in="SCI-3", not_editable_because="e1"),
+       records=("rand-max-attempts-factor-20",), changes_in="SCI-3",
+       change_note="a later version shows it as an advanced setting and prints the packing fraction in the warning",
+       not_editable_because="e1"),
     _e(key="randomization.grid_spacing_nm", label="grid", unit="nm", home="none",
        default=_const(_R, "DEFAULT_GRID_SPACING_NM"), origin="derived",
        origin_note="convention: the candidate positions lie on a grid of this spacing",
        shown_as="Randomization 'More' line", documented_range=(1.0, 20.0), range_text="1-20",
-       records=("rand-grid-spacing-5nm",), changes_in="SCI-3", not_editable_because="e1"),
+       records=("rand-grid-spacing-5nm",), changes_in="SCI-3",
+       change_note="a later version shows it as an advanced setting", not_editable_because="e1"),
     _e(key="randomization.cdf_crossing_floor", label="CDF crossing floor", unit="", home="none",
        default=_in_code("tools/mps_randomization.py", r"floor = ([0-9.]+) \* max_abs"), origin="ad hoc",
        words=lambda v: f"{100.0 * v:.0f} % of the largest gap between the curves",
        origin_note="a sign change of observed minus randomized counts as a crossing only beyond this floor",
        shown_as="the CDF-crossing cell's tooltip", records=("rand-cdf-crossing-floor-015",), changes_in="SCI-3",
-       change_note="SCI-3 reports a crossing only where the curves leave a null band", fmt=".2f"),
+       change_note="a later version reports a crossing only where the curves leave the band the randomizations "
+                   "themselves give", fmt=".2f"),
     # ---------------------------------------------------------------- reference values (paper)
     _e(key="reference.nn1_median_nm", label="1NN median", unit="nm", home="none",
        default=_const("tools.mps_spatial", "PAPER_MEDIAN_OF_MEDIANS_NM"), origin="paper",
        origin_note=f"{PAPER}: another dataset and another pipeline; agreeing with it is not a validation "
-                   "criterion (P-R25)",
+                   "criterion",
        shown_as="1NN reference layer (off by default); results table", changes_in="SCI-3",
-       change_note="SCI-3 renames the column and moves the comparison to the docs", fmt=",.0f"),
+       change_note="a later version renames the column and moves the comparison to the documentation",
+       fmt=",.0f"),
     _e(key="reference.clusters_per_um", label="clusters per um", unit="1/um", home="none",
        default=_consts("tools.mps_geometry", ("PAPER_SLOPE_CLUSTERS_PER_UM", "PAPER_INTERCEPT_CLUSTERS")),
        origin="paper", words=lambda v: f"the slope of N = {v[0]:g} P - {abs(v[1]):g}",
        origin_note=f"{PAPER}: the regression of the cluster count N on the perimeter P", shown_as="results table",
-       changes_in="SCI-3", change_note="SCI-3 adds the regularity index r beside it"),
+       changes_in="SCI-3",
+       change_note="a later version adds the regularity index r = median 1NN / (P / K) beside it"),
     _e(key="reference.cluster_area_nm2", label="cluster area (median)", unit="nm^2", home="none",
        default=_const("tools.mps_geometry", "PAPER_MEDIAN_CLUSTER_AREA_NM2"), origin="paper",
-       origin_note=f"{PAPER}: another dataset and another pipeline", shown_as="Cluster-area reference line; "
-                                                                            "results table", fmt=",.0f"),
+       origin_note=f"{PAPER}: another dataset and another pipeline; not a validation criterion",
+       shown_as="Cluster-area reference line; results table", fmt=",.0f"),
     _e(key="reference.r_eff_nm", label="effective radius (median)", unit="nm", home="none",
        default=_const("tools.mps_geometry", "PAPER_MEDIAN_R_EFF_NM"), origin="paper",
-       origin_note=f"{PAPER}: another dataset and another pipeline", shown_as="results table"),
+       origin_note=f"{PAPER}: another dataset and another pipeline; not a validation criterion",
+       shown_as="results table"),
     _e(key="reference.occupancy_percent", label="occupancy", unit="%", home="none",
-       default=_const("tools.mps_occupancy", "PAPER_OCCUPANCY_PERCENT"), origin="paper", origin_note=f"{PAPER}",
+       default=_const("tools.mps_occupancy", "PAPER_OCCUPANCY_PERCENT"), origin="paper",
+       origin_note=f"{PAPER}: another dataset and another pipeline; not a validation criterion",
        shown_as="results table"),
     _e(key="reference.ks", label="KS D", unit="", home="none", default=_const(_R, "PAPER_KS_D"), origin="paper",
-       words=lambda v: f"D = {v:g}, p < 1e-3",
-       origin_note=f"{PAPER}; the aggregation level of the test is not stated (P-R56)", shown_as="results table",
-       changes_in="SCI-3", fmt=".3f"),
+       words=lambda v: f"D = {v:g}",
+       origin_note=f"{PAPER}; the paper also gives a p, not repeated here: the aggregation level of its test is not "
+                   "stated, and a KS p on these samples has no valid reading", shown_as="results table",
+       changes_in="SCI-3",
+       change_note="a later version gives D its own null (the D of each randomization against the pool), so that "
+                   "it can be compared between axons", fmt=".3f"),
     _e(key="reference.cdf_crossing", label="CDF crossing", unit="", home="none",
-       default=_const(_R, "PAPER_CDF_CROSSING"), origin="paper", origin_note=f"{PAPER}", shown_as="results table",
-       changes_in="SCI-3", fmt=".2f"),
+       default=_const(_R, "PAPER_CDF_CROSSING"), origin="paper",
+       origin_note=f"{PAPER}: another dataset and another pipeline; not a validation criterion",
+       shown_as="results table", changes_in="SCI-3",
+       change_note="a later version reports a crossing only where the curves leave the band the randomizations "
+                   "themselves give", fmt=".2f"),
     # ---------------------------------------------------------------- rings window
     _e(key="rings.mode", label="slab boundaries", unit="", home="rings",
        default=_in_code("MPS_explorer.py", r'def run_ring_analysis\(\s*self, show_window: bool = True, '
                                            r'mode: str = "(\w+)"', str),
        origin="derived", origin_note="convention: cut at the density minimum between two components",
        shown_as="rings window (combo)", range_text="paper / partition / valley",
-       records=("segment-mode-valley",), changes_in="SCI-6", change_note="SCI-6 adds 'bayes'", editable=True),
+       records=("segment-mode-valley",), changes_in="SCI-6",
+       change_note="a later version adds a 'bayes' mode: the boundary where the two neighbouring components are "
+                   "equally probable", editable=True),
     _e(key="rings.guard_nm", label="guard", unit="nm", home="rings",
        default=_in_code("MPS_explorer.py", r'def run_ring_analysis\(\s*self, show_window: bool = True, '
                                            r'mode: str = "\w+",\s*guard_nm: float = ([0-9.]+)'),
        origin="derived", origin_note="convention: no guard band between consecutive slabs (total width)",
        shown_as="rings window (spin)", documented_range=(0.0, 100.0), range_text="0-100 (total)",
-       records=("guard-nm-0",), changes_in="SCI-6", change_note="SCI-6 gives it in units of s_eff",
+       records=("guard-nm-0",), changes_in="SCI-6",
+       change_note="a later version gives it in units of the rings' own width",
        editable=True),
     _e(key="rings.valley_depth_colour", label="boundary colour level", unit="", home="none",
        default=_in_code("tools/mps_rings_window.py", r"depth >= ([0-9.]+) else _C_WARN"), origin="derived",
-       origin_note="convention: a valley at least this deep is drawn as resolved; one level shared with the "
-                   "analysis warning (C8)",
+       origin_note="convention: a valley at least this deep is drawn as resolved (two equal Gaussian rings about "
+                   "2.5 widths apart); the analysis warning still uses 0.05",
        shown_as="the rings boundary table's tooltip", documented_range=(0.02, 0.30), range_text="0.02-0.30",
        records=("rings-window-valley-depth-colour-0.10",), changes_in="SCI-6",
-       not_editable_because="e5: one level shared with the analysis warning", fmt=".2f"),
+       change_note="a later version uses one level, 0.10, for this colour and for the analysis warning",
+       not_editable_because="e5: the research changes the analysis level", fmt=".2f"),
     # ---------------------------------------------------------------- axoplasm window
     _e(key="axoplasm.threshold", label="threshold", unit="", home="axoplasm",
        default=_keyword("tools.mps_axoplasm", "otsu_threshold", "bins"), origin="derived",
        words=lambda v: f"Otsu's threshold ({v} bins)",
        origin_note="standard method: Otsu (1979) on the smoothed tubulin image; 'user' when set by hand",
        shown_as="axoplasm window (slider); the map's image caption", range_text="64-1024 bins",
-       range_note="record axoplasm-otsu-threshold-tubulin (the histogram's bins, not the threshold)",
+       range_note="the histogram's bins, not the threshold",
        records=("axoplasm-otsu-threshold-tubulin",), editable=True),
     _e(key="axoplasm.smoothing_px", label="smoothing", unit="px", home="axoplasm",
        default=_const("tools.mps_axoplasm", "DEFAULT_SMOOTH_SIGMA_PX"), origin="derived",
        origin_note="convention with a written derivation: Gaussian smoothing of the widefield image before the "
                    "threshold, below the image's own blur",
        shown_as="axoplasm window (spin, in nm)", documented_range=(0.5, 2.0), range_text="0.5-2",
-       range_note="record axoplasm-mask-smoothing-upsample-region", records=("axoplasm-mask-smoothing-upsample-region",),
+       records=("axoplasm-mask-smoothing-upsample-region",),
        editable=True),
     _e(key="axoplasm.margin_nm", label="margin", unit="nm", home="axoplasm",
        default=_const("tools.mps_axoplasm", "DEFAULT_MARGIN_NM"), origin="ad hoc",
        origin_note="how far inside the mask edge a cluster must be to count as inside",
        shown_as="axoplasm window (spin); the map's image caption", documented_range=(100.0, 500.0),
        range_text="100-500", records=("axoplasm-default-margin-250nm",), changes_in="SCI-7",
-       change_note="SCI-7 derives it from the images' lambda_em / NA plus the registration error "
-                   "(this value only without metadata)",
+       change_note="a later version derives it from the images' emission wavelength over the numerical aperture, "
+                   "plus the registration error (this value only without that metadata)",
        editable=True, fmt=",.0f"),
     _e(key="axoplasm.registration_thresholds", label="registration thresholds", unit="", home="none",
        default=_consts("tools.mps_axoplasm", ("MIN_REGISTRATION_SCORE", "RUNNER_UP_FRACTION",
@@ -440,36 +470,41 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        words=lambda v: f"score {v[0]:g}, runner-up {v[1]:g}, exclusion {v[2]} px, search +/-{v[3]} px",
        origin_note="the shift between the widefield images and the localizations is accepted above these",
        range_text="5-20; 0.3-0.8; 2-5 px; 10-50 px", records=("axoplasm-registration-score-and-runner-up",),
-       changes_in="SCI-7"),
+       changes_in="SCI-7", change_note="a later version makes the four thresholds editable within these ranges"),
     # ---------------------------------------------------------------- measurement (12.7)
     _e(key="measurement.pixel_size_nm", label="pixel size", unit="nm", home="measurement", default=None,
        origin="blank", value_text="per file, with its source",
-       origin_note="read from the file's metadata or typed for its folder at load; shown with its source words",
+       origin_note="a measurement input: read from the file's metadata or typed for its folder at load, and "
+                   "shown with its source words, never with a badge",
        shown_as="Measurement panel; provenance line 1"),
     _e(key="measurement.z_calibration", label="z calibration", unit="", home="measurement", default=None,
-       origin="blank", value_text="- (none read)",
-       origin_note="z as fitted by the localization software; reading a calibration record comes with SCI-1",
+       origin="blank", value_text="- (none applied)",
+       origin_note="z as fitted by the localization software: no z correction is applied (Data quality reads a "
+                   "file's own calibration record only for its coverage check)",
        shown_as="Measurement panel; provenance line 2; the axial titles", changes_in="SCI-1",
-       not_editable_because="the input is disabled until SCI-1"),
+       change_note="a later version reads a calibration record and corrects z with it",
+       not_editable_because="the input is disabled until a later version reads it"),
     _e(key="measurement.bead_stack", label="bead stack", unit="", home="measurement", default=None,
-       origin="blank", value_text="- (not given)", origin_note="a localized bead stack comes with SCI-1",
-       shown_as="Measurement panel", changes_in="SCI-1", not_editable_because="the input is disabled until SCI-1"),
+       origin="blank", value_text="- (not given)", origin_note="no localized bead stack is read",
+       shown_as="Measurement panel", changes_in="SCI-1",
+       change_note="a later version reads a localized bead stack (the magnification factor and the calibrated "
+                   "range)",
+       not_editable_because="the input is disabled until a later version reads it"),
     # ---------------------------------------------------------------- DNA-PAINT (the TODO-B9 hook, 12.9; filled by
     # B9). The DNA-PAINT window is not a stage-2 window: these entries are metadata for SCI-B9 and stage 3.
     _e(key="paint.link_radius_precisions", label="linking radius", unit="x precision", home="none",
        default=_const("tools.mps_paint", "LINK_RADIUS_IN_PRECISIONS"), origin="ad hoc",
        origin_note="events are linked within this many lateral precisions; a radius of k precisions breaks a "
                    "fraction exp(-k^2/4) of one emitter's genuine steps",
-       documented_range=(2.0, 8.0), range_text="2-8", range_note="record paint-link-radius-factor",
+       documented_range=(2.0, 8.0), range_text="2-8", range_note="in multiples of the file's lateral precision",
        records=("paint-link-radius-factor",), changes_in="SCI-B9",
-       change_note="SCI-B9 links within 5 precisions, one rule with the column pipeline (breaks 0.19 % of genuine "
-                   "steps instead of 10.5 %)"),
+       change_note="a later version links within 5 precisions, one rule with the column pipeline (it breaks "
+                   "0.19 % of genuine steps instead of 10.5 %)"),
     _e(key="paint.max_dark_frames", label="max dark time", unit="frame(s)", home="none",
        default=_const("tools.mps_paint", "DEFAULT_MAX_DARK_TIME"), origin="derived",
        origin_note="convention with a written derivation: frames of darkness tolerated inside one binding event, "
                    "the same rule as the column pipeline",
-       documented_range=(0.0, 5.0), range_text="0-5", range_note="record paint-max-dark-time-default (more allowed, "
-                                                                 "flagged)",
+       documented_range=(0.0, 5.0), range_text="0-5", range_note="more is allowed, and flagged",
        records=("paint-max-dark-time-default",)),
     _e(key="paint.exposure_s", label="exposure", unit="s", home="none", default=None, origin="unreviewed",
        value_text="read from the file, or typed", origin_note="used only to give times in seconds",
@@ -482,10 +517,13 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
     _e(key="paint.frame_analysis", label="frame analysis", unit="", home="none",
        default=_consts("tools.mps_paint", ("_FA_MEAN_FRAME_LOW", "_FA_MEAN_FRAME_HIGH", "_FA_N_WINDOWS",
                                            "_FA_MAX_SHARE_IN_WINDOW")),
-       origin="unreviewed",
+       origin="ad hoc",
        origin_note="Picasso's basic frame analysis; the warning built on it (more than half of the clusters "
-                   "rejected) is replaced in SCI-B9 by a comparison with what sparse sampling alone rejects",
-       records=("paint-frame-analysis-warning-half",), unreviewed_because=NOT_INVENTORIED),
+                   "rejected) has no derivation yet",
+       records=("paint-frame-analysis-warning-half",), changes_in="SCI-B9",
+       change_note="a later version warns when more clusters are rejected than sparse sampling alone rejects, "
+                   "computed from each cluster's own event count; one half stays as the trigger of the stronger "
+                   "text"),
     _e(key="paint.fragmentation_margin", label="fragmentation: shortest observable gap", unit="frame(s)",
        home="none", default=_const("tools.mps_paint", "FRAGMENTATION_MARGIN"), origin="derived",
        origin_note="first-principles derivation: the cutoff max dark time + 2 is the shortest gap the linking can "
@@ -494,13 +532,16 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        default=_const("tools.mps_paint", "FRAGMENTATION_EXCESS"), origin="ad hoc",
        origin_note="short gaps more than this many times what a single exponential predicts",
        records=("paint-fragmentation-excess-factor",), changes_in="SCI-B9",
-       change_note="SCI-B9 replaces it by an exact binomial test (alpha 0.01, material excess 0.10)"),
+       change_note="a later version replaces it by an exact binomial test (alpha 0.01, material excess 0.10)"),
     _e(key="paint.fragmentation_min_fraction", label="fragmentation: minimum share", unit="", home="none",
        default=_const("tools.mps_paint", "FRAGMENTATION_MIN_FRACTION"), origin="derived",
        origin_note="convention with a written derivation: the short gaps must be at least this share of a "
                    "cluster's gaps", documented_range=(0.05, 0.30), range_text="0.05-0.30",
-       range_note="record paint-fragmentation-min-fraction", records=("paint-fragmentation-min-fraction",),
-       fmt=".2f"),
+       range_note="for the excess of short gaps over the share a single exponential predicts, which replaces this "
+                  "raw share in a later version", records=("paint-fragmentation-min-fraction",),
+       changes_in="SCI-B9",
+       change_note="a later version applies it to the excess of short gaps over the expected share, not to the raw "
+                   "share", fmt=".2f"),
 )
 
 _BY_KEY: Dict[str, ParamInfo] = {e.key: e for e in _ENTRIES}
@@ -676,10 +717,9 @@ def tooltip(key: str, value: Any = UNSET) -> str:
         if value is not UNSET and outside_range(key, value):
             lines.append("This value is outside it: nothing is changed, it is only flagged.")
     if e.changes_in:
-        note = e.change_note
-        if note.startswith(e.changes_in):
-            note = note[len(e.changes_in):].lstrip(": ")
-        lines.append(f"Changes in {e.changes_in}" + (f": {note}." if note else "."))
+        # In words: the science PR's id is internal (``changes_in``); a reader cannot resolve it.
+        note = e.change_note or "a later version changes it"
+        lines.append(note[0].upper() + note[1:] + ".")
     if e.unreviewed_because:
         lines.append("Unreviewed: " + ("not inventoried by the research yet." if e.unreviewed_because ==
                                        NOT_INVENTORIED else f"its research batch ({e.unreviewed_because}) is pending."))
@@ -712,15 +752,15 @@ _MORE_WORDS: Dict[str, Callable[[], str]] = {
 
 def more_items(group: str) -> List[Tuple[str, str, str, str]]:
     """(key, words, badge, bracket) for each read-only value of a strip group's "More" line, e.g.
-    ("randomization.iterations", "1,000 iterations", "paper", "paper; SCI-3: 999")."""
+    ("randomization.iterations", "1,000 iterations", "paper", "paper; later: 999")."""
     out: List[Tuple[str, str, str, str]] = []
     for key in MORE_GROUPS[group]:
         e = info(key)
         parts = [e.origin]
         if e.origin in TRANSITIONAL and e.changes_in:
-            parts.append(e.changes_in)
-        elif e.changes_in and e.change_note.startswith(e.changes_in + ":"):
-            parts.append(e.change_note)
+            parts.append("changed later")
+        elif e.changes_in and e.extra.get("later"):
+            parts.append(f"later: {e.extra['later']}")
         elif e.documented_range is not None or e.allowed:
             parts.append(e.range_text)
         out.append((key, _MORE_WORDS[key](), e.origin, "; ".join(parts)))

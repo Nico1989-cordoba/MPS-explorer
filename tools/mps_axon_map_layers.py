@@ -433,7 +433,7 @@ def _seg_words(ms: Any) -> str:
     if not p:
         return base
     return (f"{base}; eps {p['eps']:g} nm{reg.user_mark('dbscan.eps_nm', p['eps'])}, "
-            f"min {p['min']}{reg.user_mark('dbscan.min_samples', p['min'])}, "
+            f"min samples {p['min']}{reg.user_mark('dbscan.min_samples', p['min'])}, "
             f"half-width {p['half']:g} nm{reg.user_mark('slab.half_width_nm', p['half'])}, "
             f"Mahalanobis {p['maha']:g}{reg.user_mark('occupancy.mahalanobis', p['maha'])}")
 
@@ -699,8 +699,8 @@ def _rings_group(inp: MapInputs) -> Group:
         c = np.asarray(ms.axon_center, float).ravel()
         g.layers.append(Layer("ring_origin", "Angle origin of the ring profiles (pooled centre of every segment's "
                               "clusters)", g.key, "scatter", {"x": c[:1], "y": c[1:2]}, None,
-                              "The origin of the angles of 'Patches around the perimeter'. SCI-6 moves the ring "
-                              "correlation to arc length and keeps the angle as an exploratory mode."))
+                              "The origin of the angles of 'Patches around the perimeter'. A later version moves "
+                              "the ring correlation to arc length and keeps the angle as an exploratory mode."))
     return g
 
 
@@ -774,7 +774,7 @@ def provenance_line2(analysis: Any, *, roi_words: str, cut: Optional[Tuple[float
     if analysis is not None:
         t = float(analysis.mahalanobis_threshold)
         parts.append(f"Mahalanobis {t:g}{reg.user_mark('occupancy.mahalanobis', t)}")
-    parts.append("z as fitted, no z-calibration record read")
+    parts.append("z as fitted, no z correction applied")
     return "; ".join(parts)
 
 
@@ -787,7 +787,7 @@ AXIAL_ON: Dict[str, FrozenSet[str]] = {
     "segments": frozenset({"roi_out", "mixture", "segband", "valleys"}),
 }
 AXIAL_LEFT_LABEL = "density over the ROI [1/nm]"
-Z_CALIBRATION_LINE = "z as fitted; no z-calibration record read"
+Z_CALIBRATION_LINE = "z as fitted; no z correction applied"
 CH2_HIDES_COMPONENTS = ("channel 2 is drawn: its vermillion is too close to the components' orange under "
                         "deuteranopia; the neutral mixture stays")
 
@@ -1046,9 +1046,10 @@ def axial_details(inp: AxialInputs) -> List[DetailRow]:
     rows: List[DetailRow] = []
     if zr is None:
         return [_row("Gaussian mixture", "- (not fitted)", inp.fit_reason)]
-    rows.append(_row("components chosen by BIC", str(int(zr.n_components))))
+    rows.append(_row("components chosen by BIC", str(int(zr.n_components)), "the number with the lowest BIC"))
     for n_comp, bic in sorted((int(k), float(v)) for k, v in dict(zr.bic_by_n).items()):
-        rows.append(_row(f"BIC with {n_comp} component{'s' if n_comp != 1 else ''}", f"{bic:,.1f}"))
+        rows.append(_row(f"BIC with {n_comp} component{'s' if n_comp != 1 else ''}", f"{bic:,.1f}",
+                         "lower is better; only the differences between these rows matter"))
     for i, (m, s, w) in enumerate(zip(zr.means_nm, zr.sigmas_nm, zr.weights), 1):
         rows.append(_row(f"component {i}", f"mean {float(m):,.1f} nm, sigma {float(s):,.1f} nm, weight {float(w):.2f}"))
     rows.append(_row("components left out (weight <= 5 %)", str(int(zr.n_discarded_components))))
@@ -1148,7 +1149,8 @@ def nn_title(hist: Dict[str, Any], shown: Any, comparison: Any, measured: Any,
 
 
 def nn_layers(shown: Any, hist: Dict[str, Any]) -> List[Layer]:
-    """Bars, the median line and the reference layer (off by default, P-R25) of the nearest-neighbour tab."""
+    """Bars, the median line and the reference layer (off by default: another dataset and pipeline, not a
+    validation criterion) of the nearest-neighbour tab."""
     layers: List[Layer] = []
     n = int(hist.get("n", 1))
     edges = np.asarray(hist.get("edges", np.empty(0)), float)
@@ -1177,7 +1179,7 @@ def nn_layers(shown: Any, hist: Dict[str, Any]) -> List[Layer]:
     return layers
 
 
-NN_ON: FrozenSet[str] = frozenset({"nn_bars", "nn_median"})      # the reference starts off (P-R25)
+NN_ON: FrozenSet[str] = frozenset({"nn_bars", "nn_median"})      # the reference starts off (not a criterion)
 
 
 def nn_details(shown: Any, n: int) -> List[DetailRow]:
@@ -1225,14 +1227,16 @@ def cdf_title(shown: Any, comparison: Any, measured: Any) -> str:
 
 def cdf_details(shown: Any) -> List[DetailRow]:
     """D, B, the minimum separation, the candidates, the band (paper), incomplete iterations, the mean placed
-    fraction, the randomized median. Not the KS p (P-R23)."""
+    fraction, the randomized median. Not the KS p: it has no valid reading on these samples."""
     if shown is None or shown.randomization is None:
         return [_row("randomization", "- (not run)")]
     r = shown.randomization
     band = float(r.annulus_half_width_nm)
     med = r.randomized_median_nm
     return [
-        _row("KS statistic D", f"{float(r.ks_statistic):.3f}"),
+        _row("KS statistic D", f"{float(r.ks_statistic):.3f}",
+             "descriptive: the largest gap between the two CDFs. Its size under the null falls as about "
+             "0.87/sqrt(K), so it is not comparable between axons; a later version adds its null mean and z_D"),
         _row("randomizations B", f"{int(r.n_iterations):,}", "", reg.badge("randomization.iterations",
                                                                             int(r.n_iterations))),
         _row("minimum separation used", f"{float(r.min_distance_nm):,.1f} nm"),
@@ -1241,7 +1245,9 @@ def cdf_details(shown: Any) -> List[DetailRow]:
              reg.badge("randomization.band_half_width_nm", band)),
         _row("incomplete iterations", f"{int(r.n_incomplete_iterations):,}", "kept in the pool",
              reg.badge("randomization.incomplete_iterations")),
-        _row("mean placed fraction", f"{float(r.mean_placed_fraction):.3f}"),
+        _row("mean placed fraction", f"{float(r.mean_placed_fraction):.3f}",
+             "the share of the K centres placed per iteration; below 1 the band could not hold them at the "
+             "minimum separation"),
         _row("randomized median 1NN", "-" if med is None else f"{med:,.1f} nm"),
     ]
 
@@ -1258,8 +1264,10 @@ def area_details(shown: Any) -> List[DetailRow]:
     return [
         _row("median area", "-" if med_a is None else f"{med_a:,.0f} nm^2"),
         _row("median effective radius", "-" if med_r is None else f"{med_r:,.1f} nm"),
-        _row("reference area", f"{ref_a:,.0f} nm^2", reg.PAPER, "paper"),
-        _row("reference effective radius", f"~{ref_r:g} nm", reg.PAPER, "paper"),
+        _row("reference area", f"{ref_a:,.0f} nm^2",
+             f"{reg.PAPER}: another dataset and another pipeline; not a validation criterion", "paper"),
+        _row("reference effective radius", f"~{ref_r:g} nm",
+             f"{reg.PAPER}: another dataset and another pipeline; not a validation criterion", "paper"),
     ]
 
 

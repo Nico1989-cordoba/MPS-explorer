@@ -1292,7 +1292,7 @@ def main() -> int:
         lines = at.split("<br>")
         assert len(lines) == 3 and lines[0].startswith("z of the ROI before the cut (") and \
             lines[1].startswith(f"MPS analysis slab {a.slab_zmin_nm:,.0f}..") and \
-            lines[2] == "z as fitted; no z-calibration record read", at
+            lines[2] == "z as fitted; no z correction applied", at
         st_ = L.axial_title(L.AxialInputs(z_roi=mw.zroi_unfiltered, rings=ms, view="segments"))
         assert f"segments: mode {ms.mode}, guard" in st_ and "(as computed)" in st_
         # nearest neighbours: N and the analysis shown, only when a comparison exists
@@ -1320,7 +1320,7 @@ def main() -> int:
         an0 = next(x for x in ms.analyses if x is not None)
         assert f"eps {an0.eps_nm:g} nm" in seg_cap and f"Mahalanobis {an0.mahalanobis_threshold:g}" in seg_cap
         line2 = L.provenance_line2(a, roi_words="ROI circle", cut=(float(mw.zmin), float(mw.zmax)))
-        assert line2.endswith("z as fitted, no z-calibration record read") and \
+        assert line2.endswith("z as fitted, no z correction applied") and \
             f"{a.n_locs_total:,} localizations given to the analysis" in line2
         return "map (3 radio states, 3 sources, stale, none), axial (2 views), NN (N, range), CDF, captions"
 

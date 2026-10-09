@@ -332,7 +332,7 @@ def main() -> int:
         tip = reg.tooltip("dbscan.eps_nm", 30.0)
         assert "you set 30 nm; default 25 nm (paper)" in tip and reg.PAPER in tip, tip
         assert reg.user_mark("dbscan.eps_nm", 30.0) == " [user]" and reg.user_mark("dbscan.eps_nm", 25.0) == ""
-        assert "SCI-7" in reg.tooltip("axoplasm.margin_nm")
+        assert "emission wavelength" in reg.tooltip("axoplasm.margin_nm")
         return "default -> its origin; departed -> user (default named in the tip); back -> origin; None -> blank"
 
     def range_semantics() -> str:
@@ -368,12 +368,13 @@ def main() -> int:
 
     def more_lines() -> str:
         rnd = reg.more_line("randomization")
-        assert rnd == ("band +/-50 nm [paper; 20-150] - 1,000 iterations [paper; SCI-3: 999] - seed 0 [derived] - "
-                       "smoothing s = K, open contour [ad hoc; SCI-3] - incomplete iterations kept [ad hoc; SCI-3] - "
+        assert rnd == ("band +/-50 nm [paper; 20-150] - 1,000 iterations [paper; later: 999] - seed 0 [derived] - "
+                       "smoothing s = K, open contour [ad hoc; changed later] - incomplete iterations kept "
+                       "[ad hoc; changed later] - "
                        "attempts 20 x n [derived; 5-100] - grid 5 nm [derived; 1-20]"), rnd
         assert reg.more_line("occupancy") == "sigma capped at d_max/3 [paper; 0.2-1.0]", reg.more_line("occupancy")
         dbs = reg.more_line("dbscan")
-        assert "edge criterion on [ad hoc; SCI-B6]" in dbs and "2-opt from every start [derived]" in dbs, dbs
+        assert "edge criterion on [ad hoc; changed later]" in dbs and "2-opt from every start [derived]" in dbs, dbs
         return "randomization, occupancy and DBSCAN lines say today's values with badge and range (12.4)"
 
     check("badge semantics", badge_semantics)
@@ -398,7 +399,25 @@ def main() -> int:
                 f"({len(LEAK_PATTERNS)} generic patterns"
                 + (f" + {len(private)} private)" if private else "; MPS_PRIVATE_LEAK_PATTERNS not set)"))
 
+    def no_internal_ids() -> str:
+        # REVIEW2 M7: what a user reads names no science PR, proposal item or research record by its id; the ids
+        # stay in the internal fields (changes_in, records) for traceability.
+        ids = re.compile(r"\bSCI-[0-9B]|\bP-R\d|\(C\d+\b|\bTODO-B\d|\brecord [a-z0-9]+-[a-z0-9-]+")
+        shown: List[str] = []
+        for e in reg.entries():
+            shown += [e.label, e.origin_note, e.range_text, e.range_note, e.change_note, e.value_text,
+                      reg.tooltip(e.key), reg.format_value(e.key), reg.range_hint(e.key)]
+            if e.changes_in:
+                assert e.change_note, (e.key, "a science PR changes it: say what, in words")
+        shown += [reg.more_line(g) for g in reg.MORE_GROUPS] + [reg.reset_tooltip()]
+        from tools import mps_results_window as rw
+        shown += [rw.PAPER_HEADER_TIP, rw.KS_P_TIP, rw.CROSSING_TIP]
+        hits = [t for t in shown if ids.search(t)]
+        assert not hits, hits[:3]
+        return f"{len(shown)} texts a user reads: no internal id"
+
     check("no text quotes unpublished data or a private path", public_texts)
+    check("no internal id (SCI-n, P-R, C-n, record) in what a user reads", no_internal_ids)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - T0:.1f} s")

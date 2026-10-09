@@ -4,9 +4,10 @@ The Measurement panel of the main window (UI stage 2, design 12.7): what each lo
 
 One row per loaded channel with its pixel size and the source of that number, in the program's own pixel-size words
 (``tools.mps_param_registry.pixel_source_words``, the same dictionary as the MPS analysis window's provenance line);
-then the per-measurement z calibration: "none read", badge "blank", z as fitted by the localization software; whether
-each file carries a Picasso "Z Calibration" record of its own (``Localizations.z_calibration``) or is a 2D file; and
-two inputs, "Calibration record..." and "Bead stack...", present and disabled until SCI-1 (Q11).
+then the per-measurement z calibration: "none applied", badge "blank", z as fitted by the localization software; whether
+each file carries a Picasso "Z Calibration" record of its own (``Localizations.z_calibration``; only Data quality's
+coverage check reads it, no z is corrected with it) or is a 2D file; and two inputs, "Calibration record..." and
+"Bead stack...", present and disabled until SCI-1 (Q11). With no 3D file loaded the z rows are hidden.
 
 What it guarantees: it is a display. It stores nothing (no settings field, no file written), passes nothing to any
 analysis or export, and is not a second editor of the pixel size, whose one input stays the per-folder prompt at load.
@@ -34,18 +35,18 @@ __all__ = ["ChannelFile", "MeasurementPanel", "measurement_lines", "z_record_lin
 
 TITLE = "Measurement"
 NO_FILE = "No file loaded."
-Z_LINE = "z calibration: - (none read)"
+Z_LINE = "z calibration: - (none applied)"
 Z_NOTE = "z as fitted by the localization software"
 BEAD_LINE = "bead stack: - (not given)"
 CALIBRATION_BUTTON = "Calibration record..."
 BEAD_BUTTON = "Bead stack..."
 DISABLED_TIP = ("Reading a calibration record (Picasso YAML, or the 'Fit 3D' / 'Z Calibration' block of the file) and "
-                "a localized bead stack comes with SCI-1: the magnification factor m with its source, the calibrated "
-                "range, the lateral shift with depth. Until then nothing is read and z is used as the localization "
-                "software fitted it.")
+                "a localized bead stack, to correct z, comes in a later version: the magnification factor m with its "
+                "source, the calibrated range, the lateral shift with depth. Until then no z correction is applied: z "
+                "is used as the localization software fitted it.")
 PANEL_TIP = ("What each loaded file says about the measurement. A display: nothing here is stored or passed to an "
              "analysis. The pixel size is given at load (from the file's metadata, or typed once per folder); the "
-             "z calibration is not read yet.")
+             "z is not corrected with any calibration.")
 PIXEL_TIP = ("The pixel size of this file and where the number comes from. Every lateral distance scales with it and "
              "every area with its square. It is read at load (Picasso YAML or the HDF5 metadata) or typed once for "
              "the folder; this panel only shows it.")
@@ -88,7 +89,8 @@ def z_record_words(f: ChannelFile) -> str:
     if not f.is_3d:
         return "2D file: no z"
     if f.has_z_record:
-        return "the file carries a Picasso 'Z Calibration' record (not read by this version)"
+        return ("the file carries a Picasso 'Z Calibration' record (Data quality reads its calibrated range; z is "
+                "not corrected with it)")
     return "the file carries no 'Z Calibration' record"
 
 
@@ -106,6 +108,8 @@ def measurement_lines(files: Sequence[ChannelFile]) -> List[str]:
     if not files:
         return [NO_FILE]
     lines = [pixel_line(f) for f in files]
+    if not any(f.is_3d for f in files):
+        return lines                     # 2D files: no z, so no z calibration to speak of
     lines.append(f"{Z_LINE} [{reg.badge('measurement.z_calibration', None)}] - {Z_NOTE}")
     lines.append(z_records_line(files))
     lines.append(f"{BEAD_LINE} [{reg.badge('measurement.bead_stack', None)}]")
@@ -144,9 +148,13 @@ class MeasurementPanel(QtWidgets.QGroupBox):
         zrow.addWidget(self.badge_z)
         self.lbl_z_note = _label(f"- {Z_NOTE}")
         zrow.addWidget(self.lbl_z_note, 1)
-        lay.addLayout(zrow)
-        self.lbl_records = _label("", wrap=True, tip="Read from each file's own metadata (Picasso's 'Z Calibration' block). It is "
-                                      "shown, not used: reading it comes with SCI-1.")
+        self.z_row = QtWidgets.QWidget()
+        self.z_row.setLayout(zrow)
+        zrow.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.z_row)
+        self.lbl_records = _label("", wrap=True, tip="Read from each file's own metadata (Picasso's 'Z Calibration' block). "
+                                      "Only Data quality's coverage check uses it; no z is corrected with it until a "
+                                      "later version.")
         self.lbl_records.setObjectName("measurement_z_records")
         lay.addWidget(self.lbl_records)
         brow = QtWidgets.QHBoxLayout()
@@ -165,7 +173,10 @@ class MeasurementPanel(QtWidgets.QGroupBox):
         self.badge_bead = OriginBadge("measurement.bead_stack", None)
         brow.addWidget(self.badge_bead)
         brow.addStretch(1)
-        lay.addLayout(brow)
+        self.bead_row = QtWidgets.QWidget()
+        self.bead_row.setLayout(brow)
+        brow.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.bead_row)
         self.set_files([])
 
     # ------------------------------------------------------------------ public
@@ -178,6 +189,10 @@ class MeasurementPanel(QtWidgets.QGroupBox):
 
     def set_files(self, files: Sequence[ChannelFile]) -> None:
         self._files = list(files)
+        # The z rows only when a loaded file has z (m14): a 2D file has no z calibration to speak of.
+        three_d = any(f.is_3d for f in self._files)
+        self.z_row.setVisible(three_d or not self._files)
+        self.bead_row.setVisible(three_d or not self._files)
         if not self._files:
             self.lbl_pixels.setText(NO_FILE)
             self.lbl_pixels.setStyleSheet("")
@@ -195,7 +210,7 @@ class MeasurementPanel(QtWidgets.QGroupBox):
         self.lbl_pixels.setToolTip(PIXEL_TIP + "\n\n" + "\n".join(
             f"Channel {f.channel}: {os.path.basename(f.path) or '(unnamed)'}" for f in self._files))
         self.lbl_records.setText(z_records_line(self._files))
-        self.lbl_records.setVisible(True)
+        self.lbl_records.setVisible(three_d)
 
     def text(self) -> str:
         return "\n".join(measurement_lines(self._files))

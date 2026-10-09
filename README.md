@@ -293,17 +293,20 @@ pytest test_mps_explorer.py -v
   already holds; nothing is computed for them.
 - **One editor per parameter.** eps, min samples, the axial slab, the Mahalanobis threshold, the randomization and
   the drawn contour are edited only in the window's parameter strip; the main window shows them read-only.
-- **Origin of every value.** Each parameter, threshold and reference value carries a badge from one registry
-  (`tools/mps_param_registry.py`): *paper* (taken from a publication), *derived* (a written formula: first
+- **Origin of every value.** Each parameter of the MPS analysis, Rings and Axoplasm windows, and each published
+  reference value, carries a badge from one registry (`tools/mps_param_registry.py`); the other windows (columns
+  review, Z quality, Data quality, Two channels, DNA-PAINT, the simulated null) get theirs when they are rebuilt. The
+  badges: *paper* (taken from a publication), *derived* (a written formula: first
   principles, a standard method or a convention with its reasoning), *simulation* (calibrated by this project's own
   simulation), *pilot suggestion* (a starting point meant to be changed), *user* (you set it away from its default)
   and *blank* (no value: whatever needs it is not computed and says so). Two transitional badges mark what a later
   change will replace: *ad hoc* (no written derivation yet) and *unreviewed* (no verified research record yet). The
-  tooltip of each badge gives the source, the documented range and what will change it; a value outside its
-  documented range is flagged, never clamped.
-- **Measurement panel** (main window). Each loaded channel's pixel size with the source of the number, and the
-  per-measurement z calibration: none is read yet, so z is used as the localization software fitted it; whether the
-  file carries its own calibration record is shown, and the inputs to read one are present but disabled.
+  tooltip of each badge gives the source, the documented range and, in words, what a later version changes; a
+  value outside its documented range is flagged, never clamped.
+- **Measurement panel** (main window). Each loaded channel's pixel size with the source of the number, and, for 3D
+  files, the per-measurement z calibration: no z correction is applied yet, so z is used as the localization software
+  fitted it; whether the file carries its own calibration record is shown (only Data quality's coverage check reads
+  its calibrated range), and the inputs to read one are present but disabled.
 
 ---
 

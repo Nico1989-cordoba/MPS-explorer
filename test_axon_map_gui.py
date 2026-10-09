@@ -285,7 +285,7 @@ def main() -> int:
             need(st, "comp").discard_applied, roi_words="ROI circle", cut=(100.0, 280.0)))
         msg = m.export_message()
         assert msg.startswith("Visible layers: In kept clusters (") and "hidden or not available" in msg
-        assert "z as fitted, no z-calibration record read" in msg and "Origins: eps 25 nm (paper)" in msg
+        assert "z as fitted, no z correction applied" in msg and "Origins: eps 25 nm (paper)" in msg
         assert "Title: Discard applied" in msg
         texts = {}
         for view in ("mps", "axoplasm", "segments"):
@@ -322,7 +322,7 @@ def main() -> int:
         v.set_inputs(L.AxialInputs(z_roi=z, analysis=a, cut=(a.slab_zmin_nm + 0.1, a.slab_zmax_nm - 0.1),
                                    ch2_z=z + 40.0, rings=ms), view="slab")
         pump(app, 0.05)
-        assert len(v.title_lines()) == 3 and v.title_lines()[2] == "z as fitted; no z-calibration record read"
+        assert len(v.title_lines()) == 3 and v.title_lines()[2] == "z as fitted; no z correction applied"
         assert v.plot_item().getAxis("left").labelText == L.AXIAL_LEFT_LABEL
         on = set(v.layers.shown_keys())
         assert {"roi_in", "roi_out", "components", "mixture", "slab", "main_cut"} <= on and "ch2_roi" not in on

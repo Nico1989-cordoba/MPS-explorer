@@ -104,17 +104,21 @@ MAIN_WINDOW: Dict[str, str] = {
         "a choice about speed, not about the data.",
     "lineEdit_eps":
         "DBSCAN's epsilon, in nanometres: how far apart two "
-        "localizations can be and still belong to the same cluster.\n\n"
-        "Set in the MPS analysis window's parameter strip ('Change...'); "
-        "this box only shows it. The MPS analysis, the window clustering, "
-        "Rings, Batch and Two channels all use that one value. Not used "
-        "by HDBSCAN.",
+        "localizations can be and still belong to the same cluster. Too "
+        "small breaks one cluster into several; too large merges "
+        "neighbours.\n\n"
+        "Set as 'eps' in the MPS analysis window's parameter strip "
+        "('Change...'); this box only shows it. The MPS analysis, the "
+        "window clustering, Rings, Batch and Two channels all use that one "
+        "value for channel 1; channel 2 has its own. Not used by HDBSCAN.",
     "lineEdit_minsamples":
         "DBSCAN's Min Pts: how many localizations have to sit within "
-        "epsilon of a point for it to start a cluster.\n\n"
-        "Set in the MPS analysis window's parameter strip ('Change...'); "
-        "this box only shows it, and every analysis uses that one value. "
-        "Not used by HDBSCAN.",
+        "epsilon of a point for it to start a cluster. Raising it leaves "
+        "more localizations as noise.\n\n"
+        "Set as 'min samples' in the MPS analysis window's parameter strip "
+        "('Change...'); this box only shows it, and every analysis of "
+        "channel 1 uses that one value; channel 2 has its own. Not used by "
+        "HDBSCAN.",
     "lineEdit_minclustersize":
         "HDBSCAN's smallest number of localizations a group must have to "
         "count as a cluster.\n\n"

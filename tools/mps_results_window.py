@@ -123,12 +123,13 @@ PLOT_SCATTER = "Scatter off the outline"
 # valid reading. The texts of the cells themselves are unchanged.
 PAPER_HEADER_TIP = (
     "Values of Gazal et al. 2026 (preprint v1): another dataset and another pipeline; agreeing with them is not a "
-    "validation criterion (P-R25). SCI-3 renames this column.")
+    "validation criterion. A later version renames this column.")
 KS_P_TIP = (
-    "This p treats the K distances as independent and the 1,000 randomizations as a second sample; neither holds, "
-    "and it rejects true nulls several times more often than 5 % (P-R23). SCI-3 replaces it with Monte Carlo "
-    "p-values.")
-CROSSING_TIP = ("This program's heuristic; SCI-3 reports a crossing only where the curves leave a null band.")
+    "This p treats the K distances as independent and the 1,000 randomizations as a second sample; neither holds. "
+    "Under a true null it rejects up to about four times as often as its nominal 5 % (9-22 % at a nominal 5 % in "
+    "this project's simulations). A later version replaces it with Monte Carlo p-values.")
+CROSSING_TIP = ("This program's heuristic; a later version reports a crossing only where the curves leave the band "
+                "the randomizations themselves give.")
 # The reference cell of each row, by the row's name (summary_rows), and the registry entry that says what it is.
 _REFERENCE_KEYS: Dict[str, str] = {
     "Clusters per um": "reference.clusters_per_um",
@@ -1528,8 +1529,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.plot_area.addItem(pg.InfiniteLine(
                 pos=med, angle=90,
                 pen=pg.mkPen(role("summary"), width=2),
-                label=f"median {med:,.0f}",
-                labelOpts={"position": 0.9, "color": role("summary")}))
+                label=f"median {med:,.0f} nm^2",
+                labelOpts={"position": 0.9, "color": role("summary"), "anchors": [(1, 0.5), (1, 0.5)]}))
         # The published value, in the paper role: the line itself is the
         # badge (P5), and its label names the publication.
         ref = float(reg.default("reference.cluster_area_nm2"))
@@ -1537,7 +1538,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             pos=ref, angle=90,
             pen=pg.mkPen(role("paper"), width=2, style=QtCore.Qt.DashLine),
             label=f"Gazal 2026 (preprint v1): {ref:,.0f} nm^2",
-            labelOpts={"position": 0.75, "color": role("paper")}))
+            labelOpts={"position": 0.75, "color": role("paper"), "anchors": [(0, 0.5), (0, 0.5)]}))
 
     def _draw_scatter(self) -> None:
         """Each centre against the smooth outline, with the scatter band."""

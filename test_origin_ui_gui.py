@@ -111,7 +111,7 @@ def main() -> int:
 
     def badges_alone() -> str:
         b = oui.OriginBadge("axoplasm.margin_nm")
-        assert b.text() == "ad hoc" and verdict("warn", dark=False) in b.styleSheet() and "SCI-7" in b.toolTip()
+        assert b.text() == "ad hoc" and verdict("warn", dark=False) in b.styleSheet() and "later version" in b.toolTip()
         blank = oui.OriginBadge("measurement.z_calibration")
         assert blank.text() == "blank" and blank.objectName() == "badge_measurement_z_calibration"
         dark = oui.OriginBadge("dbscan.eps_nm", 30.0, dark=True)
@@ -139,7 +139,8 @@ def main() -> int:
         assert m.label.text() == reg.more_line("randomization")
         m.button.setChecked(True)
         assert m.is_expanded() and not m.label.isHidden()
-        assert "SCI-3" in m.toolTip() and "Documented range" in m.toolTip()
+        assert "later version" in m.toolTip() and "Documented range" in m.toolTip()
+        assert "SCI-" not in m.toolTip() and "record " not in m.toolTip(), m.toolTip()
         return "collapsed by default; the registry's line; every item's tooltip"
 
     def details_panel() -> str:
@@ -240,10 +241,11 @@ def main() -> int:
         src = reg.pixel_source_words(mw.locs1.pixel_size_source)
         assert lines[0] == f"Channel 1: pixel size {mw.locs1.pixel_size_nm:g} nm ({src})", lines[0]
         assert lines[1].startswith("Channel 2: pixel size "), lines[1]
-        assert lines[2] == "z calibration: - (none read) [blank] - z as fitted by the localization software"
+        assert lines[2] == "z calibration: - (none applied) [blank] - z as fitted by the localization software"
         assert p.badge_z.text() == "blank" and p.badge_bead.text() == "blank"
         assert not p.btn_calibration.isEnabled() and not p.btn_bead.isEnabled()
-        assert "SCI-1" in p.btn_calibration.toolTip() and "SCI-1" in p.btn_bead.toolTip()
+        assert "later version" in p.btn_calibration.toolTip() and "later version" in p.btn_bead.toolTip()
+        assert "SCI-" not in p.btn_calibration.toolTip() + p.lbl_records.toolTip()
         assert set(p.keys_shown()) == {"measurement.pixel_size_nm", "measurement.z_calibration",
                                        "measurement.bead_stack"}
         # the same words as the MPS analysis window's provenance line (one dictionary)
@@ -259,7 +261,11 @@ def main() -> int:
         p.set_files([ChannelFile.from_localizations(1, "a.hdf5", flat), ChannelFile.from_localizations(2, "b", rec)])
         text = p.text()
         assert "Channel 1: 2D file: no z" in text and "typed by hand for this folder earlier" in text
-        assert "carries a Picasso 'Z Calibration' record (not read by this version)" in text
+        assert "carries a Picasso 'Z Calibration' record (Data quality reads its calibrated range; z is not " \
+               "corrected with it)" in text
+        # 2D files only: no z rows (m14)
+        p.set_files([ChannelFile.from_localizations(1, "a.hdf5", flat)])
+        assert "z calibration" not in p.text() and not p.z_row.isVisibleTo(p) and not p.bead_row.isVisibleTo(p)
         with open(os.path.join(st["settings_dir"], "mps_analysis_settings.json"), encoding="utf-8") as f:
             assert f.read() == before_settings, "the Measurement panel must store nothing"
         assert files_under(work) == before_files, "the Measurement panel must write no file"
@@ -275,7 +281,8 @@ def main() -> int:
         rows = [w.table.item(r, 0).text() for r in range(w.table.rowCount())]
         ks = rows.index("Randomization KS test")
         cell = w.table.item(ks, 1)
-        assert "P-R23" in cell.toolTip() and "Monte Carlo" in cell.toolTip()
+        assert "four times" in cell.toolTip() and "Monte Carlo" in cell.toolTip()
+        assert "P-R" not in cell.toolTip() and "SCI-" not in cell.toolTip(), cell.toolTip()
         shown = w._shown()
         assert cell.text() == next(m for n, m, _p, _note in shown.summary_rows() if n == rows[ks])
         # details panels: existing numbers only, never the KS p
