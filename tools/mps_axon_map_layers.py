@@ -1167,7 +1167,7 @@ def nn_layers(shown: Any, hist: Dict[str, Any]) -> List[Layer]:
                     "labels": [] if med is None else [f"median {med:,.0f} nm"], "pens": ["solid"]}, None,
                    "The median 1NN distance.")
     ref_value = float(reg.default("reference.nn1_median_nm"))
-    reference = Layer("nn_reference", f"Reference: {reg.PAPER}, another dataset and pipeline", "nn", "vlines",
+    reference = Layer("nn_reference", "Gazal 2026 reference (another dataset and pipeline)", "nn", "vlines",
                       {"positions": [ref_value], "labels": [f"Gazal 2026 (preprint v1): {ref_value:,.0f} nm"],
                        "pens": ["dash"]}, None, reg.tooltip("reference.nn1_median_nm"))
     if n > 1:

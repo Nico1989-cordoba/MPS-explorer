@@ -212,7 +212,8 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        records=("slab-inclusive-bounds", "main-peak-disagreement-warning"), changes_in="SCI-6",
        change_note="a later version offers half the ring period beside it", editable=True),
     _e(key="slab.typed_range", label="Typed axial range", unit="nm", home="strip", default=None, origin="blank",
-       origin_note="no range is typed by default; 'user' when one is typed (it then decides the slab)",
+       origin_note="no range is typed by default, and nothing is left uncomputed: the slab is then found "
+                   "automatically; 'user' when one is typed (it then decides the slab)",
        shown_as="parameter strip (typed range)", editable=True),
     # ---------------------------------------------------------------- DBSCAN (the TODO-B6 hook, 12.9; filled by B6)
     _e(key="dbscan.eps_nm", label="eps", unit="nm", home="strip", default=_const(_S, "DEFAULT_EPS_NM"),
