@@ -69,6 +69,7 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple
 
 import pyqtgraph as pg
+from PyQt5 import QtCore
 
 # --------------------------------------------------------------------------
 # The eight, by their names
@@ -354,6 +355,40 @@ def set_title(plot: Any, text: str, dark: bool = True) -> None:
     """
     plot.setTitle(text, color=TITLE_FG if dark else TITLE_FG_LIGHT)
     fit_title_height(plot)
+    if hasattr(plot, "autoPixelRange") and hasattr(plot, "installEventFilter"):
+        # a plot widget: its title is wrapped to the widget's width now and after every resize
+        if getattr(plot, "_title_fitter", None) is None:
+            plot._title_fitter = _TitleFitter(plot)
+            plot.installEventFilter(plot._title_fitter)
+        plot._title_fitter.fit()
+
+
+def _title_room(plot: Any) -> float:
+    """The width a plot widget's title may take: the widget's, less its left axis and a margin."""
+    item = plot.getPlotItem() if hasattr(plot, "getPlotItem") else plot
+    axis = item.getAxis("left")
+    left = float(axis.width()) if axis is not None and axis.isVisible() else 0.0
+    return float(plot.width()) - left - 16.0
+
+
+class _TitleFitter(QtCore.QObject):
+    """Wraps a plot widget's title to the widget's width after each resize (``fit_title_width``)."""
+
+    def __init__(self, plot: Any) -> None:
+        super().__init__(plot)
+        self._plot = plot
+
+    def fit(self) -> None:
+        try:
+            if self._plot.width() > 50:
+                fit_title_width(self._plot, _title_room(self._plot))
+        except RuntimeError:        # the widget was deleted before the deferred call ran
+            pass
+
+    def eventFilter(self, obj: Any, event: Any) -> bool:  # noqa: N802 - Qt's name
+        if event.type() == QtCore.QEvent.Type.Resize:
+            QtCore.QTimer.singleShot(0, self.fit)
+        return False
 
 
 def fit_title_height(plot: Any) -> None:
@@ -375,6 +410,50 @@ def fit_title_height(plot: Any) -> None:
     height = max(30, needed)
     label.setMaximumHeight(height)
     item.layout.setRowFixedHeight(0, height)
+
+
+def title_natural_width(plot: Any) -> float:
+    """The width a plot's title takes on one line per line of its text (0 with no title)."""
+    item = plot.getPlotItem() if hasattr(plot, "getPlotItem") else plot
+    label = getattr(item, "titleLabel", None)
+    if label is None or not label.isVisible():
+        return 0.0
+    text_item = label.item
+    was = float(text_item.textWidth())
+    text_item.setTextWidth(-1)
+    width = float(text_item.boundingRect().width())
+    text_item.setTextWidth(was)
+    return width
+
+
+def fit_title_width(plot: Any, width: float) -> None:
+    """Wrap a title wider than ``width`` pixels inside that width, centred, and grow its row to fit.
+
+    pyqtgraph keeps a plot at least as wide as its title, so a long title in a
+    narrow plot pushes the plot out of its widget and both are cut. The words
+    are the same; only where the lines break changes. A title that fits is left
+    on its own lines."""
+    from PyQt5 import QtGui
+
+    item = plot.getPlotItem() if hasattr(plot, "getPlotItem") else plot
+    label = getattr(item, "titleLabel", None)
+    if label is None or not label.isVisible():
+        return
+    text_item = label.item
+    natural = title_natural_width(plot)
+    target = -1.0 if width <= 0 or natural <= width else float(width)
+    if float(text_item.textWidth()) != target:
+        text_item.setTextWidth(target)
+        option = QtGui.QTextOption(QtCore.Qt.AlignmentFlag.AlignCenter)
+        option.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+        text_item.document().setDefaultTextOption(option)
+        label.updateMin()
+        fit_title_height(plot)
+        if hasattr(plot, "autoPixelRange"):
+            # a GraphicsView sized its plot while the title still held it wider: size it to the view again
+            plot.resizeEvent(None)
+        return
+    fit_title_height(plot)
 
 
 def _style(plot: Any, background: str, axis_fg: str) -> None:

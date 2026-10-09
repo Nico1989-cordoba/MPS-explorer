@@ -27,7 +27,7 @@ from tools import mps_axon_map_layers as L
 from tools.mps_axon_map import render_layer, swatch_for
 from tools.mps_layer_panel import LayerPanel
 from tools.mps_origin_ui import DetailsPanel
-from tools.mps_plot_style import set_title, style_dark, style_light
+from tools.mps_plot_style import fit_title_width, set_title, style_dark, style_light
 
 __all__ = ["AxialView"]
 
@@ -174,6 +174,17 @@ class AxialView(QtWidgets.QWidget):
 
     def _retitle(self) -> None:
         set_title(self.plot, self.title(), dark=self.dark)
+        self._fit_title()
+
+    def _fit_title(self) -> None:
+        """Wrap the title only when the plot is narrower than it (the words do not change)."""
+        if self.plot.width() > 50:
+            axis = self.plot.getPlotItem().getAxis("left")
+            fit_title_width(self.plot, float(self.plot.width()) - float(axis.width()) - 16.0)
+
+    def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        QtCore.QTimer.singleShot(0, self._fit_title)
 
     def _style(self) -> None:
         (style_dark if self.dark else style_light)(self.plot)

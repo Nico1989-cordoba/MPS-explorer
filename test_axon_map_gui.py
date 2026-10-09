@@ -93,7 +93,16 @@ def svg_text(plot_item: Any, name: str) -> str:
     path = os.path.join(WORK, name + ".svg")
     figure_export.write(plot_item, figure_export.FigureRequest(plot=name, path=path))
     with open(path, encoding="utf-8") as f:
-        return html.unescape(f.read())
+        raw = f.read()
+    # The SVG's text nodes in document order, joined: a title wrapped to a narrow plot (IMPL-F) is split into
+    # several text elements at its spaces; its words, in order, are what must travel with the figure.
+    import re as _re
+    words = ""
+    for t in _re.findall(r">([^<>]+)<", raw):
+        t = " ".join(t.split())
+        if t:
+            words += ("" if not words or words.endswith("-") else " ") + t
+    return html.unescape(raw) + "\n" + html.unescape(words)
 
 
 def main() -> int:

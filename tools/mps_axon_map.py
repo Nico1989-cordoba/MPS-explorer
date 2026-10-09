@@ -36,7 +36,8 @@ from tools import mps_axon_map_layers as L
 from tools import mps_param_registry as reg
 from tools.mps_layer_panel import LayerPanel, Swatch
 from tools.mps_plot_style import (
-    neutral, role, segment_colour, segment_symbol, set_title, style_dark, style_light)
+    fit_title_width, neutral, role, segment_colour, segment_symbol, set_title, style_dark, style_light,
+    title_natural_width)
 
 __all__ = ["AxonMap", "render_layer", "swatch_for", "cased_edge_rgba", "colour_of"]
 
@@ -289,6 +290,7 @@ class AxonMap(QtWidgets.QWidget):
         self.splitter.setCollapsible(0, False)
         self.splitter.setCollapsible(1, True)
         self.splitter.splitterMoved.connect(self._on_splitter_moved)
+        self.splitter.splitterMoved.connect(lambda *_a: QtCore.QTimer.singleShot(0, self._fit_title))
         self.plot.getViewBox().sigRangeChangedManually.connect(self._on_range_by_hand)
         root.addWidget(self.splitter, 1)
         # the group headers' selectors (owned here, shown in the panel)
@@ -507,7 +509,9 @@ class AxonMap(QtWidgets.QWidget):
         pad = max(FIT_PAD_FRACTION * max(x1 - x0, y1 - y0), FIT_PAD_MIN_NM)
         aspect = (x1 - x0 + 2 * pad) / max(y1 - y0 + 2 * pad, 1e-9)
         frame = max(0.0, float(self.plot.width()) - float(vb.width()))
-        ideal_plot = int(vb_h * aspect + frame)
+        axis = float(self.plot.getPlotItem().getAxis("left").width())
+        # never narrower than the title on its own lines, when the side column can give the room
+        ideal_plot = int(max(vb_h * aspect + frame, title_natural_width(self.plot) + axis + 20.0))
         side = int(min(SIDE_MAX_WIDTH, max(PANEL_WIDTH, total - ideal_plot)))
         if abs(self.splitter.sizes()[1] - side) <= 2:
             return
@@ -516,6 +520,8 @@ class AxonMap(QtWidgets.QWidget):
             self.splitter.setSizes([total - side, side])
         finally:
             self._splitting = False
+        # the plot has another width: its title and its view follow once the layout has settled
+        QtCore.QTimer.singleShot(0, self._after_resize)
 
     def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
         super().resizeEvent(event)
@@ -527,6 +533,7 @@ class AxonMap(QtWidgets.QWidget):
 
     def _after_resize(self) -> None:
         self._apply_split()
+        self._fit_title()
         if not self._user_range and self._data_extent is not None:
             self.fit_view()
 
@@ -556,6 +563,17 @@ class AxonMap(QtWidgets.QWidget):
 
     def _retitle(self) -> None:
         set_title(self.plot, self.title(), dark=self.dark)
+        self._fit_title()
+
+    def _title_room(self) -> float:
+        """The width a title may take: the plot's, less its left axis and a margin."""
+        axis = self.plot.getPlotItem().getAxis("left")
+        return float(self.plot.width()) - float(axis.width()) - 16.0
+
+    def _fit_title(self) -> None:
+        """Wrap the title only when the plot is narrower than it (the words do not change)."""
+        if self.plot.width() > 50:
+            fit_title_width(self.plot, self._title_room())
 
     def _style(self) -> None:
         (style_dark if self.dark else style_light)(self.plot)
