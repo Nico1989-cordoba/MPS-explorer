@@ -346,6 +346,9 @@ class LayerPanel(QtWidgets.QWidget):
         top.addWidget(label, 1)
         lay.addLayout(top)
         if header is not None:
+            # The caller's selector is reused across redraws: a group starts enabled, so does its selector (a
+            # group disabled in an earlier drawing must not leave it greyed out for good).
+            header.setEnabled(True)
             holder = QtWidgets.QWidget()
             hl = QtWidgets.QHBoxLayout(holder)
             hl.setContentsMargins(22, 0, 0, 0)

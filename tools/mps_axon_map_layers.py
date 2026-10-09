@@ -343,6 +343,7 @@ SOURCES: Dict[str, str] = {"slab": "MPS analysis slab", "selection": "Main-windo
                            "segments": "Each segment's own slab (rings)"}
 COLOURINGS: Dict[str, str] = {"status": "status in the MPS analysis", "images": "the two widefield images"}
 IMAGES: Dict[str, str] = {"tubulin": "betaIII-tubulin", "spectrin": "betaII-spectrin"}
+SPECTRIN_NOT_LOADED = "the betaII-spectrin image is not loaded: load it in the Axoplasm panel (1. Images)"
 # Per view: the localization source, the colouring of the centres, and the rows that start ticked.
 VIEW_SOURCE: Dict[str, str] = {"mps": "slab", "axoplasm": "selection", "segments": "segments"}
 VIEW_COLOUR_BY: Dict[str, str] = {"mps": "status", "axoplasm": "images", "segments": "status"}
@@ -671,11 +672,17 @@ def _image_group(inp: MapInputs) -> Group:
     region = st.spectrin_region if use_spectrin else st.tubulin_region
     rect = st.spectrin_rect if use_spectrin else st.tubulin_rect
     label = f"Widefield image: {IMAGES['spectrin' if use_spectrin else 'tubulin']}"
-    if region is not None and np.asarray(region).size:
+    if inp.image == "spectrin" and not use_spectrin:
+        # betaII-spectrin was chosen but is not loaded: the row says so; tubulin is never drawn in its place
+        g.layers.append(Layer("image", f"Widefield image: {IMAGES['spectrin']}", g.key, "image",
+                              {"which": "spectrin"}, None, "The widefield image under the map.",
+                              enabled=False, reason=SPECTRIN_NOT_LOADED))
+    elif region is not None and np.asarray(region).size:
         g.layers.append(Layer("image", label, g.key, "image",
                               {"image": np.asarray(region), "rect": rect, "levels": image_levels(np.asarray(region)),
                                "which": "spectrin" if use_spectrin else "tubulin"}, None,
-                              "The widefield image under the map (choose which one below the row)."))
+                              "The widefield image under the map (choose which one above the rows, or in the "
+                              "Axoplasm panel)."))
     if st.tubulin_edge is not None:
         g.layers.append(Layer("tubulin_edge", "Tubulin mask edge", g.key, "edge",
                               {"edge": st.tubulin_edge, "rect": st.tubulin_edge_rect}, None,
@@ -753,7 +760,10 @@ def map_title(inp: MapInputs, ticked: Set[str]) -> str:
         st = inp.axoplasm
         which = "spectrin" if (inp.image == "spectrin" and st is not None and st.spectrin_region is not None) \
             else "tubulin"
-        parts.append(f"image: {IMAGES[which]}")
+        if inp.image == "spectrin" and which != "spectrin":
+            which = ""       # the row is disabled (not loaded): no image is drawn, the title names none
+        if which:
+            parts.append(f"image: {IMAGES[which]}")
     return line1 if not parts else line1 + "<br>" + "; ".join(parts)
 
 

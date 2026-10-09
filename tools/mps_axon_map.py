@@ -160,6 +160,8 @@ def render_layer(layer: L.Layer, dark: bool = True) -> List[Any]:
                                                                          style=_pen_style(s.pen))))
         return items
     if layer.kind == "image":
+        if "image" not in d:     # the image chosen is not loaded: the row says why, nothing is drawn
+            return items
         image = np.asarray(d["image"])
         item = pg.ImageItem(image.T, levels=d["levels"])
         item.setRect(QtCore.QRectF(*d["rect"]))
