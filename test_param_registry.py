@@ -100,10 +100,21 @@ TODO_B6_RESERVED = ("dbscan.eps_nm", "dbscan.min_samples", "curation.edge_criter
                     "contour.two_opt_starts", "contour.health.deep_vertex_fraction",
                     "contour.health.max_over_median", "reference.cluster_area_nm2", "reference.r_eff_nm",
                     "membrane.knot_spacing_nm", "window.clustering", "channel2.eps_nm", "channel2.min_samples")
-# Public-text rule (U2, IMPL-E's leak scan): no figure of unpublished data, no dataset name, no private path.
-LEAK_PATTERNS = (r"\bApril\b", r"\bAbril\b", r"[A-Za-z]:\\", r"/Users/", r"\b26\.04", r"\b15\.07", r"axon ?\d",
-                 r"\bpilot axon", r"lumen_review_sessions", r"\broi2\b", r"OneDrive", r"Documents[/\\]",
-                 r"measured? \d+\s*-\s*\d+ ?%")
+# Public-text rule (U2, IMPL-E's leak scan): no figure of unpublished data, no dataset name, no private path. The
+# patterns here are generic (a path, a date stamp, a quoted range of percentages); the names and dates of the
+# unpublished data sets are not written in a public file: they are read, one regular expression per line, from the
+# private file the environment variable MPS_PRIVATE_LEAK_PATTERNS names, when it is set.
+LEAK_PATTERNS = (r"[A-Za-z]:\\", r"/Users/", r"OneDrive", r"Documents[/\\]", r"\b\d{2}[._-]\d{2}[._-]\d{2}\b",
+                 r"axon ?\d", r"\bpilot axon", r"measured? \d+\s*-\s*\d+ ?%")
+
+
+def private_leak_patterns() -> List[str]:
+    """The private patterns (MPS_PRIVATE_LEAK_PATTERNS), or none when the variable is not set."""
+    path = os.environ.get("MPS_PRIVATE_LEAK_PATTERNS", "")
+    if not path:
+        return []
+    with open(path, encoding="utf-8") as handle:
+        return [ln.strip() for ln in handle if ln.strip() and not ln.lstrip().startswith("#")]
 
 
 def main() -> int:
@@ -378,10 +389,14 @@ def main() -> int:
             texts += [e.label, e.origin_note, e.shown_as, e.range_text, e.range_note, e.change_note, e.value_text,
                       reg.tooltip(e.key), reg.format_value(e.key), *e.records]
         texts += list(reg.BADGE_MEANING.values()) + [reg.more_line(g) for g in reg.MORE_GROUPS]
-        hits = [(p, t) for t in texts for p in LEAK_PATTERNS if re.search(p, t)]
+        private = private_leak_patterns()
+        patterns = list(LEAK_PATTERNS) + private
+        hits = [(p, t) for t in texts for p in patterns if re.search(p, t)]
         assert not hits, hits[:5]
         assert all(t.isascii() for t in texts), [t for t in texts if not t.isascii()][:3]
-        return f"{len(texts)} texts: no unpublished figure, dataset name or private path; ASCII"
+        return (f"{len(texts)} texts: no unpublished figure, dataset name or private path; ASCII "
+                f"({len(LEAK_PATTERNS)} generic patterns"
+                + (f" + {len(private)} private)" if private else "; MPS_PRIVATE_LEAK_PATTERNS not set)"))
 
     check("no text quotes unpublished data or a private path", public_texts)
 

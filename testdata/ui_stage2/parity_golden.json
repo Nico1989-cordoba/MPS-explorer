@@ -116472,7 +116472,6 @@
   "E5": "'Batch': the BatchSettings read at Run, after the window's sync"
  },
  "environment": {
-  "interpreter": "~\\Documents\\MPS-explorer\\venv\\Scripts\\python.exe",
   "versions": {
    "PyQt5": "5.15.11",
    "Qt": "5.15.2",
@@ -116491,8 +116490,7 @@
   "exported_at column -> <TIME>",
   "arrays in keyword arguments -> shape, dtype, sha256 of bytes; analyses -> analysis#k",
   "localizations table -> header, row count, sha256 per column of the written text",
-  "identical parts stored once under their sha256 (blobs)",
-  "program texts quoting a figure of unpublished data -> <REDACTED: ...> (REDACTIONS)"
+  "identical parts stored once under their sha256 (blobs)"
  ],
  "rings_steps": [
   [

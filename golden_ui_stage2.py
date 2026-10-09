@@ -79,16 +79,12 @@ Normalisation (documented, nothing dropped silently)
   column's text as written), so that a difference names the column; the
   other tables are recorded in full.
 * Identical contents are stored once, under their SHA-256 (``blobs``).
-* Program texts that quote a figure measured on unpublished data (today one
-  sentence, "the April axons measure(d) 6-16 %", in a results-table note and
-  the column dictionary) -> ``<REDACTED: ...>`` (``REDACTIONS``), so that
-  no such figure is committed. Applied before any digest.
 Nothing else is altered: every number is the text the program wrote or
 showed. Log files, the parameter cache and the selection log are not
 recorded (they hold times and session ids and are not outputs).
 
 Usage (with the project's venv interpreter: the golden records the
-interpreter and the numpy / scipy / scikit-learn versions, and results
+numpy / scipy / scikit-learn versions, not the interpreter's path, and results
 differ in their last digits between scipy 1.17 and 1.18)
 -----
     venv/Scripts/python.exe golden_ui_stage2.py --out DIR [--workers 6] [--axons A,B]
@@ -107,7 +103,6 @@ import hashlib
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -155,13 +150,6 @@ ENTRY_TEXT = {
 }
 RINGS_STEPS = [("valley", 0.0), ("valley", 40.0), ("paper", 40.0), ("paper", 0.0)]
 ROI_DRAG_NM = 150.0
-# Program texts that quote a figure measured on unpublished data. They are
-# replaced by a token so that the committed golden carries no such figure;
-# a change of the text around them is still seen, and so is the token.
-REDACTIONS = [
-    (re.compile(r"the April axons measured? \d+(?:\.\d+)? ?(?:-|to) ?\d+(?:\.\d+)? ?%"),
-     "<REDACTED: a figure measured on unpublished data>"),
-]
 LONG_LIST = 100          # longer keyword-argument lists: length + sha256
 BLOB_MIN_BYTES = 1024    # larger JSON parts are stored once, under their sha256
 
@@ -323,8 +311,6 @@ class Normaliser:
                     parts.append(token)
                     i = j + len(path)
                 out = "".join(parts)
-        for pattern, token in REDACTIONS:
-            out = pattern.sub(token, out)
         return out
 
     def value(self, v: Any) -> Any:
@@ -1019,12 +1005,13 @@ def cell_main(argv: List[str]) -> int:
 #  The run (orchestrator)
 # =========================================================================
 def environment() -> Dict[str, Any]:
-    """The interpreter and the numerical libraries the golden was made with.
+    """The numerical libraries the golden was made with.
 
     The last digits of some results (the axis least-squares fit, every
     digest) depend on the scipy / scikit-learn versions, so a golden is
     only comparable with a run made with the same ones: the project's
-    venv. The interpreter path is recorded with the home folder as "~".
+    venv. Only the versions are recorded: the interpreter's path is a
+    local folder and says nothing the versions do not.
     """
     import importlib
 
@@ -1040,11 +1027,7 @@ def environment() -> Dict[str, Any]:
         versions["Qt"] = QtCore.QT_VERSION_STR
     except Exception as error:  # noqa: BLE001 - recorded
         versions["PyQt5"] = f"not importable: {error}"
-    exe = os.path.abspath(sys.executable)
-    home = os.path.expanduser("~")
-    if exe.lower().startswith(home.lower()):
-        exe = "~" + exe[len(home):]
-    return {"interpreter": exe, "versions": versions}
+    return {"versions": versions}
 
 
 def _user_settings_state() -> Optional[Tuple[str, int]]:
@@ -1189,7 +1172,6 @@ def run_all(out_dir: str, workers: int, axons: List[str], cells: Optional[List[s
             "arrays in keyword arguments -> shape, dtype, sha256 of bytes; analyses -> analysis#k",
             "localizations table -> header, row count, sha256 per column of the written text",
             "identical parts stored once under their sha256 (blobs)",
-            "program texts quoting a figure of unpublished data -> <REDACTED: ...> (REDACTIONS)",
         ],
         "cells": golden_cells,
         "blobs": blobs,
