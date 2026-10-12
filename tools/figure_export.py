@@ -61,17 +61,74 @@ class FigureRequest:
         return os.path.splitext(self.path)[1].lower() == ".svg"
 
 
+# The extensions a figure is written as: SVG, or a raster format Qt writes
+# on every platform. Anything else - no extension, a typo, ".v2" in a name -
+# gets ".png" appended, so the file always has a format (QImage.save cannot
+# guess one, and returned False without a word).
+RASTER_EXTENSIONS: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
+KNOWN_EXTENSIONS: Tuple[str, ...] = (".svg",) + RASTER_EXTENSIONS
+
+
+class FigureNotWritten(OSError):
+    """The figure could not be written; the message says why, in words."""
+
+
+def with_known_extension(path: str) -> str:
+    """``path`` with ".png" appended when its extension is missing or not
+    one a figure is written as (manual test 2, item 1)."""
+    ext = os.path.splitext(path)[1].lower()
+    return path if ext in KNOWN_EXTENSIONS else path + ".png"
+
+
+def _why_not_written(path: str) -> str:
+    """Why ``path`` could not be written: the folder, a locked or read-only
+    file, or (when nothing else explains it) the format."""
+    folder = os.path.dirname(os.path.abspath(path)) or os.getcwd()
+    if not os.path.isdir(folder):
+        return f"there is no folder {folder}"
+    if os.path.exists(path):
+        if not os.access(path, os.W_OK):
+            return (f"the file {os.path.basename(path)} is read-only: choose another name, or clear its "
+                    f"read-only attribute")
+        try:
+            with open(path, "ab"):
+                pass
+        except OSError:
+            return (f"the file {os.path.basename(path)} is open in another program (locked): close it there, "
+                    f"or choose another name")
+    probe = os.path.join(folder, f".mps_write_probe_{os.getpid()}")
+    try:
+        with open(probe, "wb"):
+            pass
+        os.remove(probe)
+    except OSError:
+        return f"the folder {folder} cannot be written to: choose another folder"
+    return (f"the image could not be encoded as {os.path.splitext(path)[1] or 'an image'}: "
+            f"choose .png or .svg")
+
+
 def write(plot_item: Any, request: FigureRequest) -> str:
     """
-    Write one plot to ``request.path`` and return the path.
+    Write one plot to ``request.path`` and return the path written.
 
     ``plot_item`` is a PlotItem (``widget.getPlotItem()``), not the
     widget: exporting the widget would include the frame Qt draws around
     it, which is part of the application and not of the figure.
+
+    A path without a known extension gets ".png" (``request.path`` is
+    updated, so ``describe`` names the file written). The file is checked
+    on disk afterwards: pyqtgraph's image exporter returns QImage.save's
+    False without raising, and "Image written" was then said for a file
+    that did not exist (manual test 2, item 1). Raises
+    ``FigureNotWritten`` with the reason - no folder, a folder that cannot
+    be written, a read-only or locked file, a format that cannot be
+    encoded.
     """
+    request.path = with_known_extension(request.path)
     folder = os.path.dirname(os.path.abspath(request.path))
     if folder and not os.path.isdir(folder):
-        raise OSError(f"There is no folder {folder}")
+        raise FigureNotWritten(f"There is no folder {folder}")
+    before = (os.path.getmtime(request.path), os.path.getsize(request.path))         if os.path.exists(request.path) else None
 
     if request.is_svg:
         exporter = SVGExporter(plot_item)
@@ -79,11 +136,23 @@ def write(plot_item: Any, request: FigureRequest) -> str:
         # scales it. The width asked for in millimetres is kept by
         # exporting at 72 points per inch, which is what a point is.
         exporter.parameters()["width"] = pixels_for(request.width_mm, 72)
+        try:
+            exporter.export(request.path)
+        except OSError:
+            raise FigureNotWritten(
+                f"The figure was not written: {_why_not_written(request.path)}.") from None
+        ok = True
     else:
         exporter = ImageExporter(plot_item)
         exporter.parameters()["width"] = pixels_for(request.width_mm,
                                                     request.dpi)
-    exporter.export(request.path)
+        ok = bool(exporter.export(request.path))
+    written = os.path.isfile(request.path) and os.path.getsize(request.path) > 0
+    if written and before is not None and not ok:
+        written = (os.path.getmtime(request.path), os.path.getsize(request.path)) != before
+    if not (ok and written):
+        raise FigureNotWritten(
+            f"The figure was not written: {_why_not_written(request.path)}.")
     return request.path
 
 

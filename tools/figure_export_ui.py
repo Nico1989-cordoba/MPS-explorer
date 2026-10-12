@@ -16,7 +16,7 @@ from PyQt5 import QtWidgets
 from tools.mps_plot_style import verdict
 from tools.figure_export import (
     COLUMN_WIDTHS_MM, DEFAULT_DPI, DEFAULT_WIDTH_MM, DPI_CHOICES,
-    FigureRequest, pixels_for,
+    KNOWN_EXTENSIONS, FigureRequest, pixels_for,
 )
 
 # Read on the application's white: the darker of the two dim greys.
@@ -158,9 +158,12 @@ class ExportFigureDialog(QtWidgets.QDialog):
         else:
             self.combo_dpi.setEnabled(True)
             pixels = pixels_for(request.width_mm, request.dpi)
+            extra = ""
+            if request.path and os.path.splitext(request.path)[1].lower() not in KNOWN_EXTENSIONS:
+                extra = " The name has no .png or .svg: '.png' is added."
             self.label_size.setText(
                 f"{pixels} pixels wide, from {request.width_mm:.0f} mm at "
-                f"{request.dpi} dpi.")
+                f"{request.dpi} dpi.{extra}")
         if self._ok is not None:
             self._ok.setEnabled(bool(request.path))
 
