@@ -82,6 +82,11 @@ ON_THE_MAP = ("The image, the mask's and the spectrin interior's edges, the "
               "drawn on the axon map: MPS analysis window, Axoplasm view. It "
               "follows every change made here.")
 SHOW_ON_MAP = "Show on the axon map"
+MAP_IMAGE = "Image under the map:"
+MAP_IMAGE_TIP = ("Which widefield image the axon map draws under the "
+                 "localizations (Axoplasm view). The same choice as the "
+                 "selector of the map's 'Widefield images' group: changing one "
+                 "changes the other.")
 SHOW_ON_MAP_TIP = ("Open or raise the MPS analysis window with the axon map in "
                    "its Axoplasm view (the image, the edges, the classes and the "
                    "clusters), beside this panel the first time, and keep it "
@@ -196,13 +201,19 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
     def __init__(self, inputs: AxoplasmInputs,
                  parent: Optional[QtWidgets.QWidget] = None,
                  export_callback: Optional[Callable[[], Any]] = None,
-                 map_callback: Optional[Callable[[], Any]] = None) -> None:
+                 map_callback: Optional[Callable[[], Any]] = None,
+                 image_callback: Optional[Callable[[str], Any]] = None
+                 ) -> None:
         super().__init__(parent)
         self.setObjectName("axoplasm_window")
         self.inputs = inputs
         # "Show on the axon map": the main window raises the MPS analysis
         # window in its Axoplasm view. None hides the button.
         self.map_callback = map_callback
+        # "Image under the map": told the image chosen here ("tubulin" or
+        # "spectrin"); the axon map's input is the one source of truth, and
+        # ``set_map_image`` keeps this selector on it. None hides it.
+        self.image_callback = image_callback
         # Writes this axon's tables. The main window's single export: it
         # sees this panel, the analysis and the discard at once, which is
         # what keeps the rows of one axon describing one state.
@@ -304,6 +315,20 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.label_on_map = _label(ON_THE_MAP, _DIM)
         self.label_on_map.setObjectName("label_on_map")
         on_map.addWidget(self.label_on_map, stretch=1)
+        self.label_map_image = _label(MAP_IMAGE, _DIM)
+        self.label_map_image.setObjectName("label_map_image")
+        # one line beside its selector (the text beside it wraps instead)
+        self.label_map_image.setWordWrap(False)
+        self.combo_map_image = QtWidgets.QComboBox()
+        self.combo_map_image.setObjectName("combo_map_image")
+        for key, name in map_layers.IMAGES.items():
+            self.combo_map_image.addItem(name, key)
+        self.combo_map_image.setToolTip(MAP_IMAGE_TIP)
+        self.label_map_image.setToolTip(MAP_IMAGE_TIP)
+        self.combo_map_image.currentIndexChanged.connect(self._on_map_image)
+        for widget in (self.label_map_image, self.combo_map_image):
+            widget.setVisible(image_callback is not None)
+            on_map.addWidget(widget)
         self.btn_show_map = QtWidgets.QPushButton(SHOW_ON_MAP)
         self.btn_show_map.setObjectName("btn_show_on_map")
         self.btn_show_map.setToolTip(SHOW_ON_MAP_TIP)
@@ -1056,6 +1081,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         return out
 
     def _refresh(self) -> None:
+        self._sync_map_image_items()
         self.btn_measure.setEnabled(
             self.reference is not None
             and not self.reference.from_localizations
@@ -1255,6 +1281,7 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         """Draw what this panel draws itself - the distance histogram - and
         tell the axon map that the picture changed (it reads ``map_state``)."""
         self._draw_hist()
+        self._sync_map_image_items()
         self.inputs.map_changed()
 
     def _draw_hist(self) -> None:
@@ -1301,6 +1328,30 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
             threshold_source=("otsu" if mask is None or mask.threshold_source == "otsu" else "manual"),
             selection_note=self.selection_note, margin_nm=float(self.spin_margin.value()),
             registration=self._registration_state(), has_result=self.result is not None)
+
+    def set_map_image(self, key: str) -> None:
+        """Show the axon map's choice of image (no call back)."""
+        combo = self.combo_map_image
+        combo.blockSignals(True)
+        combo.setCurrentIndex(max(0, combo.findData(key)))
+        combo.blockSignals(False)
+
+    def _sync_map_image_items(self) -> None:
+        """betaII-spectrin can be chosen only once it is loaded; the item
+        says why it cannot."""
+        combo = getattr(self, "combo_map_image", None)
+        if combo is None:
+            return
+        item = combo.model().item(combo.findData("spectrin"))
+        loaded = self.reference is not None
+        item.setEnabled(loaded)
+        item.setToolTip("" if loaded else
+                        "Not available: " + map_layers.SPECTRIN_NOT_LOADED + ".")
+
+    def _on_map_image(self, _index: int) -> None:
+        self.flush()
+        if self.image_callback is not None:
+            self.image_callback(str(self.combo_map_image.currentData()))
 
     def _on_show_map(self) -> None:
         """"Show on the axon map" (3.1)."""
@@ -1450,11 +1501,13 @@ def show_axoplasm_window(
     parent: Optional[QtWidgets.QWidget] = None,
     export_callback: Optional[Callable[[], Any]] = None,
     map_callback: Optional[Callable[[], Any]] = None,
+    image_callback: Optional[Callable[[str], Any]] = None,
 ) -> AxoplasmWindow:
     """Open the axoplasm panel."""
     window = AxoplasmWindow(inputs, parent=parent,
                             export_callback=export_callback,
-                            map_callback=map_callback)
+                            map_callback=map_callback,
+                            image_callback=image_callback)
     window.show()
     window.raise_()
     window.activateWindow()

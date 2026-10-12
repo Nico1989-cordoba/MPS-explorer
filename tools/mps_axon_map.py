@@ -228,6 +228,9 @@ class AxonMap(QtWidgets.QWidget):
 
     view_changed = QtCore.pyqtSignal(str)
     redrawn = QtCore.pyqtSignal()
+    # The widefield image chosen ("tubulin" | "spectrin"), each time it changes: the Axoplasm panel's own selector
+    # follows it (the map's input is the one source of truth).
+    image_changed = QtCore.pyqtSignal(str)
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None, *, dark: bool = True) -> None:
         super().__init__(parent)
@@ -346,6 +349,15 @@ class AxonMap(QtWidgets.QWidget):
     def view(self) -> str:
         return self._view
 
+    def set_image(self, key: str) -> None:
+        """Choose the widefield image under the map, as its group's selector does (the Axoplasm panel's selector
+        calls this)."""
+        if key not in L.IMAGES:
+            raise ValueError(f"unknown image {key!r}")
+        index = self.combo_image.findData(key)
+        if index != self.combo_image.currentIndex():
+            self.combo_image.setCurrentIndex(index)
+
     def set_view(self, view: str) -> None:
         """A preset of the rows (3.2): its source, its colouring and the rows it ticks."""
         if view not in L.MAP_VIEWS:
@@ -425,6 +437,10 @@ class AxonMap(QtWidgets.QWidget):
         self.plot.clear()
         self.layers.clear_layers(keep_state=True)
         self._groups = L.build_map(self._inputs)
+        if self._base_view == "axoplasm":
+            # the Axoplasm view is about the images: their group (and its selector) first, above the fold
+            self._groups.sort(key=lambda g: g.key != "images")
+        self._sync_image_items()
         self._layers = {}
         headers = {"source": self.combo_source, "colour_by": self.combo_colour, "image": self.combo_image}
         was = self._applying
@@ -583,6 +599,14 @@ class AxonMap(QtWidgets.QWidget):
     def _style(self) -> None:
         (style_dark if self.dark else style_light)(self.plot)
 
+    def _sync_image_items(self) -> None:
+        """betaII-spectrin can be chosen only once the Axoplasm panel has it loaded; the item says why not."""
+        st = self._inputs.axoplasm
+        missing = st is not None and st.has_mask and st.spectrin_region is None
+        item = self.combo_image.model().item(self.combo_image.findData("spectrin"))
+        item.setEnabled(not missing)
+        item.setToolTip("Not available: " + L.SPECTRIN_NOT_LOADED + "." if missing else "")
+
     def _sync_selectors(self) -> None:
         for combo, value in ((self.combo_source, self._inputs.source), (self.combo_colour, self._inputs.colour_by),
                              (self.combo_image, self._inputs.image)):
@@ -600,12 +624,14 @@ class AxonMap(QtWidgets.QWidget):
             self.set_view(view)
 
     def _on_header(self, _index: int) -> None:
-        old_source, old_colour = self._inputs.source, self._inputs.colour_by
+        old_source, old_colour, old_image = self._inputs.source, self._inputs.colour_by, self._inputs.image
         self._inputs.source = str(self.combo_source.currentData())
         self._inputs.colour_by = str(self.combo_colour.currentData())
         self._inputs.image = str(self.combo_image.currentData())
         self._to_custom()
         self.redraw()
+        if self._inputs.image != old_image:
+            self.image_changed.emit(self._inputs.image)
         # The rows of a source or a colouring chosen here start as the view that uses it ticks them; left
         # unticked, the map would lose its localizations or centres without a word.
         picks: List[Tuple[str, List[str]]] = []

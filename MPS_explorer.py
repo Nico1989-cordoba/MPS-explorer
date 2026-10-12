@@ -1988,7 +1988,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     inputs, parent=self,
                     export_callback=self.export_axon,
                     map_callback=lambda: self.show_mps_window(
-                        view="axoplasm", beside=self.axoplasm_window))
+                        view="axoplasm", beside=self.axoplasm_window),
+                    image_callback=self._axoplasm_map_image)
+            if self.mps_window is not None:
+                # the panel's "Image under the map" shows the map's choice
+                self.axoplasm_window.set_map_image(
+                    self.mps_window.axon_map.inputs().image)
             self.logger.info(
                 f"Axoplasm panel opened for "
                 f"{os.path.basename(self.locs1.path)} "
@@ -2445,12 +2450,16 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     "The analysis could not be re-run with those parameters.")
             return result
 
-        return MPSResultsWindow(
+        window = MPSResultsWindow(
             analysis, rerun_callback=rerun, parent=self,
             rings_callback=self._on_rings_requested,
             discard_callback=self._discard_for,
             export_callback=self.export_axon,
             links=self._mps_window_links())
+        window.axon_map.image_changed.connect(self._map_image_changed)
+        # a new map starts on its own choice: the panel's selector shows it
+        self._map_image_changed(window.axon_map.inputs().image)
+        return window
 
     def _show_mps_window(self, analysis: Any) -> None:
         """Open, or refresh in place, the MPS results window."""
@@ -2625,6 +2634,22 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.logger.error(f"Axon map: the Axoplasm panel could not be "
                               f"read: {error}", exc_info=True)
             return None, f"the Axoplasm panel could not be read: {error}"
+
+    def _axoplasm_map_image(self, key: str) -> None:
+        """The Axoplasm panel's "Image under the map": the axon map's input
+        is changed (the one source of truth), the map brought up in its
+        Axoplasm view when it is not on screen."""
+        window = self.mps_window
+        if window is None or not window.isVisible():
+            self.show_mps_window(view="axoplasm", beside=self.axoplasm_window)
+        if self.mps_window is not None:
+            self.mps_window.axon_map.set_image(key)
+
+    def _map_image_changed(self, key: str) -> None:
+        """The axon map's image changed: the Axoplasm panel's selector
+        follows it."""
+        if self.axoplasm_window is not None:
+            self.axoplasm_window.set_map_image(key)
 
     def _axoplasm_map_changed(self) -> None:
         """The Axoplasm panel's picture changed: the map follows it live."""

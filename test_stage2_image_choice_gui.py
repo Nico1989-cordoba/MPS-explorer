@@ -231,6 +231,25 @@ def main() -> int:
 
     check("3. the Axoplasm panel's selector drives the map's; images group first", panel_choice)
 
+    def panel_choice_hidden() -> str:
+        mw, w, aw = need(st, "mw"), need(st, "w"), need(st, "aw")
+        m = w.axon_map
+        w.hide()
+        pump(app, 0.1)
+        combo = aw.combo_map_image
+        assert combo.currentData() == "spectrin"
+        combo.setCurrentIndex(combo.findData("tubulin"))
+        pump(app, 0.3)
+        assert mw.mps_window is w and w.isVisible(), "the map is brought up"
+        assert m.view() in ("axoplasm", "custom") and m.layers.groups()[0] == "images", (m.view(), m.layers.groups())
+        assert m.inputs().image == "tubulin" and drawn(m) == "tubulin" and m.combo_image.currentData() == "tubulin"
+        assert "image: betaIII-tubulin" in m.title()
+        # one source of truth: the panel's selector never runs ahead of the map
+        assert combo.currentData() == m.inputs().image
+        return "map hidden: the panel's choice brings it up in the Axoplasm view, drawing betaIII-tubulin"
+
+    check("3b. the panel's selector with the map hidden brings the map up with that image", panel_choice_hidden)
+
     # ------------------------------------------------------------------ 4. tubulin only
     print("\n4. Only the tubulin image loaded")
 
@@ -248,7 +267,8 @@ def main() -> int:
         assert not item.isEnabled() and L.SPECTRIN_NOT_LOADED in str(item.toolTip()), "map selector"
         pi = aw.combo_map_image.findData("spectrin")
         pitem = aw.combo_map_image.model().item(pi)
-        assert not pitem.isEnabled() and "not loaded" in str(pitem.toolTip()), "panel selector"
+        assert not pitem.isEnabled() and L.SPECTRIN_NOT_LOADED in str(pitem.toolTip()), "panel selector"
+        assert aw.combo_map_image.currentData() == m.inputs().image == "tubulin", "both selectors on the map's"
         assert drawn(m) == "tubulin"
         # forced (an older choice): the row is disabled with the reason, no image is drawn, the title names none
         m.combo_image.setCurrentIndex(i)
