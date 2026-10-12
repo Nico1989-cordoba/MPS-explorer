@@ -44,7 +44,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields"]
+SCENARIOS = ["figure_export", "typed_fields", "copy"]
 
 
 # ============================================================================ one scenario (child process)
@@ -188,6 +188,58 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         w.chk_typed.setChecked(True)
         out["ticked"] = state()
         mw.close()
+    elif s == "copy":
+        from PyQt5 import QtCore, QtTest
+        mw = make_main()
+        w = mw.mps_window
+        w.show()
+        pump(0.2)
+        clip = QtWidgets.QApplication.clipboard()
+
+        def press_copy(view: Any) -> str:
+            clip.setText("<nothing>")
+            view.setFocus()
+            QtTest.QTest.keyClick(view, QtCore.Qt.Key.Key_C, QtCore.Qt.KeyboardModifier.ControlModifier)
+            pump(0.02)
+            return clip.text()
+
+        t = w.table
+        t.clearSelection()
+        t.setRangeSelected(QtWidgets.QTableWidgetSelectionRange(0, 0, 1, 1), True)
+        want = "\n".join("\t".join(t.item(r, c).text() for c in (0, 1)) for r in (0, 1))
+        out["table"] = {"got": press_copy(t), "want": want,
+                        "menu": [a.text() for a in t.actions()]}
+        menu_copy = [a for a in t.actions() if a.text() == "Copy"]
+        clip.setText("<nothing>")
+        menu_copy[0].trigger()
+        out["table_menu"] = clip.text()
+        lw = w.list_warnings
+        lw.clearSelection()
+        lw.item(0).setSelected(True)
+        out["warnings"] = {"got": press_copy(lw), "want": lw.item(0).text()}
+        from PyQt5.QtCore import Qt
+        flags = int(w.lbl_slab_mode.textInteractionFlags())
+        out["label_selectable"] = bool(flags & int(Qt.TextInteractionFlag.TextSelectableByMouse))
+        w.tabs.setCurrentWidget(w.area_tab)
+        w.details_area.button.setChecked(True)
+        pump(0.05)
+        d = w.details_area.table
+        d.clearSelection()
+        d.selectRow(0)
+        out["details"] = {"got": press_copy(d),
+                          "want": "\t".join(d.item(0, c).text() for c in range(d.columnCount()))}
+        w.btn_rings.click()
+        pump(0.3)
+        rw = mw.rings_window
+        ts = rw.table_seg
+        ts.clearSelection()
+        ts.selectRow(0)
+        out["rings"] = {"got": press_copy(ts),
+                        "want": "\t".join(ts.item(0, c).text() if ts.item(0, c) else ""
+                                          for c in range(ts.columnCount()))}
+        rf = int(rw.lbl_header.textInteractionFlags())
+        out["rings_label_selectable"] = bool(rf & int(Qt.TextInteractionFlag.TextSelectableByKeyboard))
+        mw.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -295,6 +347,19 @@ def main() -> int:
 
     if "typed_fields" in scenarios:
         check("2: the typed Z range fields always show the current slab", t2)
+
+    def t3() -> str:
+        r = res("copy")
+        assert r["table"]["got"] == r["table"]["want"] and "\t" in r["table"]["got"], r["table"]
+        assert "Copy" in r["table"]["menu"] and r["table_menu"] == r["table"]["want"], (r["table"], r["table_menu"])
+        assert r["warnings"]["got"] == r["warnings"]["want"], r["warnings"]
+        assert r["details"]["got"] == r["details"]["want"], r["details"]
+        assert r["rings"]["got"] == r["rings"]["want"], r["rings"]
+        assert r["label_selectable"] and r["rings_label_selectable"], r
+        return "results table 2x2 -> " + repr(r["table"]["got"][:60])
+
+    if "copy" in scenarios:
+        check("3: tables, warnings, Details and labels copy their text", t3)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")

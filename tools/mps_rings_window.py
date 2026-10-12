@@ -46,6 +46,7 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools import export_ui
+from tools.copyable import copyable_list, copyable_table, selectable_labels
 from tools import mps_param_registry as reg
 from tools.mps_origin_ui import ParamField
 from tools.mps_gaps import RingAnalysis, analyze_rings
@@ -361,6 +362,11 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.list_warnings = QtWidgets.QListWidget()
         self.list_warnings.setWordWrap(True)
         lay.addWidget(self.list_warnings, stretch=2)
+        # Manual test 2, item 3: selected cells / lines / label text to the clipboard (Ctrl+C, context menu).
+        copyable_table(self.table_seg)
+        copyable_table(self.table_pair)
+        copyable_list(self.list_warnings)
+        selectable_labels([self.lbl_header, self.lbl_params])
         return w
 
     @staticmethod

@@ -71,6 +71,7 @@ from tools import mps_param_registry as reg
 from tools.mps_analysis import AxonAnalysis, DiscardComparison
 from tools.mps_axial_view import AxialView
 from tools.mps_axon_map import AxonMap
+from tools.copyable import copyable_list, copyable_table, selectable_labels
 from tools.mps_nn_panel import NearestNeighboursPanel
 from tools.mps_origin_ui import DetailsPanel, MoreLine, OriginBadge, ParamField
 from tools.mps_params_panel import FlowLayout
@@ -346,6 +347,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._widened = False
         self._left_done = False
         splitter.splitterMoved.connect(self._on_left_moved)
+        self._make_text_copyable()
 
         self.refresh()
 
@@ -622,6 +624,15 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             spin.valueChanged.connect(lambda *_a: self._sync_reset())
 
         return box
+
+    def _make_text_copyable(self) -> None:
+        """Manual test 2, item 3: the tables (selected cells, tab-separated), the warnings and the labels that
+        carry values can be selected and copied (Ctrl+C or the context menu)."""
+        copyable_table(self.table)
+        copyable_table(self.details_area.table)
+        copyable_list(self.list_warnings)
+        selectable_labels([self.lbl_slab_mode, self.label_export, self.banner.label, self.axon_map.lbl_line1,
+                           self.axon_map.lbl_line2, self.nn.lbl_note, self.label_shown])
 
     def _strip_relayout(self) -> None:
         """A "More" line opened or closed: the flow re-places the groups."""

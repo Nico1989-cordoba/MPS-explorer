@@ -247,6 +247,8 @@ class DetailsPanel(QtWidgets.QWidget):
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setWordWrap(True)
         self.table.setToolTip(DETAILS_TIP)
+        from tools.copyable import copyable_table
+        copyable_table(self.table)
         lay.addWidget(self.table)
         self.button.toggled.connect(self._fold)
         self.button.setChecked(not collapsed)
