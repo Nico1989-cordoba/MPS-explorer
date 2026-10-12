@@ -3033,11 +3033,21 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self._rings_key = {
             "ms": ms, "locs": self.locs1,
             "roi": (None if self.roi_indices_unfiltered is None
-                    else np.asarray(self.roi_indices_unfiltered).copy())}
+                    else np.asarray(self.roi_indices_unfiltered).copy()),
+            # the z the segments were cut from: the Rings window's Axial tab
+            "z": np.asarray(z_in, dtype=float)}
 
         if show_window:
             self._show_rings_window(ms, guard_nm)
         return ms
+
+    def _rings_axial_z(self) -> Optional[NDArray[np.float64]]:
+        """The z the current segments were cut from (display only: the Rings
+        window's Axial tab)."""
+        key = self._rings_key
+        if not key or key.get("z") is None:
+            return None
+        return key["z"]
 
     def _show_rings_window(self, ms: Any, guard_nm: float = 0.0) -> None:
         """Open, or refresh in place, the rings panel."""
@@ -3064,7 +3074,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 segments_callback=lambda: self.show_mps_window(
                     view="segments", beside=self.rings_window),
                 status_callback=self._rings_status,
-                refreshed_callback=self._rings_refreshed)
+                refreshed_callback=self._rings_refreshed,
+                axial_z_callback=self._rings_axial_z)
         else:
             self.rings_window.ms = ms
             self.rings_window.rings = analyze_rings(ms)

@@ -91,6 +91,7 @@ SEGMENTS_POINTER = (
     "on the axon map and the axial view: MPS analysis window, Segments view "
     "and Axial tab (Every segment). Patches at the same angle in two segments "
     "can be checked there at the same physical spot.")
+AREA_TITLE = "Cluster area of each segment"
 SHOW_SEGMENTS = "Show the segments on the axon map and the axial view"
 SHOW_SEGMENTS_TIP = (
     "Raise the MPS analysis window beside this one, with the axon map in its "
@@ -116,6 +117,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         segments_callback: Optional[Callable[[], Any]] = None,
         status_callback: Optional[Callable[[], Tuple[str, str]]] = None,
         refreshed_callback: Optional[Callable[[], Any]] = None,
+        axial_z_callback: Optional[Callable[[], Optional[np.ndarray]]] = None,
     ):
         """
         Parameters
@@ -153,6 +155,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             so the axon map and the axial view that draw them follow.
         """
         super().__init__(parent)
+        # The z of the selection the segments were cut from (manual test 2, item 13: the Axial tab).
+        self.axial_z_callback = axial_z_callback
         self.ms = ms
         self.rings = rings if rings is not None else analyze_rings(ms)
         self.rerun_callback = rerun_callback
@@ -309,6 +313,45 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.spin_guard.valueChanged.connect(self._on_param_changed)
         return box
 
+    def _draw_axial(self) -> None:
+        """The segments' z: the MPS analysis window's axial view on Every segment (display only)."""
+        from tools import mps_axon_map_layers as L
+        z = None if self.axial_z_callback is None else self.axial_z_callback()
+        reason = "" if self.ms is not None else "no segments"
+        self.axial.set_inputs(L.AxialInputs(z_roi=None if z is None else np.asarray(z, float), rings=self.ms,
+                                            rings_reason=reason or "press Rings... to compute the segments",
+                                            view="segments"), view="segments")
+
+    def _draw_area(self) -> None:
+        """The cluster areas of each segment, one outline histogram per segment in its colour, with its median
+        (the numbers each segment's own analysis measured)."""
+        self.plot_area.clear()
+        if self.area_legend is not None:
+            self.area_legend.clear()
+        ms = self.ms
+        rows = [] if ms is None else _area_rows(ms)
+        self.details_area.set_rows(rows)
+        if ms is None:
+            return
+        values = [np.asarray(a.areas.areas_nm2, float) for a in ms.analyses
+                  if a is not None and a.areas is not None and np.asarray(a.areas.areas_nm2).size]
+        if not values:
+            set_title(self.plot_area, AREA_TITLE + ": no segment has clusters")
+            return
+        set_title(self.plot_area, AREA_TITLE)
+        edges = np.histogram_bin_edges(np.concatenate(values), bins=30)
+        for seg, a in zip(ms.segments, ms.analyses):
+            if a is None or a.areas is None or np.asarray(a.areas.areas_nm2).size == 0:
+                continue
+            counts, _e = np.histogram(np.asarray(a.areas.areas_nm2, float), bins=edges)
+            colour = segment_colour(seg.index)
+            self.plot_area.plot(edges, counts, stepMode="center", pen=pg.mkPen(colour, width=2),
+                                name=f"seg {seg.index}: median {a.areas.median_area_nm2:,.0f} nm^2")
+            med = a.areas.median_area_nm2
+            if med is not None:
+                self.plot_area.addItem(pg.InfiniteLine(
+                    pos=med, angle=90, pen=pg.mkPen(colour, width=1, style=QtCore.Qt.PenStyle.DashLine)))
+
     def _build_left_column(self) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(w)
@@ -387,7 +430,41 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.tabs.setObjectName("rings_tabs")
         self.tabs.addTab(self._build_correlation_tab(), "Correlation")
         self.tabs.addTab(self._build_spatial_tab(), "Each segment")
+        # Manual test 2, item 13: everything about the rings in one window -
+        # their z (the MPS analysis window's axial view, on Every segment)
+        # and the cluster area of each segment.
+        self.tabs.addTab(self._build_axial_tab(), "Axial")
+        self.tabs.addTab(self._build_area_tab(), "Cluster area per segment")
         return self.tabs
+
+    def _build_axial_tab(self) -> QtWidgets.QWidget:
+        from tools.mps_axial_view import AxialView
+        self.axial = AxialView(dark=True)
+        self.axial.setObjectName("rings_axial_view")
+        # Only the segments are this window's: the view is fixed on them.
+        self.axial.combo_view.setEnabled(False)
+        self.axial.combo_view.setToolTip(
+            "The segments of this window. The MPS analysis slab is on the MPS analysis window's Axial tab.")
+        return self.axial
+
+    def _build_area_tab(self) -> QtWidgets.QWidget:
+        from tools.mps_origin_ui import DetailsPanel
+        w = QtWidgets.QWidget()
+        w.setObjectName("rings_area_tab")
+        lay = QtWidgets.QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        self.plot_area = pg.PlotWidget()
+        self.plot_area.setObjectName("rings_area_plot")
+        style_dark(self.plot_area)
+        set_title(self.plot_area, AREA_TITLE)
+        self.plot_area.setLabels(bottom="area [nm^2]", left="clusters")
+        self.area_legend = self.plot_area.addLegend(offset=(-10, 10), labelTextColor=_C_NEUTRAL)
+        lay.addWidget(self.plot_area, 1)
+        self.details_area = DetailsPanel(object_name="details_rings_area", collapsed=False)
+        self.details_area.table.setMaximumHeight(160)
+        lay.addWidget(self.details_area)
+        return w
 
     def _build_correlation_tab(self) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()
@@ -476,6 +553,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self._draw_profiles()
         self._draw_correlation()
         self._draw_spatial()
+        self._draw_axial()
+        self._draw_area()
         if self.refreshed_callback is not None:
             self.refreshed_callback()
 
@@ -939,3 +1018,21 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
         QtWidgets.QMessageBox.information(
             self, "Exported", "\n".join(w for w in written if w))
+
+
+def _area_rows(ms: Any) -> List[Tuple[str, str, str]]:
+    """One Details row per segment: its clusters and the median area / effective radius its own analysis measured
+    (nothing is computed here)."""
+    rows: List[Tuple[str, str, str]] = []
+    for seg, a in zip(ms.segments, ms.analyses):
+        name = f"segment {seg.index} (z {seg.center_nm:,.0f} nm)"
+        if a is None or a.areas is None or np.asarray(a.areas.areas_nm2).size == 0:
+            rows.append((name, "-", "not analysed" if a is None else "no cluster area"))
+            continue
+        med_a = a.areas.median_area_nm2
+        r = np.asarray(a.areas.r_eff_nm, float)
+        med_r = float(np.median(r)) if r.size else None
+        rows.append((name, "-" if med_a is None else f"{med_a:,.0f} nm^2",
+                     f"{np.asarray(a.areas.areas_nm2).size} clusters"
+                     + ("" if med_r is None else f"; median effective radius {med_r:,.1f} nm")))
+    return rows

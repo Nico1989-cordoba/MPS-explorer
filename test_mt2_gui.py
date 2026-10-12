@@ -44,7 +44,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow", "main_layout"]
+SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow", "main_layout", "rings_tabs"]
 
 # Scenarios that measure geometry, with the platform's font.
 FONT_SCENARIOS = {"layout_warnings", "main_layout"}
@@ -463,6 +463,28 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
                 "scatter": list(rects.get("verticalLayoutWidget", (0, 0, 0, 0))[2:])}
         out["main_layout"] = sizes
         mw.close()
+    elif s == "rings_tabs":
+        mw = make_main()
+        w = mw.mps_window
+        w.btn_rings.click()
+        pump(0.3)
+        rw = mw.rings_window
+        ms = rw.ms
+        tabs = [rw.tabs.tabText(i) for i in range(rw.tabs.count())]
+        ax = rw.axial
+        curves = [it for it in rw.plot_area.getPlotItem().listDataItems()]
+        out["rings_tabs"] = {
+            "tabs": tabs, "axial_view": ax.view(), "axial_z": None if ax.inputs().z_roi is None
+            else int(ax.inputs().z_roi.size), "z_roi_before_cut": int(len(mw.zroi_unfiltered)),
+            "axial_layers": list(ax.layers.keys()), "axial_shown": list(ax.layers.shown_keys()),
+            "axial_title": ax.title(), "n_segments": int(ms.n_segments),
+            "analysed": int(sum(1 for a in ms.analyses if a is not None and a.areas is not None
+                                and a.areas.areas_nm2.size)),
+            "curves": len(curves),
+            "detail_rows": [list(map(str, r)) for r in rw.details_area.rows()],
+            "medians": [None if (a is None or a.areas is None) else a.areas.median_area_nm2
+                        for a in ms.analyses]}
+        mw.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -688,6 +710,22 @@ def main() -> int:
 
     if "main_layout" in scenarios:
         check("9: the main window's controls do not overlap and the plots take the room", t9)
+
+    def t13() -> str:
+        r = res("rings_tabs")["rings_tabs"]
+        assert r["tabs"][:2] == ["Correlation", "Each segment"], r["tabs"]
+        assert "Axial" in r["tabs"] and "Cluster area per segment" in r["tabs"], r["tabs"]
+        assert r["axial_view"] == "segments" and r["axial_z"] == r["z_roi_before_cut"], r
+        assert any(k.startswith("seg") or "segment" in k for k in r["axial_shown"]), r["axial_shown"]
+        assert r["curves"] == r["analysed"] > 0 and len(r["detail_rows"]) == r["n_segments"], r
+        for row, med in zip(r["detail_rows"], r["medians"]):
+            if med is not None:
+                assert row[1] == f"{med:,.0f} nm^2", (row, med)
+        return (f"tabs {r['tabs']}; axial on Every segment over {r['axial_z']:,} z; {r['curves']} area histograms, "
+                f"medians as each segment's analysis measured them")
+
+    if "rings_tabs" in scenarios:
+        check("13: the Rings window carries the axial view and the cluster area per segment", t13)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")
