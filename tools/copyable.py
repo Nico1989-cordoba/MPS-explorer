@@ -95,7 +95,7 @@ class _CopyKey(QtCore.QObject):
 def _install(widget: QtWidgets.QWidget, copy: Any, copy_all: Optional[Any]) -> None:
     if getattr(widget, "_mps_copyable", False):
         return
-    widget._mps_copyable = True                                   # type: ignore[attr-defined]
+    setattr(widget, "_mps_copyable", True)
     widget.installEventFilter(_CopyKey(widget, copy))
     widget.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.ActionsContextMenu)
     action = QtWidgets.QAction(COPY_TEXT, widget)

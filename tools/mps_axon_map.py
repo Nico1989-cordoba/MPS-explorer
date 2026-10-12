@@ -465,7 +465,7 @@ class AxonMap(QtWidgets.QWidget):
         vb = self.plot.getViewBox()
         (x0, x1), _y = vb.viewRange()
         width_px = max(1.0, float(vb.width()))
-        return CLICK_TOLERANCE_PX * abs(x1 - x0) / width_px
+        return float(CLICK_TOLERANCE_PX * abs(float(x1) - float(x0)) / width_px)
 
     def select_at(self, x: float, y: float) -> Optional[Dict[str, Any]]:
         """The cluster centre at (x, y) nm (within the click tolerance), selected; None clears the selection."""
