@@ -587,7 +587,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_reset.setObjectName("btn_reset")
         self.btn_reset.setToolTip(reg.reset_tooltip())
         self.btn_reset.clicked.connect(self._on_reset)
-        self.actions_flow.addWidget(self.btn_reset)
+        # placed under the results table, beside 'Warnings (N)...' (_build_left_column): with the badges'
+        # publication name the strip keeps two lines at 1366 px only without it (manual test 2)
 
         # The axon's actions sit at the right of the plot tabs' bar, a line
         # that is otherwise empty: the strip keeps two lines at 1366 px and
@@ -876,6 +877,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_warnings.setObjectName("btn_warnings")
         self.btn_warnings.clicked.connect(self._on_save_warnings)
         row.addWidget(self.btn_warnings)
+        row.addWidget(self.btn_reset)
         row.addStretch(1)
         lay.addLayout(row)
         self._warning_lines: List[str] = []
