@@ -191,6 +191,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Algorithm Selection (Manual control over DBSCAN vs HDBSCAN)
         self.algorithm_selector = self.ui.comboBox_algorithm
         self.algorithm_selector.currentTextChanged.connect(self.on_algorithm_changed)
+        # DBSCAN by default (manual test 2, item 11): it is what the MPS
+        # analysis uses, and what "Auto" chose below 100,000 localizations
+        # anyway. Auto and HDBSCAN stay in the list.
+        self.algorithm_selector.setCurrentText("DBSCAN")
         self.logger.debug("Algorithm selector initialized (Auto/DBSCAN/HDBSCAN)")
 
         # Connect Buttons to Methods
@@ -3365,7 +3369,42 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.logger.info(f"Channel 1 loaded: {len(x):,} localizations")
         self._check_recorded_pixel_size(self.locs1, 1)
         self._check_channel_pixel_sizes()
+        self._show_loaded_axon()
         return True
+
+    def _show_loaded_axon(self) -> None:
+        """
+        Manual test 2, item 11: a loaded file is already the picked axon, so
+        the scatter is drawn at once and a circular ROI covering every
+        localization is drawn and applied (the cut is pre-filled as on
+        "Apply ROI"): "cluster Ch1" can follow directly. The ROI stays a
+        normal one - dragged, resized, or replaced by a square or a polygon
+        with the radio buttons.
+        """
+        if self.xdata is None or self.ydata is None or len(self.xdata) == 0:
+            return
+        self.radioButton_circROI.setChecked(True)
+        self.scatterplot()
+        if self.x is None or getattr(self, "circular_roi", None) is None:
+            return
+        self._fit_circular_roi()
+        self.update_ROI()
+
+    def _fit_circular_roi(self) -> None:
+        """The circular ROI drawn around every channel-1 localization: centred
+        on the middle of their extent, its drawn radius 2 % beyond the
+        farthest one (the selection reaches ROI_DIAMETER_SCALE_FACTOR times
+        that, see update_ROI)."""
+        x = np.asarray(self.x, dtype=float)
+        y = np.asarray(self.y, dtype=float)
+        cx = float(np.min(x) + np.max(x)) / 2.0
+        cy = float(np.min(y) + np.max(y)) / 2.0
+        radius = float(np.max(np.hypot(x - cx, y - cy))) * 1.02 + 1.0
+        size = 2.0 * radius
+        roi = self.circular_roi
+        roi.setSize((size, size), update=False, finish=False)
+        roi.setPos((cx - size / 2.0, cy - size / 2.0), update=False, finish=False)
+        roi.stateChanged(finish=False)
 
     def load_channel2(self, path: str, fileformat: int = 0) -> bool:
         """Load a file into channel 2 without the file dialog."""

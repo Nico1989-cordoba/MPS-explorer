@@ -44,7 +44,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal"]
+SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow"]
 
 # Scenarios that measure geometry, with the platform's font.
 FONT_SCENARIOS = {"layout_warnings", "main_layout"}
@@ -383,6 +383,34 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         d2 = IdentityDialog(path, remembered=AxonIdentity(animal="M12", sample="slide 2"),
                             remembered_folder=os.path.dirname(path))
         out["animal_remembered"] = d2.edits["animal"].text()
+    elif s == "load_flow":
+        mw = make_main(load=False)
+        out["fresh_algorithm"] = mw.algorithm_selector.currentText()
+        mw.radioButton_squareROI.setChecked(True)            # whatever was chosen before: a picked axon is a circle
+        n_msg = len(cell.messages)
+        assert mw.load_channel1(os.path.join(inputs, "sim_axon_A.hdf5"), 0)
+        pump(0.1)
+        n_file = int(len(mw.xdata))
+        out["loaded"] = {"scatter": mw.ui.scatterlayout.count(), "circle": mw.radioButton_circROI.isChecked(),
+                         "n_file": n_file,
+                         "n_roi_before_cut": None if mw.roi_indices_unfiltered is None
+                         else int(len(mw.roi_indices_unfiltered)),
+                         "cut": [mw.ui.lineEdit_zmin.text(), mw.ui.lineEdit_zmax.text()],
+                         "roi_shape": repr(mw._applied_roi_shape)[:80],
+                         "algorithm": mw.algorithm_selector.currentText(),
+                         "messages": [m["title"] for m in cell.messages[n_msg:]]}
+        mw.ui.pushButton_clusterch1.click()
+        pump()
+        out["clustered"] = {"analysis": mw.mps_analysis is not None,
+                            "clusters": None if mw.mps_analysis is None else int(mw.mps_analysis.n_clusters_kept)}
+        # Still editable: another shape, another algorithm.
+        mw.radioButton_squareROI.setChecked(True)
+        mw.radioButton_squareROI.clicked.emit(True)
+        pump()
+        mw.algorithm_selector.setCurrentText("HDBSCAN")
+        out["edited"] = {"square": getattr(mw, "square_roi", None) is not None,
+                         "algorithm": mw.algorithm_selector.currentText()}
+        mw.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -579,6 +607,21 @@ def main() -> int:
     if "badge_animal" in scenarios:
         check("10: the paper badge reads 'Gazal et al. (2026)', the tooltip the full reference", t10)
         check("12: the animal defaults to 'mouse', editable", t12)
+
+    def t11() -> str:
+        r = res("load_flow")
+        a = r["loaded"]
+        assert r["fresh_algorithm"] == "DBSCAN" and a["algorithm"] == "DBSCAN", r
+        assert a["scatter"] >= 1 and a["circle"] and a["messages"] == [], a
+        assert a["n_roi_before_cut"] == a["n_file"], a
+        assert a["cut"][0] and a["cut"][1] and a["roi_shape"].startswith("CircularROI"), a
+        assert r["clustered"]["analysis"] and r["clustered"]["clusters"] > 0, r["clustered"]
+        assert r["edited"] == {"square": True, "algorithm": "HDBSCAN"}, r["edited"]
+        return (f"scatter drawn; circle over all {a['n_file']:,} localizations; cut {a['cut']}; DBSCAN; "
+                f"cluster Ch1 directly -> {r['clustered']['clusters']} clusters; square / HDBSCAN still possible")
+
+    if "load_flow" in scenarios:
+        check("11: loading draws the scatter, a circular ROI over the whole axon, DBSCAN", t11)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")
