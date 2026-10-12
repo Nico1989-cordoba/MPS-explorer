@@ -159,6 +159,10 @@ MAP_MIN_OF_WINDOW = 0.56
 # more than a third: the axon map is the window's main element (manual test 2,
 # item 4).
 LEFT_MIN_PX = 430
+# The limits of the DBSCAN editors, shared with the main window's boxes (manual test 2, item 7).
+EPS_RANGE_NM = (0.1, 1000.0)
+EPS_DECIMALS = 1
+MIN_SAMPLES_RANGE = (1, 10000)
 LEFT_SHARE = 0.25
 # How many warnings the button's tooltip previews, and how long each line.
 WARNINGS_PREVIEW = 5
@@ -492,8 +496,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         g_db.setToolTip("DBSCAN of the MPS analysis (not the main window's window clustering).")
         ld.addWidget(QtWidgets.QLabel("eps [nm]:"), 0, 0)
         self.spin_eps = QtWidgets.QDoubleSpinBox()
-        self.spin_eps.setRange(0.1, 1000.0)
-        self.spin_eps.setDecimals(1)
+        self.spin_eps.setRange(*EPS_RANGE_NM)
+        self.spin_eps.setDecimals(EPS_DECIMALS)
         self.spin_eps.setToolTip(
             "DBSCAN search radius. The paper uses 25 nm, matching its ~20 nm\n"
             "lateral localization precision."
@@ -502,7 +506,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         ld.addWidget(self.field_eps, 0, 1)
         ld.addWidget(QtWidgets.QLabel("min samples:"), 1, 0)
         self.spin_min = QtWidgets.QSpinBox()
-        self.spin_min.setRange(1, 10000)
+        self.spin_min.setRange(*MIN_SAMPLES_RANGE)
         self.spin_min.setToolTip(
             "DBSCAN minimum points per cluster. The paper uses 10, matching\n"
             "the expected number of blinking cycles per fluorophore."

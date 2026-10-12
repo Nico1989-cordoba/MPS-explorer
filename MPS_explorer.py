@@ -209,12 +209,16 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # window layout the user built is preserved.
         self.ui.pushButton_remove_bad_cluster.setText("MPS analysis")
         self.ui.pushButton_remove_bad_cluster.setToolTip(
-            "Open the per-axon MPS parameters panel (Gazal et al. 2026).\n"
-            "Bad clusters are removed automatically; every parameter in the\n"
-            "panel stays editable."
+            "Run the per-axon MPS analysis on the current selection and open\n"
+            "its window; when the analysis on screen is already of this\n"
+            "selection, only open the window. With no selection yet, the\n"
+            "window opens empty. Bad clusters are removed automatically;\n"
+            "every parameter in the window stays editable."
         )
+        # One button (manual test 2, item 6): it was two, 'MPS analysis'
+        # (always ran) and 'Show the MPS analysis window' (never ran).
         self.ui.pushButton_remove_bad_cluster.clicked.connect(
-            lambda: self.run_mps_analysis(show_window=True))
+            lambda: self.mps_analysis_button())
         self.ui.pushButton_savecluscenters.clicked.connect(self.save_clus_CM)
         self.ui.pushButton_saveAllClusterData.clicked.connect(lambda: self.save_all_clustered_data(1))
         self.ui.pushButton_saveAllClusterDataThunderStorm.clicked.connect(lambda: self.save_all_clustered_data_thunderstorm(1))
@@ -1030,8 +1034,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
             widget.setVisible(False)
         self.label_moved_clusters = QtWidgets.QLabel(
             "Cluster centres, the distances between them and the axial "
-            "distribution are in the MPS analysis window: the axon map, and "
-            "its tabs Nearest neighbours and Axial.", ui.groupBox)
+            "distribution are in the MPS analysis window ('MPS analysis' "
+            "opens it): the axon map, and its tabs Nearest neighbours and "
+            "Axial.", ui.groupBox)
         self.label_moved_clusters.setObjectName("label_moved_clusters")
         self.label_moved_clusters.setWordWrap(True)
         self.label_moved_clusters.setGeometry(QtCore.QRect(20, 455, 620, 48))
@@ -1045,6 +1050,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.button_show_mps_window.setGeometry(QtCore.QRect(20, 508, 220, 28))
         self.button_show_mps_window.clicked.connect(
             lambda: self.show_mps_window())
+        # Merged into 'MPS analysis' (manual test 2, item 6): kept, hidden,
+        # for the code that still holds it.
+        self.button_show_mps_window.setVisible(False)
         self.label_moved_z = QtWidgets.QLabel(
             "The z of this ROI - before the cut, with the fitted mixture, "
             "the analysis slab and the cut - is on the MPS analysis window's "
@@ -2036,11 +2044,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
     def _build_param_mirrors(self) -> None:
         """
-        The main window's eps and min-samples boxes become read-only
-        mirrors of the one value (design 6.1, Q1(a)): rendered from the
-        settings object after every change, never read back. An origin
-        badge under each, and "Change..." opens the MPS analysis window,
-        where they are edited. The Z min / Z max fields stay the cut's
+        The main window's eps and min-samples boxes show the one value
+        (design 6.1): rendered from the settings object after every change,
+        with an origin badge under each. Since manual test 2 (item 7) they
+        are editors too: an edit goes through the strip's own path
+        (_on_main_param_edited), so both write the same value. The Z min / Z max fields stay the cut's
         backing fields, read-only for the user: the slab is chosen in the
         MPS analysis window (or typed there); "Apply ROI" applies the ROI
         and that cut.
@@ -2048,26 +2056,83 @@ class MPS_explorer(QtWidgets.QMainWindow):
         from tools.mps_origin_ui import OriginBadge
 
         ui = self.ui
-        for edit in (ui.lineEdit_eps, ui.lineEdit_minsamples,
-                     ui.lineEdit_zmin, ui.lineEdit_zmax):
+        # Z min / Z max stay the cut's backing fields, read-only. eps and min
+        # samples are editors again (manual test 2, item 7): either this box
+        # or the strip writes the one value, with the strip's limits and its
+        # re-run.
+        for edit in (ui.lineEdit_zmin, ui.lineEdit_zmax):
             edit.setReadOnly(True)
+        for edit in (ui.lineEdit_eps, ui.lineEdit_minsamples):
+            edit.setReadOnly(False)
+            edit.editingFinished.connect(self._on_main_param_edited)
         ui.pushButton_zrange.setText("Apply ROI")
         self.badge_minsamples = OriginBadge("dbscan.min_samples",
                                             parent=ui.groupBox)
         self.badge_minsamples.setGeometry(QtCore.QRect(20, 71, 75, 16))
         self.badge_eps = OriginBadge("dbscan.eps_nm", parent=ui.groupBox)
         self.badge_eps.setGeometry(QtCore.QRect(100, 71, 75, 16))
-        self.button_change_params = QtWidgets.QPushButton(
-            "Change...", ui.groupBox)
-        self.button_change_params.setObjectName("button_change_params")
-        self.button_change_params.setGeometry(QtCore.QRect(180, 72, 70, 18))
-        self.button_change_params.setToolTip(
-            "eps, min samples, the axial slab, the Mahalanobis threshold and "
-            "the randomization are set in the MPS analysis window's parameter "
-            "strip, the one place they are edited; this opens it.")
-        self.button_change_params.clicked.connect(
-            lambda: self.show_mps_window())
         self._render_mirrors()
+
+    def _on_main_param_edited(self) -> None:
+        """
+        eps or min samples typed in the main window (manual test 2, item 7).
+
+        The same value the strip edits: the limits of the strip's boxes,
+        and the strip's own path - the value goes into its box and its
+        handler stores it and re-runs the analysis on screen with the
+        strip's keyword arguments (rule K), or only stores it when there is
+        no analysis. Nothing else reads these boxes.
+        """
+        from tools.mps_results_window import (
+            EPS_DECIMALS, EPS_RANGE_NM, MIN_SAMPLES_RANGE)
+
+        s = self.mps_settings
+        try:
+            eps = round(float(self.ui.lineEdit_eps.text().strip().replace(",", ".")), EPS_DECIMALS)
+            minimum_f = float(self.ui.lineEdit_minsamples.text().strip())
+        except ValueError:
+            eps, minimum_f = float("nan"), float("nan")
+        valid = (EPS_RANGE_NM[0] <= eps <= EPS_RANGE_NM[1]
+                 and MIN_SAMPLES_RANGE[0] <= minimum_f <= MIN_SAMPLES_RANGE[1]
+                 and float(minimum_f).is_integer())
+        if not valid:
+            # Rendered back first: the message box takes the focus, and the
+            # box's second editingFinished must find nothing to complain of.
+            self._render_mirrors()
+            QtWidgets.QMessageBox.warning(
+                self, "DBSCAN parameters",
+                f"eps is a number of nanometres from {EPS_RANGE_NM[0]:g} to "
+                f"{EPS_RANGE_NM[1]:g}, min samples a whole number from "
+                f"{MIN_SAMPLES_RANGE[0]} to {MIN_SAMPLES_RANGE[1]}. The values "
+                f"in use are kept: eps {s.eps_nm:g} nm, min samples "
+                f"{int(s.min_samples)}.")
+            return
+        minimum = int(minimum_f)
+        if eps == float(s.eps_nm) and minimum == int(s.min_samples):
+            self._render_mirrors()
+            return
+        window = self.mps_window
+        if window is None and self.mps_analysis is not None:
+            self.mps_window = window = self._make_mps_window(self.mps_analysis)
+        if window is None:
+            # No analysis and no window: the value is stored, nothing runs.
+            self._store_params({"eps_nm": eps, "min_samples": minimum})
+            return
+        window.spin_eps.setValue(eps)
+        window.spin_min.setValue(minimum)
+        window._on_param_changed()
+
+    def mps_analysis_button(self) -> Optional[Any]:
+        """
+        'MPS analysis' (manual test 2, item 6): run the analysis when none
+        is current for this selection, otherwise show its window. Without a
+        selection it opens the window empty (it then draws nothing yet).
+        """
+        if self.xroi is None or self.zroi is None or len(self.xroi) == 0:
+            return self.show_mps_window()
+        if self.mps_analysis is not None and self._current_cluster_centroids() is not None:
+            return self.show_mps_window()
+        return self.run_mps_analysis(show_window=True)
 
     def _build_measurement_panel(self) -> None:
         """
@@ -2111,8 +2176,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             badge = getattr(self, name, None)
             if badge is not None:
                 badge.set_value(value)
-                badge.setToolTip(badge.toolTip() + "\n\nSet in the MPS analysis "
-                                 "window's parameter strip.")
+                badge.setToolTip(badge.toolTip() + "\n\nEdited here or in the MPS "
+                                 "analysis window's parameter strip: one value.")
 
     def _persist_mps_settings(self) -> None:
         """Save the one value of each parameter for the next session.

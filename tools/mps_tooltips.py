@@ -107,17 +107,18 @@ MAIN_WINDOW: Dict[str, str] = {
         "localizations can be and still belong to the same cluster. Too "
         "small breaks one cluster into several; too large merges "
         "neighbours.\n\n"
-        "Set as 'eps' in the MPS analysis window's parameter strip "
-        "('Change...'); this box only shows it. The MPS analysis, the "
+        "Type it here or as 'eps' in the MPS analysis window's parameter "
+        "strip: both edit the same one value, and an edit re-runs the "
+        "analysis on screen as the strip does. The MPS analysis, the "
         "window clustering, Rings, Batch and Two channels all use that one "
         "value for channel 1; channel 2 has its own. Not used by HDBSCAN.",
     "lineEdit_minsamples":
         "DBSCAN's Min Pts: how many localizations have to sit within "
         "epsilon of a point for it to start a cluster. Raising it leaves "
         "more localizations as noise.\n\n"
-        "Set as 'min samples' in the MPS analysis window's parameter strip "
-        "('Change...'); this box only shows it, and every analysis of "
-        "channel 1 uses that one value; channel 2 has its own. Not used by "
+        "Type it here or as 'min samples' in the MPS analysis window's "
+        "parameter strip: both edit the same one value, and every analysis "
+        "of channel 1 uses it; channel 2 has its own. Not used by "
         "HDBSCAN.",
     "lineEdit_minclustersize":
         "HDBSCAN's smallest number of localizations a group must have to "

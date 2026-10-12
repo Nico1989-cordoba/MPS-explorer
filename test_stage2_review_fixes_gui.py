@@ -144,7 +144,7 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         a_old = w.analysis
         assert mw.load_channel1(os.path.join(inputs, "sim_axon_B.hdf5"), 0)
         pump()
-        mw.button_change_params.click()
+        mw.show_mps_window()                             # what 'Change...' did (merged away in manual test 2)
         pump()
         w2 = mw.mps_window
         out["reopened"] = {"shows_old_analysis": w2.analysis is a_old, "analysis_none": w2.analysis is None}

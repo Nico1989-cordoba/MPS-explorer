@@ -193,8 +193,12 @@ def main() -> int:
         for name in ("combo_peak", "chk_random", "btn_reset", "btn_contour", "btn_rings"):
             assert getattr(w, name) is not None, name
         assert w.btn_reset.text() == "Reset to defaults"
-        for edit in (mw.ui.lineEdit_eps, mw.ui.lineEdit_minsamples, mw.ui.lineEdit_zmin, mw.ui.lineEdit_zmax):
+        # Z min / Z max stay read-only; eps and min samples are editors of the same one value since manual
+        # test 2 (item 7; test_mt2_gui.py checks the edit path).
+        for edit in (mw.ui.lineEdit_zmin, mw.ui.lineEdit_zmax):
             assert edit.isReadOnly(), edit.objectName()
+        for edit in (mw.ui.lineEdit_eps, mw.ui.lineEdit_minsamples):
+            assert not edit.isReadOnly(), edit.objectName()
         s = mw.mps_settings
         assert mw.ui.lineEdit_eps.text() == f"{s.eps_nm:g}" and mw.ui.lineEdit_minsamples.text() == \
             f"{int(s.min_samples)}"
@@ -253,7 +257,12 @@ def main() -> int:
         for absent in ("main_peak_override_nm", "run_randomization", "contour_guide"):
             assert absent not in kw, f"cluster Ch1 passed {absent} (rule K)"
         n1 = len(calls["analyze_axon"])
+        # 'MPS analysis' only shows the window while the analysis is current (manual test 2, item 6); what it runs
+        # otherwise is run_mps_analysis(show_window=True), as before.
         mw.ui.pushButton_remove_bad_cluster.click()
+        pump(app, 0.1)
+        assert len(calls["analyze_axon"]) == n1, "the analysis was current: the button only shows the window"
+        mw.run_mps_analysis(show_window=True)
         pump(app, 0.1)
         assert calls["analyze_axon"][n1]["eps_nm"] == 30.0
         assert mw._clustering_parameters()[0] == {"eps_nm": 30.0, "min_samples": 10}

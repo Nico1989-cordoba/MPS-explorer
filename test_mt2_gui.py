@@ -44,7 +44,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings"]
+SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params"]
 
 # Scenarios that measure geometry, with the platform's font.
 FONT_SCENARIOS = {"layout_warnings", "main_layout"}
@@ -306,6 +306,63 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         out["reopened"] = {"results_plots": w2.splitter.sizes(), "map_tabs": w2.plot_splitter.sizes(),
                            "map_layers": w2.axon_map.splitter.sizes()}
         mw2.close()
+    elif s == "main_params":
+        mw = make_main()
+        w = mw.mps_window
+
+        def main_edit(edit: Any, text: str) -> None:
+            edit.setText(text)
+            edit.editingFinished.emit()
+            pump(0.02)
+
+        out["editable"] = [not mw.ui.lineEdit_eps.isReadOnly(), not mw.ui.lineEdit_minsamples.isReadOnly(),
+                           mw.ui.lineEdit_zmin.isReadOnly()]
+        out["change_button"] = hasattr(mw, "button_change_params")
+        n0 = len(calls("analyze_axon"))
+        cell.window_edit(app, w.spin_eps, 31.0)                 # the strip
+        strip_kw = calls("analyze_axon")[n0:]
+        out["strip"] = {"field_eps": mw.ui.lineEdit_eps.text(), "kwargs": [sorted(c["kwargs"]) for c in strip_kw]}
+        n1 = len(calls("analyze_axon"))
+        main_edit(mw.ui.lineEdit_eps, "32")                     # the main window
+        main_kw = calls("analyze_axon")[n1:]
+        out["main"] = {"kwargs": [sorted(c["kwargs"]) for c in main_kw],
+                       "eps_passed": [c["kwargs"].get("eps_nm") for c in main_kw],
+                       "spin": float(w.spin_eps.value()), "settings": float(mw.mps_settings.eps_nm),
+                       "analysis_eps": float(w.analysis.eps_nm)}
+        n2 = len(calls("analyze_axon"))
+        main_edit(mw.ui.lineEdit_minsamples, "8")
+        out["main_min"] = {"runs": len(calls("analyze_axon")) - n2, "spin": int(w.spin_min.value()),
+                           "settings": int(mw.mps_settings.min_samples)}
+        n3, m3 = len(calls("analyze_axon")), len(cell.messages)
+        main_edit(mw.ui.lineEdit_eps, "abc")
+        main_edit(mw.ui.lineEdit_minsamples, "8.5")
+        main_edit(mw.ui.lineEdit_eps, "32")                     # unchanged: nothing runs
+        out["invalid"] = {"runs": len(calls("analyze_axon")) - n3,
+                          "messages": [m["title"] for m in cell.messages[m3:]],
+                          "field_eps": mw.ui.lineEdit_eps.text(), "field_min": mw.ui.lineEdit_minsamples.text(),
+                          "settings": [float(mw.mps_settings.eps_nm), int(mw.mps_settings.min_samples)]}
+        # The merged button: current -> shows the window; not current -> runs.
+        w.hide()
+        n4 = len(calls("analyze_axon"))
+        mw.ui.pushButton_remove_bad_cluster.click()
+        pump()
+        out["button_current"] = {"runs": len(calls("analyze_axon")) - n4, "visible": w.isVisible()}
+        cell.drag_roi(mw, 40.0)
+        pump()
+        n5 = len(calls("analyze_axon"))
+        mw.ui.pushButton_remove_bad_cluster.click()
+        pump()
+        out["button_stale"] = {"runs": len(calls("analyze_axon")) - n5,
+                               "current": mw._current_cluster_centroids() is not None}
+        mw.close()
+        mw0 = make_main(load=False)
+        m6 = len(cell.messages)
+        mw0.ui.pushButton_remove_bad_cluster.click()
+        pump()
+        out["button_no_file"] = {"window": mw0.mps_window is not None and mw0.mps_window.isVisible(),
+                                 "messages": [m["title"] for m in cell.messages[m6:]],
+                                 "show_button_visible": mw0.button_show_mps_window.isVisibleTo(mw0)}
+        mw0.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -458,6 +515,31 @@ def main() -> int:
     if "layout_warnings" in scenarios:
         check("4: the map has the larger share; the three dividers are splitters kept across sessions", t4)
         check("5: Warnings (N)... previews them and writes a .txt, never over an existing file", t5)
+
+    def t6() -> str:
+        r = res("main_params")
+        assert r["button_current"] == {"runs": 0, "visible": True}, r["button_current"]
+        assert r["button_stale"]["runs"] == 1 and r["button_stale"]["current"], r["button_stale"]
+        b = r["button_no_file"]
+        assert b["window"] and b["messages"] == [] and not b["show_button_visible"], b
+        return "current: window shown, nothing run; ROI moved: one run; no file: the empty window"
+
+    def t7() -> str:
+        r = res("main_params")
+        assert r["editable"] == [True, True, True] and not r["change_button"], r
+        assert r["strip"]["field_eps"] == "31", r["strip"]
+        m = r["main"]
+        assert m["eps_passed"] == [{"float": "32.0"}] and m["spin"] == m["settings"] == m["analysis_eps"] == 32.0, m
+        assert m["kwargs"] == r["strip"]["kwargs"], (m["kwargs"], r["strip"]["kwargs"])
+        assert r["main_min"] == {"runs": 1, "spin": 8, "settings": 8}, r["main_min"]
+        i = r["invalid"]
+        assert i["runs"] == 0 and i["messages"] == ["DBSCAN parameters"] * 2, i
+        assert i["field_eps"] == "32" and i["field_min"] == "8" and i["settings"] == [32.0, 8], i
+        return "main box 32 -> one re-run with the strip's keyword arguments; strip 31 -> box '31'; junk refused"
+
+    if "main_params" in scenarios:
+        check("6: one 'MPS analysis' button: runs when no analysis is current, else shows the window", t6)
+        check("7: eps / min samples edited in the main window = the strip's value and re-run (rule K)", t7)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")
