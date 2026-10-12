@@ -488,6 +488,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self._apply_mps_settings()
         self._build_param_mirrors()
         self._build_measurement_panel()
+        self._relayout_main_window()
 
         # Connect the close event to your method
         self.closeEvent = self.onCloseEvent
@@ -863,6 +864,165 @@ class MPS_explorer(QtWidgets.QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setWidget(content)
         self.setCentralWidget(scroll)
+
+    def _relayout_main_window(self) -> None:
+        """
+        Manual test 2, item 9: the .ui places every widget at a fixed
+        position, sized for one font; with another font (or another screen)
+        controls overlapped ("cluster Ch1" over the algorithm list, the
+        "cluster Ch2" button under "Min Cluster Size") and the window kept a
+        fixed 1381 x 701 block with empty space around it. The same widgets
+        (their names, signals and texts untouched) are put in layouts here:
+        they no longer overlap, the plots take the room the window has, and
+        the scroll area only scrolls when the screen is smaller than the
+        controls need. The .ui file itself is left as it is (stage 3
+        rebuilds the window).
+        """
+        ui = self.ui
+        content = self.centralWidget()
+        if isinstance(content, QtWidgets.QScrollArea):
+            content = content.widget()
+        content.setMinimumSize(0, 0)
+
+        def grid(parent: QtWidgets.QWidget) -> QtWidgets.QGridLayout:
+            g = QtWidgets.QGridLayout(parent)
+            g.setContentsMargins(8, 6, 8, 8)
+            g.setHorizontalSpacing(8)
+            g.setVerticalSpacing(4)
+            return g
+
+        def plot_box(widget: QtWidgets.QWidget, w: int, h: int) -> QtWidgets.QWidget:
+            # Ignored: the plot's own size hint (600 x 450) would make the
+            # scroll area's height-for-width taller than the screen; the
+            # plot takes what the layout gives it, never less than w x h.
+            widget.setMinimumSize(w, h)
+            widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored,
+                                 QtWidgets.QSizePolicy.Policy.Ignored)
+            return widget
+
+        def heading(text: str, parent: QtWidgets.QWidget) -> QtWidgets.QLabel:
+            label = QtWidgets.QLabel(f"<b>{text}</b>", parent)
+            return label
+
+        # -- Load SMLM data: one row per channel's labels and fields, Scatter at the end.
+        g = grid(ui.groupBox_files_3)
+        for col, widget in enumerate((ui.label_37, ui.label_38)):
+            g.addWidget(widget, 0, col)
+        g.addWidget(ui.comboBox_fileformat, 1, 0)
+        g.addWidget(ui.lineEdit_filename, 1, 1)
+        g.addWidget(ui.pushButton_browsefile, 1, 2)
+        g.addWidget(ui.label_39, 0, 3)
+        g.addWidget(ui.label_40, 0, 4)
+        g.addWidget(ui.comboBox_fileformat_2, 1, 3)
+        g.addWidget(ui.lineEdit_filename_2, 1, 4)
+        g.addWidget(ui.pushButton_browsefile_2, 1, 5)
+        g.addWidget(ui.pushButton_scatter, 0, 6, 2, 1)
+        for combo in (ui.comboBox_fileformat, ui.comboBox_fileformat_2):
+            combo.setMinimumContentsLength(12)
+            combo.setSizeAdjustPolicy(
+                QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        g.setColumnStretch(1, 1)
+        g.setColumnStretch(4, 1)
+        ui.pushButton_scatter.setMinimumHeight(40)
+        ui.groupBox_files_3.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred,
+                                          QtWidgets.QSizePolicy.Policy.Maximum)
+
+        # -- Visualization: the overview and the ROI after the cut on the left, the z histograms and the cut on
+        # the right.
+        g = grid(ui.groupBox_vis)
+        g.addWidget(plot_box(ui.verticalLayoutWidget, 300, 240), 0, 0, 3, 1)
+        radios = QtWidgets.QHBoxLayout()
+        for radio in (ui.radioButton_circROI, ui.radioButton_squareROI, ui.radioButton_polygonROI):
+            radios.addWidget(radio)
+        radios.addStretch(1)
+        g.addLayout(radios, 3, 0)
+        g.addWidget(plot_box(ui.verticalLayoutWidget_4, 300, 240), 4, 0, 4, 1)
+        g.addWidget(plot_box(ui.verticalLayoutWidget_2, 220, 120), 0, 1)
+        g.addWidget(plot_box(ui.verticalLayoutWidget_6, 220, 120), 1, 1)
+        cut = QtWidgets.QGridLayout()
+        cut.setHorizontalSpacing(6)
+        cut.addWidget(ui.label, 0, 0)
+        cut.addWidget(ui.label_zmax, 0, 1)
+        cut.addWidget(ui.lineEdit_zmin, 1, 0)
+        cut.addWidget(ui.lineEdit_zmax, 1, 1)
+        cut.addWidget(ui.pushButton_zrange, 1, 2)
+        cut.setColumnStretch(3, 1)
+        g.addLayout(cut, 4, 1)
+        g.addWidget(self.label_moved_z, 5, 1)
+        save_row = QtWidgets.QHBoxLayout()
+        save_row.addStretch(1)
+        save_row.addWidget(ui.pushButton_savexyzROI)
+        save_row.addWidget(ui.pushButton_savexyzROI_2)
+        g.addLayout(save_row, 7, 1)
+        g.setRowStretch(0, 1)
+        g.setRowStretch(1, 1)
+        g.setRowStretch(6, 1)
+        g.setRowStretch(4, 0)
+        g.setColumnStretch(0, 3)
+        g.setColumnStretch(1, 2)
+
+        # -- Clustering: each channel's parameters over its plot, then the analysis and the measurement.
+        g = grid(ui.groupBox)
+        ch1 = QtWidgets.QGridLayout()
+        ch1.setHorizontalSpacing(6)
+        ch1.setVerticalSpacing(1)
+        ch1.addWidget(heading("Channel 1", ui.groupBox), 0, 0, 1, 5)
+        ch1.addWidget(ui.label_minsamples, 1, 0)
+        ch1.addWidget(ui.label_eps, 1, 1)
+        ch1.addWidget(ui.label_algorithm, 1, 2)
+        ch1.addWidget(ui.label_minclustersize, 1, 3)
+        ch1.addWidget(ui.lineEdit_minsamples, 2, 0)
+        ch1.addWidget(ui.lineEdit_eps, 2, 1)
+        ch1.addWidget(ui.comboBox_algorithm, 2, 2)
+        ch1.addWidget(ui.lineEdit_minclustersize, 2, 3)
+        ch1.addWidget(ui.pushButton_clusterch1, 2, 4)
+        ch1.addWidget(self.badge_minsamples, 3, 0)
+        ch1.addWidget(self.badge_eps, 3, 1)
+        ch1.setColumnStretch(5, 1)
+        ch2 = QtWidgets.QGridLayout()
+        ch2.setHorizontalSpacing(6)
+        ch2.setVerticalSpacing(1)
+        ch2.addWidget(heading("Channel 2", ui.groupBox), 0, 0, 1, 3)
+        ch2.addWidget(ui.label_minsamples_2, 1, 0)
+        ch2.addWidget(ui.label_eps_2, 1, 1)
+        ch2.addWidget(ui.lineEdit_minsamples_2, 2, 0)
+        ch2.addWidget(ui.lineEdit_eps_2, 2, 1)
+        ch2.addWidget(ui.pushButton_clusterch2, 2, 2)
+        ch2.setColumnStretch(3, 1)
+        for edit in (ui.lineEdit_minsamples, ui.lineEdit_eps, ui.lineEdit_minsamples_2, ui.lineEdit_eps_2,
+                     ui.lineEdit_minclustersize):
+            edit.setMinimumWidth(56)
+            edit.setMaximumWidth(80)
+        g.addLayout(ch1, 0, 0, QtCore.Qt.AlignmentFlag.AlignTop)
+        g.addLayout(ch2, 0, 1, QtCore.Qt.AlignmentFlag.AlignTop)
+        g.addWidget(plot_box(ui.verticalLayoutWidget_9, 260, 220), 1, 0)
+        g.addWidget(plot_box(ui.verticalLayoutWidget_11, 260, 220), 1, 1)
+        actions = QtWidgets.QHBoxLayout()
+        for button in (ui.pushButton_remove_bad_cluster, ui.pushButton_savecluscenters,
+                       ui.pushButton_saveAllClusterData, ui.pushButton_saveAllClusterDataThunderStorm,
+                       self.button_show_mps_window):
+            button.setMinimumHeight(30)
+            actions.addWidget(button)
+        actions.addStretch(1)
+        g.addLayout(actions, 2, 0, 1, 2)
+        g.addWidget(self.label_moved_clusters, 3, 0, 1, 2)
+        self.measurement_panel.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred,
+                                             QtWidgets.QSizePolicy.Policy.Maximum)
+        g.addWidget(self.measurement_panel, 4, 0, 1, 2)
+        g.setRowStretch(1, 1)
+        g.setColumnStretch(0, 1)
+        g.setColumnStretch(1, 1)
+
+        # -- The window: files on top, the two groups side by side under them.
+        outer = QtWidgets.QVBoxLayout(content)
+        outer.setContentsMargins(6, 4, 6, 6)
+        outer.setSpacing(6)
+        outer.addWidget(ui.groupBox_files_3)
+        body = QtWidgets.QHBoxLayout()
+        body.setSpacing(8)
+        body.addWidget(ui.groupBox_vis, 5)
+        body.addWidget(ui.groupBox, 6)
+        outer.addLayout(body, 1)
 
     def _build_analysis_toolbar(self) -> None:
         """

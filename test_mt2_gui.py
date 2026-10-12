@@ -44,7 +44,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow"]
+SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow", "main_layout"]
 
 # Scenarios that measure geometry, with the platform's font.
 FONT_SCENARIOS = {"layout_warnings", "main_layout"}
@@ -411,6 +411,58 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         out["edited"] = {"square": getattr(mw, "square_roi", None) is not None,
                          "algorithm": mw.algorithm_selector.currentText()}
         mw.close()
+    elif s == "main_layout":
+        mw = make_main()
+        ui = mw.ui
+        names = ["comboBox_fileformat", "lineEdit_filename", "pushButton_browsefile", "label_37", "label_38",
+                 "comboBox_fileformat_2", "lineEdit_filename_2", "pushButton_browsefile_2", "label_39", "label_40",
+                 "pushButton_scatter", "radioButton_circROI", "radioButton_squareROI", "radioButton_polygonROI",
+                 "lineEdit_zmin", "lineEdit_zmax", "pushButton_zrange", "label", "label_zmax",
+                 "pushButton_savexyzROI_2", "label_minsamples", "lineEdit_minsamples", "label_eps", "lineEdit_eps",
+                 "label_algorithm", "comboBox_algorithm", "pushButton_clusterch1", "label_minsamples_2",
+                 "lineEdit_minsamples_2", "label_eps_2", "lineEdit_eps_2", "pushButton_clusterch2",
+                 "pushButton_remove_bad_cluster", "pushButton_saveAllClusterDataThunderStorm",
+                 "verticalLayoutWidget", "verticalLayoutWidget_2", "verticalLayoutWidget_4",
+                 "verticalLayoutWidget_9", "verticalLayoutWidget_11"]
+        extra = {"badge_eps": mw.badge_eps, "badge_minsamples": mw.badge_minsamples,
+                 "measurement_panel": mw.measurement_panel, "label_moved_clusters": mw.label_moved_clusters,
+                 "label_moved_z": mw.label_moved_z}
+        sizes = {}
+        for size in ((1920, 1080), (1366, 768)):
+            mw.resize(*size)
+            mw.show()
+            pump(0.5)
+            widgets = {n: getattr(ui, n) for n in names}
+            widgets.update(extra)
+            rects = {}
+            for n, wd in widgets.items():
+                if not wd.isVisibleTo(mw):
+                    continue
+                top_left = wd.mapTo(mw, wd.rect().topLeft())
+                rects[n] = (top_left.x(), top_left.y(), wd.width(), wd.height())
+            overlaps = []
+            keys = sorted(rects)
+            for i, a in enumerate(keys):
+                ax, ay, aw, ah = rects[a]
+                for b in keys[i + 1:]:
+                    bx, by, bw, bh = rects[b]
+                    if ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah:
+                        overlaps.append([a, b])
+            # every control at least as wide as its own text needs
+            clipped = [n for n, wd in widgets.items()
+                       if wd.isVisibleTo(mw) and isinstance(wd, (QtWidgets.QPushButton, QtWidgets.QLabel,
+                                                                 QtWidgets.QRadioButton))
+                       and not (isinstance(wd, QtWidgets.QLabel) and wd.wordWrap())
+                       and wd.width() + 1 < wd.minimumSizeHint().width()]
+            area = mw.centralWidget()
+            content = area.widget()
+            sizes[f"{size[0]}x{size[1]}"] = {
+                "overlaps": overlaps, "clipped": clipped, "content": [content.width(), content.height()],
+                "viewport": [area.viewport().width(), area.viewport().height()],
+                "content_min": [content.minimumSizeHint().width(), content.minimumSizeHint().height()],
+                "scatter": list(rects.get("verticalLayoutWidget", (0, 0, 0, 0))[2:])}
+        out["main_layout"] = sizes
+        mw.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -622,6 +674,20 @@ def main() -> int:
 
     if "load_flow" in scenarios:
         check("11: loading draws the scatter, a circular ROI over the whole axon, DBSCAN", t11)
+
+    def t9() -> str:
+        r = res("main_layout")["main_layout"]
+        for key, st in r.items():
+            assert st["overlaps"] == [], (key, st["overlaps"])
+            assert st["clipped"] == [], (key, st["clipped"])
+            assert st["content"][1] <= st["viewport"][1] + 1, (key, st)       # no vertical scroll at either size
+        big, small = r["1920x1080"], r["1366x768"]
+        assert big["content"][0] <= big["viewport"][0] + 1 and big["scatter"][1] > small["scatter"][1], (big, small)
+        return (f"no overlap, no clipped text, no vertical scroll at 1920x1080 and 1366x768; the overview "
+                f"{small['scatter']} -> {big['scatter']} px")
+
+    if "main_layout" in scenarios:
+        check("9: the main window's controls do not overlap and the plots take the room", t9)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")
