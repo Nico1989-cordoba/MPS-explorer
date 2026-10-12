@@ -607,7 +607,8 @@ class Cell:
         headers = [t.horizontalHeaderItem(c).text() if t.horizontalHeaderItem(c) else ""
                    for c in range(t.columnCount())]
         hidden = [bool(t.isColumnHidden(c)) for c in range(t.columnCount())]
-        warnings = [w.list_warnings.item(i).text() for i in range(w.list_warnings.count())]
+        warnings = (w.warning_lines() if hasattr(w, "warning_lines")
+                    else [w.list_warnings.item(i).text() for i in range(w.list_warnings.count())])
         controls = {
             "peak_items": [w.combo_peak.itemText(i) for i in range(w.combo_peak.count())],
             "peak_index": w.combo_peak.currentIndex(),

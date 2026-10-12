@@ -44,6 +44,7 @@ __all__ = ["AxonMap", "render_layer", "swatch_for", "cased_edge_rgba", "colour_o
 DARK_RIM = "#000000"
 PANEL_WIDTH = 280          # the side column's narrowest width
 SIDE_MAX_WIDTH = 460       # and its widest: what the plot's shape leaves, up to this
+SIDE_DRAG_MAX = 1200       # how wide the user may drag it, to read long layer names (manual test 2, item 4)
 FIT_PAD_FRACTION = 0.06    # the view: the data's extent plus this fraction of its larger side ...
 FIT_PAD_MIN_NM = 150.0     # ... and at least this much
 VIEW_LABEL = "View"
@@ -285,12 +286,12 @@ class AxonMap(QtWidgets.QWidget):
         self.plot.setObjectName("map_plot")
         self.plot.setAspectLocked(True)
         self.plot.setLabels(bottom="x [nm]", left="y [nm]")
-        self.layers = LayerPanel(scroll=True, max_width=SIDE_MAX_WIDTH, hide_disabled=True, elide=True)
+        self.layers = LayerPanel(scroll=True, max_width=SIDE_DRAG_MAX, hide_disabled=True, elide=True)
         self.layers.setObjectName("map_layers")
         self.layers.toggled.connect(self._on_toggled)
         side.addWidget(self.layers, 1)
         self.side.setMinimumWidth(PANEL_WIDTH)
-        self.side.setMaximumWidth(SIDE_MAX_WIDTH)
+        self.side.setMaximumWidth(SIDE_DRAG_MAX)
         self.splitter.addWidget(self.plot)
         self.splitter.addWidget(self.side)
         self.splitter.setStretchFactor(0, 1)

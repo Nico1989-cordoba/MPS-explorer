@@ -71,7 +71,8 @@ from tools import mps_param_registry as reg
 from tools.mps_analysis import AxonAnalysis, DiscardComparison
 from tools.mps_axial_view import AxialView
 from tools.mps_axon_map import AxonMap
-from tools.copyable import copyable_list, copyable_table, selectable_labels
+from tools.copyable import copyable_table, selectable_labels, write_text_file
+from tools.mps_ui_layout import PersistentSplitter, style_splitter
 from tools.mps_nn_panel import NearestNeighboursPanel
 from tools.mps_origin_ui import DetailsPanel, MoreLine, OriginBadge, ParamField
 from tools.mps_params_panel import FlowLayout
@@ -146,7 +147,7 @@ _CROSSING_ROW = "  CDF crossing"
 
 # How much of the plot column the map takes when the window opens (the rest
 # is the tabs under it): the map keeps at least 55 % of a 1366 x 728 window.
-MAP_SHARE = 0.74
+MAP_SHARE = 0.80
 # On a short screen the tabs under the map keep at least this height (a plot
 # of ~30 px cannot be read), as long as the map keeps MAP_MIN_OF_WINDOW of the
 # window's height.
@@ -154,8 +155,14 @@ TABS_MIN_PX = 230
 MAP_MIN_OF_WINDOW = 0.56
 # The table column's width when the window opens: wide enough for the name,
 # "Measured" and the reference column (1366 px screens; the user's divider
-# wins afterwards).
+# wins afterwards). On a wider screen it takes LEFT_SHARE of the window, never
+# more than a third: the axon map is the window's main element (manual test 2,
+# item 4).
 LEFT_MIN_PX = 430
+LEFT_SHARE = 0.25
+# How many warnings the button's tooltip previews, and how long each line.
+WARNINGS_PREVIEW = 5
+WARNINGS_PREVIEW_CHARS = 180
 
 
 class _Row:
@@ -347,6 +354,16 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._widened = False
         self._left_done = False
         splitter.splitterMoved.connect(self._on_left_moved)
+        # Every boundary is a splitter the user can drag, and the sizes are kept for the next session (manual
+        # test 2, item 4): results | plots, map | tabs, map | its layers.
+        self._layout_keys = {"mps_window.results_plots": splitter,
+                             "mps_window.map_tabs": self.plot_splitter,
+                             "mps_window.map_layers": self.axon_map.splitter}
+        self._persistent: List[PersistentSplitter] = []
+        for key, sp in self._layout_keys.items():
+            style_splitter(sp)
+            self._persistent.append(PersistentSplitter(sp, key))
+        self._restored = False
         self._make_text_copyable()
 
         self.refresh()
@@ -630,7 +647,6 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         carry values can be selected and copied (Ctrl+C or the context menu)."""
         copyable_table(self.table)
         copyable_table(self.details_area.table)
-        copyable_list(self.list_warnings)
         selectable_labels([self.lbl_slab_mode, self.label_export, self.banner.label, self.axon_map.lbl_line1,
                            self.axon_map.lbl_line2, self.nn.lbl_note, self.label_shown])
 
@@ -848,10 +864,18 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.box_export.setVisible(False)
         lay.addWidget(self.box_export)
 
-        lay.addWidget(QtWidgets.QLabel("Warnings"))
-        self.list_warnings = QtWidgets.QListWidget()
-        self.list_warnings.setWordWrap(True)
-        lay.addWidget(self.list_warnings, stretch=2)
+        # The warnings leave the window (manual test 2, item 5): a button with their count, a preview in its
+        # tooltip, and the whole list written to a .txt file on a click (never over an existing file).
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        self.btn_warnings = QtWidgets.QPushButton("Warnings (0)...")
+        self.btn_warnings.setObjectName("btn_warnings")
+        self.btn_warnings.clicked.connect(self._on_save_warnings)
+        row.addWidget(self.btn_warnings)
+        row.addStretch(1)
+        lay.addLayout(row)
+        self._warning_lines: List[str] = []
+        self._warning_count = 0
 
         return w
 
@@ -924,16 +948,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self._left_done = True
 
     def _apply_left_width(self) -> None:
-        """The table column at least LEFT_MIN_PX wide (never more than a
-        third of the window), until the user drags the divider."""
+        """The table column LEFT_SHARE of the window, at least LEFT_MIN_PX
+        wide and never more than a third of it, until the user drags the
+        divider: the map takes the rest."""
         if self._left_done or self._widened:
             return
         sizes = self.splitter.sizes()
         total = sum(sizes)
         if total <= 0 or len(sizes) != 2:
             return
-        left = int(min(LEFT_MIN_PX, total / 3.0))
-        if sizes[0] >= left:
+        left = int(min(max(LEFT_MIN_PX, LEFT_SHARE * total), total / 3.0))
+        if abs(sizes[0] - left) <= 2:
             return
         self._applying_share = True
         try:
@@ -960,6 +985,27 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         super().showEvent(event)
         if not self._split_done:
             self._apply_map_share()
+        if not self._restored:
+            self._restored = True
+            # Once the first layout has settled: sizes set before it are redistributed by the stretch factors.
+            QtCore.QTimer.singleShot(0, self._restore_layout)
+
+    def _restore_layout(self) -> None:
+        """The dividers where the user left them last session (once, at the first show); a restored divider is
+        the user's, and the automatic shares leave it alone."""
+        self._applying_share = True
+        try:
+            for keeper in self._persistent:
+                if not keeper.restore():
+                    continue
+                if keeper.splitter is self.splitter:
+                    self._left_done = True
+                elif keeper.splitter is self.plot_splitter:
+                    self._split_done = True
+                elif keeper.splitter is self.axon_map.splitter:
+                    self.axon_map._user_split = True
+        finally:
+            self._applying_share = False
 
     def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
@@ -1418,31 +1464,81 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         return f
 
     def _fill_warnings(self) -> None:
-        self.list_warnings.clear()
+        """The warnings of the analysis shown (and of the other two columns): counted on the button, previewed in
+        its tooltip, written by it (manual test 2, item 5)."""
+        messages: List[str] = []
         if self._display_analysis() is None:
-            self.list_warnings.addItem(QtWidgets.QListWidgetItem(NO_ANALYSIS + "."))
+            lines = [NO_ANALYSIS + "."]
+        else:
+            assert self.analysis is not None
+            messages = list(self.analysis.warnings)
+            if self.comparison is not None:
+                # Their own warnings, once each: those shared with an analysis
+                # listed before are not repeated.
+                seen = set(self.analysis.warnings)
+                for prefix, other in (
+                        ("All clusters, every 2-opt start: ",
+                         self.comparison.all_clusters),
+                        ("With the discard: ", self.comparison.discard_applied)):
+                    messages += [prefix + w for w in other.warnings
+                                 if w not in seen]
+                    seen.update(other.warnings)
+            lines = list(messages) if messages else ["No warnings."]
+        self._warning_lines = lines
+        self._warning_count = len(messages)
+        n = len(messages)
+        self.btn_warnings.setText(f"Warnings ({n})...")
+        self.btn_warnings.setEnabled(n > 0)
+        self.btn_warnings.setStyleSheet(f"color: {_C_TEXT_WARN}; font-weight: bold;" if n else "")
+        if n:
+            preview = [("- " + w if len(w) <= WARNINGS_PREVIEW_CHARS
+                        else "- " + w[:WARNINGS_PREVIEW_CHARS].rstrip() + " ...")
+                       for w in messages[:WARNINGS_PREVIEW]]
+            more = n - len(preview)
+            tip = "\n".join(preview) + (f"\n... and {more} more." if more > 0 else "")
+            self.btn_warnings.setToolTip(
+                tip + "\n\nClick to save every warning, in full, as a .txt file (an existing file is never "
+                "overwritten: a new name is chosen).")
+        else:
+            self.btn_warnings.setToolTip(lines[0] if lines else "")
+
+    def warning_lines(self) -> List[str]:
+        """What the warnings list used to show, line by line ("No warnings." / the empty state included)."""
+        return list(self._warning_lines)
+
+    def _warnings_text(self) -> str:
+        a = self._display_analysis()
+        head = [f"MPS analysis warnings: {os.path.basename(a.source_name) if a is not None else ''}",
+                _strip(self.lbl_provenance.text()).replace("<br>", " | "),
+                f"{self._warning_count} warning(s)", ""]
+        body = [f"{i}. {w}" for i, w in enumerate(self._warning_lines, 1)]
+        return "\n".join(head) + "\n" + "\n\n".join(body) + "\n"
+
+    def _on_save_warnings(self) -> None:
+        """Write the warnings as a .txt file; never over an existing one."""
+        if not self._warning_count:
             return
-        assert self.analysis is not None
-        messages: List[str] = list(self.analysis.warnings)
-        if self.comparison is not None:
-            # Their own warnings, once each: those shared with an analysis
-            # listed before are not repeated.
-            seen = set(self.analysis.warnings)
-            for prefix, other in (
-                    ("All clusters, every 2-opt start: ",
-                     self.comparison.all_clusters),
-                    ("With the discard: ", self.comparison.discard_applied)):
-                messages += [prefix + w for w in other.warnings
-                             if w not in seen]
-                seen.update(other.warnings)
-        for w in messages:
-            item = QtWidgets.QListWidgetItem(w)
-            item.setForeground(QtGui.QBrush(QtGui.QColor(_C_TEXT_WARN)))
-            item.setToolTip(w)
-            self.list_warnings.addItem(item)
-        if not messages:
-            self.list_warnings.addItem(
-                QtWidgets.QListWidgetItem("No warnings."))
+        a = self._display_analysis()
+        source = a.source_name if a is not None else self.links.root_name()
+        stem = os.path.splitext(os.path.basename(str(source or "axon")))[0] or "axon"
+        parent = os.path.dirname(str(source)) if source else ""
+        folder = parent if parent and os.path.isdir(parent) else os.getcwd()
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save the warnings", os.path.join(folder, f"{stem}_warnings.txt"), "Text (*.txt)")
+        if not path:
+            return
+        if os.path.splitext(path)[1].lower() != ".txt":
+            path += ".txt"
+        try:
+            written = write_text_file(path, self._warnings_text())
+        except OSError as error:
+            QtWidgets.QMessageBox.critical(self, "Warnings not saved",
+                                           f"Could not write the warnings:\n\n{error}")
+            return
+        renamed = ("" if os.path.normcase(written) == os.path.normcase(path)
+                   else f"\n\n{os.path.basename(path)} already existed and was left as it is.")
+        QtWidgets.QMessageBox.information(
+            self, "Warnings saved", f"{self._warning_count} warning(s) written to\n{written}{renamed}")
 
     # ------------------------------------------------------------------
     # the banner (3.4 rule 5)

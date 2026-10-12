@@ -25,6 +25,7 @@ Nothing here changes what a widget shows; only how its text leaves it.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Iterable, List, Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -138,3 +139,24 @@ def selectable_labels(labels: Iterable[Optional[QtWidgets.QLabel]]) -> None:
     for label in labels:
         if label is not None:
             selectable_label(label)
+
+
+def free_path(path: str) -> str:
+    """``path`` when nothing is there, else the first of ``stem_2.ext``, ``stem_3.ext``, ... that is free: a file
+    is never overwritten (the exports' rule)."""
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    n = 2
+    while os.path.exists(f"{stem}_{n}{ext}"):
+        n += 1
+    return f"{stem}_{n}{ext}"
+
+
+def write_text_file(path: str, text: str) -> str:
+    """Write ``text`` (UTF-8) to ``path`` or, when a file is there, to the next free name; returns the path
+    written."""
+    target = free_path(path)
+    with open(target, "x", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    return target

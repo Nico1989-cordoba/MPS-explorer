@@ -44,7 +44,10 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields", "copy"]
+SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings"]
+
+# Scenarios that measure geometry, with the platform's font.
+FONT_SCENARIOS = {"layout_warnings", "main_layout"}
 
 
 # ============================================================================ one scenario (child process)
@@ -55,11 +58,16 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
     os.environ["MPS_SELECTION_LOG_DIR"] = os.path.join(out_dir, "selection_log")
     for v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
         os.environ[v] = "1"
-    from PyQt5 import QtWidgets
+    if scenario in FONT_SCENARIOS:
+        # Geometry is measured: the platform's own font (as on the user's screen), not the offscreen fallback.
+        os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
+    from PyQt5 import QtGui, QtWidgets
 
     import golden_ui_stage2 as G
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(["mt2"])
+    if scenario in FONT_SCENARIOS:
+        app.setFont(QtGui.QFont("Segoe UI", 9))
     cell = G.Cell("A", "S1", "E1", os.path.join(out_dir, "cell"), inputs)
     cell.patch()
     exc: List[str] = []
@@ -213,10 +221,7 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         clip.setText("<nothing>")
         menu_copy[0].trigger()
         out["table_menu"] = clip.text()
-        lw = w.list_warnings
-        lw.clearSelection()
-        lw.item(0).setSelected(True)
-        out["warnings"] = {"got": press_copy(lw), "want": lw.item(0).text()}
+        # The rings window's warnings list (the MPS window's warnings are a .txt file since item 5).
         from PyQt5.QtCore import Qt
         flags = int(w.lbl_slab_mode.textInteractionFlags())
         out["label_selectable"] = bool(flags & int(Qt.TextInteractionFlag.TextSelectableByMouse))
@@ -237,9 +242,70 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         out["rings"] = {"got": press_copy(ts),
                         "want": "\t".join(ts.item(0, c).text() if ts.item(0, c) else ""
                                           for c in range(ts.columnCount()))}
+        lw = rw.list_warnings
+        lw.clearSelection()
+        lw.item(0).setSelected(True)
+        out["warnings"] = {"got": press_copy(lw), "want": lw.item(0).text()}
         rf = int(rw.lbl_header.textInteractionFlags())
         out["rings_label_selectable"] = bool(rf & int(Qt.TextInteractionFlag.TextSelectableByKeyboard))
         mw.close()
+    elif s == "layout_warnings":
+        from tools import mps_ui_layout
+        mw = make_main()
+        w = mw.mps_window
+        w.resize(1920, 1040)
+        w.show()
+        pump(0.6)
+        out["at_1920"] = {"results_plots": w.splitter.sizes(), "map_tabs": w.plot_splitter.sizes(),
+                          "window": [w.width(), w.height()]}
+        w.resize(1366, 728)
+        pump(0.6)
+        sp = {"results_plots": w.splitter.sizes(), "map_tabs": w.plot_splitter.sizes(),
+              "map_layers": w.axon_map.splitter.sizes()}
+        out["first"] = {"sizes": sp, "window": [w.width(), w.height()],
+                        "handles": [w.splitter.handleWidth(), w.plot_splitter.handleWidth(),
+                                    w.axon_map.splitter.handleWidth()],
+                        "file_before_drag": os.path.exists(mps_ui_layout.layout_path())}
+        # The user drags the three dividers: the sizes are kept.
+        for sp_w, sizes in ((w.splitter, [700, 666]), (w.plot_splitter, [380, 300]),
+                            (w.axon_map.splitter, [300, 500])):
+            total = sum(sp_w.sizes())
+            sizes = [int(sizes[0] * total / sum(sizes)), total - int(sizes[0] * total / sum(sizes))]
+            sp_w.setSizes(sizes)
+            sp_w.splitterMoved.emit(sizes[0], 1)
+        pump(0.8)
+        with open(mps_ui_layout.layout_path(), encoding="utf-8") as fh:
+            out["stored"] = json.load(fh)
+        out["dragged"] = {"results_plots": w.splitter.sizes(), "map_tabs": w.plot_splitter.sizes(),
+                          "map_layers": w.axon_map.splitter.sizes()}
+        # Warnings: the button, its count and preview, the .txt file; never overwritten.
+        out["warnings"] = {"text": w.btn_warnings.text(), "tip": w.btn_warnings.toolTip(),
+                           "count": w._warning_count, "first": w.warning_lines()[0],
+                           "has_list": hasattr(w, "list_warnings")}
+        target = os.path.join(out_dir, "axonA_warnings.txt")
+        cell.save_queue = [target]
+        w.btn_warnings.click()
+        pump()
+        first = open(target, encoding="utf-8").read()
+        cell.save_queue = [target]
+        n0 = len(cell.messages)
+        w.btn_warnings.click()
+        pump()
+        second = os.path.join(out_dir, "axonA_warnings_2.txt")
+        out["warnings_file"] = {"first": first, "unchanged": open(target, encoding="utf-8").read() == first,
+                                "second_exists": os.path.exists(second),
+                                "messages": [m["text"] for m in cell.messages[n0:]]}
+        mw.close()
+        pump(0.1)
+        # Another window, next session: the dividers where the user left them.
+        mw2 = make_main()
+        w2 = mw2.mps_window
+        w2.resize(1366, 728)
+        w2.show()
+        pump(0.6)
+        out["reopened"] = {"results_plots": w2.splitter.sizes(), "map_tabs": w2.plot_splitter.sizes(),
+                           "map_layers": w2.axon_map.splitter.sizes()}
+        mw2.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -352,14 +418,46 @@ def main() -> int:
         r = res("copy")
         assert r["table"]["got"] == r["table"]["want"] and "\t" in r["table"]["got"], r["table"]
         assert "Copy" in r["table"]["menu"] and r["table_menu"] == r["table"]["want"], (r["table"], r["table_menu"])
-        assert r["warnings"]["got"] == r["warnings"]["want"], r["warnings"]
         assert r["details"]["got"] == r["details"]["want"], r["details"]
         assert r["rings"]["got"] == r["rings"]["want"], r["rings"]
+        assert r["warnings"]["got"] == r["warnings"]["want"], r["warnings"]
         assert r["label_selectable"] and r["rings_label_selectable"], r
         return "results table 2x2 -> " + repr(r["table"]["got"][:60])
 
     if "copy" in scenarios:
         check("3: tables, warnings, Details and labels copy their text", t3)
+
+    def t4() -> str:
+        r = res("layout_warnings")
+        f = r["first"]
+        big = r["at_1920"]
+        rp, mt = big["results_plots"], big["map_tabs"]
+        assert big["window"][0] == 1920 and f["window"][0] == 1366, (big, f)
+        assert rp[0] / sum(rp) <= 0.27 and mt[0] / sum(mt) >= 0.75, big
+        rp1, mt1 = f["sizes"]["results_plots"], f["sizes"]["map_tabs"]
+        assert rp1[0] / sum(rp1) <= 0.34 and mt1[0] / sum(mt1) >= 0.6, f
+        assert min(f["handles"]) >= 6 and not f["file_before_drag"], f
+        st = r["stored"]
+        assert set(st) == {"mps_window.results_plots", "mps_window.map_tabs", "mps_window.map_layers"}, st
+        for key in ("results_plots", "map_tabs", "map_layers"):
+            a, b = r["dragged"][key], r["reopened"][key]
+            assert all(abs(x - y) <= 4 for x, y in zip(a, b)), (key, a, b)
+        return (f"map {mt[0]}/{sum(mt)} px of the plot column, table {rp[0]}/{sum(rp)} px; "
+                f"dragged sizes back next session: {r['reopened']}")
+
+    def t5() -> str:
+        r = res("layout_warnings")
+        w = r["warnings"]
+        assert w["count"] > 0 and w["text"] == f"Warnings ({w['count']})...", w
+        assert w["first"][:40] in w["tip"] and ".txt" in w["tip"] and not w["has_list"], w
+        f = r["warnings_file"]
+        assert w["first"] in f["first"] and f["unchanged"] and f["second_exists"], f
+        assert "already existed" in f["messages"][0], f["messages"]
+        return f"{w['text']}; the second save went to _2, the first file unchanged"
+
+    if "layout_warnings" in scenarios:
+        check("4: the map has the larger share; the three dividers are splitters kept across sessions", t4)
+        check("5: Warnings (N)... previews them and writes a .txt, never over an existing file", t5)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")
