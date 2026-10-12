@@ -53,7 +53,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools import mps_axoplasm as ax
 from tools import mps_axon_map_layers as map_layers
@@ -82,6 +82,10 @@ ON_THE_MAP = ("The image, the mask's and the spectrin interior's edges, the "
               "drawn on the axon map: MPS analysis window, Axoplasm view. It "
               "follows every change made here.")
 SHOW_ON_MAP = "Show on the axon map"
+# Manual test 2, item 15: which image the map draws, seen here.
+UNDER_MAP_CAPTION = "Shown on the axon map: {name}"
+UNDER_MAP_NONE = "Shown on the axon map: no {name} image loaded"
+THUMB_PX = 96
 MAP_IMAGE = "Image under the map:"
 MAP_IMAGE_TIP = ("Which widefield image the axon map draws under the "
                  "localizations (Axoplasm view). The same choice as the "
@@ -336,6 +340,24 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         self.btn_show_map.setVisible(self.map_callback is not None)
         on_map.addWidget(self.btn_show_map)
         right.addLayout(on_map)
+        # The image under the map, small, with its name: switching the
+        # selector visibly does something here too (manual test 2, item 15).
+        under = QtWidgets.QHBoxLayout()
+        self.thumb_map_image = QtWidgets.QLabel()
+        self.thumb_map_image.setObjectName("thumb_map_image")
+        self.thumb_map_image.setFixedSize(THUMB_PX, THUMB_PX)
+        self.thumb_map_image.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.thumb_map_image.setStyleSheet(f"border: 1px solid {_DIM};")
+        self.thumb_map_image.setToolTip(MAP_IMAGE_TIP)
+        under.addWidget(self.thumb_map_image)
+        self.caption_map_image = _label("", _DIM)
+        self.caption_map_image.setObjectName("caption_map_image")
+        self.caption_map_image.setWordWrap(True)
+        self.caption_map_image.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        under.addWidget(self.caption_map_image, stretch=1)
+        for widget in (self.thumb_map_image, self.caption_map_image):
+            widget.setVisible(image_callback is not None)
+        right.addLayout(under)
         self.plot_hist = pg.PlotWidget()
         style_dark(self.plot_hist)
         set_title(self.plot_hist,
@@ -1335,6 +1357,41 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         combo.blockSignals(True)
         combo.setCurrentIndex(max(0, combo.findData(key)))
         combo.blockSignals(False)
+        self._refresh_map_thumbnail()
+
+    def map_image_shown(self) -> Tuple[str, Optional[str]]:
+        """The key of the image under the map, and its file (None when it is not loaded)."""
+        key = str(self.combo_map_image.currentData())
+        image = self.tubulin if key == "tubulin" else self.reference
+        return key, (None if image is None else str(image.path))
+
+    def _refresh_map_thumbnail(self) -> None:
+        """The thumbnail and the caption of the image the axon map draws (display only: a 1-99.5 % stretch of
+        the averaged image, nothing measured)."""
+        thumb = getattr(self, "thumb_map_image", None)
+        if thumb is None:
+            return
+        key, path = self.map_image_shown()
+        name = map_layers.IMAGES.get(key, key)
+        image = self.tubulin if key == "tubulin" else self.reference
+        if image is None or getattr(image, "image", None) is None:
+            thumb.clear()
+            thumb.setText("-")
+            self.caption_map_image.setText(UNDER_MAP_NONE.format(name=name))
+            return
+        data = np.asarray(image.image, dtype=float)
+        finite = data[np.isfinite(data)]
+        lo, hi = (np.percentile(finite, [1.0, 99.5]) if finite.size else (0.0, 1.0))
+        scaled = np.clip((data - lo) / max(float(hi - lo), 1e-12), 0.0, 1.0)
+        grey = np.ascontiguousarray((np.nan_to_num(scaled) * 255.0).astype(np.uint8))
+        rows, cols = grey.shape
+        qimage = QtGui.QImage(grey.data, cols, rows, cols, QtGui.QImage.Format.Format_Grayscale8).copy()
+        pixmap = QtGui.QPixmap.fromImage(qimage).scaled(
+            THUMB_PX - 2, THUMB_PX - 2, QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+            QtCore.Qt.TransformationMode.SmoothTransformation)
+        thumb.setPixmap(pixmap)
+        self.caption_map_image.setText(
+            UNDER_MAP_CAPTION.format(name=name) + f"\n{os.path.basename(str(path))}")
 
     def _sync_map_image_items(self) -> None:
         """betaII-spectrin can be chosen only once it is loaded; the item
@@ -1347,8 +1404,10 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         item.setEnabled(loaded)
         item.setToolTip("" if loaded else
                         "Not available: " + map_layers.SPECTRIN_NOT_LOADED + ".")
+        self._refresh_map_thumbnail()
 
     def _on_map_image(self, _index: int) -> None:
+        self._refresh_map_thumbnail()
         self.flush()
         if self.image_callback is not None:
             self.image_callback(str(self.combo_map_image.currentData()))

@@ -44,7 +44,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow", "main_layout", "rings_tabs", "map_click"]
+SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow", "main_layout", "rings_tabs", "map_click", "axoplasm_thumb"]
 
 # Scenarios that measure geometry, with the platform's font.
 FONT_SCENARIOS = {"layout_warnings", "main_layout"}
@@ -521,6 +521,34 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         out["cleared"] = {"far": far is None, "items": len(amap._cluster_items), "text": amap.lbl_cluster.text()}
         out["analysis_unchanged"] = w.analysis is a
         mw.close()
+    elif s == "axoplasm_thumb":
+        mw = make_main()
+        mw.show_axoplasm_panel()
+        aw = mw.axoplasm_window
+        aw.show()
+
+        def thumb() -> Dict[str, Any]:
+            pm = aw.thumb_map_image.pixmap()
+            return {"has_pixmap": pm is not None and not pm.isNull(),
+                    "key": None if pm is None or pm.isNull() else int(pm.cacheKey()),
+                    "caption": aw.caption_map_image.text(), "visible": aw.thumb_map_image.isVisibleTo(aw),
+                    "shown": list(aw.map_image_shown()),
+                    "map": None if mw.mps_window is None else mw.mps_window.axon_map.inputs().image}
+        out["empty"] = thumb()
+        aw.load_tubulin(os.path.join(inputs, "wf_tubulin_A.tif"))
+        aw.flush()
+        pump(0.1)
+        out["tubulin"] = thumb()
+        aw.load_reference(os.path.join(inputs, "wf_spectrin_A.tif"))
+        aw.flush()
+        pump(0.1)
+        aw.combo_map_image.setCurrentIndex(aw.combo_map_image.findData("spectrin"))
+        pump(0.2)
+        out["spectrin"] = thumb()
+        mw.mps_window.axon_map.set_image("tubulin")          # the map's own selector: the panel follows
+        pump(0.2)
+        out["back"] = thumb()
+        mw.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -778,6 +806,19 @@ def main() -> int:
 
     if "map_click" in scenarios:
         check("14: a click on a cluster shows its label, area and 1NN..5NN distances; neighbours ringed", t14)
+
+    def t15() -> str:
+        r = res("axoplasm_thumb")
+        e, t, sp, b = r["empty"], r["tubulin"], r["spectrin"], r["back"]
+        assert e["visible"] and not e["has_pixmap"] and "no betaIII-tubulin image loaded" in e["caption"], e
+        assert t["has_pixmap"] and "betaIII-tubulin" in t["caption"] and "wf_tubulin_A" in t["caption"], t
+        assert sp["has_pixmap"] and "betaII-spectrin" in sp["caption"] and "wf_spectrin_A" in sp["caption"], sp
+        assert sp["key"] != t["key"] and sp["map"] == "spectrin", (sp, t)
+        assert b["shown"][0] == "tubulin" and "betaIII-tubulin" in b["caption"] and b["map"] == "tubulin", b
+        return "thumbnail and 'Shown on the axon map: <image> / <file>' follow both selectors"
+
+    if "axoplasm_thumb" in scenarios:
+        check("15: the Axoplasm panel shows which widefield image is under the axon map", t15)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")
