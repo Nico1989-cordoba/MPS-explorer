@@ -44,7 +44,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params"]
+SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal"]
 
 # Scenarios that measure geometry, with the platform's font.
 FONT_SCENARIOS = {"layout_warnings", "main_layout"}
@@ -363,6 +363,26 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
                                  "messages": [m["title"] for m in cell.messages[m6:]],
                                  "show_button_visible": mw0.button_show_mps_window.isVisibleTo(mw0)}
         mw0.close()
+    elif s == "badge_animal":
+        from tools import mps_param_registry as reg
+        from tools.identity_ui import IdentityDialog
+        from tools.mps_identity import AxonIdentity
+        from tools.mps_origin_ui import OriginBadge
+        b = OriginBadge("dbscan.eps_nm")
+        b_user = OriginBadge("dbscan.eps_nm", 30.0)
+        b_derived = OriginBadge("slab.centre", None)
+        out["badge"] = {"text": b.text(), "word": b.badge, "tip": b.toolTip(), "user": b_user.text(),
+                        "other": [b_derived.badge, b_derived.text()], "paper": reg.PAPER}
+        path = os.path.join(out_dir, "data", "WT aducina", "slide 2", "ROI 1", "Axon 3", "axon.hdf5")
+        d = IdentityDialog(path)
+        out["animal"] = {"text": d.edits["animal"].text(), "hint": d.hints["animal"].text(),
+                         "read_only": d.edits["animal"].isReadOnly(), "identity": d.identity().animal,
+                         "typed_by_hand": list(d.typed_by_hand())}
+        d.edits["animal"].setText("M7")
+        out["animal_edited"] = d.identity().animal
+        d2 = IdentityDialog(path, remembered=AxonIdentity(animal="M12", sample="slide 2"),
+                            remembered_folder=os.path.dirname(path))
+        out["animal_remembered"] = d2.edits["animal"].text()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -540,6 +560,25 @@ def main() -> int:
     if "main_params" in scenarios:
         check("6: one 'MPS analysis' button: runs when no analysis is current, else shows the window", t6)
         check("7: eps / min samples edited in the main window = the strip's value and re-run (rule K)", t7)
+
+    def t10() -> str:
+        b = res("badge_animal")["badge"]
+        assert b["text"] == "Gazal et al. (2026)" and b["word"] == "paper", b
+        assert b["paper"] in b["tip"], b["tip"]
+        assert b["user"] == "user" and b["other"][0] == b["other"][1], b
+        return f"'{b['text']}'; tooltip names '{b['paper']}'; other origins as their word"
+
+    def t12() -> str:
+        r = res("badge_animal")
+        a = r["animal"]
+        assert a["text"] == "mouse" and a["identity"] == "mouse" and not a["read_only"], a
+        assert "default 'mouse'" in a["hint"] and "animal" not in a["typed_by_hand"], a
+        assert r["animal_edited"] == "M7" and r["animal_remembered"] == "M12", r
+        return "proposed 'mouse' (editable, said to be a default); M7 typed kept; the previous axon's M12 wins"
+
+    if "badge_animal" in scenarios:
+        check("10: the paper badge reads 'Gazal et al. (2026)', the tooltip the full reference", t10)
+        check("12: the animal defaults to 'mouse', editable", t12)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")

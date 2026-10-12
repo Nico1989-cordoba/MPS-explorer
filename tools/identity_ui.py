@@ -22,7 +22,7 @@ from PyQt5 import QtWidgets
 from tools.mps_plot_style import marked, verdict
 from tools.mps_identity import (
     DEFAULT_PATTERNS, FIELD_HINTS, FIELD_LABELS, FIELDS, AxonIdentity,
-    Proposal, check_patterns, propose,
+    DEFAULT_ANIMAL, DEFAULT_ANIMAL_HINT, Proposal, check_patterns, propose,
 )
 
 # Read on the application's white, so the darker set of the verdict
@@ -51,8 +51,8 @@ class PatternsDialog(QtWidgets.QDialog):
             "first capturing group is the value.\n"
             "The slide is left empty on purpose: with no pattern it is taken "
             "as the folder above the ROI folder.\n"
-            "The animal is left empty on purpose too, and with no pattern it "
-            "stays empty: it is typed, never guessed from a folder name.")
+            "The animal is never guessed from a folder name: with no pattern "
+            "the panel proposes 'mouse', which you edit.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -219,6 +219,10 @@ class IdentityDialog(QtWidgets.QDialog):
         for name in FIELDS:
             self.edits[name].setText(getattr(proposal.identity, name))
             self.hints[name].setText(proposal.explain(name))
+        if not proposal.identity.animal:
+            # Manual test 2, item 12: an editable default, said to be one.
+            self.edits["animal"].setText(DEFAULT_ANIMAL)
+            self.hints["animal"].setText(DEFAULT_ANIMAL_HINT)
         # What the proposal put there, so a value the user types instead is
         # recognisable later and not overwritten by a new pattern.
         self._applied = {n: self.edits[n].text() for n in FIELDS}
