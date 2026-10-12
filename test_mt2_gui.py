@@ -44,7 +44,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export"]
+SCENARIOS = ["figure_export", "typed_fields"]
 
 
 # ============================================================================ one scenario (child process)
@@ -161,6 +161,33 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
                                "exists": os.path.isfile(noext + ".png")}
         out["figure_export"] = res
         mw.close()
+    elif s == "typed_fields":
+        mw = make_main()
+        w = mw.mps_window
+
+        def state() -> Dict[str, Any]:
+            a = w.analysis
+            return {"fields": [w.edit_typed_min.text(), w.edit_typed_max.text()],
+                    "cut": [f"{float(mw.zmin):.1f}", f"{float(mw.zmax):.1f}"],
+                    "slab": [f"{a.slab_zmin_nm:.1f}", f"{a.slab_zmax_nm:.1f}"]}
+        out["start"] = state()
+        cell.window_edit(app, w.spin_half, 70.0)
+        pump()
+        out["half_70"] = state()
+        a = w.analysis
+        centre = (a.slab_zmin_nm + a.slab_zmax_nm) / 2.0
+        means = [float(m) for m in a.z_result.means_nm]
+        far = max(range(len(means)), key=lambda i: abs(means[i] - centre))
+        w.combo_peak.setCurrentIndex(far)
+        pump()
+        out["component"] = state()
+        w.btn_slab_auto.click()
+        pump()
+        out["automatic"] = state()
+        # Ticked, then the slab changes and "Apply": the bounds applied are the slab's, not the old ones.
+        w.chk_typed.setChecked(True)
+        out["ticked"] = state()
+        mw.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -255,6 +282,19 @@ def main() -> int:
 
     if "figure_export" in scenarios:
         check("1: Export image never says 'Image written' for a file that is not there", t1)
+
+    def t2() -> str:
+        r = res("typed_fields")
+        seen = []
+        for key in ("start", "half_70", "component", "automatic", "ticked"):
+            st = r[key]
+            assert st["fields"] == st["cut"] == st["slab"], (key, st)
+            seen.append(f"{key} {st['fields'][0]}..{st['fields'][1]}")
+        assert r["half_70"]["fields"] != r["start"]["fields"] and r["component"]["fields"] != r["half_70"]["fields"]
+        return "; ".join(seen)
+
+    if "typed_fields" in scenarios:
+        check("2: the typed Z range fields always show the current slab", t2)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")

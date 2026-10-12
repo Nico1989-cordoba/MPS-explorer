@@ -667,9 +667,13 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.chk_typed.blockSignals(True)
         self.chk_typed.setChecked(typed is not None)
         self.chk_typed.blockSignals(False)
-        if typed is not None:
-            self.edit_typed_min.setText(f"{typed[0]:.1f}")
-            self.edit_typed_max.setText(f"{typed[1]:.1f}")
+        # The fields always show the slab in force (manual test 2, item 2): the typed range when there is one,
+        # otherwise the current cut - refreshed whenever the slab changes (a component, "Automatic", the
+        # half-width) - so "Apply" never applies the bounds of a slab that is no longer there.
+        bounds = typed if typed is not None else self._current_slab_bounds()
+        for edit, value in zip((self.edit_typed_min, self.edit_typed_max),
+                               (None, None) if bounds is None else bounds):
+            edit.setText("" if value is None else f"{float(value):.1f}")
         enabled = self.rerun_callback is not None
         typed_on = typed is not None
         reason = ("A typed range decides the slab: untick 'typed range' to use the "
@@ -686,6 +690,16 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.spin_half.blockSignals(was)
         self.btn_slab_auto.setEnabled(enabled and not typed_on and mode == "component")
         self.lbl_slab_mode.setToolTip(reason if typed_on else "")
+
+    def _current_slab_bounds(self) -> Optional[Tuple[float, float]]:
+        """The slab in force now: the main window's cut, else the analysis' own slab, else None."""
+        sel = self._sel
+        if sel is not None and sel.cut is not None:
+            return (float(sel.cut[0]), float(sel.cut[1]))
+        a = self.analysis
+        if a is not None and a.slab_zmin_nm is not None and a.slab_zmax_nm is not None:
+            return (float(a.slab_zmin_nm), float(a.slab_zmax_nm))
+        return None
 
     def _sync_reset(self) -> None:
         """'Reset to defaults' is highlighted while any of its four values
@@ -711,11 +725,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if self.links.apply_typed is None:
             return
         if on:
-            # The bounds are applied with "Apply"; start from the cut.
-            sel = self._sel
-            if sel is not None and sel.cut is not None and not self.edit_typed_min.text():
-                self.edit_typed_min.setText(f"{sel.cut[0]:.1f}")
-                self.edit_typed_max.setText(f"{sel.cut[1]:.1f}")
+            # The bounds are applied with "Apply"; they start from the slab in force (the fields already show it).
+            bounds = self._current_slab_bounds()
+            if bounds is not None and self.links.slab_state()[2] is None:
+                self.edit_typed_min.setText(f"{bounds[0]:.1f}")
+                self.edit_typed_max.setText(f"{bounds[1]:.1f}")
             return
         # Unticked: only a range that was applied is cleared. Ticking and
         # unticking without "Apply" changed nothing, so nothing is re-cut
