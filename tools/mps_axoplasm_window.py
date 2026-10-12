@@ -426,7 +426,83 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
                 "the movie's own camera grid, so it needs no shift and no "
                 "widefield image. For the spectrin, that can be the movie's "
                 "own file.")
+        # Manual test 2, item 16: the three files proposed from the names
+        # around the picked file - pre-filled, never loaded until asked.
+        proposals = QtWidgets.QHBoxLayout()
+        self.label_proposals = _label("", _DIM)
+        self.label_proposals.setObjectName("label_file_proposals")
+        self.label_proposals.setWordWrap(True)
+        self.label_proposals.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        proposals.addWidget(self.label_proposals, stretch=1)
+        self.btn_load_proposed = QtWidgets.QPushButton("Load proposed")
+        self.btn_load_proposed.setObjectName("btn_load_proposed")
+        self.btn_load_proposed.setToolTip(
+            "Load the widefield images written in the fields above (the proposals, or what you put there).")
+        self.btn_load_proposed.clicked.connect(self._load_proposed)
+        proposals.addWidget(self.btn_load_proposed)
+        self.btn_other_candidates = QtWidgets.QToolButton()
+        self.btn_other_candidates.setObjectName("btn_other_candidates")
+        self.btn_other_candidates.setText("Other candidates...")
+        self.btn_other_candidates.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.btn_other_candidates.setToolTip(
+            "Every file found by name for each field, with why it was proposed. Choosing one writes it in its "
+            "field; nothing is loaded until you press Enter there or 'Load proposed'.")
+        proposals.addWidget(self.btn_other_candidates)
+        lay.addLayout(proposals, 2 * len(rows), 0, 1, 2)
+        self.file_proposals: Any = None
+        self._propose_files()
         return box
+
+    def _propose_files(self) -> None:
+        """Pre-fill the empty fields with the best candidate found by name (tools.mps_file_match), with its
+        reason in the field's tooltip; list every candidate under "Other candidates...". Nothing is loaded."""
+        from tools import mps_file_match as fm
+
+        picked = str(getattr(self.inputs.movie, "path", "") or "")
+        try:
+            result = fm.match_files(picked)
+        except OSError as error:                      # an unreadable folder: no proposal, said so
+            result = fm.MatchResult(picked=picked)
+            result.notes.append(f"the folders around the file could not be read ({error})")
+        self.file_proposals = result
+        fields = {fm.TUBULIN: self.edit_tubulin, fm.SPECTRIN: self.edit_reference, fm.WHOLE_FIELD: self.edit_movie}
+        said: List[str] = []
+        for kind, edit in fields.items():
+            best = result.best(kind)
+            empty = not edit.text().strip() or (kind == fm.WHOLE_FIELD and edit.text().strip() == picked)
+            if best is not None and empty:
+                edit.setText(best.path)
+                edit.setToolTip("Proposed from the file names, not loaded yet: " + best.reason
+                                + (" - to confirm" if best.to_confirm and "confirm" not in best.reason else "")
+                                + "\n\n" + edit.toolTip())
+                said.append(f"{fm.KIND_WORDS[kind]}: {os.path.basename(best.path)}")
+            elif result.of(kind):
+                said.append(f"{fm.KIND_WORDS[kind]}: {len(result.of(kind))} candidates, choose one")
+        menu = QtWidgets.QMenu(self.btn_other_candidates)
+        menu.setToolTipsVisible(True)
+        for kind, edit in fields.items():
+            found = result.of(kind) + ([] if kind == fm.WHOLE_FIELD else list(result.unassigned))
+            if not found:
+                continue
+            menu.addSection(fm.KIND_WORDS[kind])
+            for c in found:
+                action = menu.addAction(fm.describe(c))
+                action.setToolTip(c.path)
+                action.triggered.connect(lambda _=False, e=edit, p=c.path: e.setText(p))
+        self.btn_other_candidates.setMenu(menu)
+        self.btn_other_candidates.setEnabled(not menu.isEmpty())
+        self.btn_load_proposed.setEnabled(bool(said))
+        if said:
+            text = ("Proposed from the file names (convention " + result.convention + "), not loaded: "
+                    + "; ".join(said) + ". Check them, then 'Load proposed'.")
+        else:
+            text = "No file proposed from the names: " + ("; ".join(result.notes) or "nothing found")
+        self.label_proposals.setText(text)
+
+    def _load_proposed(self) -> None:
+        """Load what the two image fields hold (the user's decision)."""
+        self._load_tubulin()
+        self._load_reference()
 
     def _build_alignment(self) -> QtWidgets.QWidget:
         box = QtWidgets.QGroupBox("2. Alignment")

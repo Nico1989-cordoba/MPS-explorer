@@ -19,7 +19,9 @@ folder, and the parent checks what it recorded:
   12 the animal defaults to "mouse";
   13 the Rings window carries the axial view and the cluster area per segment;
   14 a click on a cluster of the axon map shows its id, area and nearest-neighbour distances;
-  15 the Axoplasm panel shows which widefield image is under the axon map.
+  15 the Axoplasm panel shows which widefield image is under the axon map;
+  16 the Axoplasm panel proposes the whole field and the widefield images found by name (pre-filled, never
+     loaded on its own; tools/mps_file_match.py itself is tested on synthetic trees by test_file_match.py).
 
 R8: simulated data only.
 
@@ -44,7 +46,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow", "main_layout", "rings_tabs", "map_click", "axoplasm_thumb"]
+SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow", "main_layout", "rings_tabs", "map_click", "axoplasm_thumb", "file_match_panel"]
 
 # Scenarios that measure geometry, with the platform's font.
 FONT_SCENARIOS = {"layout_warnings", "main_layout"}
@@ -549,6 +551,44 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         pump(0.2)
         out["back"] = thumb()
         mw.close()
+    elif s == "file_match_panel":
+        import shutil
+        stem = "26.04.30_bIIspt_50ms_TIRF_1_MMStack_Pos0.ome_locs"
+        session = os.path.join(out_dir, "30.4.26")
+        sr = os.path.join(session, "26.04.30_bIIspt_50ms_TIRF_1")
+        os.makedirs(sr, exist_ok=True)
+        picked = os.path.join(sr, stem + "_undrift_filter_picked_axon1.hdf5")
+        shutil.copyfile(os.path.join(inputs, "sim_axon_A.hdf5"), picked)
+        shutil.copyfile(os.path.join(inputs, "sim_axon_A.yaml"), os.path.splitext(picked)[0] + ".yaml")
+        whole = os.path.join(sr, stem + "_undrift_filter.hdf5")
+        shutil.copyfile(os.path.join(inputs, "sim_axon_A.hdf5"), whole)
+        for kind, src in (("tub", "wf_tubulin_A.tif"), ("spec", "wf_spectrin_A.tif")):
+            folder = os.path.join(session, f"WF_{kind}_1")
+            os.makedirs(folder, exist_ok=True)
+            shutil.copyfile(os.path.join(inputs, src), os.path.join(folder, f"WF_{kind}_1_MMStack.ome.tif"))
+        import MPS_explorer
+        from tools.mps_selection_ui import set_app_store_dir
+        mw = MPS_explorer.MPS_explorer()
+        mw.columns_review_store_dir = os.path.join(out_dir, "review_store")
+        set_app_store_dir(mw.columns_review_store_dir)
+        assert mw.load_channel1(picked, 0)
+        mw.ui.pushButton_clusterch1.click()
+        pump()
+        mw.show_axoplasm_panel()
+        aw = mw.axoplasm_window
+        pump(0.1)
+        menu = aw.btn_other_candidates.menu()
+        out["proposed"] = {"tubulin": aw.edit_tubulin.text(), "spectrin": aw.edit_reference.text(),
+                           "movie": aw.edit_movie.text(), "loaded": [aw.tubulin is not None, aw.reference is not None],
+                           "tip": aw.edit_reference.toolTip(), "label": aw.label_proposals.text(),
+                           "menu": [a.text() for a in menu.actions()] if menu is not None else []}
+        aw.btn_load_proposed.click()
+        aw.flush()
+        pump(0.2)
+        out["after_load"] = {"tubulin": None if aw.tubulin is None else os.path.basename(aw.tubulin.path),
+                             "spectrin": None if aw.reference is None else os.path.basename(aw.reference.path)}
+        out["paths"] = {"whole": whole, "picked": picked}
+        mw.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -819,6 +859,22 @@ def main() -> int:
 
     if "axoplasm_thumb" in scenarios:
         check("15: the Axoplasm panel shows which widefield image is under the axon map", t15)
+
+    def t16() -> str:
+        r = res("file_match_panel")
+        p = r["proposed"]
+        assert p["tubulin"].endswith("WF_tub_1_MMStack.ome.tif") and p["spectrin"].endswith(
+            "WF_spec_1_MMStack.ome.tif"), p
+        assert os.path.normcase(p["movie"]) == os.path.normcase(r["paths"]["whole"]), (p["movie"], r["paths"])
+        assert p["loaded"] == [False, False], "a proposal is never loaded on its own"
+        assert "Proposed from the file names, not loaded yet: matched by: session date + index 1" in p["tip"], p["tip"]
+        assert "convention A" in p["label"] and any("same name without" in m for m in p["menu"]), p
+        a = r["after_load"]
+        assert a == {"tubulin": "WF_tub_1_MMStack.ome.tif", "spectrin": "WF_spec_1_MMStack.ome.tif"}, a
+        return "pre-filled with the reasons, nothing loaded; 'Load proposed' loads both images"
+
+    if "file_match_panel" in scenarios:
+        check("16: the Axoplasm panel proposes the whole field and the widefield images by name", t16)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")
