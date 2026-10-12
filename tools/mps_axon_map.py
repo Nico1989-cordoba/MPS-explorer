@@ -44,6 +44,9 @@ __all__ = ["AxonMap", "render_layer", "swatch_for", "cased_edge_rgba", "colour_o
 DARK_RIM = "#000000"
 PANEL_WIDTH = 280          # the side column's narrowest width
 SIDE_MAX_WIDTH = 460       # and its widest: what the plot's shape leaves, up to this
+CLUSTER_INFO_TIP = ("Click a cluster centre on the map: its label, area and its distances to its nearest centres "
+                    "(the same query as the Nearest neighbours tab). Click elsewhere to clear.")
+CLICK_TOLERANCE_PX = 12     # how near a click must fall to a centre, in screen pixels
 SIDE_DRAG_MAX = 1200       # how wide the user may drag it, to read long layer names (manual test 2, item 4)
 FIT_PAD_FRACTION = 0.06    # the view: the data's extent plus this fraction of its larger side ...
 FIT_PAD_MIN_NM = 150.0     # ... and at least this much
@@ -302,6 +305,19 @@ class AxonMap(QtWidgets.QWidget):
         self.splitter.splitterMoved.connect(lambda *_a: QtCore.QTimer.singleShot(0, self._fit_title))
         self.plot.getViewBox().sigRangeChangedManually.connect(self._on_range_by_hand)
         root.addWidget(self.splitter, 1)
+        # Manual test 2, item 14: a click on a cluster centre says which cluster it is, its area and its distances
+        # to its nearest centres, and rings it and its neighbours on the map (display only).
+        self.lbl_cluster = QtWidgets.QLabel("")
+        self.lbl_cluster.setObjectName("map_cluster_info")
+        self.lbl_cluster.setWordWrap(True)
+        self.lbl_cluster.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+                                                 | QtCore.Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        self.lbl_cluster.setToolTip(CLUSTER_INFO_TIP)
+        self.lbl_cluster.setVisible(False)
+        side.insertWidget(side.indexOf(self.lbl_line2) + 1, self.lbl_cluster)
+        self._cluster_items: List[Any] = []
+        self._cluster_info: Optional[Dict[str, Any]] = None
+        self.plot.scene().sigMouseClicked.connect(self._on_scene_click)
         # the group headers' selectors (owned here, shown in the panel)
         self.combo_source = QtWidgets.QComboBox()
         self.combo_source.setObjectName("combo_source")
@@ -434,7 +450,79 @@ class AxonMap(QtWidgets.QWidget):
         return self._layers[key]
 
     # ------------------------------------------------------------------ drawing
+    # ------------------------------------------------------------------ a click on a cluster (item 14)
+    def _on_scene_click(self, event: Any) -> None:
+        if event.button() != QtCore.Qt.MouseButton.LeftButton:
+            return
+        vb = self.plot.getViewBox()
+        pos = event.scenePos()
+        if not vb.sceneBoundingRect().contains(pos):
+            return
+        p = vb.mapSceneToView(pos)
+        self.select_at(float(p.x()), float(p.y()))
+
+    def _tolerance_nm(self) -> float:
+        vb = self.plot.getViewBox()
+        (x0, x1), _y = vb.viewRange()
+        width_px = max(1.0, float(vb.width()))
+        return CLICK_TOLERANCE_PX * abs(x1 - x0) / width_px
+
+    def select_at(self, x: float, y: float) -> Optional[Dict[str, Any]]:
+        """The cluster centre at (x, y) nm (within the click tolerance), selected; None clears the selection."""
+        shown = self._inputs.shown_analysis()
+        if shown is None or getattr(shown, "centroids", None) is None:
+            self.clear_cluster()
+            return None
+        i = L.nearest_centre(shown.centroids, x, y, self._tolerance_nm())
+        if i is None:
+            self.clear_cluster()
+            return None
+        return self.select_cluster(i)
+
+    def select_cluster(self, index: int) -> Dict[str, Any]:
+        """Show centre ``index`` of the analysis drawn: the info line, and rings on it and its neighbours."""
+        self.clear_cluster()
+        shown = self._inputs.shown_analysis()
+        info = L.cluster_info(shown, self._inputs.analysis, int(index))
+        self._cluster_info = info
+        self.lbl_cluster.setText(L.cluster_info_text(info))
+        self.lbl_cluster.setVisible(True)
+        c = np.asarray(shown.centroids, dtype=float).reshape(-1, 2)
+        ink = neutral(dark=self.dark)
+        cx, cy = info["centre"]
+        for j in info["neighbours"]:
+            line = pg.PlotDataItem([cx, c[j, 0]], [cy, c[j, 1]],
+                                   pen=pg.mkPen(ink, width=1, style=QtCore.Qt.PenStyle.DashLine))
+            self._cluster_items.append(line)
+        if info["neighbours"]:
+            nb = c[info["neighbours"]]
+            self._cluster_items.append(pg.ScatterPlotItem(
+                nb[:, 0], nb[:, 1], symbol="o", size=16, pen=pg.mkPen(ink, width=1.5), brush=None))
+        self._cluster_items.append(pg.ScatterPlotItem(
+            [cx], [cy], symbol="o", size=22, pen=pg.mkPen(ink, width=2.5), brush=None))
+        for item in self._cluster_items:
+            item.setZValue(1e6)
+            self.plot.addItem(item)
+        return info
+
+    def clear_cluster(self) -> None:
+        for item in self._cluster_items:
+            self.plot.removeItem(item)
+        self._cluster_items = []
+        self._cluster_info = None
+        self.lbl_cluster.setText("")
+        self.lbl_cluster.setVisible(False)
+
+    def cluster_info(self) -> Optional[Dict[str, Any]]:
+        """What the last click selected (None: nothing)."""
+        return self._cluster_info
+
     def redraw(self) -> None:
+        # a new drawing: the clicked cluster's rings are gone with the plot's items
+        self._cluster_items = []
+        self._cluster_info = None
+        if hasattr(self, "lbl_cluster"):
+            self.lbl_cluster.setVisible(False)
         self.plot.clear()
         self.layers.clear_layers(keep_state=True)
         self._groups = L.build_map(self._inputs)

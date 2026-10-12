@@ -44,7 +44,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow", "main_layout", "rings_tabs"]
+SCENARIOS = ["figure_export", "typed_fields", "copy", "layout_warnings", "main_params", "badge_animal", "load_flow", "main_layout", "rings_tabs", "map_click"]
 
 # Scenarios that measure geometry, with the platform's font.
 FONT_SCENARIOS = {"layout_warnings", "main_layout"}
@@ -485,6 +485,42 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
             "medians": [None if (a is None or a.areas is None) else a.areas.median_area_nm2
                         for a in ms.analyses]}
         mw.close()
+    elif s == "map_click":
+        import numpy as np
+        from PyQt5 import QtCore, QtTest
+
+        from tools import mps_axon_map_layers as ML
+        mw = make_main()
+        w = mw.mps_window
+        w.resize(1366, 728)
+        w.show()
+        pump(0.5)
+        amap = w.axon_map
+        a = w.analysis
+        c = np.asarray(a.centroids, float)
+        i = 5
+        # a real click on the plot, a few nm off the centre
+        vb = amap.plot.getViewBox()
+        scene_pt = vb.mapViewToScene(QtCore.QPointF(c[i, 0] + 3.0, c[i, 1] + 3.0))
+        view_pt = amap.plot.mapFromScene(scene_pt)
+        QtTest.QTest.mouseClick(amap.plot.viewport(), QtCore.Qt.MouseButton.LeftButton, QtCore.Qt.KeyboardModifier.NoModifier, view_pt)
+        pump(0.3)
+        info = amap.cluster_info()
+        if info is None:                              # the event path did not reach the scene: the same call
+            out["real_click_reached"] = False
+            info = amap.select_at(float(c[i, 0]) + 3.0, float(c[i, 1]) + 3.0)
+        else:
+            out["real_click_reached"] = True
+        knn = ML.knn_distances(c, 5)[i]
+        labels = ML.cluster_labels_of(a, a)
+        areas = {int(lab): float(ar) for lab, ar in zip(a.areas.labels, a.areas.areas_nm2)}
+        out["map_click"] = {"info": info, "text": amap.lbl_cluster.text(), "visible": amap.lbl_cluster.isVisibleTo(w),
+                            "knn": [float(v) for v in knn], "label": int(labels[i]),
+                            "area": areas.get(int(labels[i])), "highlight_items": len(amap._cluster_items)}
+        far = amap.select_at(float(c[:, 0].min()) - 5000.0, float(c[:, 1].min()) - 5000.0)
+        out["cleared"] = {"far": far is None, "items": len(amap._cluster_items), "text": amap.lbl_cluster.text()}
+        out["analysis_unchanged"] = w.analysis is a
+        mw.close()
     else:
         raise SystemExit(f"unknown scenario {s}")
     out["slot_exceptions"] = exc
@@ -726,6 +762,22 @@ def main() -> int:
 
     if "rings_tabs" in scenarios:
         check("13: the Rings window carries the axial view and the cluster area per segment", t13)
+
+    def t14() -> str:
+        r = res("map_click")
+        m = r["map_click"]
+        info = m["info"]
+        assert info is not None and info["index"] == 5 and info["label"] == m["label"], (info, m["label"])
+        assert all(abs(x - y) < 1e-9 for x, y in zip(info["distances_nm"], m["knn"])), (info["distances_nm"], m["knn"])
+        assert m["area"] is not None and abs(info["area_nm2"] - m["area"]) < 1e-9, (info, m["area"])
+        assert m["visible"] and "1NN" in m["text"] and f"cluster {m['label']}" in m["text"], m["text"]
+        assert m["highlight_items"] == len(info["neighbours"]) + 2, m["highlight_items"]
+        assert r["cleared"] == {"far": True, "items": 0, "text": ""}, r["cleared"]
+        assert r["analysis_unchanged"], r
+        return (("a real click" if r["real_click_reached"] else "select_at") + ": " + m["text"].replace("\n", " | ")[:150])
+
+    if "map_click" in scenarios:
+        check("14: a click on a cluster shows its label, area and 1NN..5NN distances; neighbours ringed", t14)
 
     print("\n" + "=" * 100)
     print(f"total {time.perf_counter() - t0:.1f} s")

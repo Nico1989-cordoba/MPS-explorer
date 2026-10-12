@@ -1098,6 +1098,86 @@ def knn_distances(centroids: NDArray[np.float64], n: int) -> NDArray[np.float64]
     return out
 
 
+CLUSTER_INFO_NEIGHBOURS = 5     # how many neighbours a click on a cluster lists (manual test 2, item 14)
+
+
+def cluster_labels_of(shown: Any, measured: Any) -> NDArray[np.int64]:
+    """The DBSCAN label of each centre of ``shown``, in the order of its centroids (the "Save distances..." rule:
+    the measured analysis' kept labels; with the discard applied, those not discarded). Empty when they do not line
+    up."""
+    if shown is None or measured is None:
+        return np.empty(0, dtype=np.int64)
+    labels = _good_labels(measured)
+    if shown.discard_applied:
+        labels = labels[~np.isin(labels, list(shown.discarded_labels))]
+    if len(labels) != len(np.asarray(shown.centroids).reshape(-1, 2)):
+        return np.empty(0, dtype=np.int64)
+    return np.asarray(labels, dtype=np.int64)
+
+
+def nearest_centre(centroids: Any, x: float, y: float, tolerance_nm: float) -> Optional[int]:
+    """The index of the centre nearest (x, y), when it is within ``tolerance_nm``; None otherwise."""
+    c = np.asarray(centroids, dtype=float).reshape(-1, 2)
+    if c.size == 0:
+        return None
+    d = np.hypot(c[:, 0] - float(x), c[:, 1] - float(y))
+    i = int(np.argmin(d))
+    return i if float(d[i]) <= float(tolerance_nm) else None
+
+
+def cluster_info(shown: Any, measured: Any, index: int,
+                 n_neighbours: int = CLUSTER_INFO_NEIGHBOURS) -> Dict[str, Any]:
+    """What a click on centre ``index`` of the analysis shown says (display only, numbers the analysis holds or the
+    same KD-tree query as the Nearest neighbours tab): its label, centre, area, effective radius, localizations,
+    and the distances to its 1st..Nth nearest centres with their indices and labels."""
+    c = np.asarray(shown.centroids, dtype=float).reshape(-1, 2)
+    labels = cluster_labels_of(shown, measured)
+    label = int(labels[index]) if labels.size else None
+    area = r_eff = None
+    n_locs = None
+    ar = getattr(shown, "areas", None)
+    if ar is not None and label is not None:
+        where = np.flatnonzero(np.asarray(ar.labels) == label)
+        if where.size:
+            area = float(ar.areas_nm2[where[0]])
+            r_eff = float(ar.r_eff_nm[where[0]])
+            n_locs = int(ar.n_locs[where[0]])
+    n = int(max(0, min(int(n_neighbours), len(c) - 1)))
+    neighbours: List[int] = []
+    distances: List[float] = []
+    if n > 0:
+        from sklearn.neighbors import KDTree
+        dist, idx = KDTree(c).query(c[index:index + 1], n + 1)
+        for d, j in zip(dist[0], idx[0]):
+            if int(j) == int(index):
+                continue
+            neighbours.append(int(j))
+            distances.append(float(d))
+        neighbours, distances = neighbours[:n], distances[:n]
+    return {"index": int(index), "label": label, "centre": (float(c[index, 0]), float(c[index, 1])),
+            "area_nm2": area, "r_eff_nm": r_eff, "n_locs": n_locs, "neighbours": neighbours,
+            "neighbour_labels": [int(labels[j]) for j in neighbours] if labels.size else [],
+            "distances_nm": distances}
+
+
+def cluster_info_text(info: Dict[str, Any]) -> str:
+    """The info box's lines for ``cluster_info``."""
+    name = f"cluster {info['label']}" if info.get("label") is not None else f"centre {info['index'] + 1}"
+    x, y = info["centre"]
+    lines = [f"{name} at ({x:,.0f}, {y:,.0f}) nm"]
+    if info.get("area_nm2") is not None:
+        lines.append(f"area {info['area_nm2']:,.0f} nm^2, effective radius {info['r_eff_nm']:,.1f} nm, "
+                     f"{info['n_locs']:,} localizations")
+    if info["distances_nm"]:
+        names = info.get("neighbour_labels") or [j + 1 for j in info["neighbours"]]
+        lines.append("nearest centres: " + ", ".join(
+            f"{k}NN {d:,.0f} nm (cluster {lab})" for k, (d, lab) in
+            enumerate(zip(info["distances_nm"], names), start=1)))
+    else:
+        lines.append("no other centre")
+    return "\n".join(lines)
+
+
 def nn_max_neighbours(n_clusters: int) -> int:
     """The largest N the spin offers: min(10, clusters - 1); 0 with fewer than two clusters."""
     return int(max(0, min(NN_MAX_N, int(n_clusters) - 1)))
