@@ -7,9 +7,11 @@ points: ``golden_ui_stage2.py``) and must reproduce ``testdata/ui_stage2/parity_
 differences listed in ``testdata/ui_stage2/expected_differences.json`` - each listed difference present, nothing
 else different (``golden_ui_stage2_manifest.py``). The manifest itself is checked against the design:
 
-  1. every entry names one of B1-B13 (G6: no rev-3 item may change what the golden records);
+  1. every entry names one of B1-B13 (G6: no rev-3 item may change what the golden records), or B14, the one
+     behaviour change of manual test 2 the golden records (item 6: 'MPS analysis' only shows the window when the
+     analysis is current, so E3 runs nothing there);
   2. none names B5, B7, B8, B9 or B10, which change no recorded field;
-  3. scenarios S1, S5, S9, S11a and S11b differ only by B13, the column dictionary's line;
+  3. scenarios S1, S5, S9, S11a and S11b differ only by B13, the column dictionary's line (and B14 at E3);
   4. B13 is in every cell (one line of the column dictionary written beside every "Export axon");
   5. B1 only in S6 through Rings (E4); B6 only in S7 and B4 only in S2, S3, S4, S6, through "cluster Ch1" (E2) and
      "MPS analysis" (E3); B11 only in S8, S12a, S12b through E2 / E3; B3 only where the slab was changed in the
@@ -48,6 +50,9 @@ WHERE = {   # B-change -> (scenarios, entry points) it may appear in (design 6.4
     "B6": ({"S7"}, {"E2", "E3"}),
     "B11": ({"S8", "S12a", "S12b"}, {"E2", "E3"}),
     "B12": ({"S10"}, {"E1", "E2", "E3", "E4", "E5"}),
+    # manual test 2, item 6: only through "MPS analysis" (E3), wherever the analysis was current
+    "B14": ({"S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11a", "S11b", "S12a", "S12b"},
+            {"E3"}),
 }
 
 
@@ -57,8 +62,8 @@ def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]
     for e in manifest:
         b = str(e.get("b_change"))
         by_cell[e["cell"]].add(b)
-        if b not in {f"B{i}" for i in range(1, 14)}:
-            problems.append(f"{e['cell']}: {b} is not one of B1-B13 (G6)")
+        if b not in {f"B{i}" for i in range(1, 15)}:
+            problems.append(f"{e['cell']}: {b} is not one of B1-B13 (G6) or B14 (manual test 2)")
         if b in ("B5", "B7", "B8", "B9", "B10"):
             problems.append(f"{e['cell']}: {b} changes no recorded field and may not be listed")
         if not e.get("reason"):
@@ -72,8 +77,9 @@ def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]
         if "B13" not in by_cell.get(cell, set()):
             problems.append(f"{cell}: no B13 entry (the dictionary line is written beside every export)")
         scenario = cell.split(":")[1]
-        if scenario in ONLY_B13 and by_cell.get(cell, set()) - {"B13"}:
-            problems.append(f"{cell}: {sorted(by_cell[cell] - {'B13'})} in a scenario that differs only by B13")
+        if scenario in ONLY_B13 and by_cell.get(cell, set()) - {"B13", "B14"}:
+            problems.append(f"{cell}: {sorted(by_cell[cell] - {'B13', 'B14'})} in a scenario that differs only by "
+                            "B13 (and B14 at E3)")
     return problems
 
 

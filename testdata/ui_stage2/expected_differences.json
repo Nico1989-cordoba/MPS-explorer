@@ -8636,5 +8636,411 @@
   "path": "export_axon / tables / other:_columns.csv / rows / 146",
   "b_change": "B13",
   "reason": "the column dictionary's line for selection_z_source names 'peak chosen'"
+ },
+ {
+  "cell": "A:S10:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S10:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S10:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S1:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S1:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S1:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S2:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S2:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S2:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S3:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S3:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S3:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S4:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S4:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S4:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S6:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S6:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S6:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S7:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S7:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S7:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S8:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S8:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S8:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S9:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S9:E3",
+  "snapshot": "entry",
+  "path": "main_cut / discard_held",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S9:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S9:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "A:S9:E3",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S10:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S10:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S10:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S1:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S1:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S1:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S2:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S2:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S2:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S3:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S3:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S3:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S4:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S4:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S4:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S6:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S6:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S6:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S7:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S7:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S7:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S8:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S8:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S8:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S9:E3",
+  "snapshot": "entry",
+  "path": "calls",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S9:E3",
+  "snapshot": "entry",
+  "path": "main_cut / discard_held",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S9:E3",
+  "snapshot": "entry",
+  "path": "main_cut / mps_analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S9:E3",
+  "snapshot": "entry",
+  "path": "results_window / analysis",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
+ },
+ {
+  "cell": "B:S9:E3",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B14",
+  "reason": "Manual test 2, item 6: 'MPS analysis' and 'Show the MPS analysis window' are one button, which only shows the window when the analysis is current for the selection: E3 runs no analysis here, so the entry snapshot has no analyze_axon call and keeps the scenario's analysis object (same numbers)."
  }
 ]
