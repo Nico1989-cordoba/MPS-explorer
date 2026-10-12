@@ -71,9 +71,12 @@ class OriginBadge(QtWidgets.QLabel):
     def set_value(self, value: Any = reg.UNSET) -> None:
         word = reg.badge(self.key, value)
         self.badge = word
-        self.setText(word)
+        self.setText(reg.badge_text(word))
         self.setStyleSheet(badge_style(word, self._dark))
-        self.setToolTip(reg.tooltip(self.key, value))
+        tip = reg.tooltip(self.key, value)
+        if word == "paper" and reg.PAPER not in tip:
+            tip += f"\nPublication: {reg.PAPER}."
+        self.setToolTip(tip)
 
 
 class RangeHint(QtWidgets.QLabel):

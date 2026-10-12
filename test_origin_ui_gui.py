@@ -77,14 +77,14 @@ def main() -> int:
         field = oui.ParamField("dbscan.eps_nm", spin)
         assert field.editor is spin and spin.objectName() == "spin_eps"
         assert (spin.minimum(), spin.maximum()) == (0.1, 1000.0), "the editor's limits must stay today's"
-        assert field.badge.text() == "paper" and "font-weight: bold" not in field.badge.styleSheet()
+        assert field.badge.text() == "Gazal et al. (2026)" and "font-weight: bold" not in field.badge.styleSheet()
         assert field.hint.text() == ""          # B6 documents no range for the analysis eps
         spin.setValue(30.0)
         assert field.badge.text() == "user" and "font-weight: bold" in field.badge.styleSheet()
         assert "you set 30 nm; default 25 nm (paper)" in field.badge.toolTip()
         assert spin.toolTip().startswith("DBSCAN eps.") and "default 25 nm" in spin.toolTip()
         spin.setValue(25.0)
-        assert field.badge.text() == "paper" and "you set" not in spin.toolTip()
+        assert field.badge.text() == "Gazal et al. (2026)" and "you set" not in spin.toolTip()
         return "badge paper -> user (bold, default in the tip) -> paper; editor name and limits untouched"
 
     def param_field_out_of_range() -> str:
@@ -100,7 +100,7 @@ def main() -> int:
         assert verdict("warn", dark=False) in field.hint.styleSheet()
         assert field.badge.text() == "user" and "only flagged" in field.hint.toolTip()
         spin.setValue(90.0)
-        assert field.hint.text() == "40-200" and not field.outside and field.badge.text() == "paper"
+        assert field.hint.text() == "40-200" and not field.outside and field.badge.text() == "Gazal et al. (2026)"
         int_spin = QtWidgets.QSpinBox()
         int_spin.setRange(1, 10000)
         int_spin.setValue(10)

@@ -202,9 +202,9 @@ def main() -> int:
         s = mw.mps_settings
         assert mw.ui.lineEdit_eps.text() == f"{s.eps_nm:g}" and mw.ui.lineEdit_minsamples.text() == \
             f"{int(s.min_samples)}"
-        assert mw.badge_eps.text() == "paper" and mw.badge_minsamples.text() == "paper"
+        assert mw.badge_eps.text() == "Gazal et al. (2026)" and mw.badge_minsamples.text() == "Gazal et al. (2026)"
         assert mw.ui.pushButton_zrange.text() == "Apply ROI"
-        assert w.field_eps.badge.text() == "paper" and w.field_half.hint.text() == "40-200"
+        assert w.field_eps.badge.text() == "Gazal et al. (2026)" and w.field_half.hint.text() == "40-200"
         assert w.field_min.hint.text() == "2-50" and w.field_eps.hint.text() == ""
         assert "More" == w.more_randomization.button.text() and not w.more_randomization.is_expanded()
         assert "1,000 iterations [paper; later: 999]" in w.more_randomization.label.text()
@@ -546,7 +546,7 @@ def main() -> int:
         assert (f["eps_nm"], f["min_samples"], f["mahalanobis_threshold"]) == (25.0, 10, 3.0), f
         assert not w.chk_random.isChecked() and not mw.mps_randomization, "Reset keeps the randomization switch"
         assert w.combo_peak.currentText() == combo_before or "current slab centre" in w.combo_peak.currentText()
-        assert w.field_eps.badge.text() == "paper" and mw.badge_eps.text() == "paper"
+        assert w.field_eps.badge.text() == "Gazal et al. (2026)" and mw.badge_eps.text() == "Gazal et al. (2026)"
         assert "font-weight: bold" not in w.btn_reset.styleSheet()
         w.chk_random.setChecked(True)
         pump(app, 0.1)

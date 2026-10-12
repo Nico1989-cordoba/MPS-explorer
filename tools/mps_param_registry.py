@@ -74,6 +74,14 @@ BADGE_MEANING: Dict[str, str] = {
 HOMES: Tuple[str, ...] = ("strip", "rings", "axoplasm", "measurement", "main", "none")
 # The publication the "paper" badges name.
 PAPER = "Gazal et al. 2026 (preprint v1)"
+# What a badge widget shows for an origin (manual test 2, item 10): "paper" is shown as the publication it names,
+# short; its tooltip carries PAPER in full. Every other origin is shown as its own word.
+BADGE_TEXT: Dict[str, str] = {"paper": "Gazal et al. (2026)"}
+
+
+def badge_text(word: str) -> str:
+    """The text a badge widget shows for the badge ``word``."""
+    return BADGE_TEXT.get(word, word)
 # The science PRs (design 13): SCI-1 .. SCI-9, and SCI-B6 / SCI-B9 for the two batches that filled the hooks
 # TODO-B6 (clustering and geometry) and TODO-B9 (DNA-PAINT) (12.9, 13.3).
 SCIENCE_PRS: Tuple[str, ...] = ("SCI-1", "SCI-2", "SCI-3", "SCI-4", "SCI-5", "SCI-6", "SCI-7", "SCI-8", "SCI-9",
