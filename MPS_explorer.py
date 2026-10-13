@@ -2323,10 +2323,16 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.measurement_panel = MeasurementPanel(self.ui.groupBox)
         self.measurement_panel.setGeometry(QtCore.QRect(20, 540, 640, 134))
         self.measurement_panel.calibration_requested.connect(
-            lambda action: self.z_calibration_action(action))
+            self._on_z_calibration_requested)
         self.measurement_panel.bead_requested.connect(
-            lambda action: self.z_bead_action(action))
+            self._on_z_bead_requested)
         self._refresh_measurement_panel()
+
+    def _on_z_calibration_requested(self, action: str) -> None:
+        self.z_calibration_action(action)
+
+    def _on_z_bead_requested(self, action: str) -> None:
+        self.z_bead_action(action)
 
     def _refresh_measurement_panel(self) -> None:
         """Redraw the Measurement panel from the loaded files and the
