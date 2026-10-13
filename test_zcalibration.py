@@ -398,9 +398,11 @@ def test_bead_stack_from_a_picasso_file_through_the_store() -> None:
         cols = zcal.export_columns(st)
         assert cols["z_calibration_source"] == "chosen record (calibration file)"
         assert cols["z_calibrated_range_origin"] == "bead stack" and abs(cols["z_zero_nm"] - 110 * 0.79) < 2.0
-        # a per-file entry wins over the folder's
-        store[zcal.file_key(data)] = {"m_typed": 0.8}
-        assert zcal.store_entry(store, data) == {"m_typed": 0.8}
+        # a per-file entry wins over the folder's, field by field; the folder fills the rest
+        store[zcal.file_key(data)] = {"m_typed": 0.8, "record_path": "other.yaml"}
+        merged = zcal.store_entry(store, data)
+        assert merged["m_typed"] == 0.8 and merged["record_path"] == "other.yaml" and merged["bead_path"] == stack
+        assert zcal.store_entry(store, os.path.join(tmp, "elsewhere", "f.hdf5")) == {}
         words = zcal.provenance_words(st)
         assert words.startswith("z calibration: beads_3d_calib.yaml, m = 0.79 (read from the chosen calibration")
     finally:

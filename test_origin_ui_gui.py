@@ -10,7 +10,7 @@ Section 1 (IMPL-B) checks the widgets on their own; IMPL-F appends the windows t
      "ad hoc" badge in the warning text colour, "user" bold; ``MoreLine`` collapsed by default with the registry's
      line; ``DetailsPanel`` read-only, selectable, collapsible, filled from plain tuples.
   2. (IMPL-F) The windows on simulated axon A: the Measurement panel (each channel's pixel size with today's source
-     words, the z calibration blank with its inputs disabled, a 2D file, a file's own record shown and not read; it
+     words, the z calibration blank with its inputs enabled (SCI-1), a 2D file, a file's own record shown; the panel
      stores nothing and writes no file); the KS p cell's tooltip with its text unchanged; the details panels without
      the p; the 1NN reference off and the CDF crossing outside the paper role; every registry key whose home is a
      stage-2 window carries a badge there; the axoplasm and rings badges follow their controls.
@@ -241,13 +241,15 @@ def main() -> int:
         src = reg.pixel_source_words(mw.locs1.pixel_size_source)
         assert lines[0] == f"Channel 1: pixel size {mw.locs1.pixel_size_nm:g} nm ({src})", lines[0]
         assert lines[1].startswith("Channel 2: pixel size "), lines[1]
-        assert lines[2] == "z calibration: - (none applied) [blank] - z as fitted by the localization software"
+        # SCI-1: the simulated files carry no z-calibration record, so z calibration reads "none read" (blank);
+        # the two inputs are enabled on a loaded 3D file and their tooltips say what they do.
+        assert lines[2] == "z calibration: - (none read) [blank] - z as fitted by the localization software"
         assert p.badge_z.text() == "blank" and p.badge_bead.text() == "blank"
-        assert not p.btn_calibration.isEnabled() and not p.btn_bead.isEnabled()
-        assert "later version" in p.btn_calibration.toolTip() and "later version" in p.btn_bead.toolTip()
-        assert "SCI-" not in p.btn_calibration.toolTip() + p.lbl_records.toolTip()
+        assert p.btn_calibration.isEnabled() and p.btn_bead.isEnabled()
+        assert "never assumed" in p.btn_calibration.toolTip() and "localized bead" in p.btn_bead.toolTip()
+        assert "SCI-" not in p.btn_calibration.toolTip() + p.btn_bead.toolTip() + p.lbl_records.toolTip()
         assert set(p.keys_shown()) == {"measurement.pixel_size_nm", "measurement.z_calibration",
-                                       "measurement.bead_stack"}
+                                       "measurement.z_magnification", "measurement.bead_stack"}
         # the same words as the MPS analysis window's provenance line (one dictionary)
         assert f"({src})" in st["w"].lbl_provenance.text()
         # a 2D file, and one with its own record: shown, never read
@@ -261,7 +263,7 @@ def main() -> int:
         p.set_files([ChannelFile.from_localizations(1, "a.hdf5", flat), ChannelFile.from_localizations(2, "b", rec)])
         text = p.text()
         assert "Channel 1: 2D file: no z" in text and "typed by hand for this folder earlier" in text
-        assert "carries a Picasso 'Z Calibration' record (Data quality reads its calibrated range; z is not " \
+        assert "carries a Picasso 'Z Calibration' record (read: m and the calibrated range; z is not " \
                "corrected with it)" in text
         # 2D files only: no z rows (m14)
         p.set_files([ChannelFile.from_localizations(1, "a.hdf5", flat)])
@@ -271,8 +273,8 @@ def main() -> int:
         assert files_under(work) == before_files, "the Measurement panel must write no file"
         mw._refresh_measurement_panel()
         assert p.text().splitlines()[0] == lines[0]
-        return "pixel size with today's source words; z calibration blank, inputs disabled; 2D / own record; " \
-               "nothing stored or written"
+        return "pixel size with today's source words; z calibration blank, inputs enabled; 2D / own record; " \
+               "nothing stored or written by the panel"
 
     def results_window() -> str:
         w = st["w"]
@@ -350,7 +352,7 @@ def main() -> int:
         return "the user's settings file untouched"
 
     check("setup (main window, simulated axon A, MPS analysis)", setup)
-    check("Measurement panel: pixel size and source, z calibration blank, inputs disabled, stores nothing",
+    check("Measurement panel: pixel size and source, z calibration blank, inputs enabled, stores nothing",
           measurement_panel)
     check("MPS analysis window: KS p tooltip, details panels without the p, 1NN reference off, crossing neutral",
           results_window)

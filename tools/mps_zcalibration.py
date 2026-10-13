@@ -811,16 +811,18 @@ def file_key(path: str) -> str:
 
 
 def store_entry(store: Optional[Mapping[str, Any]], data_path: str) -> Dict[str, Any]:
-    """The entry for a loaded file: its own (per file) first, else its folder's (one per acquisition)."""
+    """The entry for a loaded file: its folder's (one per acquisition), with whatever the file's own entry sets
+    taking precedence field by field."""
     from tools.mps_pixel_size import folder_key
 
     if not store or not data_path:
         return {}
-    for key in (file_key(data_path), folder_key(data_path)):
+    out: Dict[str, Any] = {}
+    for key in (folder_key(data_path), file_key(data_path)):
         entry = store.get(key)
         if isinstance(entry, Mapping):
-            return dict(entry)
-    return {}
+            out.update(entry)
+    return out
 
 
 def clean_store(store: Any) -> Dict[str, Dict[str, Any]]:
