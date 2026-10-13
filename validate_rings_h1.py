@@ -1373,12 +1373,17 @@ def test_gui_hook() -> None:
         w = need_window()
         prepare(w, ind.copy(), True, (f"{zmin:.1f}", f"{zmax:.1f}"))
         w._apply_z_range(ind.copy())
-        assert w.roi_indices_unfiltered is not None
+        old = (w.roi_indices_unfiltered, w.roi_indices, w.xroi_unfiltered, w.zroi_unfiltered)
+        assert old[0] is not None
         w.import_file = lambda path, fileformat, channel=1: (x.copy(), y.copy(), z.copy())
         assert w.load_channel1("synthetic-h1", 0) is True
-        assert w.roi_indices_unfiltered is None, "stale roi_indices_unfiltered after reload"
-        assert w.roi_indices is None and w.xroi_unfiltered is None and w.zroi_unfiltered is None
-        return "load_channel1 clears roi_indices_unfiltered together with roi_indices"
+        # Since manual test 2 (item 11) a load applies a circular ROI around the whole new file at once: the
+        # arrays are the new file's, never the previous selection's.
+        now = (w.roi_indices_unfiltered, w.roi_indices, w.xroi_unfiltered, w.zroi_unfiltered)
+        assert all(a is None or a is not b for a, b in zip(now, old)), "stale selection arrays after reload"
+        got = w.roi_indices_unfiltered
+        assert got is None or np.array_equal(np.sort(np.asarray(got)), np.arange(len(x))),             "the new selection is not the whole new file"
+        return "load_channel1 drops the previous selection; the new file's whole-axon ROI replaces it"
 
     check("GUI hook: automatic pre-fill path (fields empty, not user-edited) stays consistent",
           prefill_path)

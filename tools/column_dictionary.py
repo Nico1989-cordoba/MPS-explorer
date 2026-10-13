@@ -259,8 +259,10 @@ AXOPLASM: Dict[str, str] = {
     "ring_area_um2": "Area of the spectrin ring itself.",
     "selection_zmin_nm": "Lower edge of the axial range the panel was given.",
     "selection_zmax_nm": "Upper edge of it.",
-    "selection_z_source": "Whether that range was typed or came from the "
-                          "axial peak.",
+    "selection_z_source": "Whether that range was typed, came from the "
+                          "axial peak, or was centred on the mixture "
+                          "component chosen in the MPS analysis window "
+                          "(peak chosen).",
     "n_localizations": "Localizations the panel was given.",
     "n_outside_tubulin_region": "How many fell outside the part of the image "
                                 "that was read.",

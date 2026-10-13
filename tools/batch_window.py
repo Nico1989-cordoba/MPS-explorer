@@ -336,11 +336,30 @@ class BatchWindow(QtWidgets.QMainWindow):
         self.label_settings.setText(
             "Analysed with the main window's settings, read when Run is "
             f"pressed: {described}.\n"
+            f"{self._origins()}"
             "A batch draws no ROI: clusters touching the edge are judged "
             "against the convex hull of each file's localizations, and the "
             "rows say so (edge_reference). An axon exported from the axon "
             "window with an ROI is the same axon measured another way, so "
             "a table that already holds it keeps that row, not this one.")
+
+    def _origins(self) -> str:
+        """Where each value comes from (UI stage 2, design 12.3): 'eps 25 nm
+        (paper)', or '(user; default 25 nm, paper)' for a value set in the
+        MPS analysis window's parameter strip. Display only."""
+        try:
+            from tools.mps_params_panel import origin_words
+            st = self.settings
+            parts = [origin_words("dbscan.eps_nm", float(st.eps_nm)),
+                     origin_words("dbscan.min_samples", int(st.min_samples)),
+                     origin_words("slab.half_width_nm",
+                                  float(st.slab_half_width_nm)),
+                     origin_words("occupancy.mahalanobis",
+                                  float(st.mahalanobis_threshold))]
+        except (AttributeError, TypeError, ValueError, KeyError):
+            return ""
+        return ("Origin of each value: " + "; ".join(parts)
+                + ". They are set in the MPS analysis window.\n")
 
     # -- finding the files ----------------------------------------------
 

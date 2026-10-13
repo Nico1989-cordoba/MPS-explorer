@@ -94,6 +94,13 @@ DEFAULT_PATTERNS: Dict[str, str] = {
     "axon_name": r"([Aa]xon[ _-]*\d+)",
 }
 
+# What the identity panel writes in the animal field when nothing else fills it (manual test 2, item 12): editable,
+# and said to be a default. propose() itself still leaves the animal empty (the batch reads the path through it and
+# must not pool the axons of several animals under one name).
+DEFAULT_ANIMAL = "mouse"
+DEFAULT_ANIMAL_HINT = ("default 'mouse': type the animal's own name (M3, ...) when the axons come from several "
+                       "animals - axons with the same animal are counted as one animal in a group comparison")
+
 # Origins, so the panel can say where each proposal came from rather than
 # presenting all five as equally certain.
 FROM_PATTERN = "pattern"

@@ -176,49 +176,21 @@ def blend(colour: str, alpha: int, background: str) -> str:
 # at and the symbol that carries it when the colour alone would not.
 # These lists ARE the specification the drawing code follows.
 TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
-    "the contour plot": (
-        ("noise", 90, "dot"),
-        ("curated", 160, "x"),
-        ("discarded", 255, "diamond"),
-        ("locs", 200, "dot"),
-        ("centroid", 255, "circle"),
-        ("occupied", 255, "thick line"),
-        ("centre", 255, "plus"),
-    ),
-    "the axial histogram": (
-        ("locs", 170, "bars"),
-        ("fit", 255, "dashed line"),
-        ("slab", 60, "band"),
-    ),
+    # UI stage 2 (IMPL-C): the MPS analysis window's "Contour and centre",
+    # its axial histogram and its randomization CDF, and the Axoplasm
+    # panel's image, moved to the axon map, the axial view and the
+    # nearest-neighbours tab: their lists are the stage-2 entries below.
+    # The cluster-area histogram and the nearest-neighbour histogram keep
+    # this one (the reference line in the paper role is a published value).
     "a histogram with a median and the paper's value": (
         ("locs", 190, "bars"),
         ("summary", 255, "line"),
-        ("paper", 255, "dashed line"),
-    ),
-    "the randomization CDF": (
-        ("observed", 255, "line"),
-        ("randomized", 255, "line"),
         ("paper", 255, "dashed line"),
     ),
     "two channels": (
         ("locs", 170, "dot"),
         ("channel_b", 170, "triangle"),
         ("centre", 255, "plus"),
-    ),
-    # The axoplasm panel draws on a widefield image, not on black: its
-    # background is whatever grey the axon is at that point, so its
-    # colours are measured against a mid grey as well.
-    "the axoplasm image": (
-        ("locs", 255, "dot"),
-        ("discarded", 255, "dot"),
-        # Both edges are drawn with a one-pixel dark casing, which is
-        # what makes them legible over a photograph: their own hues sit
-        # at about the lightness of a mid grey. Circles for one, squares
-        # for the other.
-        ("image_tubulin", 255, "cased line and circles"),
-        ("image_spectrin", 255, "cased line and squares"),
-        ("contour_all", 255, "dashed line"),
-        ("contour_kept", 255, "line"),
     ),
     # --- the two panels that report on the acquisition -----------------
     # Findings are text, not marks, and they are read one under the other
@@ -299,11 +271,66 @@ TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
         ("sizer_fall", 255, "a lower bar"),
         ("sizer_flat", 255, "a thin middle bar"),
     ),
+    # --- UI stage 2: the axon map, the axial view, nearest neighbours ----
+    # (tools/mps_axon_map_layers.py ROW_STYLES is checked against these
+    # lists below.) The neutral contour, the neutral "+" of the contour
+    # with every cluster, the unplaced localizations and the randomization
+    # band are the neutral line colour, which is structural and not a role.
+    "the axon map (MPS analysis view)": (
+        ("noise", 90, "dot"),
+        ("curated", 160, "x"),
+        ("discarded", 255, "diamond"),
+        ("locs", 200, "dot"),
+        ("centroid", 255, "circle"),
+        ("occupied", 255, "thick line"),
+        ("centre", 255, "plus"),
+    ),
+    # The Axoplasm view, on the widefield image: the contours are the
+    # analysis' neutral ones now (cased), and the centre "+" is drawn over
+    # the image with a dark casing.
+    "the axon map over a widefield image": (
+        ("locs", 255, "dot"),
+        ("discarded", 255, "dot and disc"),
+        ("image_tubulin", 255, "cased line and cased rings"),
+        ("image_spectrin", 255, "cased line and cased squares"),
+        ("centre", 255, "cased plus"),
+    ),
+    # Any combination a person can tick on black (Custom view): every role
+    # either source or colouring can put on the map. The two colourings of
+    # the centres are exclusive; the pairs that only that exclusivity or a
+    # shape separates are in BY_SHAPE.
+    "the axon map (any combination on black)": (
+        ("noise", 90, "dot"),
+        ("curated", 160, "x"),
+        ("discarded", 255, "diamond"),
+        ("locs", 200, "dot"),
+        ("centroid", 255, "circle"),
+        ("occupied", 255, "thick line"),
+        ("centre", 255, "plus"),
+        ("image_tubulin", 255, "cased line and cased rings"),
+        ("image_spectrin", 255, "cased line and cased squares"),
+    ),
+    # The single axial view, "MPS analysis slab": the ROI's z inside the
+    # slab (sky blue) and outside it (grey, alpha 100: 80 is 19.9 off black,
+    # under the faint limit), stacked; the components; the slab band; and
+    # channel 2 as loaded, which disables the components while it is drawn.
+    "the axial view (MPS analysis slab)": (
+        ("locs", 170, "bars"),
+        ("dim", 100, "bars"),
+        ("fit", 255, "dashed line"),
+        ("slab", 60, "band"),
+        ("channel_b", 255, "step line"),
+    ),
+    # The nearest-neighbours tab's CDF: no paper role left in it - the
+    # crossing is this program's heuristic and is drawn neutral.
+    "the 1NN CDF (nearest-neighbours tab)": (
+        ("observed", 255, "line"),
+        ("randomized", 255, "line"),
+    ),
 }
 
 # What each plot is drawn on. Anything not named here is on black.
 BACKGROUNDS: Dict[str, str] = {
-    "the axoplasm image": "#808080",
     # The quality and DNA-PAINT panels paint their own window, and the
     # findings are read on that rather than on a plot's black.
     "the findings list": PANEL_BG,
@@ -311,6 +338,8 @@ BACKGROUNDS: Dict[str, str] = {
     # brightest pixel is this grey (UNDERLAY_MAX_GREY): the marks have to
     # stand off it, which is stricter than black for every role here.
     "the lumen review plot": "#404040",
+    # The axon map's Axoplasm view, on the same widefield grey.
+    "the axon map over a widefield image": "#808080",
 }
 
 # Pairs that come close under one kind of vision and are told apart by
@@ -365,20 +394,10 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
     ("locs", "contour_kept"):
         "a cloud of dots against one closed line through the centres; in the "
         "lumen review, squares (restored by hand) against that line",
-    ("discarded", "contour_all"):
-        "filled discs with a dark rim against a dashed line",
     ("image_tubulin", "image_spectrin"):
         "circles against squares, and two edges that are different places "
         "in the image: the outside of the axon and the inside of the "
         "spectrin ring",
-    ("image_tubulin", "contour_kept"):
-        "the mask's own irregular edge against the polygon through the "
-        "cluster centres; apart for everyone but a tritanope, who is "
-        "about one person in ten thousand",
-    ("image_spectrin", "contour_all"):
-        "a solid image edge against a dashed contour",
-    ("image_spectrin", "contour_kept"):
-        "an image edge against the polygon through the cluster centres",
     ("discarded", "image_spectrin"):
         "filled discs against an edge and open squares",
     # --- the quality panels --------------------------------------------
@@ -425,6 +444,37 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
         "ring to a cluster of the next against one closed line around the "
         "axon (the membrane after the cleaning); apart for everyone but a "
         "protanope",
+    # --- the axon map (UI stage 2, design 3.5) ----------------------------
+    ("centre", "image_tubulin"):
+        "on the axon map, one 18 px plus with a dark casing at the middle of "
+        "the axon against a cased mask edge and 10 px cased rings",
+    ("centre", "image_spectrin"):
+        "on the axon map, one 18 px plus with a dark casing against a cased "
+        "image edge and 10 px cased squares",
+    ("curated", "image_tubulin"):
+        "on the axon map, an x against a cased edge and cased rings; and the "
+        "curated localizations are disabled while the image is drawn",
+    ("curated", "image_spectrin"):
+        "on the axon map, an x against a cased edge and cased squares; and "
+        "the curated localizations are disabled while the image is drawn",
+    ("centroid", "image_tubulin"):
+        "on the axon map the two colourings of the centres are exclusive, so "
+        "the green circles never share it with the tubulin-only rings; "
+        "against the mask edge, 7 px filled circles with a pale outline "
+        "against a cased line",
+    ("centroid", "image_spectrin"):
+        "on the axon map the two colourings of the centres are exclusive; "
+        "against the spectrin edge, filled circles against a cased line",
+    ("occupied", "image_spectrin"):
+        "on the axon map, a thick line along the contour against a cased "
+        "image edge and cased squares",
+    # --- the single axial view --------------------------------------------
+    ("dim", "slab"):
+        "in the axial view they never overlap: the grey bars are the ROI "
+        "outside the slab, the band is behind the slab's own bars",
+    ("channel_b", "fit"):
+        "never drawn together: in the axial view, ticking channel 2 disables "
+        "the components (18 apart for a deuteranope)",
 }
 
 
@@ -764,12 +814,13 @@ def test_greyscale() -> None:
         return "every pair differs in lightness or in symbol"
 
     def what_is_excluded_has_its_own_symbol():
-        drawn = dict((name, shape)
-                     for name, _alpha, shape in TOGETHER["the contour plot"])
-        assert drawn["curated"] == "x", drawn
-        assert drawn["centroid"] == "circle", drawn
-        assert drawn["centre"] == "plus", drawn
-        return "curated x, centroids circles, centre a plus"
+        for plot in ("the axon map (MPS analysis view)",):
+            drawn = dict((name, shape)
+                         for name, _alpha, shape in TOGETHER[plot])
+            assert drawn["curated"] == "x", (plot, drawn)
+            assert drawn["centroid"] == "circle", (plot, drawn)
+            assert drawn["centre"] == "plus", (plot, drawn)
+        return "curated x, centroids circles, centre a plus (the axon map)"
 
     def every_finding_carries_its_own_mark():
         # A verdict is text: it has no symbol to be told apart by, so it
@@ -791,6 +842,131 @@ def test_greyscale() -> None:
           every_finding_carries_its_own_mark)
 
 
+def test_stage2_widgets() -> None:
+    print("\n--- UI stage 2: the axon map, the axial view, nearest neighbours ---")
+    from tools import mps_axon_map_layers as layers_spec
+
+    styles = layers_spec.ROW_STYLES
+    # Which list above specifies each row the builders draw in a role.
+    where = {
+        "the axon map (MPS analysis view)": (
+            "slab_kept", "slab_noise", "slab_curated", "slab_discarded",
+            "c_kept", "c_discarded", "occupied", "centre"),
+        "the axon map over a widefield image": (
+            "sel_inside", "sel_membrane", "c_both", "c_tubulin", "c_spectrin",
+            "tubulin_edge", "spectrin_edge", "centre"),
+        "the axial view (MPS analysis slab)": (
+            "roi_in", "roi_out", "components", "slab", "ch2_roi"),
+        "a histogram with a median and the paper's value": (
+            "nn_bars", "nn_median", "nn_reference"),
+        "the 1NN CDF (nearest-neighbours tab)": (
+            "cdf_observed", "cdf_randomized"),
+    }
+
+    def the_builders_follow_these_lists():
+        n = 0
+        for plot, keys in where.items():
+            listed = {(name, alpha) for name, alpha, _s in TOGETHER[plot]}
+            for key in keys:
+                s = styles[key]
+                assert (s.role, s.alpha) in listed, (plot, key, s.role,
+                                                     s.alpha)
+                n += 1
+        drawn = {s.role for s in styles.values()}
+        stray = drawn - set(ROLES) - {"neutral", "segment", "image"}
+        assert not stray, stray
+        return f"{n} rows drawn in the role and alpha their list gives"
+
+    def paper_is_a_published_value_only():
+        # P5 (rev 3): a line in the paper role is always a published
+        # reference value, never a quantity this program computes.
+        paper = sorted(k for k, s in styles.items() if s.role == "paper")
+        assert paper == ["nn_reference"], paper
+        assert styles["cdf_crossing"].role == "neutral"
+        assert "paper" not in {n for n, _a, _s in
+                               TOGETHER["the 1NN CDF (nearest-neighbours tab)"]}
+        return "only the reference layer; the CDF crossing is neutral"
+
+    def segments_against_the_maps_overlays():
+        # Segment colours ARE five roles' colours: with the segments'
+        # source, every overlay a segment comes close to is disabled,
+        # except the centre "+", told apart by being one 18 px plus
+        # against 5 px hollow markers.
+        allowed_by_shape = {"centre"}
+        sources = {k for k in styles if k.startswith(("slab_", "sel_"))}
+        close = []
+        for key, s in styles.items():
+            if s.role not in ROLES or key in sources or key.startswith(
+                    ("roi_", "ch2_", "nn_", "cdf_", "seg")) or key in (
+                    "components", "slab"):
+                continue
+            for i, c in enumerate(SEGMENT_CYCLE):
+                d = min(distance(c, role(s.role), k) for k in SIMULATIONS)
+                if d < APART and key not in layers_spec.SEGMENTS_DISABLE \
+                        and key not in allowed_by_shape:
+                    close.append(f"{key} vs segment {i}: {d:.0f}")
+        assert not close, close
+        worst = min(distance(c, neutral(True), k)
+                    for c in SEGMENT_CYCLE for k in SIMULATIONS)
+        assert worst >= APART, worst
+        return (f"{len(layers_spec.SEGMENTS_DISABLE)} overlays disabled; "
+                f"neutral at least {worst:.0f} from every segment")
+
+    def segment_bands_by_their_lines():
+        # The bands at alpha 55 come close; each carries a full-colour
+        # dotted line with its number, and those lines stay apart.
+        bands, lines = [], []
+        for i in range(len(SEGMENT_CYCLE) - 1):
+            a, b = SEGMENT_CYCLE[i], SEGMENT_CYCLE[i + 1]
+            bands.append(min(distance(blend(a, 55, DARK_BG),
+                                      blend(b, 55, DARK_BG), k)
+                             for k in SIMULATIONS))
+            lines.append(min(distance(a, b, k) for k in SIMULATIONS))
+        assert min(lines) >= APART, lines
+        assert styles["segband"].alpha == 55
+        return (f"bands {min(bands):.0f}-{max(bands):.0f} apart, their "
+                f"numbered lines {min(lines):.0f}-{max(lines):.0f}")
+
+    def the_randomization_band_is_a_texture():
+        # A cloud of 1 px dots at alpha 40: faint on purpose (it is where
+        # the null draws from, not data), visible as a texture, and every
+        # line or marker drawn over it stands well off it.
+        s = styles["rand_band"]
+        cloud = blend(neutral(True), s.alpha, DARK_BG)
+        off = min(distance(cloud, DARK_BG, k) for k in SIMULATIONS)
+        assert 10.0 <= off < 20.0, off
+        over = [r for r, _a, _s in TOGETHER["the axon map (MPS analysis view)"]]
+        worst = min(distance(cloud, role(r), k) for r in over
+                    for k in SIMULATIONS)
+        worst = min(worst, min(distance(cloud, neutral(True), k)
+                               for k in SIMULATIONS))
+        assert worst >= APART, worst
+        assert s.size <= 1.0 and "cloud" in s.mark
+        return f"{off:.0f} off black; everything over it at least {worst:.0f}"
+
+    def channel_2_and_the_components_are_exclusive():
+        assert styles["ch2_roi"].role == "channel_b"
+        assert styles["components"].role == "fit"
+        assert ("channel_b", "fit") in BY_SHAPE
+        assert "too close" in layers_spec.CH2_HIDES_COMPONENTS
+        d = min(distance(role("channel_b"), role("fit"), k)
+                for k in SIMULATIONS)
+        return f"{d:.0f} apart at worst: never drawn together"
+
+    check("the stage-2 builders draw what these lists say",
+          the_builders_follow_these_lists)
+    check("the paper role is a published value only",
+          paper_is_a_published_value_only)
+    check("segments against the map's overlays",
+          segments_against_the_maps_overlays)
+    check("the axial view's segment bands are told apart by their lines",
+          segment_bands_by_their_lines)
+    check("the randomization band is a texture under everything",
+          the_randomization_band_is_a_texture)
+    check("channel 2 and the components are never drawn together",
+          channel_2_and_the_components_are_exclusive)
+
+
 def main() -> int:
     print("=" * 72)
     print("PLOT COLOUR CHECKS")
@@ -801,6 +977,7 @@ def main() -> int:
     test_text_contrast()
     test_segments()
     test_greyscale()
+    test_stage2_widgets()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")
     print("=" * 72)
