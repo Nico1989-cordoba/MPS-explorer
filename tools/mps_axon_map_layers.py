@@ -768,10 +768,11 @@ def map_title(inp: MapInputs, ticked: Set[str]) -> str:
 
 
 def provenance_line2(analysis: Any, *, roi_words: str, cut: Optional[Tuple[float, float]],
-                     given_after_cut: bool = False) -> str:
+                     given_after_cut: bool = False, z_words: Optional[str] = None) -> str:
     """The map's second provenance line (3.1; screen and export message, not the figure): frame, ROI, how many
     localizations the analysis was given, slab, cut, Mahalanobis, and "z as fitted". A value departing from its
-    default carries [user]."""
+    default carries [user]. ``z_words`` is the measurement's z calibration ("z calibration: <file>, m = x
+    (<source>); ...", ``tools.mps_zcalibration.provenance_words``); without one the last clause is today's."""
     parts = ["lab x, y [nm]", roi_words]
     if analysis is not None:
         given = "the cut selection" if given_after_cut else "the ROI before the cut"
@@ -784,7 +785,7 @@ def provenance_line2(analysis: Any, *, roi_words: str, cut: Optional[Tuple[float
     if analysis is not None:
         t = float(analysis.mahalanobis_threshold)
         parts.append(f"Mahalanobis {t:g}{reg.user_mark('occupancy.mahalanobis', t)}")
-    parts.append("z as fitted, no z correction applied")
+    parts.append(z_words or "z as fitted, no z correction applied")
     return "; ".join(parts)
 
 
@@ -828,6 +829,10 @@ class AxialInputs:
     rings_reason: str = "press Rings... to compute the segments"
     view: str = "slab"
     fit_reason: str = "the mixture could not be fitted"
+    # The measurement's z calibration (SCI-1): the title's third line when a record is read ("" keeps today's),
+    # and m, which the Delta-Z row names.
+    z_words: str = ""
+    z_magnification: Optional[float] = None
 
     def z_result(self) -> Any:
         if self.analysis is not None:
@@ -1047,7 +1052,7 @@ def axial_title(inp: AxialInputs) -> str:
             line2 += f"; {cut}"
     else:
         line2 = "No MPS analysis of this selection yet" + (f"; {cut}" if cut else "")
-    return f"{line1}<br>{line2}<br>{Z_CALIBRATION_LINE}"
+    return f"{line1}<br>{line2}<br>{inp.z_words or Z_CALIBRATION_LINE}"
 
 
 def axial_details(inp: AxialInputs) -> List[DetailRow]:
@@ -1066,7 +1071,11 @@ def axial_details(inp: AxialInputs) -> List[DetailRow]:
     rows.append(_row("density peak", f"{float(zr.main_peak_nm):,.1f} nm", "the automatic slab centre: the mode of "
                      "the fitted mixture", reg.info("slab.centre").origin))
     dz = zr.mean_delta_z_nm
-    rows.append(_row("mean Delta-Z", "- (one component)" if dz is None else f"{dz:,.1f} nm"))
+    if inp.z_magnification is None:
+        rows.append(_row("mean Delta-Z", "- (one component)" if dz is None else f"{dz:,.1f} nm"))
+    else:
+        rows.append(_row("mean Delta-Z", "- (one component)" if dz is None else f"{dz:,.1f} nm",
+                         f"per z calibration (m = {inp.z_magnification:g}): every axial length scales with m"))
     a = inp.analysis
     if a is not None:
         half = float(a.slab_half_width_nm)

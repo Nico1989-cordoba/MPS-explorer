@@ -635,6 +635,8 @@ class BatchWindow(QtWidgets.QMainWindow):
         if self._sync is not None:
             self._sync()
         settings = mb.BatchSettings.from_settings(self.settings)
+        z_store = dict(getattr(self.settings, "z_calibration_by_folder",
+                               None) or {})
         self._show_settings()
         items = [self.plan.files[row] for row in rows]
         self._rows = list(rows)
@@ -653,7 +655,7 @@ class BatchWindow(QtWidgets.QMainWindow):
             try:
                 mb.run_batch(items, settings,
                              on_done=lambda i, r: self._relay.done.emit(i, r),
-                             cancelled=self._cancel.is_set)
+                             cancelled=self._cancel.is_set, z_store=z_store)
             finally:
                 self._relay.finished.emit()
 

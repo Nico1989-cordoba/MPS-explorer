@@ -232,6 +232,10 @@ def _no_name() -> str:
     return "distances"
 
 
+def _no_z_calibration() -> Tuple[str, Optional[float]]:
+    return "", None
+
+
 def _no_slab_state() -> Tuple[str, Optional[float], Optional[Tuple[float, float]]]:
     return "automatic", None, None
 
@@ -246,6 +250,9 @@ class WindowLinks:
     run_analysis: Optional[Callable[[], Any]] = None
     params: Callable[[], Optional[Tuple[float, int, float, float]]] = field(default=_no_params)
     root_name: Callable[[], str] = field(default=_no_name)
+    # The measurement's z calibration (SCI-1): the words of the provenance line and the axial titles ("" keeps
+    # today's "z as fitted") and m. Display only.
+    z_calibration: Callable[[], Tuple[str, Optional[float]]] = field(default=_no_z_calibration)
     # The one value of each parameter (design 6.2): the strip's setters write it through ``store`` (eps_nm,
     # min_samples, slab_half_width_nm, mahalanobis_threshold, randomization, slab = ("automatic", None) |
     # ("component", centre), reset); ``slab_state`` says how the slab is chosen now (mode, component centre, the
@@ -1628,10 +1635,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             roi = "" if sel is None else (sel.analysed_roi_words or sel.roi_words)
             cut = None if sel is None else (sel.analysed_cut or sel.cut)
             line2 = L.provenance_line2(shown, roi_words=roi, cut=cut,
-                                       given_after_cut=bool(sel is not None and sel.analysed_after_cut))
+                                       given_after_cut=bool(sel is not None and sel.analysed_after_cut),
+                                       z_words=self._z_words()[0] or None)
         else:
             line2 = L.provenance_line2(None, roi_words="" if sel is None else sel.roi_words,
-                                       cut=None if sel is None else sel.cut)
+                                       cut=None if sel is None else sel.cut, z_words=self._z_words()[0] or None)
         self.axon_map.set_provenance(self.lbl_provenance.text(), line2)
 
     def _draw_axial(self) -> None:
@@ -1649,7 +1657,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 cut_from_histogram_mode=bool(sel is not None and sel.cut_from_histogram_mode),
                 cut_stale=self._stale, given_after_cut=bool(sel is not None and sel.analysed_after_cut),
                 ch2_z=ch2, ch2_reason=ch2_reason, ch2_shown=prev.ch2_shown,
-                rings=ms, rings_reason=ms_reason or prev.rings_reason, view=prev.view)
+                rings=ms, rings_reason=ms_reason or prev.rings_reason, view=prev.view,
+                z_words=self._z_words()[0], z_magnification=self._z_words()[1])
         else:
             inp = L.AxialInputs(
                 z_roi=None if sel is None else sel.z_roi, analysis=None,
@@ -1659,8 +1668,23 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 ch2_z=None if sel is None else sel.ch2_z,
                 ch2_reason="no channel 2 is loaded" if sel is None else sel.ch2_reason,
                 ch2_shown=prev.ch2_shown, rings=ms, rings_reason=ms_reason or prev.rings_reason,
-                view=prev.view, fit_reason="the mixture could not be fitted" if sel is None else sel.fit_reason)
+                view=prev.view, fit_reason="the mixture could not be fitted" if sel is None else sel.fit_reason,
+                z_words=self._z_words()[0], z_magnification=self._z_words()[1])
         self.axial.set_inputs(inp)
+
+    def _z_words(self) -> Tuple[str, Optional[float]]:
+        """The measurement's z calibration words and m (WindowLinks.z_calibration); ("", None) when unknown."""
+        try:
+            words, m = self.links.z_calibration()
+        except Exception:  # noqa: BLE001 - a display: no words is today's text
+            return "", None
+        return str(words or ""), (None if m is None else float(m))
+
+    def refresh_z_calibration(self) -> None:
+        """Redraw what names the z calibration (the provenance line 2, the axial title and details) after the
+        Measurement panel's inputs changed; nothing is re-run."""
+        self._draw_map()
+        self._draw_axial()
 
     def _draw_nn(self) -> None:
         self.nn.set_analysis(self._shown(), measured=self._display_analysis(), comparison=self.comparison)

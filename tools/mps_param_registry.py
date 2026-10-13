@@ -487,18 +487,58 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
                    "shown with its source words, never with a badge",
        shown_as="Measurement panel; provenance line 1"),
     _e(key="measurement.z_calibration", label="z calibration", unit="", home="measurement", default=None,
-       origin="blank", value_text="- (none applied)",
-       origin_note="z as fitted by the localization software: no z correction is applied (Data quality reads a "
-                   "file's own calibration record only for its coverage check)",
-       shown_as="Measurement panel; provenance line 2; the axial titles", changes_in="SCI-1",
-       change_note="a later version reads a calibration record and corrects z with it",
-       not_editable_because="the input is disabled until a later version reads it"),
+       origin="blank", value_text="- (none read)",
+       origin_note="the astigmatism calibration record of the measurement, read from the file's own Picasso "
+                   "metadata (the 'Z Calibration' block or the 'Fit 3D' step) or from a calibration file chosen for "
+                   "its folder (or for the file); read and shown, never used to change a z, since Picasso already "
+                   "multiplied every z by the record's magnification factor (Huang et al. 2008)",
+       shown_as="Measurement panel; provenance line 2; the axial titles; Data quality's axial coverage; the axon "
+                "table (z_calibration_source, z_calibration_file, z_calibrated_*, z_calibration_match)",
+       records=("axial-coverage", "z-gmm-model"), changes_in="SCI-6",
+       change_note="a later version shows the record's scale beside every axial period and boundary",
+       editable=True),
+    _e(key="measurement.z_magnification", label="magnification factor m", unit="", home="measurement",
+       default=None, origin="blank", value_text="- (not recorded)",
+       origin_note="the factor Picasso multiplies into every z and lpz to correct the refractive-index mismatch: "
+                   "read from the record, never assumed, since it depends on the microscope, objective, medium and "
+                   "depth (Huang et al. 2008; Li et al. 2018, 2019; Bratton and Shaevitz 2015; Besseling et al. "
+                   "2015); typed by hand only when the record carries none, and then labelled user in every export",
+       documented_range=(0.4, 1.2), range_text="0.4-1.2", range_note="the validation range of a typed or read m",
+       shown_as="Measurement panel; provenance line 2; the axial titles; the axon table (z_magnification, "
+                "z_magnification_origin)",
+       records=("axial-coverage", "z-gmm-model"), editable=True),
     _e(key="measurement.bead_stack", label="bead stack", unit="", home="measurement", default=None,
-       origin="blank", value_text="- (not given)", origin_note="no localized bead stack is read",
-       shown_as="Measurement panel", changes_in="SCI-1",
-       change_note="a later version reads a localized bead stack (the magnification factor and the calibrated "
-                   "range)",
-       not_editable_because="the input is disabled until a later version reads it"),
+       origin="blank", value_text="- (not given)",
+       origin_note="a localized bead z stack of the calibration (Picasso HDF5): the real z_zero, the usable range "
+                   "(refitted z within two axial sigmas of the true z, off the fit bounds, in order) and the "
+                   "lateral shift with depth (a cubic B-spline of the beads' x and y, Carlini et al. 2015); a raw "
+                   "image stack is not localized here",
+       shown_as="Measurement panel; the axon table (z_bead_stack_file, z_zero_nm, z_usable_*, z_lateral_shift_*)",
+       records=("hecl-sigma-d", "axial-coverage"), changes_in="SCI-2",
+       change_note="a later version subtracts the measured shift between the rings of a pair",
+       editable=True),
+    _e(key="measurement.z_fit_bound_nm", label="z fit bounds", unit="nm", home="none",
+       default=_const("tools.mps_zcalibration", "FIT_BOUND_NM"), origin="derived",
+       origin_note="Picasso bounds every fitted z to plus or minus this many nanometres before multiplying by m, so "
+                   "a localization beyond the calibrated curves is piled at the bound, not extrapolated; Data "
+                   "quality reports the fraction piled there",
+       shown_as="Data quality: axial coverage", records=("axial-coverage",), not_editable_because="e1: Picasso's"),
+    _e(key="measurement.z_outer_fraction", label="outer part of the calibrated range", unit="", home="none",
+       default=_const("tools.mps_zcalibration", "OUTER_FRACTION"), origin="derived",
+       origin_note="convention: the share of localizations beyond this fraction of the calibrated half-range is "
+                   "reported, since the width curves are flattest and the axial precision worst near their ends",
+       documented_range=(0.6, 0.95), range_text="0.6-0.95", shown_as="Data quality: axial coverage",
+       records=("axial-coverage",), not_editable_because="e1: no editor yet"),
+    _e(key="measurement.bead_link_nm", label="bead linking radius", unit="nm", home="none",
+       default=_const("tools.mps_zcalibration", "BEAD_LINK_NM"), origin="derived",
+       origin_note="convention: the beads of a calibration slide are microns apart and move by nanometres between "
+                   "steps, so localizations chained within this radius are one bead",
+       shown_as="Measurement panel: bead stack", records=("hecl-sigma-d",), not_editable_because="e1"),
+    _e(key="measurement.shift_knot_spacing_nm", label="lateral-shift spline knot spacing", unit="nm", home="none",
+       default=_const("tools.mps_zcalibration", "SPLINE_KNOT_SPACING_NM"), origin="derived",
+       origin_note="convention: interior knots of the cubic B-spline of the shift with depth (Carlini et al. 2015), "
+                   "closer than one ring period so that the shift between two rings is resolved",
+       shown_as="Measurement panel: bead stack", records=("hecl-sigma-d",), not_editable_because="e1"),
     # ---------------------------------------------------------------- DNA-PAINT (the TODO-B9 hook, 12.9; filled by
     # B9). The DNA-PAINT window is not a stage-2 window: these entries are metadata for SCI-B9 and stage 3.
     _e(key="paint.link_radius_precisions", label="linking radius", unit="x precision", home="none",

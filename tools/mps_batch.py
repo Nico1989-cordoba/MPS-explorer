@@ -352,9 +352,14 @@ def plan_batch(root: str, pattern: str = "",
                      duplicates=mps_io.duplicate_sources(found))
 
 
-def analyse_file(item: BatchFile, settings: BatchSettings) -> AxonRecord:
+def analyse_file(item: BatchFile, settings: BatchSettings,
+                 z_store: Optional[Dict[str, Any]] = None) -> AxonRecord:
     """
     Load one file, analyse it as the axon window would, and build its row.
+
+    ``z_store`` is the settings' z-calibration store
+    (``MPSSettings.z_calibration_by_folder``): the row carries the file's
+    z calibration as the axon window's export does (read, never applied).
 
     Never raises: a file that cannot be read or analysed comes back with
     the reason, so a batch reports it instead of losing it.
@@ -391,7 +396,12 @@ def analyse_file(item: BatchFile, settings: BatchSettings) -> AxonRecord:
             slab_half_width_nm=settings.slab_half_width_nm,
             dbcv_threshold=settings.dbcv_threshold,
             mahalanobis_threshold=settings.mahalanobis_threshold)
-        row = axon_row(analysis, identity=item.identity)
+        from tools import mps_zcalibration as zcal
+
+        z_state = zcal.state_for(loc.info, zcal.store_entry(z_store,
+                                                            item.path))
+        row = axon_row(analysis, identity=item.identity,
+                       z_calibration=zcal.export_columns(z_state))
     except Exception as error:                        # noqa: BLE001
         return AxonRecord(source=item.path, identity=item.identity,
                           error=f"could not be analysed: {error}")
@@ -404,6 +414,7 @@ def run_batch(
     *,
     on_done: Optional[Callable[[int, AxonRecord], None]] = None,
     cancelled: Optional[Callable[[], bool]] = None,
+    z_store: Optional[Dict[str, Any]] = None,
 ) -> List[AxonRecord]:
     """
     Analyse ``items`` in order, one record each.
@@ -416,7 +427,7 @@ def run_batch(
     for index, item in enumerate(items):
         if cancelled is not None and cancelled():
             break
-        record = analyse_file(item, settings)
+        record = analyse_file(item, settings, z_store)
         records.append(record)
         if on_done is not None:
             on_done(index, record)

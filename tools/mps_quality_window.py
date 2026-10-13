@@ -139,6 +139,11 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
         for text in self.report.missing:
             lay.addWidget(_label(
                 marked("dim", "not checked: " + text), _DIM))
+        # What the z calibration record says about the data (read only;
+        # no z is corrected with it).
+        if self.report.coverage is not None:
+            for text in self.report.coverage.notes:
+                lay.addWidget(_label(marked("dim", text), _DIM))
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(box)
@@ -418,11 +423,19 @@ def show_quality_window(
     weights: Optional[Union[Sequence[float], np.ndarray]] = None,
     period_nm: Optional[float] = None,
     parent: Optional[QtWidgets.QWidget] = None,
+    z_record: Any = None,
+    z_magnification: Optional[float] = None,
+    z_magnification_origin: str = "",
 ) -> MPSQualityWindow:
-    """Run every check and open the panel on the result."""
+    """Run every check and open the panel on the result. ``z_record`` is
+    the measurement's z calibration record when one was chosen (else the
+    file's own is read); ``z_magnification`` a typed m, used only when the
+    record has none."""
     report = quality_report(
         loc, means_nm=means_nm, sigmas_nm=sigmas_nm, weights=weights,
-        period_nm=period_nm,
+        period_nm=period_nm, z_record=z_record,
+        z_magnification=z_magnification,
+        z_magnification_origin=z_magnification_origin,
     )
     window = MPSQualityWindow(report, loc, parent=parent)
     window.show()
