@@ -207,18 +207,22 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
     _e(key="slab.centre", label="Axial slab: centre", unit="nm", home="strip",
        default=_keyword("tools.mps_analysis", "analyze_axon", "main_peak_override_nm"),
        origin="derived", value_text="automatic: the density peak (mode) of the fitted mixture",
-       origin_note="convention: the slab is centred on the mode of the Gaussian mixture fitted to the ROI's z; "
-                   "'user' when a component or a range is chosen",
-       shown_as="parameter strip (Axial slab)", records=("main-peak-density",), changes_in="SCI-6",
-       change_note="a later version offers the density mode or the weight mode as the centre, and shows the share "
-                   "of the slab that belongs to other components", editable=True),
+       origin_note="convention: the slab is centred on the mode of the Gaussian mixture fitted to the ROI's z, the "
+                   "program's reading of 'the main peak of the axial localization distribution' (Gazal et al. "
+                   "2026, who do not say how it was located; a mixture's modes are its critical points, Ray and "
+                   "Lindsay 2005); the mean of the heaviest component is kept beside it, and the share of the slab "
+                   "the mixture expects from other components is shown; 'user' when a component or a range is "
+                   "chosen",
+       shown_as="parameter strip (Axial slab); results table (foreign fraction); the axial details",
+       records=("main-peak-density", "main-peak-weight", "ambiguous-main-peak-warning"), editable=True),
     _e(key="slab.half_width_nm", label="Slab half-width", unit="nm", home="strip",
        default=_const(_S, "DEFAULT_SLAB_HALF_WIDTH_NM"), origin="paper",
-       origin_note=f"the published 180 nm analysis window, {PAPER}; bounds inclusive",
-       shown_as="parameter strip; batch label; rings parameter line",
+       origin_note=f"the published 180 nm analysis window, {PAPER}; bounds inclusive; half the measured ring "
+                   "period is shown beside it as the alternative; the two readings of the main peak are reported "
+                   "as disagreeing when they are further apart than the half-width in use",
+       shown_as="parameter strip; batch label; rings parameter line; the axial details (half the period)",
        documented_range=(40.0, 200.0), range_text="40-200",
-       records=("slab-inclusive-bounds", "main-peak-disagreement-warning"), changes_in="SCI-6",
-       change_note="a later version offers half the ring period beside it", editable=True),
+       records=("slab-inclusive-bounds", "main-peak-disagreement-warning"), editable=True),
     _e(key="slab.typed_range", label="Typed axial range", unit="nm", home="strip", default=None, origin="blank",
        origin_note="no range is typed by default, and nothing is left uncomputed: the slab is then found "
                    "automatically; 'user' when one is typed (it then decides the slab)",
@@ -428,27 +432,275 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
     _e(key="rings.mode", label="slab boundaries", unit="", home="rings",
        default=_in_code("MPS_explorer.py", r'def run_ring_analysis\(\s*self, show_window: bool = True, '
                                            r'mode: str = "(\w+)"', str),
-       origin="derived", origin_note="convention: cut at the density minimum between two components",
-       shown_as="rings window (combo)", range_text="paper / partition / valley",
-       records=("segment-mode-valley",), changes_in="SCI-6",
-       change_note="a later version adds a 'bayes' mode: the boundary where the two neighbouring components are "
-                   "equally probable", editable=True),
+       origin="derived", origin_note="convention (the recorded primary choice): cut at the antimode of the "
+                                     "fitted density between two components; 'bayes' cuts where the two are equally "
+                                     "probable, the minimum-misassignment boundary of a fitted mixture (Kittler and "
+                                     "Illingworth 1986; McLachlan and Peel 2000); no published MPS analysis defines a "
+                                     "boundary between rings, and every boundary's midpoint, Bayes and valley "
+                                     "positions are reported",
+       shown_as="rings window (combo); the pairs table", range_text="paper / partition / valley / bayes",
+       records=("segment-mode-valley", "density-valleys"), editable=True),
     _e(key="rings.guard_nm", label="guard", unit="nm", home="rings",
        default=_in_code("MPS_explorer.py", r'def run_ring_analysis\(\s*self, show_window: bool = True, '
                                            r'mode: str = "\w+",\s*guard_nm: float = ([0-9.]+)'),
-       origin="derived", origin_note="convention: no guard band between consecutive slabs (total width)",
-       shown_as="rings window (spin)", documented_range=(0.0, 100.0), range_text="0-100 (total)",
-       records=("guard-nm-0",), changes_in="SCI-6",
-       change_note="a later version gives it in units of the rings' own width",
+       origin="derived", origin_note="convention: the total width of a dead zone centred on each boundary (half "
+                                     "on each side); none in the primary analysis, 60 nm the recorded sensitivity; "
+                                     "shown in units of the rings' effective axial width s_eff with the leak it "
+                                     "leaves, 1 - Phi((h + g/2) / s_eff), and capped where a ring guarded at both "
+                                     "boundaries keeps less than half of itself (g/2 <= h - 0.67 s_eff)",
+       shown_as="rings window (spin, and its s_eff line)", documented_range=(0.0, 100.0), range_text="0-100 (total)",
+       records=("guard-nm-0",),
        editable=True),
-    _e(key="rings.valley_depth_colour", label="boundary colour level", unit="", home="none",
-       default=_in_code("tools/mps_rings_window.py", r"depth >= ([0-9.]+) else _C_WARN"), origin="derived",
-       origin_note="convention: a valley at least this deep is drawn as resolved (two equal Gaussian rings about "
-                   "2.5 widths apart); the analysis warning still uses 0.05",
-       shown_as="the rings boundary table's tooltip", documented_range=(0.02, 0.30), range_text="0.02-0.30",
-       records=("rings-window-valley-depth-colour-0.10",), changes_in="SCI-6",
-       change_note="a later version uses one level, 0.10, for this colour and for the analysis warning",
-       not_editable_because="e5: the research changes the analysis level", fmt=".2f"),
+    _e(key="rings.valley_depth_colour", label="valley depth level (colour and warning)", unit="", home="none",
+       default=_const("tools.mps_periodicity", "VALLEY_DEPTH_LEVEL"), origin="derived",
+       origin_note="convention, one level for the rings window's colour and the analysis warning: the relative depth "
+                   "of the dip between two rings, referred to the two adjacent peaks; for two equal Gaussian rings "
+                   "this level is a spacing of about 2.45 widths, and any dip at all needs more than 2 (Behboodian "
+                   "1970; Schilling et al. 2002)",
+       shown_as="the rings boundary table's colour and tooltip; the analysis warning",
+       documented_range=(0.02, 0.30), range_text="0.02-0.30",
+       records=("rings-window-valley-depth-colour-0.10", "valley-shallow-warning", "valley-relative-depth"),
+       not_editable_because="e1: no editor yet (a module constant)", fmt=".2f"),
+    _e(key="rings.frame", label="ring correlation frame", unit="", home="rings",
+       default=_keyword("tools.mps_gaps", "analyze_rings", "frame"), origin="derived",
+       origin_note="standard method: consecutive segments are compared by arc length along one common membrane "
+                   "curve (the pooled centroid membrane of the column analysis; cf. elliptic Fourier descriptors, "
+                   "Kuhl and Giardina 1982), which needs no star-shaped contour; the angle about the pooled centre "
+                   "is kept as an exploratory frame, with the share of perimeter samples whose angle runs backwards",
+       shown_as="rings window (combo); the pairs CSV (correlation_frame)", range_text="arc / angle",
+       records=("gaps-shared-angular-centre",), editable=True),
+    _e(key="rings.empty_bins", label="bins no perimeter sample reaches", unit="", home="rings",
+       default=_keyword("tools.mps_gaps", "analyze_rings", "empty_bins"), origin="derived",
+       origin_note="convention: interpolated from their neighbours (an unmeasured stretch read as zero would be a "
+                   "gap that was never measured), or masked out of the correlation; their number is exported "
+                   "either way",
+       shown_as="rings window (combo); the pairs CSV (n_empty_bins_a, n_empty_bins_b)",
+       range_text="interpolate / mask", records=("gaps-interpolated-empty-bins",), editable=True),
+    _e(key="rings.n_bins", label="profile bins", unit="", home="none",
+       default=_const("tools.mps_gaps", "DEFAULT_N_THETA"), origin="derived",
+       origin_note="software default: one bin is 1/3600 of the perimeter, 1-11 nm of arc on perimeters of 5-40 um, "
+                   "below the lateral localization precision and far below a patch (tens of nm, from the ~25 nm "
+                   "effective cluster radius of Gazal et al. 2026)",
+       shown_as="the pairs CSV (n_bins)", documented_range=(360.0, 7200.0), range_text="360-7200",
+       records=("gaps-n-theta-3600",), not_editable_because="e1: no editor yet (a keyword of analyze_rings)"),
+    _e(key="rings.min_samples_per_bin", label="perimeter samples per bin", unit="", home="none",
+       default=_const("tools.mps_gaps", "DEFAULT_MIN_SAMPLES_PER_BIN"), origin="derived",
+       origin_note="software default: the perimeter is re-sampled to this many equally spaced samples per bin, "
+                   "which resolves per-bin coverage in steps of its inverse; it never changes which perimeter is "
+                   "occupied",
+       shown_as="-", documented_range=(2.0, 32.0), range_text="2-32", records=("gaps-min-samples-per-bin-8",),
+       not_editable_because="e1: no editor yet (a keyword of analyze_rings)"),
+    _e(key="rings.n_rotations", label="rotations of the null", unit="", home="none",
+       default=_const("tools.mps_gaps", "DEFAULT_N_ROTATIONS"), origin="derived",
+       origin_note="standard method: the toroidal-shift test on the circle (Lotwick and Silverman 1982; Harms et "
+                   "al. 2001; Alexander-Bloch et al. 2018), rotations drawn without replacement, decoupled from the "
+                   "bins, p = (1 + b) / (1 + n) counting the unrotated profile (Phipson and Smyth 2010), one-sided; "
+                   "the effectively independent rotations (perimeter over the mean patch length) are exported; its "
+                   "false-positive rate on synthetic independent profiles is measured by a public validator",
+       shown_as="rings window (p column and plot title); the pairs CSV (n_rotations, n_effective_rotations)",
+       documented_range=(360.0, 7200.0), range_text="360-7200", records=("gaps-rotation-null-pvalue",),
+       not_editable_because="e1: no editor yet (a keyword of analyze_rings)"),
+    _e(key="rings.valley_shift_warning_nm", label="valley shift warning", unit="nm", home="none",
+       default=_keyword("tools.mps_periodicity", "density_valleys", "shift_warning_nm"), origin="blank",
+       value_text="none: the shift of every boundary is reported, never judged",
+       origin_note="left blank for you: a valley sits off the midpoint whenever two rings differ in weight or width "
+                   "(the Bayes boundary moves by sigma^2 ln(w_a / w_b) / P and the valley further), so a shift is "
+                   "reported per boundary (from the midpoint and from the Bayes boundary, positive toward the "
+                   "lighter ring) without a threshold",
+       shown_as="the pairs CSV (boundary_valley_shift_from_midpoint_nm, boundary_valley_shift_from_bayes_nm)",
+       documented_range=(0.0, 100.0), range_text="0-100 or none", records=("valley-shift-warning",),
+       not_editable_because="e1: no editor yet (a keyword of density_valleys)"),
+    _e(key="rings.depth_reference", label="valley depth referred to", unit="", home="none",
+       default=_keyword("tools.mps_periodicity", "density_valleys", "depth_reference"), origin="derived",
+       origin_note="convention: 1 - f(antimode) / min(f(mode_a), f(mode_b)), the dip referred to the two peaks "
+                   "adjacent to it, so that 0 means exactly 'no second mode'; the density at the two component "
+                   "means is the alternative (it under-reads shallow valleys)",
+       shown_as="the pairs table and CSV (boundary_relative_depth)", range_text="peaks / means",
+       records=("valley-relative-depth", "density-valleys"),
+       not_editable_because="e1: no editor yet (a keyword of density_valleys)"),
+    _e(key="rings.posterior_model", label="posterior membership model", unit="", home="none",
+       default=_keyword("tools.mps_columns", "RingsParams", "posterior_model"), origin="derived",
+       origin_note="convention: the posterior is that of the complete fitted mixture, the same model the valleys "
+                   "are located in (McLachlan and Peel 2000); a localization most probably from a discarded "
+                   "low-weight component belongs to no ring; the dominant components alone are the alternative",
+       shown_as="the column analysis (axis stages, posterior control)", range_text="full / dominant",
+       records=("valley-uses-all-components", "posterior-min"),
+       not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="rings.posterior_min", label="posterior control", unit="", home="none",
+       default=_keyword("tools.mps_columns", "RingsParams", "posterior_min"), origin="derived",
+       value_text="off in the primary analysis",
+       origin_note="a reject option (Chow 1970): localizations whose maximum posterior is below the threshold are "
+                   "left out of the per-ring analysis when the control is on; for two equal rings of width sigma "
+                   "at spacing P it removes (sigma^2 / P) ln(p / (1 - p)) on each side of a boundary",
+       shown_as="the column analysis' parameters file", documented_range=(0.5, 0.99), range_text="0.5-0.99",
+       range_note="0.85 is the suggested control value", records=("posterior-min",),
+       not_editable_because="e1: a field of the pre-specified parameters file"),
+    # ---------------------------------------------------------------- the axial mixture (SCI-6)
+    _e(key="axial.components", label="mixture: candidate component counts", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "gmm_components"), origin="paper",
+       origin_note=f"the published method chooses 2 or 3 components by BIC ({PAPER}; Schwarz 1978; Fraley and "
+                   "Raftery 2002); 1 to 4 are offered, since BIC approximates the density rather than counting "
+                   "rings (Baudry et al. 2010)",
+       shown_as="the axial details (the BIC of each candidate)", range_text="1-4",
+       records=("z-gmm-model",), not_editable_because="e1: no editor yet (a keyword of the analysis)"),
+    _e(key="axial.n_init", label="mixture: EM restarts", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "gmm_n_init"), origin="derived",
+       origin_note="convention: the best of this many EM starts is kept (Dempster et al. 1977); with each start "
+                   "finding the best optimum with probability 0.3 or more, all miss it with probability below 3 %",
+       shown_as="-", documented_range=(1.0, 50.0), range_text="1-50", records=("z-gmm-determinism",),
+       not_editable_because="e1: no editor yet (a keyword of the analysis)"),
+    _e(key="axial.random_state", label="mixture: seed", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "gmm_random_state"), origin="derived",
+       origin_note="convention: a fixed seed, so the same region always yields the same mixture",
+       shown_as="-", records=("z-gmm-determinism",),
+       not_editable_because="e1: no editor yet (a keyword of the analysis)"),
+    _e(key="slab.main_peak_mode", label="main peak reading", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "main_peak_mode"), origin="derived",
+       origin_note="convention: the mode of the fitted density, or the mean of the heaviest component; the two "
+                   "coincide when the rings are resolved (Behboodian 1970), both are exported, and they are "
+                   "reported as disagreeing when further apart than the slab half-width",
+       shown_as="the axon table (main_peak_mode, z_peak_density_nm, z_peak_weight_nm); the axial details",
+       range_text="density / weight", records=("main-peak-density", "main-peak-weight",
+                                               "main-peak-disagreement-warning"),
+       not_editable_because="e1: no editor yet (a keyword of the analysis)"),
+    _e(key="slab.foreign_fraction_warn", label="foreign fraction warning", unit="", home="none",
+       default=_const("tools.mps_periodicity", "FOREIGN_FRACTION_WARN"), origin="derived",
+       origin_note="suggestion with a derivation: the share of the slab the fitted mixture expects from other "
+                   "components; a neighbouring ring's clusters start to reach min samples localizations inside "
+                   "the slab once that share times the cluster size reaches min samples (3-10 % for clusters of "
+                   "100-300 localizations at min samples 10)",
+       shown_as="results table (foreign fraction of the slab); the axon table (slab_foreign_fraction)",
+       documented_range=(0.01, 0.20), range_text="0.01-0.20", records=("ambiguous-main-peak-warning",),
+       not_editable_because="e1: no editor yet (a keyword of the analysis)", fmt=".2f"),
+    _e(key="reference.delta_z_periods", label="published periods", unit="", home="none", default=None,
+       origin="paper", value_text="the reference table: sciatic nerve along z, sciatic nerve laterally, cultured "
+                                  "neurons",
+       origin_note="the region's mean Delta-Z, with its own standard error, is compared with each published "
+                   f"period as a signed distance in units of its spread ({PAPER}; D'Este et al. 2016; Xu et al. "
+                   "2013; Unsain et al. 2018; Zhong et al. 2014); a spread of pooled spacings is not a tolerance, "
+                   "so no pass or fail label is attached",
+       shown_as="results table (Delta-Z note); the axial details; the periodicity validator",
+       records=("delta-z-paper-check", "validate-periodicity-pooled")),
+    # ---------------------------------------------------------------- the axon axis (SCI-6)
+    _e(key="axis.min_locs", label="axis: localizations per ring plane", unit="", home="none",
+       default=_const("tools.mps_axis", "DEFAULT_MIN_LOCS"), origin="derived",
+       origin_note="convention: a ring votes for the axis with its own plane only with this many localizations; "
+                   "the slope error of such a plane is sigma_z / (sqrt(n) s) (Draper and Smith 1998), reported for "
+                   "every ring, and a gate by that predicted error is available instead",
+       shown_as="the column analysis (frame)", documented_range=(20.0, 2000.0), range_text="20-2000",
+       records=("axis-min-locs-200", "axis-plane-per-ring"),
+       not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="axis.max_slope_error_deg", label="axis: gate by predicted slope error", unit="deg", home="none",
+       default=_keyword("tools.mps_columns", "RingsParams", "axis_max_slope_error_deg"), origin="derived",
+       value_text="off (the count decides)",
+       origin_note="optional: a ring whose plane's predicted slope error exceeds the gate does not vote; the "
+                   "suggested gate is a third of a degree, off until a synthetic validation",
+       shown_as="-", documented_range=(0.05, 1.0), range_text="0.05-1",
+       records=("axis-min-locs-200",), not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="axis.loss", label="axis: robust loss of the ring planes", unit="", home="none",
+       default=_const("tools.mps_axis", "DEFAULT_LOSS"), origin="derived",
+       origin_note="standard method: least squares refined with SciPy's soft-L1 loss (Huber 1964; Triggs et al. "
+                   "2000); on synthetic rings with background inside the window it recovers the tilt as well as "
+                   "plain least squares and without bias: a safeguard against heavy-tailed axial outliers",
+       shown_as="-", range_text="linear / soft_l1 / huber / cauchy / arctan", records=("axis-plane-per-ring",),
+       not_editable_because="e1: no editor yet (a keyword of fit_axon_frame)"),
+    _e(key="axis.tilt_warning_deg", label="axis: tilt warning", unit="deg", home="none",
+       default=_const("tools.mps_axis", "TILT_WARNING_DEG"), origin="derived",
+       origin_note=f"convention (no published threshold; the reference pipeline discards visibly oblique fields by "
+                   f"eye, {PAPER}); two derived checks say what the tilt does to each axon: D tan(beta) against the "
+                   "period and against the usable depth of the z calibration minus the period",
+       shown_as="the column analysis' warnings", documented_range=(1.0, 15.0), range_text="1-15",
+       records=("axis-tilt-warning-5deg", "axis-rodrigues-frame"),
+       not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="axis.z_usable_nm", label="axis: usable depth of the z calibration", unit="nm", home="none",
+       default=_const("tools.mps_axis", "DEFAULT_Z_USABLE_NM"), origin="paper",
+       origin_note=f"used by the second tilt check when the measurement's calibration gives none: about 800 nm of "
+                   f"the bead stack is accessible in the reference setup ({PAPER}); Huang et al. 2008 worked within "
+                   "about 600 nm",
+       shown_as="the column analysis' tilt check", documented_range=(300.0, 1500.0), range_text="300-1500",
+       records=("axis-tilt-warning-5deg",), not_editable_because="e1: no editor yet (a field of RingsParams)",
+       fmt=",.0f"),
+    _e(key="axis.delta_beta_warning_deg", label="axis: ring disagreement warning", unit="deg", home="none",
+       default=_const("tools.mps_axis", "DELTA_BETA_WARNING_DEG"), origin="derived",
+       origin_note="convention with a derivation: warned above the larger of this and three times the fit-noise "
+                   "floor of delta_beta, sqrt(2 (k - 1) / k) sigma_z / (sqrt(n) s) (Draper and Smith 1998), which "
+                   "is reported with the noise-corrected value; at the MPS period one degree shifts consecutive "
+                   "rings laterally by about 3 nm, P tan(delta_beta), small against the cluster radius",
+       shown_as="the column analysis' warnings", documented_range=(0.2, 5.0), range_text="0.2-5",
+       records=("axis-delta-beta-warning-1deg", "axis-delta-beta", "axis-lateral-shift"),
+       not_editable_because="e1: no editor yet (a keyword of fit_axon_frame)"),
+    _e(key="axis.sharpness_search", label="axis: sharpness search (range, coarse, fine)", unit="deg", home="none",
+       default=_consts("tools.mps_axis", ("SHARPNESS_MAX_TILT_DEG", "SHARPNESS_COARSE_STEP_DEG",
+                                          "SHARPNESS_FINE_STEP_DEG")),
+       origin="derived",
+       words=lambda v: f"+/-{v[0]:g} deg, coarse {v[1]:g} deg, fine {v[2]:g} deg",
+       origin_note="convention with a derivation: the collision probability of the axial profile (Simpson 1949; "
+                   "Renyi 1961) is halved by a residual tilt once D tan(delta) is about 5.7 sigma_z, so its peak is "
+                   "wider than the coarse step, and the fine step lands inside the basin of the per-ring "
+                   "refinement; the range is at least the tilt warning plus three degrees",
+       shown_as="-", records=("axis-sharpness-search", "axis-sharpness-statistic"),
+       not_editable_because="e1: no editor yet (keywords of the sharpness search)"),
+    _e(key="axis.stage_tol_deg", label="axis: stage tolerance", unit="deg", home="none",
+       default=_const("tools.mps_columns", "AXIS_STAGE_TOL_DEG"), origin="derived",
+       origin_note="convention with a derivation: the stages stop once one rotates by less than this, the "
+                   "per-slope error of a plane at the reference geometry (Draper and Smith 1998); the larger of it "
+                   "and the stage's own noise floor, sqrt(2) sigma_z / (sqrt(N) s), is an option, off because on "
+                   "synthetic half rings the stages still converge below that floor; a frame that runs out of "
+                   "stages is labelled noise-limited or not converged by the floor",
+       shown_as="the column analysis (frame)", documented_range=(0.01, 0.5), range_text="0.01-0.5",
+       records=("axis-stages-tol-0.05",), not_editable_because="e1: no editor yet (a field of RingsParams)",
+       fmt=".2f"),
+    _e(key="axis.max_stages", label="axis: maximum stages", unit="", home="none",
+       default=_const("tools.mps_columns", "AXIS_MAX_RING_STAGES"), origin="ad hoc",
+       origin_note="the alternation of segmentation and plane fits resembles classification EM (Celeux and Govaert "
+                   "1992) without its convergence guarantee; the count assumes a contraction of about 30 % of the "
+                   "residual per stage, from a development run not yet reproduced by a validator",
+       shown_as="-", documented_range=(3.0, 30.0), range_text="3-30", records=("axis-stages-tol-0.05",),
+       changes_in="SCI-9",
+       change_note="a later version re-measures the contraction per stage with a synthetic validator before the "
+                   "number is called derived",
+       not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="axis.candidate_disagreement_deg", label="axis: start disagreement warning", unit="deg", home="none",
+       default=_const("tools.mps_columns", "AXIS_CANDIDATE_DISAGREEMENT_DEG"), origin="derived",
+       origin_note="convention with a derivation: three to ten times the slope noise of one plane at the reference "
+                   "geometry; a multiple of the measured noise floor is the per-axon alternative; both candidate "
+                   "tilts and the judge's values are recorded with every result",
+       shown_as="the column analysis' warnings", documented_range=(0.1, 2.0), range_text="0.1-2",
+       records=("axis-candidate-disagreement-0.5",),
+       not_editable_because="e1: no editor yet (a field of RingsParams)", fmt=".2f"),
+    _e(key="axis.stage_posterior_min", label="axis: stage posterior", unit="", home="none",
+       default=_const("tools.mps_columns", "AXIS_STAGE_POSTERIOR_MIN"), origin="derived",
+       origin_note="convention (a reject option, Chow 1970, reused from the posterior control): only localizations "
+                   "the mixture assigns to a ring with at least this posterior vote for the axis; final ring "
+                   "membership is unaffected; the benefit is to be quantified by the synthetic half-ring validator",
+       shown_as="-", documented_range=(0.5, 0.99), range_text="0.5-0.99",
+       records=("axis-stage-posterior-0.85",), not_editable_because="e1: no editor yet (a field of RingsParams)",
+       fmt=".2f"),
+    _e(key="axis.judge", label="axis: judge between the starts", unit="", home="none",
+       default=_keyword("tools.mps_columns", "RingsParams", "axis_judge"), origin="derived",
+       origin_note="convention validated on synthetic axons only: the start whose last segmentation has the larger "
+                   "SUM of valley depths wins (stacking half rings onto a third removes a boundary, which lowers the "
+                   "sum); the mean depth and the mixture BIC at a fixed number of components are the alternatives "
+                   "(Hartigan and Hartigan 1985 and Celeux and Govaert 1992 for the textbook comparisons)",
+       shown_as="the column analysis (frame)", range_text="sum / mean / bic",
+       records=("axis-judge-valley-depth",), not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    # ---------------------------------------------------------------- autocorrelation (SCI-6)
+    _e(key="acr.search_window", label="autocorrelation: first-peak window", unit="", home="none",
+       default=_const("tools.mps_autocorrelation", "DEFAULT_SEARCH_WINDOW"), origin="derived",
+       origin_note="convention with a derivation: the first peak is searched within this fraction of the reference "
+                   "period (110-230 nm at 170 nm), covering the published periods of cultured neurons (Xu et al. "
+                   "2013) and sciatic nerve (Gazal et al. 2026) to about three standard deviations while excluding "
+                   "the valleys at P/2 and 3P/2 (Han et al. 2017); the peak must be a local maximum",
+       shown_as="-", documented_range=(0.1, 0.5), range_text="0.10-0.50",
+       records=("acr-search-window-050",), not_editable_because="e1: no editor (a keyword of the function)",
+       fmt=".2f"),
+    _e(key="acr.min_periods", label="autocorrelation: shortest profile", unit="periods", home="none",
+       default=_const("tools.mps_autocorrelation", "DEFAULT_MIN_PERIODS"), origin="derived",
+       origin_note="first principles: the first peak (lag P) and the second valley (up to 2P) need one period of "
+                   "overlap at lag 2P, so the profile must hold three expected periods (Zhong et al. 2014 for the "
+                   "amplitude)",
+       shown_as="-", documented_range=(2.0, 5.0), range_text="2-5",
+       records=("acr-min-profile-length-8",), not_editable_because="e1: no editor (a keyword of the function)"),
     # ---------------------------------------------------------------- axoplasm window
     _e(key="axoplasm.threshold", label="threshold", unit="", home="axoplasm",
        default=_keyword("tools.mps_axoplasm", "otsu_threshold", "bins"), origin="derived",
@@ -494,8 +746,7 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
                    "multiplied every z by the record's magnification factor (Huang et al. 2008)",
        shown_as="Measurement panel; provenance line 2; the axial titles; Data quality's axial coverage; the axon "
                 "table (z_calibration_source, z_calibration_file, z_calibrated_*, z_calibration_match)",
-       records=("axial-coverage", "z-gmm-model"), changes_in="SCI-6",
-       change_note="a later version shows the record's scale beside every axial period and boundary",
+       records=("axial-coverage", "z-gmm-model"),
        editable=True),
     _e(key="measurement.z_magnification", label="magnification factor m", unit="", home="measurement",
        default=None, origin="blank", value_text="- (not recorded)",

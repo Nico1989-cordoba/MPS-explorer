@@ -350,20 +350,32 @@ def segment_of(res: Any, ring: Any) -> AxialSegment:
 
 
 def direct_ambiguous(
-    z: NDArray[np.float64], zr: ZPeriodicityResult, posterior_min: float
+    z: NDArray[np.float64], zr: ZPeriodicityResult, posterior_min: float, model: str = "full"
 ) -> NDArray[np.bool_]:
-    """Max component posterior < posterior_min, dominant components only,
-    weights renormalised -- computed here from first principles."""
-    m = np.asarray(zr.means_nm, dtype=float)
-    s = np.asarray(zr.sigmas_nm, dtype=float)
-    w = np.asarray(zr.weights, dtype=float)
+    """Computed here from first principles. "full" (the program's default
+    since SCI-6): the posterior over every component of the fitted mixture;
+    flagged when its maximum is below posterior_min or the most probable
+    component is not a dominant one (weight <= 5 %). "dominant": the maximum
+    posterior over the dominant components only, weights renormalised."""
+    if model == "full" and np.asarray(zr.all_means_nm).size:
+        m = np.asarray(zr.all_means_nm, dtype=float)
+        s = np.asarray(zr.all_sigmas_nm, dtype=float)
+        w = np.asarray(zr.all_weights, dtype=float)
+        dom = np.asarray(getattr(zr, "all_dominant", np.array([], dtype=bool)), dtype=bool)
+        if dom.size != m.size:
+            dom = w > 0.05
+    else:
+        m = np.asarray(zr.means_nm, dtype=float)
+        s = np.asarray(zr.sigmas_nm, dtype=float)
+        w = np.asarray(zr.weights, dtype=float)
+        dom = np.ones(m.size, dtype=bool)
     w = w / w.sum()
     logp = (np.log(w)[None, :] - np.log(s)[None, :]
             - 0.5 * ((z[:, None] - m[None, :]) / s[None, :]) ** 2)
     logp -= logp.max(axis=1, keepdims=True)
     p = np.exp(logp)
     p /= p.sum(axis=1, keepdims=True)
-    flags: NDArray[np.bool_] = p.max(axis=1) < posterior_min
+    flags: NDArray[np.bool_] = (p.max(axis=1) < posterior_min) | ~dom[np.argmax(p, axis=1)]
     return flags
 
 
@@ -865,8 +877,9 @@ def test_posterior() -> None:
     def direct_two_component():
         require_module()
         # A hand-built mixture: two dominant components plus one discarded
-        # low-weight component (present in all_* only), so "dominant
-        # components only, weights renormalised" is exercised.
+        # low-weight component (present in all_* only), so both the complete
+        # mixture (the default) and "dominant components only, weights
+        # renormalised" are exercised.
         rng = np.random.default_rng(0)
         z = np.concatenate([rng.normal(0.0, 40.0, 2200), rng.normal(190.0, 40.0, 1800)])
         zr = ZPeriodicityResult(
@@ -882,7 +895,11 @@ def test_posterior() -> None:
         assert got.shape == exp.shape and got.dtype == bool
         assert np.array_equal(got, exp), int((got != exp).sum())
         assert 0 < exp.sum() < z.size
-        return f"{int(exp.sum())} of {z.size} flagged, 0 disagreements"
+        got_d = np.asarray(posterior_ambiguous(z, zr, 0.85, model="dominant"), dtype=bool)
+        exp_d = direct_ambiguous(z, zr, 0.85, model="dominant")
+        assert np.array_equal(got_d, exp_d), int((got_d != exp_d).sum())
+        return (f"complete mixture: {int(exp.sum())} of {z.size} flagged; dominant only: "
+                f"{int(exp_d.sum())}; 0 disagreements")
 
     def runs():
         require_module()
@@ -938,7 +955,7 @@ def test_posterior() -> None:
         assert np.array_equal(got[:-4], np.asarray(posterior_ambiguous(z, zr, 0.85), dtype=bool))
         return "nan/inf/-inf -> False without a RuntimeWarning; finite flags unchanged"
 
-    check("posterior_ambiguous flags exactly max posterior < 0.85 (direct numpy)",
+    check("posterior_ambiguous flags exactly max posterior < 0.85, complete mixture and dominant (direct numpy)",
           direct_two_component)
     check("posterior_ambiguous: non-finite z are not flagged and raise no numpy warning",
           non_finite_not_flagged)

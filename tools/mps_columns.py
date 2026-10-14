@@ -313,12 +313,17 @@ __all__ = [
 # stages; that contraction is to be re-measured by a synthetic validator
 # before the number is called derived. Editable (``RingsParams``), 3-30.
 AXIS_MAX_RING_STAGES = 12
-# A stage that rotates by less than its own fit-noise floor turns noise
-# into motion. The tolerance of an axon is max(this, the floor
-# sqrt(2) sigma_z / (sqrt(N) s) of the planes it fitted, Draper & Smith
-# 1998): 0.05 deg is the per-slope error at sigma_z = 50 nm, N = 5000 and
-# s = 900 nm; at N = 500 the floor is ~0.2 deg and a fixed 0.05 deg would be
-# unreachable. Editable 0.01-0.5 deg.
+# A stage that rotates by less than this has nothing left to correct:
+# 0.05 deg is the per-slope error at sigma_z = 50 nm, N = 5000 and s = 900 nm
+# (Draper & Smith 1998). The per-axon alternative is max(this, the fit-noise
+# floor sqrt(2) sigma_z / (sqrt(N) s) of the planes the stage fitted)
+# (``RingsParams.axis_stage_tol_from_floor``), which the research proposed as
+# the default; it is OFF here because on the synthetic half-ring case of
+# validate_rings_h1 (sigma_z = 50 nm, 2 deg) the increments still contract
+# systematically below the floor (0.38, 0.48, 0.29, 0.13 deg ...), and
+# stopping at the floor (0.21 deg) leaves the axis 1.0 deg from the truth
+# instead of 0.66 deg. The floor is used to label a frame that runs out of
+# stages ("noise-limited" against "not converged"). Editable 0.01-0.5 deg.
 AXIS_STAGE_TOL_DEG = 0.05
 # A frame whose last increment is below this many noise floors when the
 # stages run out is "noise-limited", not "not converged".
@@ -525,6 +530,7 @@ class RingsParams:
     posterior_model: str = "full"           # "full" mixture (default) or "dominant" components
     axis_stage_posterior_min: float = AXIS_STAGE_POSTERIOR_MIN
     axis_stage_tol_deg: float = AXIS_STAGE_TOL_DEG
+    axis_stage_tol_from_floor: bool = False  # True: tolerance = max(axis_stage_tol_deg, the stage's noise floor)
     axis_max_stages: int = AXIS_MAX_RING_STAGES
     axis_candidate_disagreement_deg: float = AXIS_CANDIDATE_DISAGREEMENT_DEG
     axis_disagreement_floor_multiple: Optional[float] = None   # e.g. 3: max(deg, 3 x noise floor)
@@ -888,10 +894,12 @@ def _refine_from_start(
         valley_depth = (float(np.sum(valleys.relative_depth)) if has_valleys else 0.0)
         mean_depth = (float(np.mean(valleys.relative_depth)) if has_valleys else 0.0)
         bic_by_n = {int(a): float(b) for a, b in dict(z_result.bic_by_n).items()}
-        # The tolerance of this axon: the setting, or the stage's own
-        # fit-noise floor when that is larger.
+        # The tolerance of this axon: the setting, or (when asked) the
+        # stage's own fit-noise floor when that is larger.
         floor = float(stage.tilt_noise_floor_deg)
-        tol_used = max(float(params.axis_stage_tol_deg), floor if np.isfinite(floor) else 0.0)
+        tol_used = float(params.axis_stage_tol_deg)
+        if params.axis_stage_tol_from_floor and np.isfinite(floor):
+            tol_used = max(tol_used, floor)
         apply(stage)
         if stage.beta_deg < tol_used:
             settled = True
@@ -1002,9 +1010,10 @@ def _fit_frame_staged(
         apart = math.degrees(math.atan2(
             float(np.linalg.norm(np.cross(candidates[0].u, candidates[1].u))),
             float(candidates[0].u @ candidates[1].u)))
-        tol_agree = max(float(params.axis_stage_tol_deg),
-                        max((c.noise_floor_deg for c in candidates if np.isfinite(c.noise_floor_deg)),
-                            default=0.0))
+        tol_agree = float(params.axis_stage_tol_deg)
+        if params.axis_stage_tol_from_floor:
+            tol_agree = max(tol_agree, max((c.noise_floor_deg for c in candidates
+                                            if np.isfinite(c.noise_floor_deg)), default=0.0))
         if apart <= tol_agree:
             if candidates[1].settled and not candidates[0].settled:
                 best = candidates[1]
