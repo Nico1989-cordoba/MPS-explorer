@@ -161,7 +161,9 @@ def main() -> int:
             # parity with viability_v2 on the lab coordinates of the same rings
             from tools.mps_columns_window import build_review_rings
             res, _p, _l, _w = build_review_rings(inp)
-            direct = viability_v2(res, z_quality(res), xyz_lab_nm=(inp.x_nm, inp.y_nm, inp.z_nm))
+            from tools.mps_axial_precision import file_precision_nm
+            direct = viability_v2(res, z_quality(res), xyz_lab_nm=(inp.x_nm, inp.y_nm, inp.z_nm),
+                                  precision_nm=file_precision_nm(inp.lp_lateral_nm, inp.lpz_nm))
             got = [p.verdict for p in rep.v2.pairs]
             assert got == [p.verdict for p in direct.pairs] == expect, (got, [p.verdict for p in direct.pairs], expect)
             texts = table_texts(w.pair_table, zw.PAIR_COLUMNS.index("Verdict (rule v2)"))
