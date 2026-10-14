@@ -59,7 +59,7 @@ class ExportAxonDialog(QtWidgets.QDialog):
         who.addWidget(self.label_identity, 1)
         self.btn_identity = QtWidgets.QPushButton("Change...")
         self.btn_identity.setToolTip(
-            "Which genotype, protein, slide, ROI and axon these rows say "
+            "Which species, genotype, protein, animal, slide, ROI and axon these rows say "
             "they are.")
         self.btn_identity.clicked.connect(self._edit_identity)
         self.btn_identity.setEnabled(on_edit_identity is not None)
@@ -166,10 +166,12 @@ class ExportAxonDialog(QtWidgets.QDialog):
 
     def _refresh(self) -> None:
         identity = self._identity
-        if identity is None or not identity.describe() or \
-                identity.describe() == "nothing filled in":
+        if identity is None or identity.is_blank:
+            # Only the default species is there: the rows carry it.
+            species = (f" Species: {identity.species}."
+                       if identity is not None and identity.species else "")
             self.label_identity.setText(
-                "<b>This axon has no identity yet.</b>")
+                f"<b>This axon has no identity yet.</b>{species}")
         else:
             self.label_identity.setText(f"<b>{identity.describe()}</b>")
 

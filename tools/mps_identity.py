@@ -14,6 +14,9 @@ its nerve.
 Most of that is in the folder names the user already keeps, and nowhere
 in the files. This module proposes it from the path and stops there.
 
+The species is a fact of the whole study (mouse), not of an axon, so it
+starts as "mouse" and is editable; it is the one field with a default.
+
 The animal is the exception, and the one that matters most for a
 knockout: the knockout is done to an animal, so when KO is compared with
 WT the replicate is the animal, not the axon, and a comparison needs to
@@ -47,11 +50,17 @@ from typing import Dict, List, Optional, Tuple
 
 # The fields, in the order the nesting goes from the widest to the
 # narrowest. Every table carries all of them.
-FIELDS: Tuple[str, ...] = ("genotype", "protein", "animal", "sample",
-                           "roi_name", "axon_name")
+FIELDS: Tuple[str, ...] = ("species", "genotype", "protein", "animal",
+                           "sample", "roi_name", "axon_name")
+
+# The species the thesis nerves are from. The one default of the identity:
+# it is a property of the whole study and not of an axon, so it is not
+# a guess that could regroup anything. The animal has no default.
+DEFAULT_SPECIES = "mouse"
 
 # What each one is, in the user's terms. Shown beside the field.
 FIELD_LABELS: Dict[str, str] = {
+    "species": "Species",
     "genotype": "Genotype",
     "protein": "Protein",
     "animal": "Animal",
@@ -61,12 +70,17 @@ FIELD_LABELS: Dict[str, str] = {
 }
 
 FIELD_HINTS: Dict[str, str] = {
+    "species": "The species of the animal the nerve came from. Starts as "
+               "'mouse' and can be edited; it does not identify an "
+               "individual (that is the animal, below).",
     "genotype": "KO or WT, for the protein below. The nerve's genotype.",
     "protein": "Which knockout this nerve is: alpha-adducin or 4.1B.",
-    "animal": "The mouse this nerve came from. The knockout is done to an "
-              "animal, so KO against WT compares animals: axons of one "
-              "animal are not independent. Typed here -- it is never read "
-              "off a folder name unless you write a pattern for it.",
+    "animal": "The individual animal this nerve came from (M3, ...), not "
+              "its species. The knockout is done to an animal, so KO "
+              "against WT compares animals: axons of one animal are not "
+              "independent. Typed here -- it is never read off a folder "
+              "name unless you write a pattern for it, and it has no "
+              "default.",
     "sample": "The slide, or the section of the nerve on it.",
     "roi_name": "One measurement. A slide may hold several.",
     "axon_name": "The axon within the ROI. Its number is the order it was "
@@ -81,6 +95,9 @@ FIELD_HINTS: Dict[str, str] = {
 # and the two knockouts of the thesis. They are a starting point, not a
 # rule: the user edits them once for their own folders.
 DEFAULT_PATTERNS: Dict[str, str] = {
+    # Empty: the species is the default (DEFAULT_SPECIES) unless a pattern
+    # the user writes finds another one in the path.
+    "species": "",
     "genotype": r"\b(KO|WT)\b",
     "protein": r"(aducina|adducina|adducin|4\.1B)",
     # Empty, and it must stay so: no folder of this user's names the
@@ -94,18 +111,12 @@ DEFAULT_PATTERNS: Dict[str, str] = {
     "axon_name": r"([Aa]xon[ _-]*\d+)",
 }
 
-# What the identity panel writes in the animal field when nothing else fills it (manual test 2, item 12): editable,
-# and said to be a default. propose() itself still leaves the animal empty (the batch reads the path through it and
-# must not pool the axons of several animals under one name).
-DEFAULT_ANIMAL = "mouse"
-DEFAULT_ANIMAL_HINT = ("default 'mouse': type the animal's own name (M3, ...) when the axons come from several "
-                       "animals - axons with the same animal are counted as one animal in a group comparison")
-
 # Origins, so the panel can say where each proposal came from rather than
 # presenting all five as equally certain.
 FROM_PATTERN = "pattern"
 FROM_FOLDER = "folder above the ROI"
 FROM_PREVIOUS = "previous axon"
+FROM_DEFAULT = "default"
 NOT_FOUND = "not found"
 NO_PATTERN = "no pattern"
 BAD_PATTERN = "bad pattern"
@@ -115,6 +126,7 @@ BAD_PATTERN = "bad pattern"
 class AxonIdentity:
     """Where one axon sits in the experiment. Empty means not known."""
 
+    species: str = DEFAULT_SPECIES
     genotype: str = ""
     protein: str = ""
     animal: str = ""
@@ -131,6 +143,12 @@ class AxonIdentity:
     def missing(self) -> Tuple[str, ...]:
         """The fields still empty, in the order of FIELDS."""
         return tuple(n for n in FIELDS if not getattr(self, n))
+
+    @property
+    def is_blank(self) -> bool:
+        """Nothing filled in beyond the default species."""
+        others = any(getattr(self, n) for n in FIELDS if n != "species")
+        return not others and self.species in ("", DEFAULT_SPECIES)
 
     @property
     def is_complete(self) -> bool:
@@ -152,6 +170,8 @@ class AxonIdentity:
 
     def describe(self) -> str:
         """One line for a message box: the fields that are filled in."""
+        if self.is_blank:
+            return "nothing filled in"
         parts = [f"{FIELD_LABELS[n]}: {getattr(self, n)}"
                  for n in FIELDS if getattr(self, n)]
         return ", ".join(parts) if parts else "nothing filled in"
@@ -290,6 +310,13 @@ def propose(
                 continue
             origin[name] = NOT_FOUND
             detail[name] = "the pattern found nothing in this path"
+            if name == "species":
+                detail[name] += f"; the default '{DEFAULT_SPECIES}' stays"
+        elif name == "species":
+            identity.species = DEFAULT_SPECIES
+            origin[name] = FROM_DEFAULT
+            detail[name] = (f"default '{DEFAULT_SPECIES}': edit it if the "
+                            f"nerve is of another species")
         elif name == "sample":
             folder, why = _folder_above_roi(path, pats.get("roi_name", ""))
             if folder:
@@ -309,7 +336,15 @@ def propose(
         for name in FIELDS:
             # The axon is the one field that changes within a measurement,
             # so it is never carried over.
-            if name == "axon_name" or getattr(identity, name):
+            if name == "axon_name":
+                continue
+            # The species always holds the default; only a pattern's hit
+            # counts as the path having said it.
+            if name == "species":
+                says = origin.get(name) == FROM_PATTERN
+            else:
+                says = bool(getattr(identity, name))
+            if says:
                 continue
             kept = getattr(remembered, name)
             if kept:

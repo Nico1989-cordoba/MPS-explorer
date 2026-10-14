@@ -143,6 +143,19 @@ def test_the_row() -> None:
         assert row["axon_id"] == axon_row(analysis, identity=IDENT)["axon_id"]
         return row["axon_id"]
 
+    def the_species_is_a_column_and_the_animal_is_not_defaulted():
+        # The species is exported; the animal is the individual and a
+        # missing one stays an empty cell (it is never 'mouse').
+        row = axon_row(analysis, identity=IDENT)
+        assert "species" in HEAD_COLUMNS and "species" in row, row
+        assert row["species"] == "mouse" and row["animal"] == "mouse 1", row
+        row = axon_row(analysis, identity=AxonIdentity(genotype="KO"))
+        assert row["species"] == "mouse" and row["animal"] is None, row
+        row = axon_row(analysis, identity=AxonIdentity(species="rat"))
+        assert row["species"] == "rat", row
+        assert axon_row(analysis)["species"] == "mouse"
+        return "species 'mouse' / 'rat' exported; animal empty when not typed"
+
     def the_shared_columns_are_written_once():
         row = axon_row(analysis, identity=IDENT)
         for name in SHARED_COLUMNS:
@@ -181,6 +194,8 @@ def test_the_row() -> None:
           the_head_says_who)
     check("with no identity the cells are empty and the name holds",
           without_an_identity_the_cells_are_empty)
+    check("the species is exported, the animal never defaulted",
+          the_species_is_a_column_and_the_animal_is_not_defaulted)
     check("what the discard cannot change is written once",
           the_shared_columns_are_written_once)
     check("a column of the analysis cannot fall out of the table",
@@ -693,6 +708,29 @@ def test_on_disk() -> None:
         assert os.path.basename(paths["clusters"]) == "axons_clusters.csv"
         return f"{len(header)} columns in the axon table"
 
+    def the_species_is_in_the_file_and_an_older_table_still_reads():
+        import tools.mps_batch as mb
+        path = os.path.join(folder, "axons.csv")
+        records, notes = mb.read_axon_table(path)
+        assert records and not notes, notes
+        assert records[0].identity.species == "mouse", records[0].identity
+        assert records[0].identity.animal == "mouse 1", records[0].identity
+        old = os.path.join(folder, "before_species.csv")
+        with open(path, encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            assert reader.fieldnames and "species" in reader.fieldnames
+            fields = [f for f in reader.fieldnames if f != "species"]
+            rows = [{k: v for k, v in r.items() if k != "species"}
+                    for r in reader]
+        with open(old, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+        back, notes = mb.read_axon_table(old)
+        assert len(back) == len(records) and back[0].identity.species == ""
+        assert notes and "species" in notes[0], notes
+        return notes[0][:60]
+
     def the_same_axon_twice_is_seen_in_all_three():
         paths = table_paths(os.path.join(folder, "axons.csv"))
         tables = build_tables(
@@ -726,6 +764,8 @@ def test_on_disk() -> None:
         check("an identity with holes warns and is written all the same",
               an_incomplete_identity_is_a_warning_not_a_refusal)
         check("they are written and read back", written_and_read_back)
+        check("the species is a column of the file; a table without it still reads",
+              the_species_is_in_the_file_and_an_older_table_still_reads)
         check("the same axon again is seen in all three tables",
               the_same_axon_twice_is_seen_in_all_three)
         check("typing the genotype in does not hide the duplicate",
@@ -779,6 +819,14 @@ def test_dictionary() -> None:
         return (f"{len(tables.axon)} + {len(tables.clusters[0])} + "
                 f"{len(tables.localizations[0])} columns, all described")
 
+    def the_species_is_described_apart_from_the_animal():
+        sp, an = describe("species") or "", describe("animal") or ""
+        assert "species" in sp.lower() and "mouse" in sp, sp
+        assert "individual" in an and an != sp, an
+        assert "species" in tables.axon and "species" in [
+            r["column"] for r in rows_for(list(tables.axon), "axon")], "no row"
+        return sp[:56]
+
     def a_discard_column_says_it_is_one():
         text = describe("perimeter_um_discard") or ""
         assert "contour" in text and "discarded" in text, text
@@ -822,6 +870,8 @@ def test_dictionary() -> None:
 
     check("every column of the three tables has an entry",
           nothing_is_undocumented)
+    check("the species is in the dictionary, apart from the animal",
+          the_species_is_described_apart_from_the_animal)
     check("a _discard column says what it is", a_discard_column_says_it_is_one)
     check("a panel column says where it comes from",
           a_panel_column_says_where_it_comes_from)

@@ -140,8 +140,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-TABLE_VERSION_PAIRS = "column batch pairs v2"
-TABLE_VERSION_AXONS = "column batch axons v2"
+# v3 (2026-10-13): the species column among the identity columns
+TABLE_VERSION_PAIRS = "column batch pairs v3"
+TABLE_VERSION_AXONS = "column batch axons v3"
 PROGRAM = "MPS Explorer (batch_columns.py, H6)"
 V2_VIABILITY = "batch_columns:v2_viability"
 D39_VIABILITY = "batch_columns:d39_viability"
@@ -171,7 +172,8 @@ SIMULATED_NOTE = "simulated input (R8-safe); uncalibrated"
 R8_REMINDER = ("R8 REMINDER: --allow-real was passed. The column statistic ran on REAL axons: every result is "
                "EXPLORATORY and UNCALIBRATED (H5-E not accepted). Do not read it as a test of the hypothesis.")
 
-IDENTITY_FIELDS: Tuple[str, ...] = ("genotype", "protein", "animal", "sample", "roi_name", "axon_name")
+# the identity columns of every export (tools.mps_identity.FIELDS: species first, the animal an individual with no default)
+from tools.mps_identity import FIELDS as IDENTITY_FIELDS  # noqa: E402
 HEAD_COLUMNS: Tuple[str, ...] = ("axon_id",) + IDENTITY_FIELDS + ("source", "roi", "program")
 PROVENANCE_COLUMNS: Tuple[str, ...] = ("viability_rule", "lumen_rule_version", "arcc_recipe", "cluster_set_sha",
                                        "columns_params_sha", "git_head")
@@ -505,7 +507,7 @@ def _identity_of(path: str, kind: str, settings: ColumnBatchSettings) -> Dict[st
     """The identity columns as the exports carry them: proposed from the path with the user's patterns for a real
     file (nothing invented), empty for a simulated one."""
     from tools.mps_identity import AxonIdentity, propose
-    ident = AxonIdentity() if kind == "simulated" else propose(path, patterns=settings.patterns or None).identity
+    ident = AxonIdentity(species="") if kind == "simulated" else propose(path, patterns=settings.patterns or None).identity
     return dict(ident.columns())
 
 
