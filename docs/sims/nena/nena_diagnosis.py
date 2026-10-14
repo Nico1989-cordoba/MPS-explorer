@@ -185,7 +185,7 @@ def main() -> None:
     ax.plot(c, r.best_fit, color="#0072B2", lw=2, label=f"new: {r.precision_nm:.1f} nm")
     s_old = r.lsq_nm
     ray = counts.sum() * 0.5 * (c / (2 * s_old ** 2)) * np.exp(-c ** 2 / (4 * s_old ** 2))
-    ax.plot(c, ray, color="#D55E00", lw=2, ls="--", label=f"old same-molecule term: {s_old:.1f} nm")
+    ax.plot(c, ray, color="#D55E00", lw=2, ls="--", label=f"old fit's s = {s_old:.1f} nm (Rayleigh law, scaled to all pairs)")
     ax.axvline(np.sqrt(2) * SIGMA, color="k", lw=1, ls=":")
     ax.set_xlim(0, 70)
     ax.set_xlabel("distance [nm]")

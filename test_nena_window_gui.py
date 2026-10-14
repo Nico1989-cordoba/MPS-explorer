@@ -27,15 +27,15 @@ sys.path.insert(0, os.path.join(HERE, "docs", "sims", "nena"))
 from nena_sim import simulate  # noqa: E402
 
 
-def _window(seed: int, **sim_kw):
+def _window(seed: int, sigma: float = 12.0, **sim_kw):
     from PyQt5 import QtWidgets
 
     from tools import mps_quality as q
     from tools.mps_quality_window import MPSQualityWindow
 
     QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    frame, x, y, _ = simulate(12.0, seed=seed, **sim_kw)
-    lp = np.full(frame.size, 12.0)
+    frame, x, y, _ = simulate(sigma, seed=seed, **sim_kw)
+    lp = np.full(frame.size, sigma)
     loc = SimpleNamespace(path="synthetic_whole_field.hdf5", n=frame.size, frame=frame, x_nm=x, y_nm=y,
                           columns=["frame", "x", "y", "lpx", "lpy"], pixel_size_nm=130.0,
                           pixel_size_source="synthetic", n_frames=int(frame.max()) + 1, fit_method="",
@@ -72,6 +72,15 @@ def test_precision_tab_shows_interval_and_checks() -> None:
     assert not any("poorly identified on this file" in t for t in texts)
 
 
+def test_poorly_identified_fit_says_so_in_the_tab() -> None:
+    from nena_sim import background_for
+
+    report, texts, _ = _window(73003, n_mol=333, bg_per_frame=background_for(0.5, 333), sigma=20.0)
+    assert not report.precision.nena.well_identified
+    assert any("poorly identified on this file" in t for t in texts)
+    assert any("disagree by" in t for t in texts)
+
+
 def test_crowded_file_warns_in_findings() -> None:
     report, texts, _ = _window(8200, n_mol=1700, cluster_size=10, frames=225)
     assert "crowded" in report.precision.nena.flags
@@ -80,5 +89,6 @@ def test_crowded_file_warns_in_findings() -> None:
 
 if __name__ == "__main__":
     test_precision_tab_shows_interval_and_checks()
+    test_poorly_identified_fit_says_so_in_the_tab()
     test_crowded_file_warns_in_findings()
     print("ok")

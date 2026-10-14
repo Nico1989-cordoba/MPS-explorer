@@ -130,6 +130,8 @@ def main() -> None:
     ap.add_argument("--reps", type=int, default=20)
     ap.add_argument("--out", default=os.path.join(HERE, "nena_grid.json"))
     ap.add_argument("--quick", action="store_true", help="sigma 12 only, 2000 pairs, 5 files per cell")
+    ap.add_argument("--big-sigmas", default="all",
+                    help="sigmas (comma-separated, nm) that get the 50000-pair cells; 'all' (default) for every sigma")
     args = ap.parse_args()
     tasks = []
     contaminations = CONTAMINATIONS + LINKED
@@ -137,6 +139,9 @@ def main() -> None:
         for si, sigma in enumerate(SIGMAS):
             for ni, n in enumerate(PAIRS):
                 if cont.startswith("linked_") and n not in (2000, 10000):
+                    continue
+                if (n == 50000 and args.big_sigmas != "all"
+                        and sigma not in {float(v) for v in args.big_sigmas.split(",")}):
                     continue
                 if args.quick and (sigma != 12.0 or n != 2000):
                     continue
@@ -165,7 +170,7 @@ def main() -> None:
     rows.sort(key=lambda r: (r["contamination"], r["sigma"], r["n_target"], r["seed"]))
     result = dict(
         description=__doc__.strip().splitlines()[0], d_max_nm=D_MAX, sigmas_nm=SIGMAS, pairs=PAIRS,
-        contaminations=contaminations, reps=args.reps, seconds_total=round(time.time() - t0, 1),
+        contaminations=contaminations, reps=args.reps, big_sigmas=args.big_sigmas, seconds_total=round(time.time() - t0, 1),
         numpy=np.__version__, summary=summarize(rows), files=rows,
     )
     with open(args.out, "w", encoding="utf-8") as fh:

@@ -101,8 +101,10 @@ NENA_MAX_CI_HALF_WIDTH = 0.10
 # localization within that distance in the next frame. Above it the
 # nearest-neighbour rule itself starts picking another molecule over the
 # molecule's own next localization, and NeNA reads low whatever the fit.
-# Own simulation (docs/sims/nena/nena_grid.py, clustered cells): above 0.15
-# the median NeNA is more than 5 % low.
+# Own simulation (docs/sims/nena/nena_grid.py, 1160 files, seeds in the
+# script): below 0.15 at most 2 % of the files read more than 5 % low; from
+# 0.15 to 0.20, 20 % did (median -2 %); above 0.20, 70-76 % did (median
+# -6 to -10 %).
 NENA_CROWDING_LIMIT = 0.15
 # Share of the same-molecule distance law beyond max_distance_nm above which
 # the window is too short (the likelihood accounts for the cut; it just has
@@ -757,9 +759,9 @@ def nena(
                 f"second localization just as close. The nearest-neighbour "
                 f"rule then often picks another molecule instead of the same "
                 f"one, and NeNA reads LOW whatever the fit (on synthetic "
-                f"files: more than 5 % low above "
-                f"{100 * NENA_CROWDING_LIMIT:.0f} %). A sparser region or "
-                f"file measures it better."
+                f"files above {100 * NENA_CROWDING_LIMIT:.0f} %, one in five "
+                f"read more than 5 % low; above 20 %, most did). A sparser "
+                f"region or file measures it better."
             )
         if tail > NENA_TRUNCATION_LIMIT:
             flags.append("window_short")
@@ -1378,7 +1380,7 @@ def repeat_neighbour_fraction(
                           dtype=np.int64)
         if np.any(np.abs(frame[near] - frame[i]) >= min_gap_frames):
             revisited += 1
-    return revisited / queries.size
+    return float(revisited / queries.size)
 
 
 # ===================================================================

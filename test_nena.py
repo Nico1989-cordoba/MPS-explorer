@@ -118,17 +118,27 @@ def test_swamped_peak_is_not_converged() -> None:
 
 
 def test_disagreement_is_reported_and_value_kept() -> None:
-    """Background at half the pairs: Picasso's model reads high, the random-neighbour model does not; when they
-    disagree beyond the interval the warning names both and precision_nm stays the Picasso-model value."""
-    n_mol = 1700
-    frame, x, y, _ = simulate(12.0, n_mol=n_mol, bg_per_frame=background_for(0.5, n_mol), seed=7500)
+    """sigma 20 nm, background at half the pairs, ~2000 same-molecule pairs (a file of the validation grid, cell
+    "uniform 50 %", seed 73003): Picasso's model and the random-neighbour model disagree beyond the interval. The
+    warning names both values, the fit is not well identified, and precision_nm stays the Picasso-model value."""
+    n_mol = 333
+    frame, x, y, _ = simulate(20.0, n_mol=n_mol, bg_per_frame=background_for(0.5, n_mol), seed=73003)
+    r = q.nena(frame, x, y)
+    assert r.converged and "disagreement" in r.flags, r.flags
+    assert not r.well_identified
+    assert not (r.ci_low_nm <= r.random_term_nm <= r.ci_high_nm)
+    assert r.ci_low_nm <= r.precision_nm <= r.ci_high_nm
+    assert any(f"{r.random_term_nm:.1f} nm" in w and f"{r.precision_nm:.1f} nm" in w for w in r.warnings)
+
+
+def test_background_at_half_the_pairs_is_flagged() -> None:
+    """sigma 12 nm, background at half the pairs: the same-molecule share sits at Picasso's limit (a >= ac) and the
+    warning says so (grid cell "uniform 50 %", sigma 12, 2000 pairs, seed 69000)."""
+    n_mol = 333
+    frame, x, y, _ = simulate(12.0, n_mol=n_mol, bg_per_frame=background_for(0.5, n_mol), seed=69000)
     r = q.nena(frame, x, y)
     assert r.converged
-    assert set(r.flags) & {"disagreement", "nearby_dominates"}, r.flags
-    assert not r.well_identified
-    assert r.precision_nm != r.random_term_nm
-    if "disagreement" in r.flags:
-        assert any(f"{r.random_term_nm:.1f} nm" in w for w in r.warnings)
+    assert set(r.flags) & {"nearby_dominates", "disagreement"}, r.flags
 
 
 def test_too_few_pairs() -> None:
