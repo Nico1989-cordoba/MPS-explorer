@@ -48,8 +48,8 @@ from numpy.typing import NDArray
 __all__ = [
     "FIT_BOUND_NM", "OUTER_FRACTION", "PILE_TOLERANCE_NM", "M_RANGE", "MIN_STEPS", "BEAD_LINK_NM",
     "SPLINE_KNOT_SPACING_NM", "CalibrationRecord", "BeadStackReport", "ZCalibrationState", "record_from_mapping",
-    "record_from_info", "read_calibration_file", "validate_record", "records_match", "bead_stack_report",
-    "load_bead_stack", "refit_z", "Z_CALIBRATION_COLUMNS", "export_columns", "provenance_words", "store_entry",
+    "record_from_info", "read_calibration_file", "validate_record", "records_match", "record_differences",
+    "bead_stack_report", "load_bead_stack", "refit_z", "Z_CALIBRATION_COLUMNS", "export_columns", "provenance_words", "store_entry",
     "state_for", "clean_store", "SOURCE_WORDS",
 ]
 
@@ -400,27 +400,39 @@ def validate_record(rec: CalibrationRecord) -> List[str]:
         if b is not None and mono is not None and rec.step_nm:
             lo, hi = max(b[0], -FIT_BOUND_NM), min(b[1], FIT_BOUND_NM)
             if mono[0] > lo + REFIT_GRID_NM or mono[1] < hi - REFIT_GRID_NM:
-                out.append(f"wx - wy is monotone only over {mono[0]:+.0f}..{mono[1]:+.0f} nm (stage), not over the "
-                           f"nominal calibrated range {lo:+.0f}..{hi:+.0f} nm: beyond it a width pair has two "
-                           f"answers")
+                in_file = "" if m is None else \
+                    f" = {mono[0] * m:+.0f}..{mono[1] * m:+.0f} nm in the file's z"
+                out.append(f"wx - wy is monotone only over {mono[0]:+.0f}..{mono[1]:+.0f} nm (stage{in_file}), not "
+                           f"over the nominal calibrated range {lo:+.0f}..{hi:+.0f} nm: beyond it a width pair has "
+                           f"two answers, so z there is ambiguous")
+    return out
+
+
+def record_differences(a: Optional[CalibrationRecord], b: Optional[CalibrationRecord]) -> Optional[List[str]]:
+    """
+    What differs between two records, in words ("the width curves", "the step", ...): an empty list when they are the
+    same calibration (the same width curves to 1e-9 relative, and no recorded step, number of frames, frames per
+    step or magnification factor that differs; a value recorded on one side only is not a difference). None when
+    either is missing or has no width curves (nothing to compare).
+    """
+    if a is None or b is None or not a.has_curves or not b.has_curves:
+        return None
+    out: List[str] = []
+    if not all(np.allclose(np.asarray(ca), np.asarray(cb), rtol=1e-9, atol=0.0)
+               for ca, cb in ((a.x_coeffs, b.x_coeffs), (a.y_coeffs, b.y_coeffs))):
+        out.append("the width curves")
+    for what, va, vb in (("the number of frames", a.n_frames, b.n_frames), ("the step", a.step_nm, b.step_nm),
+                         ("m", a.magnification, b.magnification),
+                         ("the frames per step", a.frames_per_step, b.frames_per_step)):
+        if va is not None and vb is not None and abs(float(va) - float(vb)) > 1e-9 * max(1.0, abs(float(va))):
+            out.append(f"{what} ({float(va):g} vs {float(vb):g})")
     return out
 
 
 def records_match(a: Optional[CalibrationRecord], b: Optional[CalibrationRecord]) -> Optional[bool]:
-    """
-    Whether two records are the same calibration: the same width curves (to 1e-9 relative), and no recorded step,
-    number of frames or magnification factor that differs. None when either is missing or has no curves.
-    """
-    if a is None or b is None or not a.has_curves or not b.has_curves:
-        return None
-    for ca, cb in ((a.x_coeffs, b.x_coeffs), (a.y_coeffs, b.y_coeffs)):
-        if not np.allclose(np.asarray(ca), np.asarray(cb), rtol=1e-9, atol=0.0):
-            return False
-    for va, vb in ((a.n_frames, b.n_frames), (a.step_nm, b.step_nm), (a.magnification, b.magnification),
-                   (a.frames_per_step, b.frames_per_step)):
-        if va is not None and vb is not None and abs(float(va) - float(vb)) > 1e-9 * max(1.0, abs(float(va))):
-            return False
-    return True
+    """Whether two records are the same calibration (``record_differences`` is empty); None when not comparable."""
+    diff = record_differences(a, b)
+    return None if diff is None else not diff
 
 
 # =====================================================================================================================

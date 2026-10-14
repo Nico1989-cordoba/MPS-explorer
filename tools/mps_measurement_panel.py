@@ -23,6 +23,7 @@ panel itself writes nothing. Nothing here changes a z: Picasso already multiplie
 
 from __future__ import annotations
 
+import html
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence
@@ -36,6 +37,7 @@ from tools.mps_plot_style import verdict
 
 __all__ = ["ChannelFile", "MeasurementPanel", "measurement_lines", "z_record_line", "z_records_line", "TITLE",
            "CALIBRATION_BUTTON", "BEAD_BUTTON", "CALIBRATION_TIP", "BEAD_TIP", "z_line", "z_detail_line",
+           "z_detail_lines", "z_match_line",
            "bead_line"]
 
 TITLE = "Measurement"
@@ -132,17 +134,33 @@ def z_line(state: Optional[zcal.ZCalibrationState], channel: Optional[int] = Non
     return f"{head}z calibration: {name}, {m_text} - {Z_NOTE}, no z correction applied"
 
 
-def z_detail_line(state: Optional[zcal.ZCalibrationState]) -> str:
-    """What the record in use gives (steps, calibrated range, fit bounds) and its checks; "" when nothing is read."""
-    if _empty(state):
+def z_match_line(state: Optional[zcal.ZCalibrationState]) -> str:
+    """When a calibration file was chosen: whether it is the same calibration as the file's own record, and what
+    differs; "" when nothing was chosen."""
+    if state is None or state.chosen_record is None:
         return ""
+    if state.file_record is None:
+        return "Record: the file carries none of its own to compare with"
+    diff = zcal.record_differences(state.file_record, state.chosen_record)
+    if diff is None:
+        return "Record: cannot be compared with the file's (one of them has no width curves)"
+    if not diff:
+        return "Record: same as the file's"
+    return "Record: DIFFERENT from the file's (" + ", ".join(diff) + ")"
+
+
+def z_detail_lines(state: Optional[zcal.ZCalibrationState]) -> List[str]:
+    """What the record in use gives (steps, calibrated range, fit bounds), whether a chosen file matches the file's
+    own record, and each of its check warnings on a line of its own; [] when nothing is read."""
+    if _empty(state):
+        return []
     assert state is not None
-    parts: List[str] = []
+    out: List[str] = []
     if state.chosen_error:
-        parts.append(f"the chosen calibration file could not be read ({state.chosen_error})")
+        out.append(f"The chosen calibration file could not be read ({state.chosen_error})")
     rec = state.record
     if rec is not None:
-        what = [f"{rec.origin}: {rec.layout}"]
+        what = [f"Record in use: {rec.origin} ({rec.layout})"]
         if rec.n_steps is not None and rec.step_nm is not None:
             what.append(f"{rec.n_steps} steps of {rec.step_nm:g} nm")
         cols = zcal.export_columns(state)
@@ -156,10 +174,26 @@ def z_detail_line(state: Optional[zcal.ZCalibrationState]) -> str:
         m = state.magnification
         if m is not None:
             what.append(f"fit bounds +/-{zcal.FIT_BOUND_NM * m:.0f} nm")
+        out.append("; ".join(what))
+    match = z_match_line(state)
+    if match:
+        out.append(match)
+    if rec is not None:
         problems = zcal.validate_record(rec)
-        what.append("checks: " + ("passed" if not problems else "; ".join(problems)))
-        parts.append("; ".join(what))
-    return " | ".join(parts)
+        if problems:
+            out.extend(f"Check: {p}" for p in problems)
+        else:
+            out.append("Checks: passed")
+    return out
+
+
+def z_detail_line(state: Optional[zcal.ZCalibrationState]) -> str:
+    """``z_detail_lines`` joined by newlines; "" when nothing is read."""
+    return "\n".join(z_detail_lines(state))
+
+
+def _is_warning(line: str) -> bool:
+    return line.startswith(("Check: ", "Record: DIFFERENT", "The chosen calibration file could not"))
 
 
 def z_record_words(f: ChannelFile, state: Optional[zcal.ZCalibrationState] = None) -> str:
@@ -227,9 +261,7 @@ def measurement_lines(files: Sequence[ChannelFile],
     for f in (three_d if several else three_d[:1]):
         st = states.get(f.channel)
         lines.append(z_line(st, f.channel if several else None))
-        detail = z_detail_line(st)
-        if detail:
-            lines.append(detail)
+        lines.extend(z_detail_lines(st))
     lines.append(z_records_line(files, states))
     for f in (three_d if several else three_d[:1]):
         lines.append(bead_line(states.get(f.channel), f.channel if several else None))
@@ -371,13 +403,20 @@ class MeasurementPanel(QtWidgets.QGroupBox):
         self.lbl_records.setVisible(bool(three_d))
         lines = measurement_lines(self._files, self._states)
         z_lines = [ln for ln in lines if "z calibration:" in ln and "carries" not in ln]
-        details = [z_detail_line(self._states.get(f.channel)) for f in three_d]
-        details = [d for d in details if d]
+        details = [ln for f in three_d for ln in z_detail_lines(self._states.get(f.channel))]
         bead_lines = [ln for ln in lines if "bead stack:" in ln]
-        self.lbl_detail.setText("\n".join(details))
+        # One line each, a warning in the warning colour: the match verdict and the checks are what the user must
+        # see, so none of them sits at the end of a long line (manual test 3).
+        self.lbl_detail.setText("<br>".join(
+            f"<span style='color:{warn}'>{html.escape(ln, quote=False)}</span>" if _is_warning(ln)
+            else html.escape(ln, quote=False) for ln in details))
         self.lbl_detail.setVisible(bool(details))
+        self.lbl_detail.setToolTip(CALIBRATION_TIP + ("\n\n" + "\n".join(details) if details else ""))
+        self.lbl_z.setToolTip(reg.tooltip("measurement.z_calibration", None)
+                              + ("\n\n" + "\n".join(details) if details else ""))
         first = self._states.get(three_d[0].channel) if three_d else None
         self._show_z(first, z_lines, bead_lines)
+        self._fit_height()
 
     def _show_z(self, state: Optional[zcal.ZCalibrationState], z_lines: Sequence[str] = (),
                 bead_lines: Sequence[str] = ()) -> None:
@@ -405,6 +444,23 @@ class MeasurementPanel(QtWidgets.QGroupBox):
         has_bead = state is not None and (state.bead is not None or bool(state.bead_error))
         self.lbl_bead.setText("\n".join(bead_lines) if (bead_lines and has_bead) else BEAD_LINE)
         self.badge_bead.setVisible(not (state is not None and state.bead is not None))
+
+    def _fit_height(self) -> None:
+        """Never shorter than its own lines at its width: a layout that squeezed the panel cut off the record's
+        match line and the check warnings (manual test 3)."""
+        lay = self.layout()
+        if lay is None:
+            return
+        lay.activate()
+        width = max(1, self.width())
+        need = lay.totalHeightForWidth(width) if lay.hasHeightForWidth() else lay.totalSizeHint().height()
+        need = max(int(need), lay.totalMinimumSize().height())
+        if need != self.minimumHeight():
+            self.setMinimumHeight(need)
+
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
+        self._fit_height()
 
     def text(self) -> str:
         return "\n".join(measurement_lines(self._files, self._states))

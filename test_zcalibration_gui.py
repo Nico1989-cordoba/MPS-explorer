@@ -16,7 +16,10 @@ folder:
   4. a localized bead stack (synthetic Picasso HDF5): z_zero, usable range and lateral shift in the panel and the
      export; a raw .tif is refused with what to do instead;
   5. Data quality's axial coverage reads the chosen record;
-  6. the user's settings file is untouched.
+  6. (manual test 3) a file with its own record: each check warning, and whether a chosen file is the same record
+     or a different one (and what differs), on a visible line of its own and in the tooltip; the panel is never
+     squeezed below its own height;
+  7. the user's settings file is untouched.
 
 Run:  venv\\Scripts\\python.exe test_zcalibration_gui.py      (offscreen; about half a minute)
 
@@ -201,7 +204,7 @@ def main() -> int:
         assert len(store) == 1 and list(store.values())[0] == {"record_path": path}, store
         text = mw.measurement_panel.text()
         assert "z calibration: synth_3d_calib.yaml, m = 0.79 (read from the chosen calibration file)" in text, text
-        assert "calibrated range -790 to +790 nm (nominal" in text and "checks: passed" in text, text
+        assert "calibrated range -790 to +790 nm (nominal" in text and "Checks: passed" in text, text
         line2 = w.axon_map.lbl_line2.text()
         assert "z calibration: synth_3d_calib.yaml, m = 0.79 (read from the chosen calibration file)" in line2, line2
         assert "z calibration: synth_3d_calib.yaml, m = 0.79" in w.axial.title()
@@ -303,6 +306,58 @@ def main() -> int:
         assert rep.coverage is not None and not rep.coverage.record_found
         return "the coverage reads the chosen record; none without it"
 
+    def match_and_checks_visible() -> str:
+        # Manual test 3: with a file that carries its own record, the panel must SAY whether a chosen calibration
+        # file is the same as that record (and what differs), and list each check warning on a visible line of its
+        # own, in the label and its tooltip; the panel is never squeezed below its own height.
+        import shutil
+        import test_zcalibration as T
+        mw = st["mw"]
+        own_dir = os.path.join(work, "own_record")
+        os.makedirs(own_dir, exist_ok=True)
+        data = os.path.join(own_dir, "sim_axon_own.hdf5")
+        shutil.copyfile(os.path.join(st["inputs"], "sim_axon_A.hdf5"), data)
+        with open(os.path.join(st["inputs"], "sim_axon_A.yaml"), encoding="utf-8") as f:
+            docs = [d for d in yaml.safe_load_all(f) if isinstance(d, dict)]
+        turn = T.calibration_dict(81, 25.0, 0.79)
+        turn["X Coefficients"] = [0, 0, 0, 0, 1e-6, 0, 1.0]        # wx - wy turns at z = +500 nm: not monotone
+        turn["Y Coefficients"] = [0, 0, 0, 0, 0, 1e-3, 1.0]
+        docs[-1] = dict(docs[-1], **{"Z Calibration": turn, "Z Calibration Path": "D:/acq/own_3d_calib.yaml"})
+        with open(os.path.join(own_dir, "sim_axon_own.yaml"), "w", encoding="utf-8") as f:
+            yaml.safe_dump_all(docs, f)
+        assert mw.load_channel1(data, 0)
+        mw.resize(1366, 728)
+        mw.show()
+        pump(0.3)
+        p = mw.measurement_panel
+
+        def detail_lines() -> List[str]:
+            return [ln.strip() for ln in p.text().splitlines()]
+        lines = detail_lines()
+        assert any(ln.startswith("Check: wx - wy is monotone only over") for ln in lines), lines
+        assert "Check: wx - wy is monotone only over" in p.lbl_detail.text()
+        assert "Check: wx - wy is monotone only over" in p.lbl_z.toolTip()
+        assert p.lbl_detail.isVisible()
+        lay = p.layout()
+        need = lay.totalHeightForWidth(p.width()) if lay.hasHeightForWidth() else lay.totalSizeHint().height()
+        assert p.height() >= need, (p.height(), need)               # not squeezed below its own lines
+        same = os.path.join(calib_dir, "same_3d_calib.yaml")
+        with open(same, "w", encoding="utf-8") as f:
+            yaml.safe_dump(turn, f)
+        assert mw.z_calibration_action("choose", channel=1, path=same)
+        assert "Record: same as the file's" in detail_lines(), detail_lines()
+        assert "Record: same as the file's" in p.lbl_detail.text() and "same as the file's" in p.lbl_z.toolTip()
+        other = os.path.join(calib_dir, "other_3d_calib.yaml")
+        with open(other, "w", encoding="utf-8") as f:
+            yaml.safe_dump(dict(T.calibration_dict(41, 25.0, 0.79)), f)
+        assert mw.z_calibration_action("choose", channel=1, path=other)
+        diff = [ln for ln in detail_lines() if ln.startswith("Record: DIFFERENT from the file's")]
+        assert diff and "the width curves" in diff[0] and "the number of frames (81 vs 41)" in diff[0], diff
+        assert "Record: DIFFERENT from the file's" in p.lbl_detail.text()
+        assert "Checks: passed" in detail_lines()                 # the chosen record's own checks
+        assert mw.z_calibration_action("forget", channel=1)
+        return "same / DIFFERENT (what differs) and each check on its own line, in the label and the tooltip"
+
     def user_settings_untouched() -> str:
         path, mtime = st["user_settings"]
         now = os.path.getmtime(path) if os.path.exists(path) else None
@@ -315,6 +370,7 @@ def main() -> int:
     check("typed m, forget, a record without m for one file", typed_and_forget)
     check("a localized bead stack", bead_stack)
     check("Data quality's axial coverage", data_quality)
+    check("the record's match and its checks, each on a visible line", match_and_checks_visible)
     check("the user's settings file", user_settings_untouched)
 
     app.processEvents()

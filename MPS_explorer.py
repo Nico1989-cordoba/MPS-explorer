@@ -1006,8 +1006,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         actions.addStretch(1)
         g.addLayout(actions, 2, 0, 1, 2)
         g.addWidget(self.label_moved_clusters, 3, 0, 1, 2)
+        # Never squeezed below its own height: a squeezed panel cut off the
+        # z-calibration warnings and the record's match line (manual test 3).
         self.measurement_panel.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred,
-                                             QtWidgets.QSizePolicy.Policy.Maximum)
+                                             QtWidgets.QSizePolicy.Policy.Minimum)
         g.addWidget(self.measurement_panel, 4, 0, 1, 2)
         g.setRowStretch(1, 1)
         g.setColumnStretch(0, 1)
