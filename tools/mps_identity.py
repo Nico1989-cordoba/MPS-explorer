@@ -75,12 +75,10 @@ FIELD_HINTS: Dict[str, str] = {
                "individual (that is the animal, below).",
     "genotype": "KO or WT, for the protein below. The nerve's genotype.",
     "protein": "Which knockout this nerve is: alpha-adducin or 4.1B.",
-    "animal": "The individual animal this nerve came from (M3, ...), not "
-              "its species. The knockout is done to an animal, so KO "
-              "against WT compares animals: axons of one animal are not "
-              "independent. Typed here -- it is never read off a folder "
-              "name unless you write a pattern for it, and it has no "
-              "default.",
+    "animal": "The mouse this nerve came from. The knockout is done to an "
+              "animal, so KO against WT compares animals: axons of one "
+              "animal are not independent. Typed here -- it is never read "
+              "off a folder name unless you write a pattern for it.",
     "sample": "The slide, or the section of the nerve on it.",
     "roi_name": "One measurement. A slide may hold several.",
     "axon_name": "The axon within the ROI. Its number is the order it was "

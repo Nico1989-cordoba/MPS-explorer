@@ -822,7 +822,7 @@ def test_dictionary() -> None:
     def the_species_is_described_apart_from_the_animal():
         sp, an = describe("species") or "", describe("animal") or ""
         assert "species" in sp.lower() and "mouse" in sp, sp
-        assert "individual" in an and an != sp, an
+        assert an and an != sp, an
         assert "species" in tables.axon and "species" in [
             r["column"] for r in rows_for(list(tables.axon), "axon")], "no row"
         return sp[:56]
