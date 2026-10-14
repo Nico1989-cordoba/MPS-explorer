@@ -1224,8 +1224,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         from tools.mps_selection import counter_text
         tried = {r.get("selection_hash") for r in runner.exploration_log.rows()
                  if r.get("session_id") == runner.exploration_log.session_id and r.get("source") == "batch"}
+        n_all = runner.exploration_log.variants_tried_all_sessions("batch")
         print(f"batch_columns: exploration log {runner.exploration_log.path}: "
-              + counter_text(len(tried)).replace("on this axon", "in batch runs"))
+              + counter_text(len(tried)).replace("on this axon", "in batch runs")
+              + f"; {n_all} across every session of the log")
+        # the count travels with the outputs (p values are not corrected for the selections tried)
+        try:
+            with open(os.path.join(args.out, "selection_counter.json"), "w", encoding="utf-8") as fh:
+                json.dump({"exploration_log": runner.exploration_log.path, "session_id": runner.exploration_log.session_id,
+                           "variants_tried_this_session": len(tried), "variants_tried_all_sessions": n_all,
+                           "note": "p values are not corrected for trying several selections"}, fh, indent=1)
+        except OSError as exc:
+            print(f"batch_columns: selection_counter.json not written ({exc})")
     if args.allow_real and real:
         print(R8_REMINDER)
     return code

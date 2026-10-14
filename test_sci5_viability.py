@@ -367,3 +367,14 @@ def test_zquality_window_criteria_and_calibration(monkeypatch: Any) -> None:
     w.close()
     w.deleteLater()
     app.processEvents()
+
+
+def test_exploration_log_counts_across_sessions(tmp_path: Any) -> None:
+    from tools import mps_selection as ms
+    path = str(tmp_path / "log.csv")
+    for sid in ("s1", "s2"):
+        log = ms.ExplorationLog(path, session_id=sid)
+        for spec in (ms.DEFAULT_SELECTION, ms.SelectionSpec.from_label("v2[peak,valley,count]")):
+            log.log_once(("batch", sid, spec.hash), ms.log_row(source="batch", spec=spec, axon_id="a"))
+    log = ms.ExplorationLog(path, session_id="s2")
+    assert log.variants_tried_all_sessions() == 2 and log.variants_tried_all_sessions("review") == 0

@@ -1234,6 +1234,12 @@ class ExplorationLog:
         with open(self.path, "r", encoding="utf-8", newline="") as fh:
             return list(csv.DictReader(fh))
 
+    def variants_tried_all_sessions(self, source: Optional[str] = None) -> int:
+        """The distinct selection hashes in the whole log, every session together (``source`` "batch" / "review" /
+        ... restricts it): the count of what was tried across sessions, written beside the batch's outputs."""
+        return len({r.get("selection_hash") for r in self.rows()
+                    if r.get("selection_hash") and (source is None or r.get("source") == source)})
+
     def variants_tried(self, axon_id: str = "", *, input_sha256: str = "", session_id: Optional[str] = None) -> int:
         """The distinct selection hashes logged for this axon (matched on ``input_sha256`` when given, else on
         ``axon_id``) in this session."""
