@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from tools.axon_export import (
     AXOPLASM_PREFIX, DISCARD_SUFFIX, HEAD_COLUMNS, MEASURED_COLUMNS,
-    SHARED_COLUMNS, STATE_COLUMNS,
+    SHARED_COLUMNS, STATE_COLUMNS, Z_CALIBRATION_COLUMNS,
 )
 from tools.mps_identity import FIELD_HINTS, FIELDS as IDENTITY_FIELDS
 
@@ -521,13 +521,59 @@ CROSSCHANNEL: Dict[str, str] = {
 }
 
 
+# The z calibration of the measurement (tools.mps_zcalibration): read and
+# written, never used to change a z. Picasso has already multiplied every z
+# by the record's magnification factor when it fitted it.
+Z_CALIBRATION: Dict[str, str] = {
+    "z_calibration_source": "Which astigmatism calibration record describes "
+                            "this file's z: the file's own record (in its "
+                            "Picasso metadata: the 'Z Calibration' block or "
+                            "the 'Fit 3D' step) or a calibration file chosen "
+                            "for this measurement. Empty: none read.",
+    "z_calibration_file": "The name of that calibration file (never its "
+                          "folder). Empty when the record does not name it.",
+    "z_magnification": "The magnification factor m Picasso multiplied into "
+                       "every z and lpz to correct the refractive-index "
+                       "mismatch. A property of the microscope, objective, "
+                       "medium and depth (published values 0.57-0.85), "
+                       "never assumed: empty when not recorded.",
+    "z_magnification_origin": "Where m comes from: 'file record', 'chosen "
+                              "record', 'user' (typed, because the record "
+                              "has none) or 'blank' (not recorded).",
+    "z_calibrated_min_nm": "Lower end of the calibrated z range, in the "
+                           "file's z units (stage z x m).",
+    "z_calibrated_max_nm": "Upper end of the calibrated z range.",
+    "z_calibrated_range_nm": "Width of the calibrated z range: (steps - 1) x "
+                             "step x m.",
+    "z_calibrated_range_origin": "'nominal': from the record alone, centred "
+                                 "on 0 and uncertain by the z_zero Picasso "
+                                 "does not store; 'bead stack': placed by "
+                                 "the bead stack's own z_zero.",
+    "z_calibration_match": "Whether the file's own record is the same "
+                           "calibration as the chosen one ('same' / "
+                           "'different'); empty unless both exist.",
+    "z_bead_stack_file": "The localized bead stack the next five columns "
+                         "come from (its name only).",
+    "z_zero_nm": "Where the stack's width curves cross: the shift Picasso "
+                 "applied to the stage axis and does not store.",
+    "z_usable_min_nm": "Lower end of the usable z range: the steps around "
+                       "z = 0 whose refitted z lies within 2 sigma_z of the "
+                       "true z, off the fit bounds, and in order.",
+    "z_usable_max_nm": "Upper end of the usable z range.",
+    "z_lateral_shift_x_nm": "How far x moves with depth across the usable "
+                            "range (max - min of a cubic B-spline of the "
+                            "beads' x(z), Carlini et al. 2015). Not "
+                            "subtracted from anything here.",
+    "z_lateral_shift_y_nm": "The same for y.",
+}
+
 _PANEL = {**AXOPLASM, **AXOPLASM_CLUSTERS, **AXOPLASM_LOCALIZATIONS}
 
 
 def describe(name: str) -> Optional[str]:
     """What one column means, or None when nothing here describes it."""
     for table in (IDENTITY, STATE, ANALYSIS, CLUSTERS, LOCALIZATIONS,
-                  CROSSCHANNEL):
+                  CROSSCHANNEL, Z_CALIBRATION):
         if name in table:
             return table[name]
     if name.endswith(DISCARD_SUFFIX):
@@ -587,4 +633,5 @@ def known_columns() -> List[str]:
     columns += list(SHARED_COLUMNS) + list(MEASURED_COLUMNS)
     columns += [name + DISCARD_SUFFIX for name in MEASURED_COLUMNS]
     columns += [AXOPLASM_PREFIX + name for name in AXOPLASM]
+    columns += list(Z_CALIBRATION_COLUMNS)
     return columns

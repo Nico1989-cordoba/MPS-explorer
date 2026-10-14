@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
+from tools import mps_zcalibration as _zcal
 from tools.cluster_quality import describe_roi, good_cluster_labels
 from tools.mps_analysis import AxonAnalysis
 from tools.mps_axoplasm import SUMMARY_COLUMNS as PANEL_COLUMNS
@@ -67,8 +68,14 @@ from tools.results_table import cell_text
 # with "_discard").
 # v4 (2026-10-13): the species among the identity columns (default "mouse");
 # the animal is the individual again and has no default.
+# v5 (2026-10-13): the z calibration of the measurement, written once at the
+# end of the row so that no earlier column moves (Z_CALIBRATION_COLUMNS):
+# which record, the magnification factor m and where it came from, the
+# calibrated range (nominal, or resolved by a bead stack), whether the
+# file's own record matches a chosen one, and what a bead stack measured.
+# Empty cells, with z_magnification_origin "blank", when nothing was read.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v4"
+TABLE_VERSION = "axon tables v5"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
@@ -136,6 +143,10 @@ MEASURED_COLUMNS: Tuple[str, ...] = (
     "ks_pvalue", "n_warnings", "warnings")
 
 DISCARD_SUFFIX = "_discard"
+
+# The z calibration of the measurement (tools.mps_zcalibration), written
+# once, last: what the z axis of this file is in, never a correction of it.
+Z_CALIBRATION_COLUMNS: Tuple[str, ...] = _zcal.Z_CALIBRATION_COLUMNS
 
 # Columns of the axoplasm panel's row that the axon row already holds, and
 # that must not be written a second time under another name.
@@ -297,16 +308,19 @@ def axon_row(
     discard: Optional[AxonAnalysis] = None,
     axoplasm: Optional[Dict[str, Any]] = None,
     exported_at: Optional[str] = None,
+    z_calibration: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     One axon as one row: who it is, what state it is in, the analysis of
-    every kept cluster, the same without the discarded ones, and what the
-    axoplasm panel measured.
+    every kept cluster, the same without the discarded ones, what the
+    axoplasm panel measured, and the z calibration of the measurement.
 
     ``measured`` is the analysis of all the kept clusters and ``discard``
     the same analysis without the ones the panel discarded -- the pair
     ``compare_discard`` returns, which differ only by those clusters.
     ``axoplasm`` is the panel's own row (``mps_axoplasm.summary_row``).
+    ``z_calibration`` is ``tools.mps_zcalibration.export_columns`` of the
+    file's calibration state; None writes the columns blank.
     """
     if measured.discard_applied:
         raise ValueError(
@@ -385,6 +399,16 @@ def axon_row(
         if name in _AXOPLASM_DROPPED:
             continue
         row[AXOPLASM_PREFIX + name] = panel.get(name)
+
+    # --- the z calibration, last ----------------------------------------
+    zc = z_calibration if z_calibration is not None else         _zcal.export_columns(None)
+    unplaced_z = sorted(set(zc) - set(Z_CALIBRATION_COLUMNS))
+    if unplaced_z:
+        raise ValueError(
+            f"The z calibration exports columns this table does not place: "
+            f"{', '.join(unplaced_z)}.")
+    for name in Z_CALIBRATION_COLUMNS:
+        row[name] = _rounded(name, zc.get(name))
     return row
 
 
@@ -735,6 +759,7 @@ def build_tables(
     x_nm: Optional[NDArray[np.float64]] = None,
     y_nm: Optional[NDArray[np.float64]] = None,
     z_nm: Optional[NDArray[np.float64]] = None,
+    z_calibration: Optional[Dict[str, Any]] = None,
 ) -> AxonTables:
     """
     Build the axon's row, and the tables that were asked for, from one
@@ -746,7 +771,8 @@ def build_tables(
     """
     stamp = _now()
     row = axon_row(measured, identity=identity, discard=discard,
-                   axoplasm=axoplasm, exported_at=stamp)
+                   axoplasm=axoplasm, exported_at=stamp,
+                   z_calibration=z_calibration)
     tables = AxonTables(axon=row)
     tables.warnings.extend(
         w for w in (identity.warnings() if identity is not None else []))

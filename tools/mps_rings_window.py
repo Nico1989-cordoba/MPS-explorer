@@ -118,6 +118,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         status_callback: Optional[Callable[[], Tuple[str, str]]] = None,
         refreshed_callback: Optional[Callable[[], Any]] = None,
         axial_z_callback: Optional[Callable[[], Optional[np.ndarray]]] = None,
+        z_calibration_callback: Optional[Callable[[], Tuple[str, Optional[float]]]] = None,
     ):
         """
         Parameters
@@ -157,6 +158,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         super().__init__(parent)
         # The z of the selection the segments were cut from (manual test 2, item 13: the Axial tab).
         self.axial_z_callback = axial_z_callback
+        # The measurement's z calibration words and m for the axial title (SCI-1); None keeps today's words.
+        self.z_calibration_callback = z_calibration_callback
         self.ms = ms
         self.rings = rings if rings is not None else analyze_rings(ms)
         self.rerun_callback = rerun_callback
@@ -318,9 +321,16 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         from tools import mps_axon_map_layers as L
         z = None if self.axial_z_callback is None else self.axial_z_callback()
         reason = "" if self.ms is not None else "no segments"
+        words, m = "", None
+        if self.z_calibration_callback is not None:
+            try:
+                words, m = self.z_calibration_callback()
+            except Exception:  # noqa: BLE001 - a display: no words is today's text
+                words, m = "", None
         self.axial.set_inputs(L.AxialInputs(z_roi=None if z is None else np.asarray(z, float), rings=self.ms,
                                             rings_reason=reason or "press Rings... to compute the segments",
-                                            view="segments"), view="segments")
+                                            view="segments", z_words=str(words or ""), z_magnification=m),
+                              view="segments")
 
     def _draw_area(self) -> None:
         """The cluster areas of each segment, one outline histogram per segment in its colour, with its median

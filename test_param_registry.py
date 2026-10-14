@@ -92,8 +92,10 @@ APPENDIX_C: Dict[str, Any] = {
     "axoplasm.margin_nm": ("ad hoc", "axoplasm", True),
     "axoplasm.registration_thresholds": ("pilot suggestion", "none", False),
     "measurement.pixel_size_nm": ("blank", "measurement", False),
-    "measurement.z_calibration": ("blank", "measurement", False),
-    "measurement.bead_stack": ("blank", "measurement", False),
+    # SCI-1: the z-calibration inputs are enabled (a chosen record, a typed m, a bead stack)
+    "measurement.z_calibration": ("blank", "measurement", True),
+    "measurement.z_magnification": ("blank", "measurement", True),
+    "measurement.bead_stack": ("blank", "measurement", True),
 }
 # 12.9: the entries reserved for the DBSCAN batch (B6), now filled from it
 TODO_B6_RESERVED = ("dbscan.eps_nm", "dbscan.min_samples", "curation.edge_criterion", "curation.dbcv_threshold",
@@ -300,11 +302,14 @@ def main() -> int:
                 f"{len(paint)} in the paint.* namespace; the strip edits exactly the six values of revision 2")
 
     def no_new_editable() -> str:
-        # Rule E (12.4): no value becomes newly editable in stage 2.
+        # Rule E (12.4): no value becomes newly editable in stage 2; SCI-1 enables the three measurement inputs
+        # of the z calibration (a chosen record, a typed m, a bead stack), and nothing else.
         editable = sorted(e.key for e in reg.entries() if e.editable)
         assert editable == sorted(["slab.centre", "slab.half_width_nm", "slab.typed_range", "dbscan.eps_nm",
                                    "dbscan.min_samples", "occupancy.mahalanobis", "rings.mode", "rings.guard_nm",
-                                   "axoplasm.threshold", "axoplasm.smoothing_px", "axoplasm.margin_nm"]), editable
+                                   "axoplasm.threshold", "axoplasm.smoothing_px", "axoplasm.margin_nm",
+                                   "measurement.z_calibration", "measurement.z_magnification",
+                                   "measurement.bead_stack"]), editable
         rule_e = ("curation.edge_criterion", "curation.dbcv_threshold", "contour.two_opt_starts",
                   "occupancy.sigma_cap_fraction", "randomization.band_half_width_nm", "randomization.iterations",
                   "randomization.seed", "randomization.smoothing", "randomization.incomplete_iterations",

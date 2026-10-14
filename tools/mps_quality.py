@@ -823,50 +823,137 @@ class AxialCoverage:
     z_span_nm: float
     z_p1_nm: float
     z_p99_nm: float
+    # The nominal calibrated range, in the file's z units: (n_steps - 1) x
+    # step x m (``tools.mps_zcalibration``). None when the record does not
+    # give it -- never a constant.
     calibration_span_nm: Optional[float]
     periods_captured: Optional[float]
     warnings: List[str] = field(default_factory=list)
+    # What the calibration record says about the data, each None when the
+    # record (or m) is missing.
+    record_found: bool = False
+    magnification: Optional[float] = None
+    magnification_origin: str = "blank"
+    calibrated_min_nm: Optional[float] = None
+    calibrated_max_nm: Optional[float] = None
+    fit_bound_nm: Optional[float] = None
+    fraction_piled: Optional[float] = None
+    fraction_outer: Optional[float] = None
+    d_zcalib_rms: Optional[float] = None
+    filter_range: Optional[float] = None
+    notes: List[str] = field(default_factory=list)
 
 
 def axial_coverage(
     z_nm: NDArray[np.float64],
-    calibration: Optional[Dict[str, Any]] = None,
+    calibration: Any = None,
     period_nm: Optional[float] = None,
+    *,
+    magnification: Optional[float] = None,
+    magnification_origin: str = "",
+    d_zcalib: Optional[NDArray[Any]] = None,
 ) -> AxialCoverage:
     """
-    The axial extent of the data, against the range the optics can fit
-    and against the periodicity being looked for.
+    The axial extent of the data, against the range the calibration
+    covered and against the periodicity being looked for.
 
     ``periods_captured`` is the number that decides whether a given
     section thickness can answer a ring-to-ring question at all: two
-    consecutive rings need at least two periods in the slab, and a
-    correlation that decays over a couple of periods needs three or four
-    to be measurable.
+    consecutive rings need at least two periods in the slab (a published
+    periodicity analysis used regions holding a few periods, Barabas et
+    al. 2017), so 2 is the floor, a convention.
 
-    The astigmatic calibration's own span comes from the z stack Picasso
-    was calibrated on (``Number of frames`` x ``Step size in nm``);
-    localizations fitted beyond it are extrapolations.
+    ``calibration`` is the measurement's calibration record
+    (``tools.mps_zcalibration.CalibrationRecord``) or, as before, the
+    'Z Calibration' dictionary of the file. From it (Picasso's own
+    arithmetic, ``picasso.zfit``): the NOMINAL calibrated range
+    +/-(n_steps - 1) x step x m / 2 in the file's units -- nominal because
+    Picasso does not store the z_zero it centred on; the fit bounds
+    +/-1000 x m, at which a localization beyond the curves is piled rather
+    than extrapolated; the fraction piled there (within 1 nm), the
+    fraction beyond 80 % of the calibrated half-range, and the rms of
+    d_zcalib with the 'Filter range' applied. The magnification factor is
+    the record's, or the one given (typed) when the record has none; with
+    no m every derived range is blank. The comparison of the data's span
+    with 'Number of frames' x 'Step size' that stood here could not fire
+    for a +/-1000 nm stack with m <= 1, and overstated the stack by
+    'Frames per step'.
     """
+    from tools import mps_zcalibration as zcal
+
     z = np.asarray(z_nm, dtype=float)
     warnings: List[str] = []
     low = float(np.percentile(z, 1))
     high = float(np.percentile(z, 99))
     span = high - low
 
-    calibration_span: Optional[float] = None
-    if calibration:
-        try:
-            calibration_span = (
-                float(calibration["Number of frames"])
-                * float(calibration["Step size in nm"])
-            )
-        except (KeyError, TypeError, ValueError):
-            calibration_span = None
+    record = calibration
+    if isinstance(calibration, dict):
+        record = zcal.record_from_mapping(
+            calibration, layout=zcal.LAYOUT_Z_CALIBRATION,
+            origin=zcal.ORIGIN_FILE)
+    out = AxialCoverage(z_span_nm=span, z_p1_nm=low, z_p99_nm=high,
+                        calibration_span_nm=None, periods_captured=None)
+    m: Optional[float] = None
+    if record is not None:
+        out.record_found = True
+        if record.magnification is not None:
+            m, out.magnification_origin = record.magnification, record.origin
+        elif magnification is not None:
+            m = float(magnification)
+            out.magnification_origin = magnification_origin or "user"
+        out.magnification = m
+        out.filter_range = record.filter_range
+        nominal = record.nominal_bounds_nm(m)
+        if nominal is not None:
+            out.calibrated_min_nm, out.calibrated_max_nm = nominal
+            out.calibration_span_nm = nominal[1] - nominal[0]
+        if m is not None:
+            bound = zcal.FIT_BOUND_NM * m
+            out.fit_bound_nm = bound
+            finite = z[np.isfinite(z)]
+            if finite.size:
+                out.fraction_piled = float(np.mean(
+                    np.abs(finite) >= bound - zcal.PILE_TOLERANCE_NM))
+                if nominal is not None:
+                    half = 0.5 * (nominal[1] - nominal[0])
+                    out.fraction_outer = float(np.mean(
+                        np.abs(finite) > zcal.OUTER_FRACTION * half))
+        notes = [f"z calibration record: {record.layout} "
+                 f"({record.file_name or 'name not recorded'}); m = "
+                 + ("- (not recorded)" if m is None else
+                    f"{m:g} ({zcal.SOURCE_WORDS.get(out.magnification_origin, out.magnification_origin)})")]
+        if nominal is not None:
+            notes.append(f"nominal calibrated range {nominal[0]:+.0f} to "
+                         f"{nominal[1]:+.0f} nm (nominal: Picasso does "
+                         f"not store the z_zero it centred on)")
+        if out.fit_bound_nm is not None:
+            notes.append(f"fit bounds +/-{out.fit_bound_nm:.0f} nm; "
+                         f"{100 * (out.fraction_piled or 0.0):.2f} % of "
+                         f"the localizations piled there")
+        if out.fraction_outer is not None:
+            notes.append(f"{100 * out.fraction_outer:.1f} % beyond "
+                         f"{zcal.OUTER_FRACTION:.0%} of the calibrated "
+                         f"half-range")
+        out.notes = notes
+    else:
+        out.notes = ["no z calibration record: the calibrated range, the "
+                     "fit bounds and m are not known"]
+    if d_zcalib is not None:
+        d = np.asarray(d_zcalib, dtype=float)
+        d = d[np.isfinite(d)]
+        if d.size:
+            out.d_zcalib_rms = float(np.sqrt(np.mean(d ** 2)))
+            out.notes.append(
+                f"d_zcalib rms {out.d_zcalib_rms:.3g}"
+                + ("" if out.filter_range is None else
+                   f" (filtered at {out.filter_range:g} x rms)"))
 
+    calibration_span = out.calibration_span_nm
     if calibration_span and span > calibration_span:
         warnings.append(
             f"The data spans {span:.0f} nm in z but the astigmatism "
-            f"calibration only covers {calibration_span:.0f} nm. "
+            f"calibration only covers {calibration_span:.0f} nm (nominal). "
             f"Localizations outside it are extrapolated, and their z and "
             f"lpz are not trustworthy."
         )
@@ -881,15 +968,9 @@ def axial_coverage(
                 f"least two rings in the slab, so this acquisition cannot "
                 f"answer it."
             )
-
-    return AxialCoverage(
-        z_span_nm=span,
-        z_p1_nm=low,
-        z_p99_nm=high,
-        calibration_span_nm=calibration_span,
-        periods_captured=periods,
-        warnings=warnings,
-    )
+    out.periods_captured = periods
+    out.warnings = warnings
+    return out
 
 
 # ===================================================================
@@ -925,6 +1006,9 @@ def quality_report(
     weights: Optional[Union[Sequence[float], NDArray[Any]]] = None,
     period_nm: Optional[float] = None,
     run_drift: bool = True,
+    z_record: Any = None,
+    z_magnification: Optional[float] = None,
+    z_magnification_origin: str = "",
 ) -> QualityReport:
     """
     Run every check that this file has the columns for.
@@ -977,8 +1061,16 @@ def quality_report(
         )
 
     if loc.is_3d:
+        # The record the file carries (either layout), unless the caller
+        # gives the one chosen for this measurement.
+        from tools import mps_zcalibration as zcal
+
+        record = z_record if z_record is not None else zcal.record_from_info(
+            getattr(loc, "info", None) or [])
         report.coverage = axial_coverage(
-            loc.z_nm, loc.z_calibration, period_nm
+            loc.z_nm, record, period_nm, magnification=z_magnification,
+            magnification_origin=z_magnification_origin,
+            d_zcalib=loc.column("d_zcalib"),
         )
 
     return report

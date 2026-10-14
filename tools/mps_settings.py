@@ -93,6 +93,15 @@ class MPSSettings:
     # file carried no pixel size AND nothing near it recorded one; a
     # value here never overrides a file's own metadata.
     pixel_size_by_folder: Dict[str, float] = field(default_factory=dict)
+    # The z calibration of each measurement (tools.mps_zcalibration): one
+    # entry per acquisition folder (keyed by tools.mps_pixel_size.folder_key),
+    # or per file (its normalised path) where one file differs from its
+    # folder. An entry names a chosen calibration file (record_path), a
+    # localized bead stack (bead_path, bead_pixel_size_nm) and a typed
+    # magnification factor (m_typed, used only when the record has none).
+    # Read and shown, never used to change a z.
+    z_calibration_by_folder: Dict[str, Dict[str, Any]] = field(
+        default_factory=dict)
     # Channel 2's OWN eps and min samples, one entry per folder, keyed by
     # tools.mps_pixel_size.folder_key on the channel-2 file.
     #
@@ -223,6 +232,11 @@ class MPSSettings:
                         "Stored pixel size %r for %s is not a pixel size; "
                         "it will be asked for again", value, folder)
             self.pixel_size_by_folder = kept
+        # An entry that is not one is dropped, never clamped.
+        from tools.mps_zcalibration import clean_store
+
+        self.z_calibration_by_folder = clean_store(
+            self.z_calibration_by_folder)
         # A stored pattern that no longer compiles would raise at the next
         # export, in the middle of writing tables; drop it here instead and
         # fall back to the default for that field.

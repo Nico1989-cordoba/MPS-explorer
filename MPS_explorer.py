@@ -1006,8 +1006,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         actions.addStretch(1)
         g.addLayout(actions, 2, 0, 1, 2)
         g.addWidget(self.label_moved_clusters, 3, 0, 1, 2)
+        # Never squeezed below its own height: a squeezed panel cut off the
+        # z-calibration warnings and the record's match line (manual test 3).
         self.measurement_panel.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred,
-                                             QtWidgets.QSizePolicy.Policy.Maximum)
+                                             QtWidgets.QSizePolicy.Policy.Minimum)
         g.addWidget(self.measurement_panel, 4, 0, 1, 2)
         g.setRowStretch(1, 1)
         g.setColumnStretch(0, 1)
@@ -1455,11 +1457,15 @@ class MPS_explorer(QtWidgets.QMainWindow):
             stale_selection = x_in is None
 
         try:
+            from tools import mps_zcalibration as zcal
+
             tables = axon_export.build_tables(
                 measured, identity=identity, discard=discard,
                 with_clusters=dialog.wants_clusters(),
                 with_localizations=dialog.wants_localizations(),
-                x_nm=x_in, y_nm=y_in, z_nm=z_in, **panel)
+                x_nm=x_in, y_nm=y_in, z_nm=z_in,
+                z_calibration=zcal.export_columns(self._z_state(1)),
+                **panel)
         except axon_export.ExportConflict as error:
             QtWidgets.QMessageBox.warning(self, "Export refused", str(error))
             return None
@@ -1630,9 +1636,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     self.logger.debug(
                         "Z periodicity fit failed; the axial tab will say so",
                         exc_info=True)
+            z_state = self._z_state(1)
             self.quality_window = show_quality_window(
                 loc, means_nm=means, sigmas_nm=sigmas, weights=weights,
                 period_nm=period, parent=self,
+                z_record=None if z_state is None else z_state.record,
+                z_magnification=None if z_state is None else z_state.typed_m,
+                z_magnification_origin="user",
             )
             self.logger.info(
                 f"Quality panel opened for {os.path.basename(loc.path)} "
@@ -2300,33 +2310,357 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
     def _build_measurement_panel(self) -> None:
         """
-        The Measurement panel (design 12.7): each loaded channel's pixel
-        size with its source, and the per-measurement z calibration
-        ("none read", the file's own record, the inputs disabled until
-        SCI-1). Inserted from code - the .ui is frozen - in the free space
-        of the Clustering box under "Show the MPS analysis window". A
-        display: it stores nothing and passes nothing to any analysis.
+        The Measurement panel (design 12.7; SCI-1): each loaded channel's
+        pixel size with its source, and the per-measurement z calibration
+        (the file's own record, a chosen calibration file, a typed m, a
+        bead stack). Inserted from code - the .ui is frozen - in the free
+        space of the Clustering box under "Show the MPS analysis window".
+        Its two inputs write the one store
+        (``MPSSettings.z_calibration_by_folder``); nothing changes a z.
         """
         from tools.mps_measurement_panel import MeasurementPanel
 
         self._loaded_paths: Dict[int, str] = {}
+        self._z_states: Dict[int, Any] = {}
+        # A differing calibration file the user declined to make the folder's
+        # record: shown as an alternative for this session only, never stored.
+        self._z_session_records: Dict[str, str] = {}
         self.measurement_panel = MeasurementPanel(self.ui.groupBox)
         self.measurement_panel.setGeometry(QtCore.QRect(20, 540, 640, 134))
+        self.measurement_panel.calibration_requested.connect(
+            self._on_z_calibration_requested)
+        self.measurement_panel.bead_requested.connect(
+            self._on_z_bead_requested)
         self._refresh_measurement_panel()
 
+    def _on_z_calibration_requested(self, action: str) -> None:
+        self.z_calibration_action(action)
+
+    def _on_z_bead_requested(self, action: str) -> None:
+        self.z_bead_action(action)
+
     def _refresh_measurement_panel(self) -> None:
-        """Redraw the Measurement panel from the loaded files (read only)."""
+        """Redraw the Measurement panel from the loaded files and the
+        z-calibration store (read only), and every z provenance shown."""
         panel = getattr(self, "measurement_panel", None)
         if panel is None:
             return
         from tools.mps_measurement_panel import ChannelFile
 
         files = []
+        states: Dict[int, Any] = {}
         for channel, loc in ((1, self.locs1), (2, self.locs2)):
             if loc is not None:
                 files.append(ChannelFile.from_localizations(
                     channel, self._loaded_paths.get(channel, ""), loc))
-        panel.set_files(files)
+                state = self._compute_z_state(channel)
+                if state is not None:
+                    states[channel] = state
+        self._z_states = states
+        panel.set_files(files, states)
+
+    # ------------------------------------------------------------ z calibration (SCI-1)
+    def _z_path(self, channel: int) -> str:
+        loc = self.locs1 if channel == 1 else self.locs2
+        paths = getattr(self, "_loaded_paths", {}) or {}
+        return str(paths.get(channel) or getattr(loc, "path", "") or "")
+
+    def _compute_z_state(self, channel: int) -> Optional[Any]:
+        """The z calibration of a loaded channel: its file's own record and
+        what the store adds for its folder or for the file."""
+        from tools import mps_zcalibration as zcal
+
+        loc = self.locs1 if channel == 1 else self.locs2
+        if loc is None:
+            return None
+        from tools.mps_pixel_size import folder_key
+
+        store = getattr(self.mps_settings, "z_calibration_by_folder", None) or {}
+        path = self._z_path(channel)
+        entry = zcal.store_entry(store, path)
+        if not entry.get("record_path") and path:
+            session = getattr(self, "_z_session_records", {}) or {}
+            for key in (zcal.file_key(path), folder_key(path)):
+                if session.get(key):
+                    entry["record_path"] = session[key]
+                    entry.pop("record_override", None)
+                    break
+        return zcal.state_for(getattr(loc, "info", None) or [], entry)
+
+    def _z_state(self, channel: int = 1) -> Optional[Any]:
+        """The current z-calibration state of a channel (as the Measurement
+        panel shows it), or None with no file loaded."""
+        states = getattr(self, "_z_states", None) or {}
+        if channel in states:
+            return states[channel]
+        return self._compute_z_state(channel)
+
+    def _z_calibration_words(self) -> Tuple[str, Optional[float]]:
+        """For the provenance line 2 and the axial titles: "z calibration:
+        <file>, m = x (<source>)", or "" when nothing is read (today's words
+        stay), and m when it is known."""
+        from tools import mps_zcalibration as zcal
+
+        state = self._z_state(1)
+        words = zcal.provenance_words(state)
+        return (words or "", None if state is None else state.magnification)
+
+    def _z_channel_for_action(self, title: str) -> Optional[int]:
+        """The channel an input acts on: the only 3D one, or the one chosen."""
+        three_d = [c for c, loc in ((1, self.locs1), (2, self.locs2))
+                   if loc is not None and bool(getattr(loc, "is_3d", False))]
+        if not three_d:
+            return None
+        if len(three_d) == 1:
+            return three_d[0]
+        names = [f"Channel {c}: {os.path.basename(self._z_path(c))}"
+                 for c in three_d]
+        item, ok = QtWidgets.QInputDialog.getItem(
+            self, title, "Which channel's measurement?", names, 0, False)
+        if not ok:
+            return None
+        return three_d[names.index(item)]
+
+    def _z_store_changed(self) -> None:
+        self._persist_mps_settings()
+        self._refresh_measurement_panel()
+        window = getattr(self, "mps_window", None)
+        if window is not None and hasattr(window, "refresh_z_calibration"):
+            try:
+                window.refresh_z_calibration()
+            except Exception:  # noqa: BLE001 - a display refresh
+                self.logger.debug("z calibration refresh failed", exc_info=True)
+        rings = getattr(self, "rings_window", None)
+        if rings is not None and hasattr(rings, "_draw_axial"):
+            try:
+                rings._draw_axial()
+            except Exception:  # noqa: BLE001
+                self.logger.debug("rings axial refresh failed", exc_info=True)
+
+    def z_calibration_action(self, action: str, *, channel: Optional[int] = None,
+                             path: Optional[str] = None,
+                             m: Optional[str] = None,
+                             confirm: Optional[bool] = None) -> bool:
+        """
+        "Calibration record...": ``choose`` (a calibration file for the
+        folder), ``choose_file`` (for this file only), ``type_m`` (m, only
+        when the record has none), ``forget`` (the chosen file and the typed
+        m) or ``use_own`` ("Use the file's record": the chosen file only).
+        ``channel``, ``path``, ``m`` and ``confirm`` (the answer to the
+        confirmation) replace the dialogs (tests). Writes the one store;
+        returns whether it changed.
+
+        The file's own record is the one in use. A chosen file that differs
+        from it replaces it only when the user confirms it for the folder
+        (stored with ``record_override``); declined, it is shown as an
+        alternative for this session and nothing is stored (manual test 4).
+        """
+        from tools import mps_zcalibration as zcal
+        from tools.mps_pixel_size import folder_key
+
+        title = "z calibration"
+        if channel is None:
+            channel = self._z_channel_for_action(title)
+        if channel is None:
+            return False
+        data_path = self._z_path(channel)
+        if not data_path:
+            return False
+        store = dict(self.mps_settings.z_calibration_by_folder or {})
+        per_file = zcal.file_key(data_path)
+        per_folder = folder_key(data_path)
+        if action in ("forget", "use_own"):
+            changed = False
+            names = ("record_path", "record_override") + (
+                ("m_typed",) if action == "forget" else ())
+            for key in (per_file, per_folder):
+                self._z_session_records.pop(key, None)
+                entry = dict(store.get(key) or {})
+                for name in names:
+                    changed |= entry.pop(name, None) is not None
+                if entry:
+                    store[key] = entry
+                else:
+                    store.pop(key, None)
+            self.mps_settings.z_calibration_by_folder = store
+            self._z_store_changed()
+            return changed
+        if action in ("choose", "choose_file"):
+            if path is None:
+                start = os.path.dirname(data_path)
+                path, _ = QFileDialog.getOpenFileName(
+                    self, "Calibration record", start,
+                    "Calibration records (*.yaml *.yml *_thunder *.txt);;"
+                    "All files (*)")
+            if not path:
+                return False
+            try:
+                chosen = zcal.read_calibration_file(path)
+            except (OSError, ValueError) as error:
+                QtWidgets.QMessageBox.warning(
+                    self, title, f"Not used: {error}")
+                return False
+            key = per_file if action == "choose_file" else per_folder
+            state = self._z_state(channel)
+            own = None if state is None else state.file_record
+            override = False
+            if own is not None:
+                diff = zcal.record_differences(own, chosen)
+                if diff is None or diff:
+                    what = ("one of them has no width curves" if diff is None
+                            else ", ".join(diff))
+                    where = ("this file" if action == "choose_file"
+                             else "every file of this folder")
+                    if confirm is None:
+                        answer = QtWidgets.QMessageBox.question(
+                            self, title,
+                            f"This record does not match the file's own "
+                            f"record ({what}).\n\nUse it for {where} instead "
+                            f"of their own records?",
+                            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                            QtWidgets.QMessageBox.No)
+                        confirm = answer == QtWidgets.QMessageBox.Yes
+                    if not confirm:
+                        # Shown beside the file's record for this session;
+                        # the file's own record stays in use, nothing stored.
+                        self._z_session_records[key] = str(path)
+                        self._z_store_changed()
+                        return False
+                    override = True
+            self._z_session_records.pop(key, None)
+            entry = dict(store.get(key) or {})
+            entry["record_path"] = str(path)
+            if override:
+                entry["record_override"] = True
+            else:
+                entry.pop("record_override", None)
+            store[key] = entry
+            self.mps_settings.z_calibration_by_folder = store
+            self._z_store_changed()
+            return True
+        if action == "type_m":
+            state = self._z_state(channel)
+            rec = None if state is None else state.record
+            if rec is not None and rec.magnification is not None:
+                QtWidgets.QMessageBox.information(
+                    self, title,
+                    f"The record carries m = {rec.magnification:g}, and "
+                    f"Picasso already multiplied every z by it. A typed m "
+                    f"is used only when the record has none.")
+                return False
+            if m is None:
+                text, ok = QtWidgets.QInputDialog.getText(
+                    self, title,
+                    "Magnification factor m of this measurement (the "
+                    f"factor its z was multiplied by; "
+                    f"{zcal.M_RANGE[0]:g}-{zcal.M_RANGE[1]:g}).\n"
+                    "Leave empty to clear. It is labelled 'user' in every "
+                    "export.")
+                if not ok:
+                    return False
+                m = text
+            entry = dict(store.get(per_folder) or {})
+            if not str(m).strip():
+                entry.pop("m_typed", None)
+            else:
+                try:
+                    value = float(str(m).replace(",", "."))
+                except ValueError:
+                    QtWidgets.QMessageBox.warning(
+                        self, title, f"{m!r} is not a number.")
+                    return False
+                if not (zcal.M_RANGE[0] <= value <= zcal.M_RANGE[1]):
+                    QtWidgets.QMessageBox.warning(
+                        self, title,
+                        f"{value:g} is outside {zcal.M_RANGE[0]:g}-"
+                        f"{zcal.M_RANGE[1]:g}; nothing was stored.")
+                    return False
+                entry["m_typed"] = value
+            if entry:
+                store[per_folder] = entry
+            else:
+                store.pop(per_folder, None)
+            self.mps_settings.z_calibration_by_folder = store
+            self._z_store_changed()
+            return True
+        return False
+
+    def z_bead_action(self, action: str, *, channel: Optional[int] = None,
+                      path: Optional[str] = None,
+                      pixel_size_nm: Optional[float] = None) -> bool:
+        """
+        "Bead stack...": ``choose`` a localized bead stack (Picasso HDF5)
+        for the folder of the measurement, or ``forget`` it. A raw .tif is
+        refused with what to do instead. Returns whether the store changed.
+        """
+        from tools.mps_pixel_size import folder_key
+
+        title = "Bead stack"
+        if channel is None:
+            channel = self._z_channel_for_action(title)
+        if channel is None:
+            return False
+        data_path = self._z_path(channel)
+        if not data_path:
+            return False
+        store = dict(self.mps_settings.z_calibration_by_folder or {})
+        key = folder_key(data_path)
+        entry = dict(store.get(key) or {})
+        if action == "forget":
+            changed = entry.pop("bead_path", None) is not None
+            entry.pop("bead_pixel_size_nm", None)
+            if entry:
+                store[key] = entry
+            else:
+                store.pop(key, None)
+            self.mps_settings.z_calibration_by_folder = store
+            self._z_store_changed()
+            return changed
+        if action != "choose":
+            return False
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(
+                self, title, os.path.dirname(data_path),
+                "Localized bead stack (*.hdf5 *.h5);;Raw image stack "
+                "(*.tif *.tiff);;All files (*)")
+        if not path:
+            return False
+        if os.path.splitext(path)[1].lower() in (".tif", ".tiff"):
+            QtWidgets.QMessageBox.information(
+                self, title,
+                "This is a raw image stack. Localize it in Picasso first "
+                "(Localize, with the box and camera settings of the "
+                "calibration) and choose the HDF5 it writes.")
+            return False
+        if pixel_size_nm is None and mps_io.read_pixel_size(path) is None:
+            text, ok = QtWidgets.QInputDialog.getText(
+                self, title,
+                f"{os.path.basename(path)} carries no pixel size. Pixel size "
+                f"of the bead stack in nm:")
+            if not ok or not text.strip():
+                return False
+            try:
+                pixel_size_nm = float(text.replace(",", "."))
+            except ValueError:
+                return False
+        entry["bead_path"] = str(path)
+        if pixel_size_nm is not None:
+            entry["bead_pixel_size_nm"] = float(pixel_size_nm)
+        else:
+            entry.pop("bead_pixel_size_nm", None)
+        store[key] = entry
+        self.mps_settings.z_calibration_by_folder = store
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            self._z_store_changed()
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        state = self._z_state(channel)
+        if state is not None and state.bead_error:
+            QtWidgets.QMessageBox.warning(
+                self, title, f"The bead stack could not be read: "
+                f"{state.bead_error}")
+        return True
 
     def _render_mirrors(self) -> None:
         """The main window's boxes, rendered from the one value in today's
@@ -2742,6 +3076,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             slab_state=self._slab_state,
             apply_typed=self._apply_typed_range,
             root_name=self.get_root_filename,
+            z_calibration=self._z_calibration_words,
             nn_bins=int(DEFAULT_KNN_BINS),
             nn_range=(0.0, float(MAX_LATERAL_DISTANCE_NM)))
 
@@ -3075,7 +3410,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     view="segments", beside=self.rings_window),
                 status_callback=self._rings_status,
                 refreshed_callback=self._rings_refreshed,
-                axial_z_callback=self._rings_axial_z)
+                axial_z_callback=self._rings_axial_z,
+                z_calibration_callback=self._z_calibration_words)
         else:
             self.rings_window.ms = ms
             self.rings_window.rings = analyze_rings(ms)
