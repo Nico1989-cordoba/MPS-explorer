@@ -60,6 +60,7 @@ from numpy.typing import NDArray
 from scipy.stats import binom, norm, rankdata, spearmanr
 
 from tools.mps_axial_precision import (
+    axon_period_nm,
     leak_fraction,
     spurious_cluster_probability,
     structural_width_nm,
@@ -1489,18 +1490,6 @@ def ring_pair_leak(
 # ============================================================================
 # Axial profile: fixed-offset mixture, bootstrap, sample sizes
 # ============================================================================
-
-def axon_period_nm(rings: Sequence[Ring]) -> float:
-    """The axon's period: the median over consecutive listed rings
-    (sorted by index) of centre spacing / index step, the rule of
-    ``tau_components`` (D-20); NaN with fewer than 2 rings."""
-    ordered = sorted(rings, key=lambda r: int(r.index))
-    if len(ordered) < 2:
-        return float("nan")
-    centres = np.array([float(r.centre_z_nm) for r in ordered])
-    idx = np.array([float(r.index) for r in ordered])
-    return float(np.median(np.diff(centres) / np.diff(idx)))
-
 
 def _gaussian_mle_rows(z: NDArray[np.float64]) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """Per row of ``z`` (R, N): the one-Gaussian MLE (mean, sd with
