@@ -1180,17 +1180,30 @@ def test_without_clusters() -> None:
         assert applied.perimeter_um < every.perimeter_um
         assert applied.perimeter.health.n_deep_vertices == 0
         assert every.perimeter.health.n_deep_vertices > 0
-        assert applied.occupancy is not None and applied.randomization is not None
-        assert np.array_equal(applied.randomization.experimental_1nn_nm,
-                              applied.nn.first_nn_nm)
-        assert applied.randomization.n_iterations == 100
+        assert applied.occupancy is not None
+        # The randomization ran again too. On this perfectly regular ring
+        # the smallest 1NN IS the spacing, so no random placement can hold
+        # every centre that far apart (packing fraction about 2): since
+        # SCI-3 the control is refused, with the reason, rather than
+        # compared with a sparser null.
+        if applied.randomization is None:
+            assert any("refused rather than compared with a sparser null"
+                       in w and "packing fraction" in w
+                       for w in applied.warnings), applied.warnings
+        else:
+            assert np.array_equal(applied.randomization.experimental_1nn_nm,
+                                  applied.nn.first_nn_nm)
+            assert applied.randomization.n_iterations == 100
         return (f"perimeter {every.perimeter_um:.2f} -> "
                 f"{applied.perimeter_um:.2f} um (ring {truth_um:.2f}); 1NN "
                 f"{every.median_1nn_nm:.0f} -> {applied.median_1nn_nm:.0f} nm "
                 f"(ring spacing {spacing:.0f}); occupancy "
                 f"{every.occupancy_percent:.1f} -> "
                 f"{applied.occupancy_percent:.1f} %; KS D "
-                f"{every.ks_statistic:.3f} -> {applied.ks_statistic:.3f}")
+                + ("-" if every.ks_statistic is None else f"{every.ks_statistic:.3f}")
+                + " -> "
+                + ("refused (a regular ring jams the null)" if applied.ks_statistic is None
+                   else f"{applied.ks_statistic:.3f}"))
 
     def its_warnings_say_so():
         k = len(base.upstream_warnings)

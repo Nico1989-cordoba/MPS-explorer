@@ -18,6 +18,8 @@ else different (``golden_ui_stage2_manifest.py``). The manifest itself is checke
      window (S3, S4, S10); B2 only where a value was set in the window (S2, S4, S6, S10).
   6. B17 (the species column) and B18 (SCI-1, the z calibration) in every cell: the species column and v4; the
      axon table's 15 z-calibration columns and v5, the dictionary's entries, the settings' new store; nothing else.
+  7. B19 (SCI-3) in every cell: the settings' randomization store and sigma cap; the axon table's columns (v6) and the
+     dictionary fall under the paths B17 and B18 already list.
 
 R8: simulated axons only (the harness's own); every cell runs in its own temporary folder.
 
@@ -61,9 +63,13 @@ WHERE = {   # B-change -> (scenarios, entry points) it may appear in (design 6.4
     # SCI-1: every export (15 z-calibration columns, table v5, the dictionary) and the settings' new store
     "B18": ({"S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11a", "S11b", "S12a", "S12b"},
             {"E1", "E2", "E3", "E4", "E5"}),
+    # SCI-3: the settings' randomization store and sigma cap in every cell (the table's v6 columns fall under the
+    # B17 / B18 paths)
+    "B19": ({"S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11a", "S11b", "S12a", "S12b"},
+            {"E1", "E2", "E3", "E4", "E5"}),
 }
 # Changes that reach every cell (their columns are written beside every export).
-EVERY_CELL = {"B17", "B18"}
+EVERY_CELL = {"B17", "B18", "B19"}
 
 
 def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]:
@@ -73,8 +79,8 @@ def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]
         b = str(e.get("b_change"))
         by_cell[e["cell"]].add(b)
         if b not in {f"B{i}" for i in range(1, 15)} | EVERY_CELL:
-            problems.append(f"{e['cell']}: {b} is not one of B1-B13 (G6), B14 (manual test 2), B17 (species) or "
-                            f"B18 (SCI-1)")
+            problems.append(f"{e['cell']}: {b} is not one of B1-B13 (G6), B14 (manual test 2), B17 (species), "
+                            f"B18 (SCI-1) or B19 (SCI-3)")
         if b in ("B5", "B7", "B8", "B9", "B10"):
             problems.append(f"{e['cell']}: {b} changes no recorded field and may not be listed")
         if not e.get("reason"):
@@ -90,7 +96,7 @@ def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]
         scenario = cell.split(":")[1]
         if scenario in ONLY_B13 and by_cell.get(cell, set()) - {"B13", "B14"} - EVERY_CELL:
             problems.append(f"{cell}: {sorted(by_cell[cell] - {'B13', 'B14'} - EVERY_CELL)} in a scenario that "
-                            "differs only by B13 (and B14 at E3, B17 and B18 everywhere)")
+                            "differs only by B13 (and B14 at E3, B17, B18 and B19 everywhere)")
         for b in sorted(EVERY_CELL):
             if b not in by_cell.get(cell, set()):
                 problems.append(f"{cell}: no {b} entry (its columns are written beside every export)")
