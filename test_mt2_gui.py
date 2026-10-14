@@ -16,7 +16,8 @@ folder, and the parent checks what it recorded:
   7  eps and min samples edited in the main window are the same stored value as the MPS window's strip;
   10 the "paper" badge reads "Gazal et al. (2026)", its tooltip keeps the full reference;
   11 loading a file draws the scatter, applies a circular ROI covering the whole axon, and selects DBSCAN;
-  12 the animal defaults to "mouse";
+  12 the animal has no default (empty, typed); the species is its own field, "mouse" by default, editable,
+     shown in the export dialog;
   13 the Rings window carries the axial view and the cluster area per segment;
   14 a click on a cluster of the axon map shows its id, area and nearest-neighbour distances;
   15 the Axoplasm panel shows which widefield image is under the axon map;
@@ -385,6 +386,23 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         d2 = IdentityDialog(path, remembered=AxonIdentity(animal="M12", sample="slide 2"),
                             remembered_folder=os.path.dirname(path))
         out["animal_remembered"] = d2.edits["animal"].text()
+        out["species"] = {"text": d.edits["species"].text(), "label": d.edits["species"].parent() is not None,
+                          "hint": d.hints["species"].text(), "read_only": d.edits["species"].isReadOnly(),
+                          "identity": [AxonIdentity().species, AxonIdentity().animal]}
+        d.edits["species"].setText("rat")
+        out["species_edited"] = d.identity().species
+        out["species_columns"] = AxonIdentity(species="rat", genotype="KO").columns()
+        out["species_remembered"] = d2.edits["species"].text()
+        d3 = IdentityDialog(path, remembered=AxonIdentity(species="rat", sample="slide 2"),
+                            remembered_folder=os.path.dirname(path))
+        out["species_remembered_rat"] = d3.edits["species"].text()
+        import importlib
+        from tools import axon_export_ui
+        # the harness replaces the dialog with a stand-in; the real one is wanted here
+        ExportAxonDialog = importlib.reload(axon_export_ui).ExportAxonDialog
+        e1 = ExportAxonDialog(path, AxonIdentity(genotype="WT", animal="M7"))
+        e2 = ExportAxonDialog(path, AxonIdentity())
+        out["export_dialog"] = {"filled": e1.label_identity.text(), "blank": e2.label_identity.text()}
     elif s == "load_flow":
         mw = make_main(load=False)
         out["fresh_algorithm"] = mw.algorithm_selector.currentText()
@@ -777,14 +795,25 @@ def main() -> int:
     def t12() -> str:
         r = res("badge_animal")
         a = r["animal"]
-        assert a["text"] == "mouse" and a["identity"] == "mouse" and not a["read_only"], a
-        assert "default 'mouse'" in a["hint"] and "animal" not in a["typed_by_hand"], a
+        # The animal is the individual: it starts empty, never "mouse".
+        assert a["text"] == "" and a["identity"] == "" and not a["read_only"], a
+        assert "mouse" not in a["hint"] and "animal" not in a["typed_by_hand"], a
         assert r["animal_edited"] == "M7" and r["animal_remembered"] == "M12", r
-        return "proposed 'mouse' (editable, said to be a default); M7 typed kept; the previous axon's M12 wins"
+        sp = r["species"]
+        assert sp["text"] == "mouse" and not sp["read_only"] and sp["identity"] == ["mouse", ""], sp
+        assert "default 'mouse'" in sp["hint"] and "species" not in a["typed_by_hand"], sp
+        assert r["species_edited"] == "rat" and r["species_remembered"] == "mouse", r
+        assert r["species_remembered_rat"] == "rat", r
+        assert r["species_columns"]["species"] == "rat" and r["species_columns"]["animal"] is None, r
+        ex = r["export_dialog"]
+        assert "Species: mouse" in ex["filled"] and "Animal: M7" in ex["filled"], ex
+        assert "no identity yet" in ex["blank"] and "mouse" in ex["blank"], ex
+        return ("animal empty, M7 typed kept, the previous axon's M12 wins; species 'mouse' (a default, editable, "
+                "'rat' kept); the export dialog shows it")
 
     if "badge_animal" in scenarios:
         check("10: the paper badge reads 'Gazal et al. (2026)', the tooltip the full reference", t10)
-        check("12: the animal defaults to 'mouse', editable", t12)
+        check("12: the animal starts empty; the species is 'mouse' by default, editable, exported", t12)
 
     def t11() -> str:
         r = res("load_flow")

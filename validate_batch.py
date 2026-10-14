@@ -334,6 +334,24 @@ def test_the_table() -> None:
         assert notes and "animal" in notes[0], notes
         return notes[0][:60]
 
+    def an_older_table_without_the_species_reads():
+        old = os.path.join(folder, "v2.csv")
+        with open(path, encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            assert reader.fieldnames and "species" in reader.fieldnames
+            fields = [f for f in reader.fieldnames if f != "species"]
+            rows = [{k: v for k, v in r.items() if k != "species"}
+                    for r in reader]
+        with open(old, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+        back, notes = mb.read_axon_table(old)
+        assert len(back) == N_AXONS
+        assert notes and "species" in notes[0], notes
+        assert all(r.identity.species == "" for r in back)
+        return notes[0][:60]
+
     check("the rows go to a table like any export", written_like_any_export)
     check("the same batch written again is recognised",
           the_same_batch_again_is_seen)
@@ -345,6 +363,8 @@ def test_the_table() -> None:
     check("the copy for Excel is refused", the_excel_copy_is_refused)
     check("a table from before the animal still reads, and says so",
           an_older_table_without_the_animal_reads)
+    check("a table from before the species still reads, and says so",
+          an_older_table_without_the_species_reads)
 
 
 # ===========================================================================

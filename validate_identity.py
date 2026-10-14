@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Checks for the identity a row carries: genotype, protein, slide, ROI and
-axon, proposed from the path and never guessed.
+Checks for the identity a row carries: species, genotype, protein, animal,
+slide, ROI and axon, proposed from the path and never guessed.
 
 A genotype attached to the wrong axon moves a measurement from one group
 to the other and produces no error anywhere. These checks are therefore
@@ -137,9 +137,12 @@ def test_nothing_is_invented() -> None:
 
     def a_path_that_says_nothing():
         p = propose("D:/data/file.hdf5")
-        assert p.identity.missing == FIELDS, p.identity.missing
-        assert len(p.warnings) == len(FIELDS), p.warnings
-        return f"{len(p.warnings)} warnings, nothing filled in"
+        # Everything but the species, which starts as 'mouse'.
+        want = tuple(n for n in FIELDS if n != "species")
+        assert p.identity.missing == want, p.identity.missing
+        assert len(p.warnings) == len(want), p.warnings
+        assert p.identity.species == "mouse" and p.identity.is_blank
+        return f"{len(p.warnings)} warnings, nothing filled in but the default species"
 
     def a_broken_pattern_is_reported_not_raised():
         p = propose(REAL, patterns={"genotype": "(KO|WT"})
@@ -383,6 +386,8 @@ def test_the_animal() -> None:
         # An identity stored before the animal existed still loads.
         old = identity_from_dict({"genotype": "KO", "sample": "SampleA"})
         assert old.animal == "" and old.genotype == "KO", old
+        # ... and the animal is NOT given a default by being absent.
+        assert AxonIdentity().animal == "" and propose(REAL).identity.animal == ""
         return "stored, and an older stored identity still loads"
 
     check("the animal has no pattern", it_has_no_pattern)
@@ -397,6 +402,64 @@ def test_the_animal() -> None:
     check("it is stored with the rest of the identity",
           it_is_kept_in_the_settings)
 
+def test_the_species() -> None:
+    """The species: 'mouse' unless said otherwise, apart from the animal."""
+    print("\n--- the species ---")
+    from tools.mps_identity import DEFAULT_PATTERNS, FROM_DEFAULT
+
+    def it_starts_as_mouse_and_the_animal_empty():
+        ident = AxonIdentity()
+        assert ident.species == "mouse" and ident.animal == "", ident
+        p = propose(REAL)
+        assert p.identity.species == "mouse" and p.identity.animal == "", p.identity
+        assert p.origin["species"] == FROM_DEFAULT, p.origin
+        assert "animal" in p.identity.missing and "species" not in p.identity.missing
+        assert DEFAULT_PATTERNS["species"] == ""
+        return p.explain("species")
+
+    def it_is_a_column_beside_the_others():
+        cols = AxonIdentity().columns()
+        assert cols["species"] == "mouse" and cols["animal"] is None, cols
+        assert FIELDS[0] == "species" and "species" in identity_to_dict(AxonIdentity())
+        return "species 'mouse', animal an empty cell"
+
+    def it_can_be_edited():
+        assert AxonIdentity(species="rat").species == "rat"
+        assert AxonIdentity(species="  rat ").species == "rat"
+        # Emptied on purpose, it is empty (and missing), not put back.
+        e = AxonIdentity(species="")
+        assert e.species == "" and "species" in e.missing, e
+        return "'rat' kept; emptied stays empty"
+
+    def a_pattern_can_read_it():
+        p = propose("D:/rata/Vidrio 3/ROI 1/Axon 1/locs.hdf5", patterns={"species": r"/(rata)/"})
+        assert p.identity.species == "rata" and p.origin["species"] == "pattern", p.identity
+        q = propose(REAL, patterns={"species": r"/(rata)/"})
+        assert q.identity.species == "mouse" and "stays" in q.explain("species"), q.explain("species")
+        return "a hit wins; a miss leaves the default"
+
+    def it_follows_the_slide_when_edited():
+        typed = AxonIdentity(species="rat", genotype="KO", sample="SampleA")
+        p = propose(REAL, remembered=typed, remembered_folder=os.path.dirname(REAL))
+        assert p.identity.species == "rat", p.identity
+        other = propose("D:/SampleB/ROI 1/Axon 2/locs.hdf5", remembered=typed,
+                        remembered_folder=os.path.dirname(REAL))
+        assert other.identity.species == "mouse", other.identity
+        return "a species typed for a slide goes on its other axons only"
+
+    def an_older_stored_identity_gets_the_default():
+        old = identity_from_dict({"genotype": "KO", "animal": "M3"})
+        assert old.species == "mouse" and old.animal == "M3", old
+        return "stored before the species existed: mouse"
+
+    check("it starts as mouse, the animal empty", it_starts_as_mouse_and_the_animal_empty)
+    check("it is an export column and a stored field", it_is_a_column_beside_the_others)
+    check("it can be edited, and emptied", it_can_be_edited)
+    check("a pattern can read it", a_pattern_can_read_it)
+    check("an edited species goes on with the slide", it_follows_the_slide_when_edited)
+    check("an identity stored before it gets the default", an_older_stored_identity_gets_the_default)
+
+
 def main() -> int:
     print("=" * 72)
     print("IDENTITY CHECKS")
@@ -405,6 +468,7 @@ def main() -> int:
     test_nothing_is_invented()
     test_carry_over()
     test_the_animal()
+    test_the_species()
     test_axon_id()
     test_settings()
     print("\n" + "=" * 72)

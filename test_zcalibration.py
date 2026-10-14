@@ -413,7 +413,7 @@ def test_bead_stack_from_a_picasso_file_through_the_store() -> None:
 def test_axon_row_columns_and_dictionary() -> None:
     from tools import axon_export, column_dictionary
 
-    assert axon_export.TABLE_VERSION == "axon tables v4"
+    assert axon_export.TABLE_VERSION == "axon tables v5"
     assert tuple(axon_export.Z_CALIBRATION_COLUMNS) == zcal.Z_CALIBRATION_COLUMNS
     known = column_dictionary.known_columns()
     assert known[-len(zcal.Z_CALIBRATION_COLUMNS):] == list(zcal.Z_CALIBRATION_COLUMNS)   # last: nothing moved

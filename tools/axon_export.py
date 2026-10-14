@@ -66,14 +66,16 @@ from tools.results_table import cell_text
 # (contour_scatter_nm, contour_scatter_percent,
 # contour_scatter_depth_limit_nm, contour_n_deep_beyond_scatter, #27, also
 # with "_discard").
-# v4 (2026-10-13): the z calibration of the measurement, written once at the
+# v4 (2026-10-13): the species among the identity columns (default "mouse");
+# the animal is the individual again and has no default.
+# v5 (2026-10-13): the z calibration of the measurement, written once at the
 # end of the row so that no earlier column moves (Z_CALIBRATION_COLUMNS):
 # which record, the magnification factor m and where it came from, the
 # calibrated range (nominal, or resolved by a bead stack), whether the
 # file's own record matches a chosen one, and what a bead stack measured.
 # Empty cells, with z_magnification_origin "blank", when nothing was read.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v4"
+TABLE_VERSION = "axon tables v5"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
