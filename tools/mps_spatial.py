@@ -29,9 +29,10 @@ legitimately report different 1NN values: agreement with Gazal et al.
 (2026) is not a validation criterion. The analysis therefore reports the
 clusters per micrometre and the density-normalised regularity index
 r = median 1NN x K / P beside the 1NN (``AxonAnalysis.nn_regularity_index``;
-about 0.47 for a random hard-core arrangement and 1 for evenly spaced
-centres in this project's simulation), and ``validate_nn1_controls.py``
-gives a synthetic control for each factor.
+1 for evenly spaced centres) with this axon's own null r from the
+randomization (``nn_regularity_null``: the random level depends on the
+minimum separation and the band, so it is not a fixed number), and
+``validate_nn1_controls.py`` gives a synthetic control for each factor.
 
 Distance metric
 ---------------

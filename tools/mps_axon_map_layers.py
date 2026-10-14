@@ -1296,8 +1296,13 @@ def nn_details(shown: Any, n: int) -> List[DetailRow]:
     rows.append(_row("median 1NN", "-" if med is None else f"{med:,.1f} nm"))
     r_index = getattr(shown, "nn_regularity_index", None)
     rows.append(_row("regularity r = median 1NN x K / P", "-" if r_index is None else f"{r_index:.2f}",
-                     "about 0.47 for a random arrangement, 1 for evenly spaced centres (this program's "
-                     "simulation): the 1NN scales with the clusters per um, r does not"))
+                     "1 for evenly spaced centres; the 1NN scales with the clusters per um, r does not"))
+    null = getattr(shown, "nn_regularity_null", None)
+    reading = getattr(shown, "nn_regularity_reading", None)
+    rows.append(_row("null r (this axon)", "- (no randomization)" if null is None
+                     else f"{null[0]:.2f} [{null[1]:.2f}-{null[2]:.2f}]",
+                     ("the random level depends on the minimum separation and the band; "
+                      + (reading or "") + (" (docs/randomization_and_ks.md, section 6)"))))
     rows.append(_row("neighbours N", str(int(n))))
     return rows
 

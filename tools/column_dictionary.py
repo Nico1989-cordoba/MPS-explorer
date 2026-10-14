@@ -258,10 +258,20 @@ ANALYSIS: Dict[str, str] = {
                                     "reaches, where no randomized centre "
                                     "can sit.",
     "nn_regularity_index": "Median 1NN times the clusters over the "
-                           "perimeter (median 1NN x K / P): about 0.47 for "
-                           "a random arrangement, 1 for evenly spaced "
-                           "centres. Separates regularity from how many "
-                           "clusters were detected.",
+                           "perimeter (median 1NN x K / P): 1 for evenly "
+                           "spaced centres. Separates regularity from how "
+                           "many clusters were detected. What random "
+                           "placement gives depends on the minimum "
+                           "separation and the band: compare it with this "
+                           "axon's null r (the next three columns).",
+    "nn_regularity_null_mean": "The same index of the randomized rings of "
+                               "this axon (same K and P), averaged: the "
+                               "random level for this axon.",
+    "nn_regularity_null_lo": "Lower end of the central 95 % of the "
+                             "randomized rings' index. Below it: an excess "
+                             "of short distances.",
+    "nn_regularity_null_hi": "Upper end of the same interval. Above it: "
+                             "more regular than random.",
     "n_warnings": "How many warnings this analysis raised.",
     "warnings": "Their text, separated by ' | '.",
 }

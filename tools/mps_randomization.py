@@ -94,6 +94,8 @@ from scipy.spatial import cKDTree
 
 # The public methods page of this control (every choice, its origin and its calibration).
 METHODS_DOC = "docs/randomization_and_ks.md"
+# The central share of the iterations' regularity index r_i reported as this axon's null interval of r.
+NULL_R_LEVEL = 0.95
 
 # Paper constants (Gazal et al. 2026; another dataset and pipeline)
 PAPER_KS_D = 0.054

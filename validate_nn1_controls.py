@@ -3,7 +3,7 @@
 The five synthetic controls of the 1NN (SCI-3; calibration of the record on the 1NN as a possible finding).
 
 The median 1NN confounds the DENSITY of detected clusters (K / P) and the REGULARITY of their arrangement (the index
-r = median 1NN x K / P: about 0.47 for a random hard-core arrangement, 1 for evenly spaced centres). Each control
+r = median 1NN x K / P: 1 for evenly spaced centres; its random level depends on the hard core and the band). Each control
 below changes one factor on simulated axons (``tools.mps_simulate_axon``, three rings, 4 clusters per um, hard core
 80 nm) and runs the per-axon analysis on them, reporting the detected clusters over the true ones (middle ring),
 the clusters per um, the median 1NN and r:

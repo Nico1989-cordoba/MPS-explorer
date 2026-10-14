@@ -236,6 +236,12 @@ def test_analysis_rows_and_columns() -> None:
     assert abs(a.nn_regularity_index - r_index) < 1e-12
     names = [row[0] for row in a.summary_rows()]
     assert "  regularity r" in names and "  Monte Carlo p" in names and "  centres outside the band" in names
+    for name in ("nn_regularity_null_mean", "nn_regularity_null_lo", "nn_regularity_null_hi"):
+        assert name in rec and name in MEASURED_COLUMNS and cd.describe(name), name
+    null = a.nn_regularity_null
+    assert null is not None and null[1] <= null[0] <= null[2]
+    reg_row = dict((row[0], row) for row in a.summary_rows())["  regularity r"]
+    assert "null r (this axon)" in reg_row[3] and "0.47" not in reg_row[3] and a.nn_regularity_reading in reg_row[1]
     ks = dict((row[0], row) for row in a.summary_rows())["Randomization KS test"]
     assert "p=" not in ks[1] and "z_D" in ks[1]
     assert rec["randomization_n_iterations"] == 49
@@ -309,6 +315,56 @@ def test_constancy_refuses_without_animals() -> None:
     res = occupancy_vs_calibre(occ, per, animals, n_bootstrap=50)
     assert res.n_animals == 6 and res.slope_ci_pp_per_um[0] < res.slope_ci_pp_per_um[1]
     assert any("pseudoreplicated" in line for line in res.lines())
+
+
+def _r_of(points: np.ndarray, medians: np.ndarray) -> tuple:
+    """Observed r and the null r of a ring, with P the closed polygon through its centres (as perimeter_um)."""
+    from tools.mps_analysis import regularity_null
+    closed = np.vstack([points, points[:1]])
+    p_um = float(np.sum(np.linalg.norm(np.diff(closed, axis=0), axis=1))) / 1000.0
+    nn = R._self_excluded_1nn(points)
+    k = len(points)
+    return float(np.median(nn)) * k / (p_um * 1000.0), regularity_null(medians, k, p_um)
+
+
+def test_null_regularity_covers_a_null_draw() -> None:
+    # An exchangeable null (observed = one more draw of the same process, the true hard core given): the observed r
+    # falls inside this axon's 95 % null interval of r in about 95 % of draws.
+    contour = np.column_stack([1200 * np.cos(np.linspace(0, 2 * np.pi, 200, endpoint=False)),
+                               1200 * np.sin(np.linspace(0, 2 * np.pi, 200, endpoint=False))])
+    smoothed = R.smooth_contour_bspline(R.close_contour(contour), smoothing=200.0)
+    cand = R.build_annulus_candidates(smoothed)
+    rng = np.random.default_rng(14)
+    inside = n = 0
+    for _ in range(40):
+        obs = R.place_with_min_distance(cand, 30, 80.0, rng)
+        if len(obs) < 30:
+            continue
+        order = np.argsort(np.arctan2(obs[:, 1], obs[:, 0]))
+        obs = obs[order]
+        res = R.randomize_cluster_positions(obs, contour, n_iterations=99, min_distance_nm=80.0,
+                                            random_seed=int(rng.integers(1 << 30)))
+        r_obs, null = _r_of(obs, res.per_iteration_medians_nm)
+        inside += int(null[1] <= r_obs <= null[2])
+        n += 1
+    assert n >= 35 and inside / n >= 0.85, (inside, n)
+
+
+def test_null_regularity_reads_regular_and_twins() -> None:
+    from tools.mps_analysis import regularity_reading
+    th = np.linspace(0, 2 * np.pi, 40, endpoint=False)
+    ring = np.column_stack([1600 * np.cos(th), 1600 * np.sin(th)])
+    res = R.randomize_cluster_positions(ring + 0.0, ring, n_iterations=99, min_distance_nm=80.0)
+    r_obs, null = _r_of(ring, res.per_iteration_medians_nm)
+    assert abs(r_obs - 1.0) < 0.01 and regularity_reading(r_obs, null).startswith("above null"), (r_obs, null)
+    # 20 sites, each split into twins 40 nm apart along the ring: the median 1NN is the twin distance
+    th20 = np.linspace(0, 2 * np.pi, 20, endpoint=False)
+    twins = np.vstack([np.column_stack([1600 * np.cos(th20 + s), 1600 * np.sin(th20 + s)])
+                       for s in (0.0, 40.0 / 1600)])
+    twins = twins[np.argsort(np.arctan2(twins[:, 1], twins[:, 0]))]
+    res = R.randomize_cluster_positions(twins, twins, n_iterations=99)
+    r_obs, null = _r_of(twins, res.per_iteration_medians_nm)
+    assert regularity_reading(r_obs, null).startswith("below null"), (r_obs, null)
 
 
 def test_methods_page_exists_and_is_linked() -> None:

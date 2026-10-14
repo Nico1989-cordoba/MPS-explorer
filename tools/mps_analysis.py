@@ -81,6 +81,7 @@ from tools.mps_periodicity import (
 )
 from tools.mps_randomization import (
     DEFAULT_N_RANDOMIZATIONS,
+    NULL_R_LEVEL,
     PAPER_KS_D,
     RandomizationParams,
     RandomizationResult,
@@ -332,16 +333,39 @@ class AxonAnalysis:
     @property
     def nn_regularity_index(self) -> Optional[float]:
         """r = median 1NN x K / P: the median spacing over the mean spacing
-        P / K. The mean 1NN cannot exceed P / K and the median equals it for
-        evenly spaced centres, so r separates the regularity of the
-        arrangement from the density of detected clusters (about 0.47 for a
-        random hard-core arrangement, 1 for evenly spaced centres; this
-        project's simulation)."""
+        P / K (P the contour through the centres, ``perimeter_um``). The mean
+        1NN cannot exceed P / K and the median equals it for evenly spaced
+        centres (r = 1), so r separates the regularity of the arrangement
+        from the density of detected clusters. The value random placement
+        gives depends on the minimum separation and the band, so it is not a
+        fixed number: ``nn_regularity_null`` is this axon's own."""
         med = self.median_1nn_nm
         per = self.perimeter
         if med is None or per is None or per.perimeter_um <= 0:
             return None
         return float(med * self.n_clusters_kept / (per.perimeter_um * 1000.0))
+
+    @property
+    def nn_regularity_null(self) -> Optional[Tuple[float, float, float]]:
+        """This axon's null regularity index: (mean, lo, hi) of r_i = median
+        1NN_i x K / P over the randomization's iterations, with the same K and
+        P as the observed r, the interval the central ``NULL_R_LEVEL`` of the
+        r_i. Its two-sided rank test is the Monte Carlo p of the median
+        (``ks_p_mc_median``): K / P is fixed, so the rank of r among the r_i
+        is the rank of the median among the medians. None without the
+        randomization or a contour."""
+        r = self.randomization
+        per = self.perimeter
+        if r is None or per is None or per.perimeter_um <= 0:
+            return None
+        return regularity_null(r.per_iteration_medians_nm,
+                               self.n_clusters_kept, per.perimeter_um)
+
+    @property
+    def nn_regularity_reading(self) -> Optional[str]:
+        """The observed r against this axon's null interval, in words."""
+        return regularity_reading(self.nn_regularity_index,
+                                  self.nn_regularity_null)
 
     def summary_rows(self) -> List[Tuple[str, str, str, str]]:
         """
@@ -459,10 +483,18 @@ class AxonAnalysis:
              "~25 nm", "sqrt(A/pi)"),
             ("1NN spacing (median)", fmt(self.median_1nn_nm, 1) + " nm",
              "260 nm", "euclidean, centre-to-centre"),
-            ("  regularity r", fmt(self.nn_regularity_index, 2), "-",
-             "median 1NN x K / P: about 0.47 random .. 1 evenly spaced "
-             "(this program's simulation); independent of how many "
-             "clusters are detected"),
+            ("  regularity r",
+             fmt(self.nn_regularity_index, 2)
+             + ("" if self.nn_regularity_reading is None
+                else f", {self.nn_regularity_reading}"),
+             "-",
+             ("median 1NN x K / P (1 = evenly spaced); "
+              + ("null r (this axon): needs the randomization"
+                 if self.nn_regularity_null is None
+                 else "null r (this axon): "
+                      f"{self.nn_regularity_null[0]:.2f} "
+                      f"[{self.nn_regularity_null[1]:.2f}-"
+                      f"{self.nn_regularity_null[2]:.2f}]"))),
             ("Perimeter occupancy",
              "n/a" if self.occupancy is None
              else f"{self.occupancy.occupancy_percent:.1f} %",
@@ -661,6 +693,18 @@ class AxonAnalysis:
             "nn_regularity_index": (
                 None if self.nn_regularity_index is None
                 else round(self.nn_regularity_index, 4)),
+            # This axon's own null r (mean and central interval of the
+            # iterations' r_i): the random level depends on the minimum
+            # separation and the band, so it is not a fixed number.
+            "nn_regularity_null_mean": (
+                None if self.nn_regularity_null is None
+                else round(self.nn_regularity_null[0], 4)),
+            "nn_regularity_null_lo": (
+                None if self.nn_regularity_null is None
+                else round(self.nn_regularity_null[1], 4)),
+            "nn_regularity_null_hi": (
+                None if self.nn_regularity_null is None
+                else round(self.nn_regularity_null[2], 4)),
             "ks_statistic": self.ks_statistic,
             "ks_cdf_crossing": (
                 None if self.randomization is None
@@ -737,6 +781,35 @@ class AxonAnalysis:
 # person typed for another file in the same folder. Both are inferences
 # about which acquisition a file belongs to, not records of it, so both
 # warn exactly like a typed value does.
+def regularity_null(
+    per_iteration_medians_nm: Any, n_clusters: int, perimeter_um: float,
+    level: float = NULL_R_LEVEL,
+) -> Optional[Tuple[float, float, float]]:
+    """(mean, lo, hi) of r_i = median 1NN_i x K / P over the iterations,
+    the interval the central ``level`` of the r_i; None without any."""
+    m = np.asarray(per_iteration_medians_nm, dtype=float)
+    m = m[np.isfinite(m)]
+    if m.size == 0 or perimeter_um <= 0:
+        return None
+    vals = m * int(n_clusters) / (float(perimeter_um) * 1000.0)
+    tail = 100.0 * (1.0 - float(level)) / 2.0
+    return (float(np.mean(vals)), float(np.percentile(vals, tail)),
+            float(np.percentile(vals, 100.0 - tail)))
+
+
+def regularity_reading(observed: Optional[float],
+                       null: Optional[Tuple[float, float, float]]
+                       ) -> Optional[str]:
+    """An observed r against a null interval, in words."""
+    if observed is None or null is None:
+        return None
+    if observed < null[1]:
+        return "below null (excess of short distances)"
+    if observed > null[2]:
+        return "above null (more regular than random)"
+    return "within null"
+
+
 def _p_text(p: Optional[float]) -> str:
     """A Monte Carlo p as the results table writes it."""
     return "n/a" if p is None else f"{p:.3f}"

@@ -414,6 +414,15 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
                    "Genton 2014)",
        shown_as="Randomization editor and 'More' line; axon table",
        range_text="observed minimum / bias-corrected", records=("rand-ks-pvalue",), editable=True),
+    _e(key="randomization.null_r_level", label="null r interval", unit="", home="none",
+       default=_const(_R, "NULL_R_LEVEL"), origin="derived",
+       words=lambda v: f"central {100.0 * v:g} % of the randomizations' r",
+       origin_note="convention: this axon's null regularity index is the mean and the central share of r_i = "
+                   "median 1NN_i x K / P over the randomizations (same K and P as the observed r); the random level "
+                   "of r depends on the minimum separation and the band, so no fixed number stands for it; its "
+                   "two-sided test is the Monte Carlo p of the median",
+       shown_as="results table (regularity row); NN details; axon table", records=("nn1-discrepancy-vs-paper",),
+       not_editable_because="e1: a reporting level, not an analysis parameter", fmt=".2f"),
     # ---------------------------------------------------------------- reference values (paper)
     _e(key="reference.nn1_median_nm", label="1NN median", unit="nm", home="none",
        default=_const("tools.mps_spatial", "PAPER_MEDIAN_OF_MEDIANS_NM"), origin="paper",

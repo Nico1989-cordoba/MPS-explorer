@@ -74,6 +74,15 @@ from tools.results_table import cell_text
 # calibrated range (nominal, or resolved by a bead stack), whether the
 # file's own record matches a chosen one, and what a bead stack measured.
 # Empty cells, with z_magnification_origin "blank", when nothing was read.
+# v6 (2026-10-14): the randomization control of SCI-3 (docs/randomization_and_ks.md).
+# ks_pvalue removed; added, beside the measured columns (also with
+# "_discard"): ks_null_mean, ks_z, ks_p_mc_median, ks_p_mc_d,
+# ks_cdf_crossing_significant, randomization_n_redrawn,
+# randomization_packing_fraction, randomization_n_outside_band,
+# nn_regularity_index and this axon's null regularity index
+# (nn_regularity_null_mean, nn_regularity_null_lo, nn_regularity_null_hi);
+# written once: the randomization's settings and the occupancy's sigma cap.
+# ks_cdf_crossing now holds the level read against the null band.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
 TABLE_VERSION = "axon tables v6"
 
@@ -151,7 +160,8 @@ MEASURED_COLUMNS: Tuple[str, ...] = (
     "ks_null_mean", "ks_z", "ks_p_mc_median", "ks_p_mc_d",
     "ks_cdf_crossing_significant", "randomization_n_redrawn",
     "randomization_packing_fraction", "randomization_n_outside_band",
-    "nn_regularity_index", "n_warnings", "warnings")
+    "nn_regularity_index", "nn_regularity_null_mean", "nn_regularity_null_lo",
+    "nn_regularity_null_hi", "n_warnings", "warnings")
 
 DISCARD_SUFFIX = "_discard"
 
@@ -179,7 +189,8 @@ ROUNDING: Tuple[Tuple[str, int], ...] = (
 # Fractions and the statistics that behave like one.
 _FOUR_DECIMALS = frozenset({"ks_statistic", "contour_tour_over_hull",
                             "contour_length_in_long_edges", "ks_null_mean",
-                            "nn_regularity_index",
+                            "nn_regularity_index", "nn_regularity_null_mean",
+                            "nn_regularity_null_lo", "nn_regularity_null_hi",
                             "randomization_packing_fraction"})
 # Not measurements: what the analysis was RUN with is written exactly as
 # it was given, however many digits that takes.

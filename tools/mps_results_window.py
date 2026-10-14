@@ -142,6 +142,12 @@ CROSSING_TIP = ("Reported only where the observed CDF leaves the band the random
                 "significant when the crossing is stronger than the randomizations themselves reach (Monte Carlo).")
 # The public methods page of the randomization rows (tools.mps_randomization.METHODS_DOC).
 METHODS_TIP = "Methods: docs/randomization_and_ks.md"
+REGULARITY_TIP = (
+    "r = median 1NN x K / P: 1 for evenly spaced centres. What random placement gives is not a fixed number: it "
+    "depends on the minimum separation and the band, so it is computed for this axon from its own randomizations "
+    "(mean and central 95 % of their r). Below that interval: an excess of short distances; above it: more "
+    "regular than random. Its two-sided test is the Monte Carlo p of the median. "
+    "Methods: docs/randomization_and_ks.md, section 6")
 # The reference cell of each row, by the row's name (summary_rows), and the registry entry that says what it is.
 _REFERENCE_KEYS: Dict[str, str] = {
     "Clusters per um": "reference.clusters_per_um",
@@ -155,7 +161,8 @@ _REFERENCE_KEYS: Dict[str, str] = {
 _KS_ROW = "Randomization KS test"
 _MC_ROW = "  Monte Carlo p"
 # The other rows the randomization methods page documents.
-_RAND_ROWS = ("  centres outside the band", "  regularity r")
+_RAND_ROWS = ("  centres outside the band",)
+_REGULARITY_ROW = "  regularity r"
 _CROSSING_ROW = "  CDF crossing"
 
 # How much of the plot column the map takes when the window opens (the rest
@@ -1489,6 +1496,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 item.setToolTip(KS_TIP + "\n" + METHODS_TIP + (f"\n\n{own}" if own else ""))
             elif name == _MC_ROW:
                 item.setToolTip(MC_P_TIP + "\n" + METHODS_TIP + (f"\n\n{own}" if own else ""))
+            elif name == _REGULARITY_ROW:
+                item.setToolTip(REGULARITY_TIP + (f"\n\n{own}" if own else ""))
             elif name in _RAND_ROWS:
                 item.setToolTip(METHODS_TIP + (f"\n\n{own}" if own else ""))
             elif name == _CROSSING_ROW:

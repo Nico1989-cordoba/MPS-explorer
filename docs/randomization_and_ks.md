@@ -259,12 +259,26 @@ with one coincident pair and the rest evenly spaced). So the median 1NN confound
 detected clusters (K/P) and the **regularity** of their arrangement. r = median 1NN / (P/K) removes the density
 (the planar analogue is Clark & Evans 1954).
 
-**Values** (own simulation, **sim3**, `docs/sims/randomization/sim3_nn_factors.py`: K = 70 centres on a circle of
-perimeter 25 µm, seed 3): r = **1.00** evenly spaced, **0.92 / 0.84 / 0.75** with arc jitter sd 30 / 60 / 100 nm,
-**0.47** for a random arrangement with a 60 nm hard core (the 1-D Poisson value is ln2/2 = 0.35 for the median).
-`validate_nn1_controls.py` (section 4; simulated axons through the whole pipeline) gives r = 0.98-0.99 for a full
-lattice, 0.82-0.90 / 0.66-0.79 / 0.69-0.75 with jitter 30 / 60 / 100 nm and 0.66-0.72 for the simulator's random
-hard-core rings.
+**Values, as illustration** (own simulation, **sim3**, `docs/sims/randomization/sim3_nn_factors.py`: K = 70 centres on
+a circle of perimeter 25 µm, seed 3): r = **1.00** evenly spaced, **0.92 / 0.84 / 0.75** with arc jitter sd
+30 / 60 / 100 nm, **0.47** for a random arrangement with a 60 nm hard core (the 1-D Poisson value, no hard core, is
+ln2/2 = 0.35 for the median). `validate_nn1_controls.py` (section 4; simulated axons through the whole pipeline) gives
+r = 0.98-0.99 for a full lattice, 0.82-0.90 / 0.66-0.79 / 0.69-0.75 with jitter 30 / 60 / 100 nm and **0.66-0.72**
+for the simulator's random hard-core rings (80 nm hard core, ~250 nm spacing).
+
+**The random level of r is not a fixed number.** It rises with the hard core relative to the mean spacing (a hard
+core of 60 nm at 357 nm spacing gives 0.47 in sim3; 80 nm at ~250 nm gives 0.66-0.72 in the pipeline validator) and
+depends on the band. A fixed "0.47 = random" therefore misleads: an observed r = 0.59 can lie **below** an axon's own
+random level. The program computes **each axon's null r** from its own randomization: r_i = median 1NN_i × K / P for
+every iteration i, with the same K and the same P as the observed r (`perimeter_um`, the contour through the
+centres), and reports its mean and its central 95 % (`nn_regularity_null_mean`, `nn_regularity_null_lo`,
+`nn_regularity_null_hi`). The results table reads the observed r against that interval: "below null (excess of short
+distances)", "within null", or "above null (more regular than random)". The two-sided rank test of r is the Monte
+Carlo p of the median (`ks_p_mc_median`, section 4): K/P is fixed, so the rank of r among the r_i is the rank of the
+median among the per-iteration medians; no second p-value is added. Synthetic checks
+(`test_randomization_sci3.py`): the null r of an exchangeable null contains the observed r of a null draw in about
+95 % of draws; an evenly spaced ring reads "above null"; a ring whose clusters are split into twins reads "below
+null".
 
 **Why agreement with the published 1NN is not a validation criterion.** From the paper's own regression
 N = 4.08 P − 12.62 (P in µm) the mean spacing is 355 nm at P = 10 µm and 273 nm at 30 µm; with its median of per-axon
@@ -284,7 +298,8 @@ every setting but that one (0.41): **the detected density moves the 1NN, r does 
 sim3's < 2 %; the slab-leak control found no foreign clusters at any axial precision with the simulator's 190 nm
 period.)
 
-The results table therefore shows "Clusters per um" (the first thing to compare) and "regularity r" next to the 1NN;
+The results table therefore shows "Clusters per um" (the first thing to compare) and "regularity r" (with this axon's
+null r) next to the 1NN;
 the reference column is labelled "Reference (Gazal et al. 2026, preprint v1, pooled)" — another dataset and another
 pipeline. The validation helper (`pool_nn_across_axons`, printed by `validate_full_pipeline.py`) reports the pooled
 median and quartiles first and the pooled mode by a Gaussian KDE (Scott's rule; Parzen 1962; Scott 1992) and by a
@@ -361,6 +376,10 @@ its ~200 nm peak without stating bin width or smoothing.
   value for one more version as P-R26 suggested; the table version (v6) and the column dictionary say so. The same
   day the user required every analysis choice to be documented publicly for peer review; this page is that record for
   the randomization control.
+- **2026-10-14, user request after a manual test** (an axon read r = 0.59 against a tooltip that gave "about 0.47
+  random"): the fixed 0.47 is no longer presented as the random level; each axon's own null r (mean and central 95 %
+  of its randomizations' r) is reported beside the observed r, with "below / within / above null"; the two-sided test
+  stays the Monte Carlo p of the median (section 6).
 
 ## References
 
