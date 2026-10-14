@@ -299,11 +299,11 @@ def derive_channel2(precision1: Optional[ChannelPrecision], precision2: Optional
     if not p2.measured:
         out.eps_reason = out.min_samples_reason = f"channel 2's precision is {p2.describe()}"
         return out
-    nena2 = float(p2.nena_nm)                                   # type: ignore[arg-type]
+    nena2 = float(p2.nena_nm or 0.0)                            # measured: a positive number
     out.nena2_nm = nena2
     p1 = precision1
     if p1 is not None and p1.measured:
-        out.nena1_nm, out.nena1_origin = float(p1.nena_nm), "measured"   # type: ignore[arg-type]
+        out.nena1_nm, out.nena1_origin = float(p1.nena_nm or 0.0), "measured"
         ch1_words = f"channel 1's NeNA {out.nena1_nm:.1f} nm (whole field {p1.source_file})"
     else:
         out.nena1_nm, out.nena1_origin = GAZAL_NENA_NM, "reference (Gazal et al. 2026)"

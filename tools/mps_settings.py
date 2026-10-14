@@ -217,10 +217,10 @@ class MPSSettings:
                         "parameters; it will be asked for again", folder)
                     continue
                 if 0 < eps2 <= 1000 and 1 <= min2 <= 10000:
-                    kept: Dict[str, Any] = {"eps_nm": eps2,
+                    pair: Dict[str, Any] = {"eps_nm": eps2,
                                             "min_samples": float(min2)}
-                    kept.update(_channel2_provenance(entry))
-                    chosen[str(folder)] = kept
+                    pair.update(_channel2_provenance(entry))
+                    chosen[str(folder)] = pair
                 else:
                     logger.warning(
                         "Stored channel-2 clustering for %s is out of range "
