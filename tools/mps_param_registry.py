@@ -827,12 +827,18 @@ MORE_GROUPS: Dict[str, Tuple[str, ...]] = {
     "dbscan": ("curation.edge_criterion", "curation.dbcv_threshold", "contour.two_opt_starts"),
 }
 
+def _words(key: str, value: Any) -> str:
+    """An entry's value in its own words (``ParamInfo.words``), or as format_value writes it."""
+    words = info(key).words
+    return words(value) if words is not None else format_value(key, value)
+
+
 _MORE_WORDS: Dict[str, Callable[[Any], str]] = {
     "randomization.band_half_width_nm": lambda v: f"band +/-{format_value('randomization.band_half_width_nm', v)}",
     "randomization.iterations": lambda v: f"{format_value('randomization.iterations', v)} iterations",
     "randomization.seed": lambda v: f"seed {format_value('randomization.seed', v)}",
-    "randomization.smoothing": lambda v: info("randomization.smoothing").words(v),  # type: ignore[misc]
-    "randomization.incomplete_iterations": lambda v: info("randomization.incomplete_iterations").words(v),  # type: ignore[misc]
+    "randomization.smoothing": lambda v: _words("randomization.smoothing", v),
+    "randomization.incomplete_iterations": lambda v: _words("randomization.incomplete_iterations", v),
     "randomization.max_attempts_factor": lambda v: f"attempts {v} x n",
     "randomization.grid_spacing_nm": lambda v: f"grid {format_value('randomization.grid_spacing_nm', v)}",
     "randomization.cdf_band_alpha": lambda v: f"CDF band alpha {v:g}",

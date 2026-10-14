@@ -502,10 +502,10 @@ def monte_carlo_p(observed: float, null: NDArray[np.float64], two_sided: bool = 
     if v.size == 0 or not math.isfinite(observed):
         return None
     tol = 1e-12 * max(1.0, abs(observed))
-    hi = (1.0 + float(np.count_nonzero(v >= observed - tol))) / (v.size + 1.0)
+    hi = float((1.0 + float(np.count_nonzero(v >= observed - tol))) / (v.size + 1.0))
     if not two_sided:
         return hi
-    lo = (1.0 + float(np.count_nonzero(v <= observed + tol))) / (v.size + 1.0)
+    lo = float((1.0 + float(np.count_nonzero(v <= observed + tol))) / (v.size + 1.0))
     return float(min(1.0, 2.0 * min(lo, hi)))
 
 
