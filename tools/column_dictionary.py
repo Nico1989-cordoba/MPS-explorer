@@ -21,8 +21,8 @@ import os
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from tools.axon_export import (
-    AXOPLASM_PREFIX, DISCARD_SUFFIX, HEAD_COLUMNS, MEASURED_COLUMNS,
-    SHARED_COLUMNS, STATE_COLUMNS, Z_CALIBRATION_COLUMNS,
+    AXIAL_MIXTURE_COLUMNS, AXOPLASM_PREFIX, DISCARD_SUFFIX, HEAD_COLUMNS,
+    MEASURED_COLUMNS, SHARED_COLUMNS, STATE_COLUMNS, Z_CALIBRATION_COLUMNS,
 )
 from tools.mps_identity import FIELD_HINTS, FIELDS as IDENTITY_FIELDS
 
@@ -567,13 +567,34 @@ Z_CALIBRATION: Dict[str, str] = {
     "z_lateral_shift_y_nm": "The same for y.",
 }
 
+# SCI-6: the axial mixture, after the z calibration.
+AXIAL_MIXTURE: Dict[str, str] = {
+    "main_peak_mode": "Which reading of 'the main peak of the axial "
+                      "localization distribution' centred the automatic slab: "
+                      "'density' (the mode of the fitted mixture) or 'weight' "
+                      "(the mean of its heaviest component).",
+    "z_peak_density_nm": "The mode of the fitted axial mixture density.",
+    "z_peak_weight_nm": "The mean of the mixture component with the largest "
+                        "weight. The two readings coincide when the rings are "
+                        "resolved.",
+    "slab_foreign_fraction": "Expected share (0-1) of the slab's localizations "
+                             "that the fitted mixture attributes to components "
+                             "other than the slab's own ring: sum of w_k x the "
+                             "mass of component k inside the slab over the other "
+                             "components, divided by the same sum over all. This "
+                             "program warns above 0.05.",
+    "delta_z_se_nm": "Standard error of delta_z_mean_nm: sd of the spacings / "
+                     "sqrt(m), with m >= 2 spacings; empty with one. Delta-Z is "
+                     "in the length units of the measurement's z calibration.",
+}
+
 _PANEL = {**AXOPLASM, **AXOPLASM_CLUSTERS, **AXOPLASM_LOCALIZATIONS}
 
 
 def describe(name: str) -> Optional[str]:
     """What one column means, or None when nothing here describes it."""
     for table in (IDENTITY, STATE, ANALYSIS, CLUSTERS, LOCALIZATIONS,
-                  CROSSCHANNEL, Z_CALIBRATION):
+                  CROSSCHANNEL, Z_CALIBRATION, AXIAL_MIXTURE):
         if name in table:
             return table[name]
     if name.endswith(DISCARD_SUFFIX):
@@ -634,4 +655,5 @@ def known_columns() -> List[str]:
     columns += [name + DISCARD_SUFFIX for name in MEASURED_COLUMNS]
     columns += [AXOPLASM_PREFIX + name for name in AXOPLASM]
     columns += list(Z_CALIBRATION_COLUMNS)
+    columns += list(AXIAL_MIXTURE_COLUMNS)
     return columns

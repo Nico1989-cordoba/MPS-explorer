@@ -75,7 +75,7 @@ from tools.results_table import cell_text
 # file's own record matches a chosen one, and what a bead stack measured.
 # Empty cells, with z_magnification_origin "blank", when nothing was read.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v5"
+TABLE_VERSION = "axon tables v6"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
@@ -148,6 +148,14 @@ DISCARD_SUFFIX = "_discard"
 # once, last: what the z axis of this file is in, never a correction of it.
 Z_CALIBRATION_COLUMNS: Tuple[str, ...] = _zcal.Z_CALIBRATION_COLUMNS
 
+# SCI-6, the axial mixture (written once, after the z calibration, so that
+# no earlier column moves): which reading of the main peak centred the slab
+# and both readings, the slab's expected foreign fraction F, and the SE of
+# the mean Delta-Z. The discard cannot change them.
+AXIAL_MIXTURE_COLUMNS: Tuple[str, ...] = (
+    "main_peak_mode", "z_peak_density_nm", "z_peak_weight_nm",
+    "slab_foreign_fraction", "delta_z_se_nm")
+
 # Columns of the axoplasm panel's row that the axon row already holds, and
 # that must not be written a second time under another name.
 _AXOPLASM_DROPPED: Tuple[str, ...] = (
@@ -205,7 +213,7 @@ def _unknown_columns(record: Dict[str, Any]) -> List[str]:
     A column added to AxonAnalysis.export_dict and to no list here would
     vanish from the axon table without a word; it is raised instead.
     """
-    placed = set(SHARED_COLUMNS) | set(MEASURED_COLUMNS) | {
+    placed = set(SHARED_COLUMNS) | set(MEASURED_COLUMNS) | set(AXIAL_MIXTURE_COLUMNS) | {
         "source", "roi", "cluster_set", "discard_margin_nm",
         "discard_registration", "n_clusters_discarded"}
     return sorted(set(record) - placed)
@@ -409,6 +417,10 @@ def axon_row(
             f"{', '.join(unplaced_z)}.")
     for name in Z_CALIBRATION_COLUMNS:
         row[name] = _rounded(name, zc.get(name))
+
+    # --- the axial mixture (SCI-6), after everything else ----------------
+    for name in AXIAL_MIXTURE_COLUMNS:
+        row[name] = _rounded(name, record.get(name))
     return row
 
 

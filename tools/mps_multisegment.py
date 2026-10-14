@@ -58,6 +58,9 @@ from tools.mps_periodicity import (
     fit_z_periodicity,
 )
 
+# The ways a slab can be bounded (``find_axial_segments``).
+SEGMENT_MODES: Tuple[str, ...] = ("paper", "valley", "partition", "bayes")
+
 # A segment needs at least this many clusters before its angular pattern is
 # worth comparing: with one or two points any rotation fits equally well.
 MIN_CLUSTERS_FOR_ANGLE = 3
@@ -114,38 +117,48 @@ def find_axial_segments(
         - "paper" (default): +/- half_width_nm around each component mean,
           exactly as the paper treats the single segment it analyses.
           Consecutive slabs OVERLAP whenever Delta-Z < 2 * half_width_nm,
-          so a localization can contribute to two segments. On unpublished
-          pilot axons, many consecutive pairs overlap at +/-90 nm.
+          so a localization can contribute to two segments.
         - "valley": additionally clip each slab at the minimum of the
-          fitted axial density between neighbouring components, so every
-          localization belongs to at most one segment. Preferred over
-          "partition" for comparing consecutive segments: sharing
-          localizations between the two segments being compared inflates
-          any similarity measured between them, and the valley is where the
-          two rings actually separate.
+          fitted axial density between neighbouring components (the
+          antimode, ``density_valleys``), so every localization belongs to
+          at most one segment. The recorded primary choice of this project
+          for comparing consecutive segments: sharing localizations between
+          the two segments being compared inflates any similarity measured
+          between them.
+        - "bayes": as "valley" but cutting where the two neighbouring
+          components are equally probable (the minimum-misassignment
+          boundary of a fitted mixture; Kittler & Illingworth 1986). It
+          coincides with the valley for equal weights and widths; otherwise
+          the valley lies beyond it on the side of the weaker ring, and,
+          unlike the valley, it exists when the two components are not two
+          modes. Falls back to the midpoint where it has no root between
+          the means.
         - "partition": as "valley" but cutting at the midpoint between
           neighbouring means. Kept for comparison; the midpoint assumes the
           density between two rings is symmetric, which it is not when the
           rings differ in weight or width.
-        None is "correct": overlapping slabs share data between the
-        segments being compared, while clipped slabs are not the same
-        measurement the paper defines (they are narrower than 180 nm
-        wherever the periodicity is short). The choice is the
-        experimenter's.
+        No published MPS analysis defines a boundary between consecutive
+        rings (the paper analyses one window): the choice is the
+        experimenter's, and every boundary's three positions (midpoint,
+        Bayes, valley) are reported whichever is used.
     min_locs : segments with fewer localizations than this are dropped.
     z_result : a previously computed fit, to avoid refitting.
-    guard_nm : width of a dead zone centred on each boundary, excluded from
-        both neighbouring slabs. Ignored in "paper" mode, which has no
-        boundary. 0 (default) leaves the slabs touching.
+    guard_nm : TOTAL width of a dead zone centred on each boundary (half on
+        each side), excluded from both neighbouring slabs. Ignored in
+        "paper" mode, which has no boundary. 0 (default, the primary
+        analysis) leaves the slabs touching; 60 nm is the recorded
+        sensitivity.
 
-        This is a control, not a better segmentation. Axial localization
-        precision in 3D dSTORM (~50-80 nm) is comparable to the slab
-        thickness, so one physical ring deposits localizations on both
-        sides of a boundary: disjoint slabs share no localization yet still
-        share clusters, which alone produces similarity between
-        consecutive segments. Re-running with a guard band and watching
-        whether that similarity survives is what separates axial
-        bleed-through from a real relationship between rings.
+        This is a control, not a better segmentation. The axial width of a
+        ring (its thickness and the axial localization precision of the
+        dataset, in quadrature) is comparable to the slab, so one physical
+        ring deposits localizations on both sides of a boundary: disjoint
+        slabs share no localization yet still share clusters, which alone
+        produces similarity between consecutive segments. For rings of
+        effective width s at a boundary h from their centre, a guard of
+        total width g removes Phi((h + g/2)/s) - Phi((h - g/2)/s) of each
+        ring and leaves a leak of 1 - Phi((h + g/2)/s)
+        (``tools.mps_periodicity.guard_tradeoff``).
 
     Returns
     -------
@@ -159,7 +172,7 @@ def find_axial_segments(
     warnings_: List[str] = []
 
     if z_result is None:
-        z_result = fit_z_periodicity(z)
+        z_result = fit_z_periodicity(z, half_width_nm=half_width_nm)
     warnings_.extend(z_result.warnings)
 
     means = np.asarray(z_result.means_nm, dtype=float)
@@ -172,9 +185,9 @@ def find_axial_segments(
         return ([], z_result, valleys,
                 warnings_ + ["No dominant axial component found."])
 
-    if mode not in ("paper", "valley", "partition"):
+    if mode not in SEGMENT_MODES:
         raise ValueError(
-            f"mode must be 'paper', 'valley' or 'partition', got {mode!r}")
+            f"mode must be one of {', '.join(repr(m) for m in SEGMENT_MODES)}, got {mode!r}")
 
     lows = means - half_width_nm
     highs = means + half_width_nm
@@ -183,6 +196,14 @@ def find_axial_segments(
         if mode == "valley":
             bounds = valleys.positions_nm
             warnings_.extend(valleys.warnings)
+        elif mode == "bayes":
+            bounds = valleys.bayes_positions_nm
+            n_missing = int(np.count_nonzero(~np.asarray(valleys.bayes_found, dtype=bool)))
+            if n_missing:
+                warnings_.append(
+                    f"{n_missing} of {valleys.n_boundaries} boundary(ies) have no Bayes boundary between "
+                    f"the two means (one component outweighs the other everywhere between them): "
+                    f"cut at the midpoint there.")
         else:
             bounds = valleys.midpoints_nm
         half_guard = max(float(guard_nm), 0.0) / 2.0
@@ -426,6 +447,17 @@ class SegmentPairComparison:
 
     warnings: List[str] = field(default_factory=list)
 
+    # SCI-6, the boundary table: the three positions of the boundary between
+    # the two components (midpoint, Bayes, valley), the shifts of the valley
+    # from the other two (positive toward the lighter ring), and the
+    # separation index d. None when the pair shares no single boundary.
+    boundary_midpoint_nm: Optional[float] = None
+    boundary_bayes_nm: Optional[float] = None
+    boundary_valley_nm: Optional[float] = None
+    boundary_valley_shift_from_midpoint_nm: Optional[float] = None
+    boundary_valley_shift_from_bayes_nm: Optional[float] = None
+    boundary_separation_d: Optional[float] = None
+
 
 def _pair_comparison(
     seg_a: AxialSegment, seg_b: AxialSegment,
@@ -438,11 +470,14 @@ def _pair_comparison(
 
     depth: Optional[float] = None
     is_valley: Optional[bool] = None
+    bnd: Dict[str, Optional[float]] = {}
     if (valleys is not None
             and seg_b.component_index == seg_a.component_index + 1
             and 0 <= seg_a.component_index < valleys.n_boundaries):
-        depth = float(valleys.relative_depth[seg_a.component_index])
-        is_valley = bool(valleys.is_true_valley[seg_a.component_index])
+        c = seg_a.component_index
+        depth = float(valleys.relative_depth[c])
+        is_valley = bool(valleys.is_true_valley[c])
+        bnd = _boundary_columns(valleys, c)
     elif seg_b.component_index != seg_a.component_index + 1:
         warnings_.append(
             f"Segments {seg_a.index} and {seg_b.index} are consecutive only "
@@ -501,7 +536,32 @@ def _pair_comparison(
         mean_angular_spacing_deg=spacing,
         rotation_fraction_of_spacing=rot_frac,
         warnings=warnings_,
+        **bnd,
     )
+
+
+def _finite_or_none(values: Any, i: int, digits: int = 2) -> Optional[float]:
+    arr = np.asarray(values, dtype=float).ravel()
+    if i >= arr.size or not np.isfinite(arr[i]):
+        return None
+    return round(float(arr[i]), digits)
+
+
+def _boundary_columns(valleys: ValleyResult, c: int) -> Dict[str, Optional[float]]:
+    """Boundary ``c`` of ``valleys`` as the pair's boundary-table fields."""
+    valley = (float(valleys.positions_nm[c]) if bool(valleys.is_true_valley[c]) else None)
+    bayes = (_finite_or_none(valleys.bayes_positions_nm, c)
+             if np.asarray(valleys.bayes_found, dtype=bool).size > c and bool(valleys.bayes_found[c]) else None)
+    return {
+        "boundary_midpoint_nm": _finite_or_none(valleys.midpoints_nm, c),
+        "boundary_bayes_nm": bayes,
+        "boundary_valley_nm": None if valley is None else round(valley, 2),
+        "boundary_valley_shift_from_midpoint_nm": (
+            None if valley is None else _finite_or_none(valleys.shift_toward_weaker_from_midpoint_nm, c)),
+        "boundary_valley_shift_from_bayes_nm": (
+            None if valley is None else _finite_or_none(valleys.shift_toward_weaker_from_bayes_nm, c)),
+        "boundary_separation_d": _finite_or_none(valleys.separation_d, c, 3),
+    }
 
 
 @dataclass
@@ -577,6 +637,13 @@ class MultiSegmentAnalysis:
                 "bandwidth_deg": p.bandwidth_deg,
                 "mean_angular_spacing_deg": p.mean_angular_spacing_deg,
                 "rotation_fraction_of_spacing": p.rotation_fraction_of_spacing,
+                # SCI-6: the boundary table (after every column of before).
+                "boundary_midpoint_nm": p.boundary_midpoint_nm,
+                "boundary_bayes_nm": p.boundary_bayes_nm,
+                "boundary_valley_nm": p.boundary_valley_nm,
+                "boundary_valley_shift_from_midpoint_nm": p.boundary_valley_shift_from_midpoint_nm,
+                "boundary_valley_shift_from_bayes_nm": p.boundary_valley_shift_from_bayes_nm,
+                "boundary_separation_d": p.boundary_separation_d,
             })
         return out
 

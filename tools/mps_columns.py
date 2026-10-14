@@ -94,11 +94,20 @@ tilts and both valley depths are in ``RingsResult.axis_start``,
 increments of the chosen start's stages in ``axis_stages_beta_deg``.
 
 In every stage the plane of a ring is fitted on the localizations the
-axial mixture assigns to it with a posterior of at least
-``AXIS_STAGE_POSTERIOR_MIN``: the hard mask's boundary leaks are
-laterally one-sided on a ring with a missing arc and tilt the
-neighbour's plane (1.2 deg of drift measured on half rings with
-sigma_z = 50 nm). The final rings keep the specification's hard mask.
+axial mixture (the complete fitted mixture, SCI-6) assigns to it with a
+posterior of at least ``AXIS_STAGE_POSTERIOR_MIN``: the hard mask's
+boundary leaks are laterally one-sided on a ring with a missing arc and
+tilt the neighbour's plane (how much the cut buys is to be quantified by
+the synthetic half-ring validator). The final rings keep the
+specification's hard mask.
+
+SCI-6: every stage is held to the larger of ``AXIS_STAGE_TOL_DEG`` and its
+own fit-noise floor; a frame that runs out of stages is labelled
+"noise-limited" or "not converged" (``RingsResult.axis_settle_status``);
+the judge between the starts, the stage posterior, the disagreement level,
+the tilt warning and the number of stages are ``RingsParams`` fields; and
+``RingsResult.tilt_checks`` says what the tilt does to this axon (D tan(beta)
+against the period and against the usable depth of the z calibration).
 
 The per-ring stage is the specification's step, run where it is valid.
 The composed ``AxonFrame`` reports the last per-ring stage's normals
@@ -226,17 +235,22 @@ from tools.cluster_quality import (
 )
 from tools.mps_analysis import AxonAnalysis, without_clusters
 from tools.mps_axis import (
+    DEFAULT_Z_USABLE_NM,
     METHOD_ALL,
     METHOD_IDENTITY,
     TILT_WARNING_DEG,
     AxonFrame,
+    TiltChecks,
     fit_axis_by_profile_sharpness,
     fit_axon_frame,
     identity_axon_frame,
     lateral_shift_per_period_nm,
     profile_sharpness,
+    search_max_tilt_deg,
+    tilt_checks,
     to_axon_frame,
 )
+from tools.mps_multisegment import SEGMENT_MODES as _MS_SEGMENT_MODES
 from tools.mps_multisegment import (
     AxialSegment,
     MultiSegmentAnalysis,
@@ -244,7 +258,12 @@ from tools.mps_multisegment import (
     find_axial_segments,
 )
 from tools.mps_paint import frame_analysis, link_localizations
-from tools.mps_periodicity import ZPeriodicityResult, fit_z_periodicity
+from tools.mps_periodicity import (
+    POSTERIOR_MODELS,
+    ZPeriodicityResult,
+    component_posterior,
+    fit_z_periodicity,
+)
 
 __all__ = [
     "AXIS_CANDIDATE_DISAGREEMENT_DEG",
@@ -283,40 +302,58 @@ __all__ = [
     "write_columns_params",
 ]
 
-# Per-ring axis stages after the start. On rings well separated in z
-# (sigma_z 35 nm at P = 190 nm) the first stage removes the residual of
-# the start and the second confirms it. When rings overlap (sigma_z 50
-# nm: the boundary is 1.9 sigma from each centre) the hard mask cuts the
-# far side of a still-tilted ring, the plane fitted inside the slab sees
-# only ~30 % of the residual per stage (measured ratio 0.7), and
-# reaching the 0.05 deg tolerance from a 2 deg start error takes
-# ln(0.05 / 2) / ln(0.7) = 10.3 stages. A converged case stops early, so
-# the extra stages cost nothing there.
+# Per-ring axis stages after the start (axis-stages-tol-0.05). The
+# alternation of hard segmentation and plane fitting resembles
+# classification EM (Celeux & Govaert 1992) but optimises no single
+# objective, so it has no convergence guarantee: it stops once a stage
+# rotates by less than the tolerance, or after this many stages (then
+# labelled "noise-limited" or "not converged"). The count assumes the
+# residual contracts by about 30 % per stage on overlapping rings, so that
+# a 2 deg start error reaches 0.05 deg in ln(0.05 / 2) / ln(0.7) = 10.3
+# stages; that contraction is to be re-measured by a synthetic validator
+# before the number is called derived. Editable (``RingsParams``), 3-30.
 AXIS_MAX_RING_STAGES = 12
-# A stage that rotates by less than this has nothing left to correct:
-# the slope error of one plane at the typical N and spread (sigma_z 50 nm,
-# 5000 localizations, 900 nm lateral sd) is ~0.05 deg, so a smaller
-# increment is the fit's own noise, not a refinement.
+# A stage that rotates by less than its own fit-noise floor turns noise
+# into motion. The tolerance of an axon is max(this, the floor
+# sqrt(2) sigma_z / (sqrt(N) s) of the planes it fitted, Draper & Smith
+# 1998): 0.05 deg is the per-slope error at sigma_z = 50 nm, N = 5000 and
+# s = 900 nm; at N = 500 the floor is ~0.2 deg and a fixed 0.05 deg would be
+# unreachable. Editable 0.01-0.5 deg.
 AXIS_STAGE_TOL_DEG = 0.05
+# A frame whose last increment is below this many noise floors when the
+# stages run out is "noise-limited", not "not converged".
+AXIS_NOISE_LIMITED_MULTIPLE = 3.0
 # Two starts whose refined axes end more than this apart did not converge
 # to one axis: one of them stopped in a segmentation that mixes rings
 # (D * tan(residual) > P/2), which is what rings with different lateral
-# footprints do to the specification's start. It is > 3 x the slope error
-# of one plane (0.05-0.16 deg at the harness's N) and the tolerance the
-# acceptance uses for the tilt itself.
+# footprints do to the specification's start. It is 3-10 x the slope error
+# of one plane at the reference geometry (axis-candidate-disagreement-0.5);
+# editable 0.1-2 deg, with the per-axon alternative of a multiple of the
+# measured noise floor (``RingsParams.axis_disagreement_floor_multiple``).
+# Both candidate tilts and the judge's values are recorded with every
+# result, so the choice made below this level is visible too.
 AXIS_CANDIDATE_DISAGREEMENT_DEG = 0.5
 # Localizations whose ring the axial mixture cannot name (maximum
 # posterior below this) stay out of the per-ring plane fits of the axis
-# stages. Near a boundary the hard mask hands some of ring k's
-# localizations to ring k+1; on a complete ring those leaks are
-# laterally symmetric and only add noise, but on a ring with a missing
-# arc they sit on one side and tilt the neighbour's plane (measured:
-# half rings with sigma_z = 50 nm drift 1.2 deg over five stages with
-# every localization, 0.1 deg without the ambiguous 13 %). The final
-# rings keep the specification's hard mask; this only decides which
-# localizations vote for the axis. 0.85 is the value the module already
-# offers as the posterior_min control.
+# stages (axis-stage-posterior-0.85; Chow 1970's reject option: p = 0.85
+# treats a misassigned localization as about 7 x worse than a dropped one).
+# Near a boundary the hard mask hands some of ring k's localizations to
+# ring k+1; on a ring with a missing arc those leaks sit on one side and
+# tilt the neighbour's plane (systematic), while a dropped localization
+# only adds 1/sqrt(n) noise. At sigma_z = 50 nm and P = 170 nm the cut
+# costs about 10-20 % of the localizations (one or two boundaries per
+# ring). The final rings keep the specification's hard mask; this only
+# decides which localizations vote for the axis. A convention, reused from
+# the posterior_min control; its benefit is to be quantified by the
+# synthetic half-ring validator. Editable 0.5-0.99.
 AXIS_STAGE_POSTERIOR_MIN = 0.85
+# How the two refined starts are judged when they disagree
+# (axis-judge-valley-depth): the SUM of the relative valley depths of each
+# start's last segmentation (default; stacking half rings onto a third
+# removes a boundary and lowers the sum even where it deepens the
+# remaining valley), their mean, or the BIC of the final mixture at the
+# specification start's number of components (lower wins).
+AXIS_JUDGES: Tuple[str, ...] = ("sum", "mean", "bic")
 # Labels of the two starts, in the order of ``RingsResult.axis_candidate_beta_deg``.
 AXIS_START_LAB_RINGS = "lab-frame rings"
 AXIS_START_SHARPNESS = "profile sharpness"
@@ -360,7 +397,7 @@ COLUMNS_PARAMS_HEADER: Tuple[str, ...] = (
 # The values ``segment_mode`` may take (``tools.mps_multisegment.
 # find_axial_segments`` raises on anything else, but only when the rings
 # are built; the parameters file must fail on load instead).
-SEGMENT_MODES: Tuple[str, ...] = ("paper", "valley", "partition")
+SEGMENT_MODES: Tuple[str, ...] = tuple(_MS_SEGMENT_MODES)
 # Provenance of the pre-specified file (03_plan S3.1, RunRecord): the
 # role of the data tau_0 came from, the date the caller passed in and
 # the code commit. ``write_columns_params`` refuses a file without them,
@@ -483,6 +520,19 @@ class RingsParams:
     link_max_dark_time: int = 1
     posterior_min: Optional[float] = None   # None = primary path; e.g. 0.85 drops ambiguous localizations
     random_seed: int = 0
+    # SCI-6. The axis stages' settings (see the module constants for what
+    # each value rests on); the defaults are the program's.
+    posterior_model: str = "full"           # "full" mixture (default) or "dominant" components
+    axis_stage_posterior_min: float = AXIS_STAGE_POSTERIOR_MIN
+    axis_stage_tol_deg: float = AXIS_STAGE_TOL_DEG
+    axis_max_stages: int = AXIS_MAX_RING_STAGES
+    axis_candidate_disagreement_deg: float = AXIS_CANDIDATE_DISAGREEMENT_DEG
+    axis_disagreement_floor_multiple: Optional[float] = None   # e.g. 3: max(deg, 3 x noise floor)
+    axis_judge: str = "sum"
+    axis_max_slope_error_deg: Optional[float] = None           # the optional gate by predicted precision
+    tilt_warning_deg: float = TILT_WARNING_DEG
+    z_usable_nm: Optional[float] = None     # None: the default usable depth (DEFAULT_Z_USABLE_NM)
+    z_usable_source: str = ""               # "calibration" when it came from the z-calibration record
     # H2. Bootstrap draws behind each cluster's centroid precision: the
     # sd of a sd from 200 draws is 1 / sqrt(2 * 199) = 5 %, below the
     # per-cluster noise of the estimate itself (an sd of E = 4 event
@@ -581,6 +631,14 @@ class RingsResult:
     # were and why, in the order they were taken (cumulative over
     # successive cleanings); empty for the rings of ``build_rings``.
     removed_clusters: List[RemovedCluster] = field(default_factory=list)
+    # SCI-6. How the chosen start's stages ended ("settled", "noise-limited",
+    # "not converged"; "" without tilt correction), the tolerance they were
+    # held to (max of the setting and the noise floor) and that floor; the
+    # two derived tilt checks (None when not computable).
+    axis_settle_status: str = ""
+    axis_stage_tol_used_deg: float = float("nan")
+    axis_noise_floor_deg: float = float("nan")
+    tilt_checks: Optional[TiltChecks] = None
 
     @property
     def n_rings(self) -> int:
@@ -643,17 +701,24 @@ def posterior_ambiguous(
     z_nm: NDArray[np.float64],
     z_result: ZPeriodicityResult,
     posterior_min: float,
+    model: str = "full",
 ) -> NDArray[np.bool_]:
     """
     Localizations whose most probable axial component has a posterior
-    probability below ``posterior_min``.
+    probability below ``posterior_min``, or (``model = "full"``) whose most
+    probable component is not a ring.
 
-    The posterior is that of the dominant components only (``means_nm``,
-    ``sigmas_nm``, ``weights`` of the fit), with the weights renormalised
-    to sum to one: a ring is a dominant component, and the question is
-    "which ring", not "which of the fitted Gaussians". Near the valley
-    between two rings the answer is close to a coin toss, and those are
-    the localizations a hard z mask assigns with false confidence.
+    The posterior is that of the complete fitted mixture (``model = "full"``,
+    the default since SCI-6; valley-uses-all-components): the same model
+    the valleys are located in, so that one model answers "which ring". A
+    localization whose most probable component is a discarded low-weight
+    one belongs to no ring and is flagged. ``model = "dominant"`` keeps the
+    program's earlier posterior, over the dominant components only with
+    renormalised weights. Near the valley between two rings the answer is
+    close to a coin toss, and those are the localizations a hard z mask
+    assigns with false confidence. The threshold is a reject option in the
+    sense of Chow (1970); ``tools.mps_periodicity.posterior_tradeoff`` gives
+    its cost and benefit for two equal rings.
 
     Computed in log space, row-centred on the largest term, so a
     localization far from every component does not underflow to 0/0.
@@ -667,6 +732,7 @@ def posterior_ambiguous(
     posterior_min : float
         Threshold on the maximum posterior; below it the localization is
         ambiguous.
+    model : "full" (default) or "dominant".
 
     Returns
     -------
@@ -675,25 +741,20 @@ def posterior_ambiguous(
         every localization has posterior 1, so nothing is ambiguous; a
         non-finite z has no posterior and is never flagged.
     """
+    if model not in POSTERIOR_MODELS:
+        raise ValueError(f"model must be one of {POSTERIOR_MODELS}, got {model!r}")
     z = np.asarray(z_nm, dtype=np.float64).ravel()
     means = np.asarray(z_result.means_nm, dtype=np.float64).ravel()
     sigmas = np.asarray(z_result.sigmas_nm, dtype=np.float64).ravel()
     weights = np.asarray(z_result.weights, dtype=np.float64).ravel()
     if means.size < 2 or means.size != sigmas.size or means.size != weights.size:
         return np.zeros(z.shape, dtype=bool)
-    sigmas = np.maximum(sigmas, _MIN_SIGMA_NM)
-    weights = weights / weights.sum()
     flags = np.zeros(z.shape, dtype=bool)
     finite = np.isfinite(z)
     if not finite.any():
         return flags
-    zf = z[finite]
-    logp = (np.log(weights)[None, :] - np.log(sigmas)[None, :]
-            - 0.5 * ((zf[:, None] - means[None, :]) / sigmas[None, :]) ** 2)
-    logp -= logp.max(axis=1, keepdims=True)
-    posterior = np.exp(logp)
-    posterior /= posterior.sum(axis=1, keepdims=True)
-    flags[finite] = posterior.max(axis=1) < posterior_min
+    post, ring = component_posterior(z, z_result, model=model)
+    flags[finite] = (post[finite] < posterior_min) | (ring[finite] < 0)
     return flags
 
 
@@ -725,8 +786,13 @@ class _AxisCandidate:
     used_mask: Optional[NDArray[np.bool_]]  # localizations of the rings the last stage used
     sharpness: float                        # profile_sharpness of z' over every localization
     valley_depth: float                     # total relative depth of the valleys of the last stage's segmentation; -inf without one
-    settled: bool                           # the last stage rotated by less than AXIS_STAGE_TOL_DEG
+    settled: bool                           # the last stage rotated by less than its tolerance
     warnings: List[str]
+    mean_valley_depth: float = -math.inf    # the same depths' mean (the "mean" judge)
+    bic_by_n: Dict[int, float] = field(default_factory=dict)   # the last segmentation's mixture BIC per K
+    status: str = ""                        # "settled", "noise-limited", "not converged"
+    tol_used_deg: float = float("nan")
+    noise_floor_deg: float = float("nan")
 
     @property
     def u(self) -> NDArray[np.float64]:
@@ -747,6 +813,9 @@ class _StagedAxis:
     start: str
     candidate_beta_deg: NDArray[np.float64]
     candidate_valley_depth: NDArray[np.float64]
+    settle_status: str = ""
+    tol_used_deg: float = float("nan")
+    noise_floor_deg: float = float("nan")
 
 
 def _refine_from_start(
@@ -787,15 +856,24 @@ def _refine_from_start(
     used_mask: Optional[NDArray[np.bool_]] = None
     valley_depth = -math.inf
     settled = False
-    for k in range(1, AXIS_MAX_RING_STAGES + 1):
+    mean_depth = -math.inf
+    bic_by_n: Dict[int, float] = {}
+    tol_used = float(params.axis_stage_tol_deg)
+    floor = float("nan")
+    max_stages = int(params.axis_max_stages)
+    status = ""
+    for k in range(1, max_stages + 1):
         segments, z_result, valleys, _ = find_axial_segments(
             z_c, half_width_nm=params.half_width_nm, mode=params.segment_mode,
             min_locs=int(params.min_samples), guard_nm=params.guard_nm,
         )
         ring_index = ring_index_from_segments(z_c, segments)
-        ring_index[posterior_ambiguous(z_c, z_result, AXIS_STAGE_POSTERIOR_MIN)] = -1
+        ring_index[posterior_ambiguous(z_c, z_result, float(params.axis_stage_posterior_min),
+                                       model=params.posterior_model)] = -1
         stage = fit_axon_frame(x_c, y_c, z_c, ring_index,
-                               min_locs=int(params.axis_min_locs))
+                               min_locs=int(params.axis_min_locs),
+                               max_slope_error_deg=params.axis_max_slope_error_deg,
+                               tilt_warning_deg=float(params.tilt_warning_deg))
         warnings_.extend(_stage_warnings(f"stage {k} (rings)", stage))
         if stage.method == METHOD_IDENTITY:
             warnings_.append(f"axis stage {k}: no plane could be fitted on the "
@@ -806,23 +884,36 @@ def _refine_from_start(
         in_ring = ring_index >= 0
         used_mask = np.zeros(n, dtype=bool)
         used_mask[in_ring] = stage.ring_used[ring_index[in_ring]]
-        valley_depth = (float(np.sum(valleys.relative_depth))
-                        if valleys is not None and valleys.n_boundaries else 0.0)
+        has_valleys = valleys is not None and valleys.n_boundaries
+        valley_depth = (float(np.sum(valleys.relative_depth)) if has_valleys else 0.0)
+        mean_depth = (float(np.mean(valleys.relative_depth)) if has_valleys else 0.0)
+        bic_by_n = {int(a): float(b) for a, b in dict(z_result.bic_by_n).items()}
+        # The tolerance of this axon: the setting, or the stage's own
+        # fit-noise floor when that is larger.
+        floor = float(stage.tilt_noise_floor_deg)
+        tol_used = max(float(params.axis_stage_tol_deg), floor if np.isfinite(floor) else 0.0)
         apply(stage)
-        if stage.beta_deg < AXIS_STAGE_TOL_DEG:
+        if stage.beta_deg < tol_used:
             settled = True
+            status = "settled"
             break
     else:
+        last_inc = increments[-1]
+        noise_limited = np.isfinite(floor) and last_inc < AXIS_NOISE_LIMITED_MULTIPLE * floor
+        status = "noise-limited" if noise_limited else "not converged"
         warnings_.append(
-            f"axis refinement did not settle after {AXIS_MAX_RING_STAGES} ring "
-            f"stages (last increment {increments[-1]:.3f} deg, tolerance "
-            f"{AXIS_STAGE_TOL_DEG:g} deg)"
+            f"axis refinement did not settle after {max_stages} ring "
+            f"stages (last increment {last_inc:.3f} deg, tolerance "
+            f"{tol_used:.3g} deg): "
+            + (f"noise-limited (the increment is below {AXIS_NOISE_LIMITED_MULTIPLE:g} x the "
+               f"fit-noise floor {floor:.3g} deg)" if noise_limited else "not converged")
         )
     return _AxisCandidate(
         label=label, rotation=rotation, increments_deg=increments, last=last,
         rotation_before_last=rotation_before_last, used_mask=used_mask,
         sharpness=profile_sharpness(z_c), valley_depth=valley_depth,
-        settled=settled, warnings=warnings_,
+        settled=settled, warnings=warnings_, mean_valley_depth=mean_depth,
+        bic_by_n=bic_by_n, status=status, tol_used_deg=tol_used, noise_floor_deg=floor,
     )
 
 
@@ -873,8 +964,12 @@ def _fit_frame_staged(
         min_locs=int(params.min_samples), guard_nm=params.guard_nm,
     )
     start_a = fit_axon_frame(x, y, z, ring_index_from_segments(z, segments0),
-                             min_locs=int(params.axis_min_locs))
-    start_b = fit_axis_by_profile_sharpness(x, y, z)
+                             min_locs=int(params.axis_min_locs),
+                             max_slope_error_deg=params.axis_max_slope_error_deg,
+                             tilt_warning_deg=float(params.tilt_warning_deg))
+    start_b = fit_axis_by_profile_sharpness(
+        x, y, z, max_tilt_deg=search_max_tilt_deg(float(params.tilt_warning_deg)),
+        tilt_warning_deg=float(params.tilt_warning_deg))
     candidates: List[_AxisCandidate] = []
     for position, (label, start) in enumerate(
             ((AXIS_START_LAB_RINGS, start_a), (AXIS_START_SHARPNESS, start_b))):
@@ -899,27 +994,37 @@ def _fit_frame_staged(
 
     # The choice: when the starts agree, the specification's unless it
     # alone did not settle; when they disagree, the better resolved
-    # segmentation (ties keep the first).
+    # segmentation by the judge in use (ties keep the first).
+    if params.axis_judge not in AXIS_JUDGES:
+        raise ValueError(f"axis_judge must be one of {AXIS_JUDGES}, got {params.axis_judge!r}")
     best = candidates[0]
     if len(candidates) == 2:
         apart = math.degrees(math.atan2(
             float(np.linalg.norm(np.cross(candidates[0].u, candidates[1].u))),
             float(candidates[0].u @ candidates[1].u)))
-        if apart <= AXIS_STAGE_TOL_DEG:
+        tol_agree = max(float(params.axis_stage_tol_deg),
+                        max((c.noise_floor_deg for c in candidates if np.isfinite(c.noise_floor_deg)),
+                            default=0.0))
+        if apart <= tol_agree:
             if candidates[1].settled and not candidates[0].settled:
                 best = candidates[1]
         else:
-            best = max(candidates, key=lambda c: c.valley_depth)
-        if apart > AXIS_CANDIDATE_DISAGREEMENT_DEG:
+            best = _judge(candidates, params.axis_judge)
+        level = float(params.axis_candidate_disagreement_deg)
+        floors = [c.noise_floor_deg for c in candidates if np.isfinite(c.noise_floor_deg)]
+        if params.axis_disagreement_floor_multiple is not None and floors:
+            level = max(level, float(params.axis_disagreement_floor_multiple) * max(floors))
+        if apart > level:
             other = candidates[1] if best is candidates[0] else candidates[0]
             warnings_.append(
                 f"the two axis starts converged to axes {apart:.2f} deg apart "
-                f"('{candidates[0].label}' {candidates[0].beta_deg:.2f} deg, "
+                f"(more than {level:.2f} deg; '{candidates[0].label}' {candidates[0].beta_deg:.2f} deg, "
                 f"'{candidates[1].label}' {candidates[1].beta_deg:.2f} deg): the "
                 f"'{other.label}' start stopped in a segmentation that mixes rings, "
                 "which happens when the rings' lateral footprints differ; the "
                 f"frame whose rings are better resolved ('{best.label}', total valley "
-                f"depth {best.valley_depth:.2f} vs {other.valley_depth:.2f}) is kept"
+                f"depth {best.valley_depth:.2f} vs {other.valley_depth:.2f}; judge "
+                f"'{params.axis_judge}') is kept"
             )
     warnings_.extend(best.warnings)
 
@@ -947,11 +1052,12 @@ def _fit_frame_staged(
         delta_beta = float("nan")
         warnings_.append("no ring stage could be fitted: the frame is the start "
                          f"'{best.label}' alone (method '{method}'); delta_beta undefined")
-    if beta > TILT_WARNING_DEG:
+    if beta > float(params.tilt_warning_deg):
         warnings_.append(
-            f"axis tilt beta = {beta:.2f} deg exceeds {TILT_WARNING_DEG:g} deg: "
+            f"axis tilt beta = {beta:.2f} deg exceeds {float(params.tilt_warning_deg):g} deg: "
             "check the section and the ring labels before trusting the frame"
         )
+    last_frame = best.last
     frame = AxonFrame(
         u=u,
         origin_nm=origin,
@@ -968,6 +1074,11 @@ def _fit_frame_staged(
         ring_f_scale_nm=np.asarray(source.ring_f_scale_nm, dtype=np.float64),
         n_locs_used=int(source.n_locs_used),
         profile_sharpness=float(best.sharpness),
+        ring_slope_error_deg=np.asarray(getattr(source, "ring_slope_error_deg", np.array([])), dtype=np.float64),
+        tilt_noise_floor_deg=float(getattr(source, "tilt_noise_floor_deg", float("nan"))),
+        delta_beta_floor_deg=(float(last_frame.delta_beta_floor_deg) if last_frame is not None else float("nan")),
+        delta_beta_corrected_deg=(float(last_frame.delta_beta_corrected_deg) if last_frame is not None
+                                  else float("nan")),
     )
     return _StagedAxis(
         frame=frame,
@@ -975,7 +1086,28 @@ def _fit_frame_staged(
         start=best.label,
         candidate_beta_deg=candidate_beta,
         candidate_valley_depth=candidate_depth,
+        settle_status=best.status,
+        tol_used_deg=float(best.tol_used_deg),
+        noise_floor_deg=float(best.noise_floor_deg),
     )
+
+
+def _judge(candidates: Sequence[_AxisCandidate], judge: str) -> _AxisCandidate:
+    """The better resolved of two refined starts by ``judge`` (AXIS_JUDGES);
+    ties keep the first."""
+    if judge == "mean":
+        return max(candidates, key=lambda c: c.mean_valley_depth)
+    if judge == "bic":
+        # At one number of components for both: the specification start's.
+        ref = candidates[0]
+        k_ref = min(ref.bic_by_n, key=lambda k: ref.bic_by_n[k]) if ref.bic_by_n else None
+
+        def score(c: _AxisCandidate) -> float:
+            if k_ref is None or k_ref not in c.bic_by_n:
+                return math.inf
+            return float(c.bic_by_n[k_ref])
+        return min(candidates, key=score)
+    return max(candidates, key=lambda c: c.valley_depth)
 
 
 # ============================================================================
@@ -1596,9 +1728,15 @@ def build_rings(
     axis_start = METHOD_IDENTITY
     candidate_beta = np.full(2, np.nan)
     candidate_depth = np.full(2, np.nan)
+    settle_status = ""
+    tol_used = float("nan")
+    noise_floor = float("nan")
     if params.correct_tilt:
         staged = _fit_frame_staged(x, y, z, params)
         axon_frame = staged.frame
+        settle_status = staged.settle_status
+        tol_used = staged.tol_used_deg
+        noise_floor = staged.noise_floor_deg
         increments = staged.increments_deg
         axis_start = staged.start
         candidate_beta = staged.candidate_beta_deg
@@ -1615,8 +1753,9 @@ def build_rings(
     n_ambiguous = 0
     used = np.arange(n, dtype=np.intp)
     if params.posterior_min is not None:
-        z_result_p = fit_z_periodicity(z_p)
-        ambiguous = posterior_ambiguous(z_p, z_result_p, float(params.posterior_min))
+        z_result_p = fit_z_periodicity(z_p, half_width_nm=params.half_width_nm)
+        ambiguous = posterior_ambiguous(z_p, z_result_p, float(params.posterior_min),
+                                        model=params.posterior_model)
         n_ambiguous = int(np.count_nonzero(ambiguous))
         used = np.flatnonzero(~ambiguous).astype(np.intp)
         fraction = n_ambiguous / n if n else 0.0
@@ -1761,6 +1900,16 @@ def build_rings(
             warnings=ring_warnings,
         ))
 
+    # ---- 7. what the tilt does to this axon (SCI-6) ---------------------
+    checks: Optional[TiltChecks] = None
+    lengths = [float(r.length_nm) for r in rings if np.isfinite(r.length_nm) and r.length_nm > 0]
+    dz = ms.z_result.mean_delta_z_nm if ms.z_result is not None else None
+    if axon_frame is not None and lengths and dz is not None:
+        checks = tilt_checks(float(axon_frame.beta_deg), float(np.median(lengths)), float(dz),
+                             params.z_usable_nm, params.z_usable_source)
+        if checks is not None:
+            warnings_.extend(checks.warnings())
+
     return RingsResult(
         frame=axon_frame,
         rings=rings,
@@ -1781,6 +1930,10 @@ def build_rings(
         link_lost_step_fraction=lost_fraction,
         n_suspect=_count_suspects(rings),
         n_frames=n_frames_used,
+        axis_settle_status=settle_status,
+        axis_stage_tol_used_deg=float(tol_used),
+        axis_noise_floor_deg=float(noise_floor),
+        tilt_checks=checks,
     )
 
 
@@ -1966,8 +2119,8 @@ def tau_components(
             shift = 0.0
             if len(rings) >= 2:
                 warnings_.append(
-                    f"{label}: lateral shift undefined (delta_beta {delta:g} deg, "
-                    f"period {period:g} nm): 0 used in the pair tolerances"
+                    f"{label}: shift unknown: the lateral shift is undefined (delta_beta {delta:g} deg, "
+                    f"period {period:g} nm), so the pair tolerances carry no shift term (0 used)"
                 )
 
         usable: List[Tuple[NDArray[np.float64], NDArray[np.float64]]] = []
@@ -2086,7 +2239,7 @@ class ColumnsParams:
     n_null: int = 1999                      # B of the null (D-11)
     random_seed: int = 0
     min_shift_fraction: float = 0.5         # null shifts exclude |U| < fraction * mean cluster spacing (D-11)
-    guard_nm: float = 0.0                   # provisional until H5 fixes it by simulation
+    guard_nm: float = 0.0                   # total width, half per side; 0 primary, 60 nm the sensitivity
     posterior_min: Optional[float] = None
     segment_mode: str = "valley"
     eps_nm: float = 25.0

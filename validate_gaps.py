@@ -10,11 +10,21 @@ Answers three questions, in order:
    not matter and the simpler rule wins.)
 2. What do the gaps and patches of a single MPS segment look like -- how
    many, how long?
-3. Are the patches of one segment at the same angles as those of the next?
-   Reported per pair and pooled, against the rotation null, and with the
-   overlapping ("paper") and disjoint ("valley") segmentations side by side
-   because overlapping slabs share localizations and inflate any
-   similarity between them.
+3. Are the patches of one segment at the same places along the membrane as
+   those of the next? Reported per pair and pooled, against the rotation
+   null, in the program's frame (arc length along the common membrane
+   curve; the angle about the pooled centre only where that curve cannot
+   be fitted), and with the overlapping ("paper") and disjoint ("valley")
+   segmentations side by side because overlapping slabs share
+   localizations and inflate any similarity between them.
+
+The pooled tests (Fisher-z mean, binomial count of significant pairs, KS of
+the folded offsets) are INDICATIVE only: segment pairs nested in one axon
+are not independent, so their standard errors overstate the evidence
+(Lazic 2010). The dependence-aware aggregate is the permutation over axons
+printed after them: the second segment of every pair is re-paired with a
+segment of ANOTHER axon, which keeps every profile's own structure and
+breaks only the within-axon pairing.
 
 Run:  python validate_gaps.py
 """
@@ -33,7 +43,7 @@ from scipy import stats
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from tools.mps_gaps import (  # noqa: E402
-    coverage_profile,
+    analyze_rings,
     gap_patch_runs,
     profile_correlation,
 )
@@ -150,6 +160,9 @@ def report_mode(files, mode: str) -> dict:
     print("-" * 104)
 
     r0_all, p_all, z_all, frac_all, nn_all = [], [], [], [], []
+    nn_n_all: List[float] = []
+    pairs_for_perm: List[tuple] = []
+    frames_used: List[str] = []
     n_seg = n_pair = 0
 
     for f in files:
@@ -160,17 +173,17 @@ def report_mode(files, mode: str) -> dict:
             print(f"{label(f):<20}  (no clusters in any segment)")
             continue
 
+        rings = analyze_rings(ms)
+        frames_used.append(rings.frame)
         profiles = []
-        for seg, an in zip(ms.segments, ms.analyses):
-            if an is None or an.occupancy is None or an.perimeter is None:
+        for seg, an, prof in zip(ms.segments, ms.analyses, rings.profiles):
+            if an is None or an.occupancy is None or an.perimeter is None or prof is None:
                 profiles.append(None)
                 print(f"{label(f):<20} {seg.index:>3}   (no occupancy)")
                 continue
             n_seg += 1
             runs = gap_patch_runs(an.occupancy.occupied_mask,
                                   an.occupancy.point_spacing_nm)
-            prof = coverage_profile(an.occupancy, an.perimeter.contour,
-                                    ms.axon_center)
             profiles.append(prof)
             print(f"{label(f):<20} {seg.index:>3} {an.n_clusters_kept:>4} "
                   f"{fmt(an.occupancy_percent):>6} "
@@ -194,8 +207,10 @@ def report_mode(files, mode: str) -> dict:
                 z_all.append(c.z_vs_null)
             if frac is not None:
                 frac_all.append(frac)
+            pairs_for_perm.append((f, pa.coverage, pb.coverage))
             if pair.angular_nn_median_deg is not None:
                 nn_all.append(pair.angular_nn_median_deg)
+                nn_n_all.append(0.5 * (pair.n_clusters_a + pair.n_clusters_b))
             print(f"{'':<20} {'':>3} {'':>4} {'':>6} {'':>6} {'':>6} "
                   f"{'':>7} {'':>5} | {f'{i}-{i+1}':>5} "
                   f"{c.r_at_zero:>7.3f} {c.p_rotation:>8.4f} "
@@ -207,7 +222,8 @@ def report_mode(files, mode: str) -> dict:
     zz = np.asarray(z_all, float)
     fr = np.asarray(frac_all, float)
 
-    print(f"\n  segments: {n_seg}    consecutive pairs compared: {n_pair}")
+    print(f"\n  segments: {n_seg}    consecutive pairs compared: {n_pair}"
+          f"    frames: {sorted(set(frames_used))}")
     if r0.size == 0:
         return {}
 
@@ -216,7 +232,8 @@ def report_mode(files, mode: str) -> dict:
     binom = stats.binomtest(n_sig, r0.size, 0.05, alternative="greater")
 
     print(f"\n  {'-' * 78}")
-    print(f"  COVERAGE-PROFILE CORRELATION AT ZERO ROTATION (n = {r0.size})")
+    print(f"  COVERAGE-PROFILE CORRELATION AT ZERO ROTATION (n = {r0.size}; "
+          f"pooled tests INDICATIVE: pairs within an axon are dependent)")
     print(f"  {'-' * 78}")
     print(f"  r(0)          : median {np.median(r0):+.3f}   "
           f"mean {r0.mean():+.3f}   range {r0.min():+.3f} .. {r0.max():+.3f}")
@@ -238,11 +255,61 @@ def report_mode(files, mode: str) -> dict:
         print(f"  KS vs uniform  : D = {ks.statistic:.3f}, p = {ks.pvalue:.3f}")
     if nn_all:
         nn = np.asarray(nn_all, float)
+        nn_n = np.asarray(nn_n_all, float)
+        # For N independent uniform clusters the angular distance to the
+        # nearest exceeds d with probability (1 - 2d/360)^N: median
+        # 180 (1 - 2^(-1/N)) ~ 125/N degrees, mean 180 / (N + 1).
+        expected = 180.0 * (1.0 - 2.0 ** (-1.0 / np.maximum(nn_n, 1.0)))
         print(f"\n  CROSS-CHECK, point-based angular 1NN offset (n = {nn.size})")
         print(f"  median {np.median(nn):.1f} deg   "
-              f"(random expectation ~ 90/N deg for N clusters)")
+              f"(independent uniform clusters: median 180 (1 - 2^(-1/N)) ~ 125/N deg, "
+              f"here {np.median(expected):.1f} deg at the pairs' N)")
+
+    perm = axon_permutation(pairs_for_perm)
+    if perm is not None:
+        obs, p_perm, n_perm, n_axons = perm
+        print(f"\n  PERMUTATION OVER AXONS (dependence-aware; {n_axons} axons, {n_perm} permutations)")
+        print(f"  mean Fisher-z of r(0): {obs:+.3f}   p = {p_perm:.4f} "
+              f"(second segments re-paired with segments of other axons)")
 
     return {"r0": r0, "p": p, "n_sig": n_sig, "fisher": fisher}
+
+
+def axon_permutation(pairs: List[tuple], n_perm: int = 1999,
+                     seed: int = 0) -> Optional[tuple]:
+    """Mean Fisher-z of r(0) over the pairs, against the same statistic with
+    every pair's second profile replaced by a second profile of another axon
+    (axon labels of the second sides permuted with no axon kept; 1 + b over
+    1 + n_perm). None with fewer than two axons or profiles of unequal
+    length."""
+    if len(pairs) < 2 or len({a for a, _, _ in pairs}) < 2:
+        return None
+    if len({len(pa) for _, pa, _ in pairs} | {len(pb) for _, _, pb in pairs}) != 1:
+        return None
+
+    def mean_z(sides_b):
+        rs = []
+        for (_, pa, _), pb in zip(pairs, sides_b):
+            r = profile_correlation(pa, pb, n_rotations=1).r_at_zero
+            if np.isfinite(r):
+                rs.append(np.arctanh(np.clip(r, -0.999999, 0.999999)))
+        return float(np.mean(rs)) if rs else float("nan")
+
+    axons = [a for a, _, _ in pairs]
+    obs = mean_z([pb for _, _, pb in pairs])
+    rng = np.random.default_rng(seed)
+    b = 0
+    done = 0
+    for _ in range(n_perm):
+        order = rng.permutation(len(pairs))
+        if any(axons[i] == axons[j] for i, j in enumerate(order)):
+            continue
+        done += 1
+        if mean_z([pairs[j][2] for j in order]) >= obs:
+            b += 1
+    if done == 0:
+        return None
+    return obs, (1 + b) / (1 + done), done, len(set(axons))
 
 
 def main() -> int:
