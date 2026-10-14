@@ -56,6 +56,10 @@ python MPS_explorer.py
 
 ### Your First Analysis (5 minutes)
 
+**First time?** The program opens with a guided tour of its main window (Spanish or English), and **Help** → *Open the
+example axon (simulated)* gives you a simulated axon to follow it with; **Shift+F1** explains any control you click.
+See [docs/beginner_mode.md](docs/beginner_mode.md).
+
 1. **Load Your Data** - Open a localization file: Picasso `.hdf5`, ThunderSTORM `.csv`, or a custom `.csv` (images are not supported)
 2. **Draw ROI** - Use the polygon drawing tool to select your region of interest
 3. **Configure Parameters** - Adjust settings in `config.yaml` if needed
@@ -85,6 +89,7 @@ System automatically detects and uses GPU if available. 🚀
 | Need | Document | Time |
 |------|----------|------|
 | **🚀 Get started NOW** | [START_HERE.txt](START_HERE.txt) | 5 min |
+| **🧭 First time: the guided tour** | [docs/beginner_mode.md](docs/beginner_mode.md) | 5 min |
 | **⚙️ Configure parameters** | [CONFIG.md](CONFIG.md) | 10 min |
 | **🐛 Debug issues** | [LOGGING.md](LOGGING.md) | 10 min |
 | **💡 Understand features** | [FEATURE_DEMO.md](FEATURE_DEMO.md) | 5 min |

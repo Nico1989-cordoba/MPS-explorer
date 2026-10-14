@@ -489,6 +489,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self._build_param_mirrors()
         self._build_measurement_panel()
         self._relayout_main_window()
+        self._build_beginner_tour()
 
         # Connect the close event to your method
         self.closeEvent = self.onCloseEvent
@@ -1176,6 +1177,165 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.action_excel.triggered.connect(self._on_copy_for_excel)
         toolbar.addAction(self.action_excel)
         self.analysis_toolbar = toolbar
+
+    # ========================================================================
+    # Beginner mode (tools/mps_tour.py): the guided tour, "Explain this", the
+    # simulated example axon
+    # ========================================================================
+
+    # The toolbar's buttons, named so that a tour step (and "Explain this")
+    # can find them: a QAction has no widget of its own until the toolbar
+    # makes one.
+    _TOOLBAR_NAMES = (
+        ("action_quality", "toolButton_quality"),
+        ("action_paint", "toolButton_paint"),
+        ("action_two_channels", "toolButton_two_channels"),
+        ("action_axoplasm", "toolButton_axoplasm"),
+        ("action_export_axon", "toolButton_export_axon"),
+        ("action_batch", "toolButton_batch"),
+        ("action_identity", "toolButton_identity"),
+        ("action_excel", "toolButton_excel"),
+    )
+
+    def _build_beginner_tour(self) -> None:
+        """
+        The Help button at the end of the toolbar (the menu bar is hidden:
+        see _build_analysis_toolbar), the "?" of each panel, and the tour
+        controller. Its state lives in the settings file
+        (MPSSettings.beginner_tour). The tour opens by itself the first time
+        the window is shown while beginner mode is on - never offscreen (the
+        golden harness and the tests), see tools.mps_tour.autostart_allowed.
+        """
+        from tools import mps_tour
+        from tools import mps_tour_steps as tour_steps
+
+        self.tour = mps_tour.TourController(
+            lambda: self.mps_settings.beginner_tour, self._save_tour_state, self)
+        toolbar = self.analysis_toolbar
+        for action_name, widget_name in self._TOOLBAR_NAMES:
+            button = toolbar.widgetForAction(getattr(self, action_name))
+            if button is not None:
+                button.setObjectName(widget_name)
+
+        menu = QtWidgets.QMenu(self)
+        menu.setObjectName("menu_help")
+        self.action_beginner_mode = QtWidgets.QAction(self)
+        self.action_beginner_mode.setObjectName("action_beginner_mode")
+        self.action_beginner_mode.setCheckable(True)
+        self.action_beginner_mode.setChecked(self.tour.enabled())
+        self.action_beginner_mode.toggled.connect(self._on_beginner_mode)
+        self.action_tour_window = QtWidgets.QAction(self)
+        self.action_tour_window.setObjectName("action_tour_window")
+        self.action_tour_window.triggered.connect(
+            lambda _checked=False: self.tour.start(self, "main"))
+        self.action_explain = QtWidgets.QAction(self)
+        self.action_explain.setObjectName("action_explain_this")
+        self.action_explain.setShortcut(QtGui.QKeySequence("Shift+F1"))
+        self.action_explain.setShortcutContext(QtCore.Qt.ApplicationShortcut)
+        self.action_explain.triggered.connect(
+            lambda _checked=False: self.tour.set_explain(True))
+        # Added to the window too, so that Shift+F1 works with the menu closed.
+        self.addAction(self.action_explain)
+        self.action_demo = QtWidgets.QAction(self)
+        self.action_demo.setObjectName("action_open_demo_axon")
+        self.action_demo.triggered.connect(lambda _checked=False: self.open_demo_axon())
+        menu.addAction(self.action_beginner_mode)
+        menu.addAction(self.action_tour_window)
+        menu.addAction(self.action_explain)
+        menu.addSeparator()
+        menu.addAction(self.action_demo)
+        menu.addSeparator()
+        self.menu_tour_language = menu.addMenu("")
+        group = QtWidgets.QActionGroup(self)
+        group.setExclusive(True)
+        self.action_tour_languages: Dict[str, Any] = {}
+        for lang in tour_steps.LANGUAGES:
+            action = self.menu_tour_language.addAction(tour_steps.LANGUAGE_NAMES[lang])
+            action.setObjectName(f"action_tour_language_{lang}")
+            action.setCheckable(True)
+            group.addAction(action)
+            action.triggered.connect(
+                lambda _checked=False, code=lang: self.tour.set_language(code))
+            self.action_tour_languages[lang] = action
+        self.menu_help = menu
+        button = QtWidgets.QToolButton(toolbar)
+        button.setObjectName("toolButton_help")
+        button.setMenu(menu)
+        button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        toolbar.addWidget(button)
+        self.button_help = button
+
+        self.tour_help_buttons: Dict[str, Any] = {}
+        for panel_id, panel_name in tour_steps.MAIN_PANELS:
+            panel = self.findChild(QtWidgets.QWidget, panel_name)
+            if panel is None:
+                self.logger.warning(f"Beginner tour: no panel {panel_name}")
+                continue
+            self.tour_help_buttons[panel_id] = mps_tour.attach_help_button(
+                panel, f"tourHelp_{panel_id}", "", self._panel_tour(panel_id))
+        self.tour.language_changed.connect(lambda _lang: self._retranslate_help())
+        self.tour.enabled_changed.connect(self._show_beginner_mode)
+        self._retranslate_help()
+        self.tour.register_window(self, "main")
+
+    def _panel_tour(self, panel_id: str) -> Callable[[], Any]:
+        """What a panel's "?" calls: that panel's steps of the tour."""
+        def replay() -> Any:
+            return self.tour.start(self, "main", panel=panel_id)
+        return replay
+
+    def _save_tour_state(self) -> None:
+        # The whole settings object, as on close: the tour's state is one
+        # field of it (and the other fields are what is on screen anyway).
+        try:
+            self._persist_mps_settings()
+        except Exception as exc:                          # noqa: BLE001
+            self.logger.warning(f"Could not save the beginner-mode state: {exc}")
+
+    def _retranslate_help(self) -> None:
+        tour = self.tour
+        self.button_help.setText(tour.ui("help"))
+        self.button_help.setToolTip(
+            f"{tour.ui('beginner')}, {tour.ui('explain')} (Shift+F1), {tour.ui('demo')}")
+        self.action_beginner_mode.setText(tour.ui("beginner"))
+        self.action_tour_window.setText(tour.ui("tour_window"))
+        self.action_explain.setText(tour.ui("explain"))
+        self.action_demo.setText(tour.ui("demo"))
+        self.menu_tour_language.setTitle(tour.ui("language"))
+        for lang, action in self.action_tour_languages.items():
+            action.setChecked(lang == tour.language())
+        for button in self.tour_help_buttons.values():
+            button.setToolTip(tour.ui("panel_help"))
+
+    def _show_beginner_mode(self, on: bool) -> None:
+        """The menu's check follows the state when the card's box changes it."""
+        self.action_beginner_mode.blockSignals(True)
+        self.action_beginner_mode.setChecked(on)
+        self.action_beginner_mode.blockSignals(False)
+
+    def _on_beginner_mode(self, on: bool) -> None:
+        """Beginner mode switched in the menu. On: every window's tour is
+        shown again, starting with this one now."""
+        self.tour.set_enabled(on, forget_seen=on)
+        if on:
+            self.tour.start(self, "main", auto=True)
+        else:
+            self.tour.close()
+
+    def open_demo_axon(self) -> bool:
+        """Load the SIMULATED example axon (examples/demo_axon, written by
+        tools/make_demo_axon.py) into channel 1, as a file chosen by hand
+        would be. Its folder is not remembered as the last one opened."""
+        from tools.make_demo_axon import demo_path
+
+        path = demo_path()
+        if not os.path.exists(path):
+            QtWidgets.QMessageBox.warning(
+                self, self.tour.ui("demo_title"),
+                self.tour.ui("demo_missing").format(path=path))
+            return False
+        self.logger.info(f"Opening the simulated example axon: {path}")
+        return self.load_channel1(path, 0)
 
     def _on_copy_for_excel(self) -> None:
         # Not the method itself: a triggered slot returns nothing, and it
@@ -3022,6 +3182,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         window.axon_map.image_changed.connect(self._map_image_changed)
         # a new map starts on its own choice: the panel's selector shows it
         self._map_image_changed(window.axon_map.inputs().image)
+        # The hook of its tour (tools/mps_tour_steps.py, STEPS["mps_analysis"]):
+        # empty until the pending science changes settle its rows, so nothing
+        # opens by itself and "Explain this" offers the tooltips.
+        tour = getattr(self, "tour", None)
+        if tour is not None:
+            tour.register_window(window, "mps_analysis")
         return window
 
     def _show_mps_window(self, analysis: Any) -> None:
