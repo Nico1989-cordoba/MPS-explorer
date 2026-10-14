@@ -3,8 +3,8 @@
 The panel that shows which axon is about to be exported, and lets the
 user correct it.
 
-``tools.mps_identity`` proposes the genotype, the protein, the slide, the
-ROI and the axon from the path and leaves empty whatever the patterns do
+``tools.mps_identity`` proposes the species (default mouse), the genotype,
+the protein, the slide, the ROI and the axon from the path and leaves empty whatever the patterns do
 not match. This is where that proposal is shown -- each field beside the
 reason it holds what it holds -- before anything is written. Typing here
 is the only way a field gets a value the path does not contain.
@@ -22,7 +22,7 @@ from PyQt5 import QtWidgets
 from tools.mps_plot_style import marked, verdict
 from tools.mps_identity import (
     DEFAULT_PATTERNS, FIELD_HINTS, FIELD_LABELS, FIELDS, AxonIdentity,
-    DEFAULT_ANIMAL, DEFAULT_ANIMAL_HINT, Proposal, check_patterns, propose,
+    Proposal, check_patterns, propose,
 )
 
 # Read on the application's white, so the darker set of the verdict
@@ -51,8 +51,10 @@ class PatternsDialog(QtWidgets.QDialog):
             "first capturing group is the value.\n"
             "The slide is left empty on purpose: with no pattern it is taken "
             "as the folder above the ROI folder.\n"
-            "The animal is never guessed from a folder name: with no pattern "
-            "the panel proposes 'mouse', which you edit.")
+            "The species starts as 'mouse' and is edited here. The animal "
+            "(the individual, M3...) is left empty on purpose too, and with "
+            "no pattern it stays empty: it is typed, never guessed from a "
+            "folder name.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -219,10 +221,6 @@ class IdentityDialog(QtWidgets.QDialog):
         for name in FIELDS:
             self.edits[name].setText(getattr(proposal.identity, name))
             self.hints[name].setText(proposal.explain(name))
-        if not proposal.identity.animal:
-            # Manual test 2, item 12: an editable default, said to be one.
-            self.edits["animal"].setText(DEFAULT_ANIMAL)
-            self.hints["animal"].setText(DEFAULT_ANIMAL_HINT)
         # What the proposal put there, so a value the user types instead is
         # recognisable later and not overwritten by a new pattern.
         self._applied = {n: self.edits[n].text() for n in FIELDS}
@@ -299,7 +297,7 @@ def ask_identity(
 
 def summarise(identity: Optional[AxonIdentity], path: str = "") -> str:
     """One line for a status bar or a message box."""
-    if identity is None or not any(getattr(identity, n) for n in FIELDS):
+    if identity is None or identity.is_blank:
         return f"no identity yet for {os.path.basename(path)}" if path \
             else "no identity yet"
     return identity.describe()

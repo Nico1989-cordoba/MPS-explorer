@@ -8,7 +8,7 @@ MANIFEST.json is a list of entries ``{"cell": "A:S2:E2", "snapshot": "entry", "p
 "b_change": "B2", "reason": "..."}``. ``path`` is a prefix of the difference's path inside the snapshot, as
 ``golden_ui_stage2_compare.py`` prints it after "<cell> / snapshots / <snapshot> / "; an entry may cover several
 differences under that prefix, and must cover at least one; a difference belongs to the longest prefix that matches
-it. ``b_change`` must be one of B1-B13 (G6: no rev-3 item may appear). An empty list (``[]``) means "byte-identical": the expectation of every step before IMPL-D (IMPL-0 to
+it. ``b_change`` must be one of B1-B17 (G6: no rev-3 item may appear). An empty list (``[]``) means "byte-identical": the expectation of every step before IMPL-D (IMPL-0 to
 IMPL-C), since no B-change is implemented before it.
 
 Exit status 0 when the differences are exactly the manifest's, 1 otherwise. Nothing is normalised here (the golden
@@ -25,7 +25,7 @@ from golden_ui_stage2_compare import _diff, _load
 
 # B1-B13: the stage-2 design; B14+: the behaviour changes of manual test 2 (MT2_REQUEST.md), each with a
 # one-line reason in the manifest.
-B_CHANGES = {f"B{i}" for i in range(1, 17)}
+B_CHANGES = {f"B{i}" for i in range(1, 18)}
 # The path ends where the compare tool's ": <first> != <second>" (or ": only in ...", ": n items vs m") begins: at
 # the first colon followed by a space. A key may hold a colon of its own ("other:_columns.csv").
 _PREFIX = re.compile(r"^(?P<cell>[^ ]+) / snapshots / (?P<snap>[^ /]+) / (?P<path>.*?)(?:: .*)?$")
@@ -61,7 +61,7 @@ def check(ref_path: str, branch_path: str, manifest_path: str) -> int:
     problems: List[str] = []
     for i, e in enumerate(manifest):
         if e.get("b_change") not in B_CHANGES:
-            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B16 (G6, manual test 2)")
+            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B17 (G6, manual test 2)")
     found, other = differences(ref, branch)
     problems.extend(f"not a snapshot difference: {o}" for o in other)
     used: Set[int] = set()

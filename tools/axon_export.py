@@ -65,8 +65,10 @@ from tools.results_table import cell_text
 # (contour_scatter_nm, contour_scatter_percent,
 # contour_scatter_depth_limit_nm, contour_n_deep_beyond_scatter, #27, also
 # with "_discard").
+# v4 (2026-10-13): the species among the identity columns (default "mouse");
+# the animal is the individual again and has no default.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v3"
+TABLE_VERSION = "axon tables v4"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported

@@ -1156,7 +1156,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         self.action_identity = QtWidgets.QAction("Axon identity", self)
         self.action_identity.setToolTip(
-            "Which genotype, protein, animal, slide, ROI and axon the\n"
+            "Which species, genotype, protein, animal, slide, ROI and axon the\n"
             "exported rows say this is. Proposed from the path; what the\n"
             "path does not say stays empty until you type it."
         )
