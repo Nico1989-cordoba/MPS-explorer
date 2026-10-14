@@ -344,6 +344,15 @@ def test_arc_frame_on_a_simulated_axon(tmp_path: Any) -> None:
             "boundary_separation_d"} <= set(pair_rows[0])
 
 
+def test_rings_csv_columns_go_last() -> None:
+    from tools.mps_multisegment import SCI6_PAIR_COLUMNS, SCI6_SEGMENT_COLUMNS, columns_last
+    row = {"a": 1, "boundary_bayes_nm": 2.0, "b": 3, "correlation_frame": "arc", "c": 4}
+    out = columns_last(row, SCI6_PAIR_COLUMNS)
+    assert list(out) == ["a", "b", "c", "boundary_bayes_nm", "correlation_frame"] and out == row
+    assert set(SCI6_SEGMENT_COLUMNS) == {"main_peak_mode", "z_peak_density_nm", "z_peak_weight_nm",
+                                         "slab_foreign_fraction", "delta_z_se_nm"}
+
+
 # ----------------------------------------------------------------------------------------- autocorrelation
 def test_autocorrelation_window_local_maximum_and_length() -> None:
     from tools.mps_autocorrelation import (DEFAULT_PERIOD_NM, DEFAULT_SEARCH_WINDOW, autocorrelation_amplitude,

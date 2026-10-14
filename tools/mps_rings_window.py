@@ -1160,6 +1160,10 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             row.update(coverage.get((row["segment_a"], row["segment_b"]), {}))
             row["ring_analysis_warnings"] = notes
             row["n_ring_analysis_warnings"] = len(shown)
+        # SCI-6's columns after every column of before (no earlier column moves).
+        from tools.mps_multisegment import SCI6_PAIR_COLUMNS, SCI6_SEGMENT_COLUMNS, columns_last
+        seg_rows = [columns_last(r, SCI6_SEGMENT_COLUMNS) for r in seg_rows]
+        pair_rows = [columns_last(r, SCI6_PAIR_COLUMNS) for r in pair_rows]
 
         # Two shapes of row go to two files rather than one ragged table: a
         # per-segment row and a per-pair row are different observations, and

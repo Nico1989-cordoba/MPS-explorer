@@ -61,6 +61,26 @@ from tools.mps_periodicity import (
 # The ways a slab can be bounded (``find_axial_segments``).
 SEGMENT_MODES: Tuple[str, ...] = ("paper", "valley", "partition", "bayes")
 
+# SCI-6's columns of the rings CSVs, written after every column of before so
+# that no earlier column moves (``columns_last``): the analysis' axial-mixture
+# columns on the segment rows; the boundary table and the arc-length
+# correlation's bookkeeping on the pair rows.
+SCI6_SEGMENT_COLUMNS: Tuple[str, ...] = (
+    "main_peak_mode", "z_peak_density_nm", "z_peak_weight_nm", "slab_foreign_fraction", "delta_z_se_nm")
+SCI6_PAIR_COLUMNS: Tuple[str, ...] = (
+    "boundary_midpoint_nm", "boundary_bayes_nm", "boundary_valley_nm",
+    "boundary_valley_shift_from_midpoint_nm", "boundary_valley_shift_from_bayes_nm", "boundary_separation_d",
+    "correlation_frame", "n_bins", "empty_bins", "n_empty_bins_a", "n_empty_bins_b", "n_effective_rotations",
+    "angle_nonmonotonic_fraction_a", "angle_nonmonotonic_fraction_b")
+
+
+def columns_last(row: Dict[str, Any], names: Sequence[str]) -> Dict[str, Any]:
+    """``row`` with the keys ``names`` (those it holds) moved to its end, in
+    that order: the last step before a row is written."""
+    out = {k: v for k, v in row.items() if k not in names}
+    out.update((k, row[k]) for k in names if k in row)
+    return out
+
 # A segment needs at least this many clusters before its angular pattern is
 # worth comparing: with one or two points any rotation fits equally well.
 MIN_CLUSTERS_FOR_ANGLE = 3
