@@ -525,7 +525,7 @@ COLUMNS_WINDOW_TOOLTIPS: Dict[str, str] = {
         "The analyses do not depend on the selection, so most changes need no run at all: the results are re-drawn "
         "at once. A run nobody needs any more (the selection went back to no pair) is stopped.",
     "selection_counter_label":
-        "Under an EXPLORATORY selection (not the pre-specified rule v2, D-41) its label and short hash first; they are "
+        "Under an EXPLORATORY selection (not the declared default rule v2) its label and short hash first; they are "
         "in every export of this window.\n\n"
         "Then how many different selections the p values of this axon were shown under in this session (every one is "
         "logged in selection_exploration_log.csv). The p values are NOT corrected for trying several selections.",

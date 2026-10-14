@@ -117,7 +117,7 @@ def main() -> int:
         for name in su.SELECTION_UI_TOOLTIPS:
             obj = w1.findChild(QtWidgets.QWidget, name)
             assert obj is not None and obj.toolTip().strip(), name
-        assert s1.spec.is_default and "pre-specified rule" in w1.label.text() and "EXPLORATORY" not in w1.label.text()
+        assert s1.spec.is_default and "declared default" in w1.label.text() and "EXPLORATORY" not in w1.label.text()
         w1.v2_row.checks["leak"].setChecked(False)
         assert s1.spec.label == "v2[peak,valley,count]", s1.spec.label
         assert not w2.v2_row.checks["leak"].isChecked() and "EXPLORATORY" in w2.label.text()
