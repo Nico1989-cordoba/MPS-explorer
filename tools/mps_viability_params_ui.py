@@ -63,7 +63,8 @@ VIABILITY_DIALOG_TOOLTIPS: Dict[str, str] = {
 def load_stored() -> ViabilityParams:
     """The stored viability parameters (the defaults when none are stored or the file cannot be read)."""
     from tools.mps_selection import stored_viability_params
-    return stored_viability_params()
+    p: ViabilityParams = stored_viability_params()
+    return p
 
 
 def save_stored(params: ViabilityParams) -> bool:

@@ -735,9 +735,10 @@ def viability_v2c(res: Any, v2: Any = None, *, xyz_lab_nm: Optional[Sequence[Any
         ra, rb = rings[i], rings[i + 1]
         ia_, ib_ = int(ra.index), int(rb.index)
         cut = 0.5 * (float(ra.z_hi_nm) + float(rb.z_lo_nm))
-        common = dict(slab_a=(float(ra.z_lo_nm), float(ra.z_hi_nm)), slab_b=(float(rb.z_lo_nm), float(rb.z_hi_nm)),
-                      cut_nm=cut, min_samples=ms, sigma_floor_nm=float(vp.v2c_sigma_floor_nm),
-                      keep_floor=float(vp.keep_floor))
+        common: Dict[str, Any] = dict(slab_a=(float(ra.z_lo_nm), float(ra.z_hi_nm)),
+                                      slab_b=(float(rb.z_lo_nm), float(rb.z_hi_nm)),
+                                      cut_nm=cut, min_samples=ms, sigma_floor_nm=float(vp.v2c_sigma_floor_nm),
+                                      keep_floor=float(vp.keep_floor))
         e = exp_spur_frac_clusters(per_ring_n[ia_], per_ring_mu[ia_], per_ring_n[ib_], per_ring_mu[ib_],
                                    sigma_a_nm=float(ra.sigma_z_nm), sigma_b_nm=float(rb.sigma_z_nm), **common)
         e_own = exp_spur_frac_clusters(per_ring_n[ia_], own_mu[ia_], per_ring_n[ib_], own_mu[ib_],
@@ -880,7 +881,8 @@ def v2c_summary_lines(v2c: AxonViabilityV2C) -> List[str]:
         lk = next((x for x in v2c.leaks if (x.ring_a, x.ring_b) == (a, b)), None)
         own = (f", own-width {100 * lk.exp_spur_frac_own:.1f} %" if lk is not None
                and math.isfinite(lk.exp_spur_frac_own) else "")
-        lines.append(f"   rings {a}-{b} (4c leak {100 * leak:.1f} %{own}, ring-level {100 * ps[0].exp_spur_frac_d39:.1f} %):")
+        lines.append(f"   rings {a}-{b} (4c leak {100 * leak:.1f} %{own}, ring-level "
+                     f"{100 * ps[0].exp_spur_frac_d39:.1f} %):")
         for p in ps:
             var = v2c.variants[p.variant]
             lines.append(f"      {var.letter}: {p.verdict.upper()} (exploratory) -- "

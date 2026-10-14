@@ -551,7 +551,8 @@ def ring_rows(report: ZQualityReport) -> List[Dict[str, Any]]:
     out = []
     for r in report.v2.rings:
         row = dict(_head(report))
-        row.update(ring=r.index, role=_ring_role(r, str(getattr(report.v2, "reference_ring", "central"))), centre_z_nm=r.centre_z_nm, n_locs=r.n_locs,
+        mode = str(getattr(report.v2, "reference_ring", "central"))
+        row.update(ring=r.index, role=_ring_role(r, mode), centre_z_nm=r.centre_z_nm, n_locs=r.n_locs,
                    f_of_central=r.f_of_central, k_clusters=r.k_clusters, locs_per_cluster=r.locs_per_cluster,
                    lpz_median_nm=r.lpz_median_nm, sigma_z_nm=r.sigma_z_nm, sigma_over_p=r.sigma_over_p,
                    sizer_peak=bool(r.peak), sizer_peak_z_nm=r.peak_z_nm, is_central=bool(r.is_central),
@@ -1891,7 +1892,8 @@ class ZQualityWindow(QtWidgets.QMainWindow):
         for r in rep.v2.rings:
             i = t.rowCount()
             t.insertRow(i)
-            vals = [str(r.index), _ring_role(r, str(getattr(rep.v2, "reference_ring", "central"))), _num(r.centre_z_nm, ".0f"), f"{r.n_locs:,}", _pct(r.f_of_central),
+            mode = str(getattr(rep.v2, "reference_ring", "central"))
+            vals = [str(r.index), _ring_role(r, mode), _num(r.centre_z_nm, ".0f"), f"{r.n_locs:,}", _pct(r.f_of_central),
                     str(r.k_clusters), _num(r.locs_per_cluster), _num(r.lpz_median_nm, ".0f"),
                     _num(r.sigma_z_nm, ".0f"), _num(r.sigma_over_p, ".3f"),
                     (f"yes ({r.peak_z_nm:.0f} nm)" if r.peak and r.peak_z_nm is not None else "NO")]
