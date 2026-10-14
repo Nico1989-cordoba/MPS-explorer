@@ -127,6 +127,15 @@ class MPSSettings:
     # nothing. The MPS_UNCALIBRATED_LABELS environment variable, when set,
     # takes precedence.
     uncalibrated_labels: str = ""
+    # The randomization control (SCI-3): "n_iterations" (B), "seed" and the
+    # fields of tools.mps_randomization.RandomizationParams, one store read
+    # by the MPS analysis window, the batch and the next session. Empty:
+    # every default. A value outside its documented range is kept (and
+    # flagged where it is shown), never clamped.
+    randomization_params: Dict[str, Any] = field(default_factory=dict)
+    # The cap of each cluster's ellipse (sigma <= this fraction of d_max):
+    # 1/3, the published rule; documented range 0.2-1.0.
+    occupancy_sigma_cap_fraction: float = 1.0 / 3.0
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -237,6 +246,18 @@ class MPSSettings:
 
         self.z_calibration_by_folder = clean_store(
             self.z_calibration_by_folder)
+        self.randomization_params = clean_randomization_store(
+            self.randomization_params)
+        try:
+            cap = float(self.occupancy_sigma_cap_fraction)
+        except (TypeError, ValueError):
+            cap = float("nan")
+        if not (cap > 0 and cap < float("inf")):
+            logger.warning(
+                "Stored occupancy_sigma_cap_fraction=%r is not a fraction; "
+                "using 1/3", self.occupancy_sigma_cap_fraction)
+            cap = 1.0 / 3.0
+        self.occupancy_sigma_cap_fraction = cap
         # A stored pattern that no longer compiles would raise at the next
         # export, in the middle of writing tables; drop it here instead and
         # fall back to the default for that field.
@@ -261,6 +282,42 @@ class MPSSettings:
                     self.uncalibrated_labels, exc)
                 self.uncalibrated_labels = ""
         return self
+
+
+def clean_randomization_store(value: Any) -> Dict[str, Any]:
+    """The usable entries of a stored ``randomization_params``: known keys
+    with a value of the right kind (B >= 1 and the seed as integers, the
+    rest as RandomizationParams accepts them). Anything else is dropped,
+    never clamped; a value outside its documented range is kept."""
+    from tools.mps_randomization import RandomizationParams
+
+    if not isinstance(value, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for key in ("n_iterations", "seed"):
+        if key in value:
+            raw = value[key]
+            try:
+                number = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(raw, bool) or number != float(raw):
+                continue
+            if key == "n_iterations" and number < 1:
+                continue
+            out[key] = number
+    default = RandomizationParams().to_dict()
+    for key in default:
+        if key not in value:
+            continue
+        raw = value[key]
+        parsed = RandomizationParams.from_dict({key: raw}).to_dict()[key]
+        # from_dict leaves the default where a value is unusable: such a
+        # value is dropped, not replaced by the default.
+        if parsed == default[key] and raw != default[key]:
+            continue
+        out[key] = parsed
+    return out
 
 
 def settings_path(directory: Optional[str] = None) -> Path:

@@ -972,10 +972,8 @@ class BatchWindow(QtWidgets.QMainWindow):
             icc = ""
             if nesting is not None and nesting.icc is not None:
                 icc = (f"{nesting.icc:.2f} ({nesting.severity}; chance "
-                       f"reaches {nesting.null_p95:.2f}); worth about "
-                       f"{nesting.effective_n:.1f} independent axons"
+                       f"reaches {nesting.null_p95:.2f})"
                        if nesting.null_p95 is not None
-                       and nesting.effective_n is not None
                        else f"{nesting.icc:.2f}")
             rows.append(["per axon", summary.group, str(summary.n),
                          fmt(summary.mean), fmt(summary.sd),

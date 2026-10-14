@@ -123,15 +123,23 @@ PLOT_SCATTER = "Scatter off the outline"
 # Tooltips of the results table (rev 3, 12.8): what each reference value is,
 # and the two cells whose number is this program's heuristic or has no
 # valid reading. The texts of the cells themselves are unchanged.
+PAPER_HEADER = "Reference (Gazal et al. 2026, preprint v1, pooled)"
 PAPER_HEADER_TIP = (
-    "Values of Gazal et al. 2026 (preprint v1): another dataset and another pipeline; agreeing with them is not a "
-    "validation criterion. A later version renames this column.")
-KS_P_TIP = (
-    "This p treats the K distances as independent and the 1,000 randomizations as a second sample; neither holds. "
-    "Under a true null it rejects up to about four times as often as its nominal 5 % (9-22 % at a nominal 5 % in "
-    "this project's simulations). A later version replaces it with Monte Carlo p-values.")
-CROSSING_TIP = ("This program's heuristic; a later version reports a crossing only where the curves leave the band "
-                "the randomizations themselves give.")
+    "Values of Gazal et al. 2026 (preprint v1), read on data pooled over its axons: another dataset and another "
+    "pipeline; agreeing with them is not a validation criterion. The 1NN scales with the clusters detected per um, "
+    "so compare that and the regularity index r first.")
+KS_TIP = (
+    "D is descriptive: its size under the null falls with the number of clusters K, so it is not comparable between "
+    "axons or with the paper's pooled value. z_D is D in standard deviations of its own null (the D each "
+    "randomization reaches against the pool): comparable between axons. The two-sample KS p is not reported: these "
+    "samples break its assumptions, and under a true null it rejected up to about four times its nominal 5 % in "
+    "this project's simulations.")
+MC_P_TIP = (
+    "Monte Carlo rank p-values, (1 + b) / (B + 1): how often a random placement with the same cluster number, band "
+    "and minimum separation gives a median 1NN (two-sided) or a D at least as extreme. Approximate: the minimum "
+    "separation of the null is estimated from the same data.")
+CROSSING_TIP = ("Reported only where the observed CDF leaves the band the randomizations themselves give; called "
+                "significant when both branches also exceed the sampling bound of K distances (DKW).")
 # The reference cell of each row, by the row's name (summary_rows), and the registry entry that says what it is.
 _REFERENCE_KEYS: Dict[str, str] = {
     "Clusters per um": "reference.clusters_per_um",
@@ -143,6 +151,7 @@ _REFERENCE_KEYS: Dict[str, str] = {
     "  CDF crossing": "reference.cdf_crossing",
 }
 _KS_ROW = "Randomization KS test"
+_MC_ROW = "  Monte Carlo p"
 _CROSSING_ROW = "  CDF crossing"
 
 # How much of the plot column the map takes when the window opens (the rest
@@ -551,7 +560,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         )
         self.field_maha = ParamField("occupancy.mahalanobis", self.spin_maha)
         lo.addWidget(self.field_maha, 0, 1)
-        self.more_occupancy = MoreLine("occupancy")
+        self.more_occupancy = MoreLine("occupancy", editable=True)
+        self.more_occupancy.edit_button.setToolTip("Edit the sigma cap of the occupancy ellipses, then re-run.")
+        self.more_occupancy.edit_button.clicked.connect(self._on_edit_occupancy)
         lo.addWidget(self.more_occupancy, 1, 0, 1, 2)
 
         # --- Randomization: the switch (no badge: a switch carries none,
@@ -560,13 +571,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.chk_random = QtWidgets.QCheckBox("Randomization")
         self.chk_random.setChecked(True)
         self.chk_random.setToolTip(
-            "Run the 1,000-iteration randomization control (parameter 8).\n"
+            "Run the randomization control (parameter 8; 999 iterations by default).\n"
             "It is the slowest step (a few seconds per axon), so switch it\n"
             "off while tuning the other parameters and back on for the\n"
             "final numbers."
         )
         lr.addWidget(self.chk_random, 0, 0)
-        self.more_randomization = MoreLine("randomization")
+        self.more_randomization = MoreLine("randomization", editable=True)
+        self.more_randomization.edit_button.setToolTip(
+            "Edit the randomization control (band, iterations, seed, smoothing, incomplete iterations, attempts, "
+            "grid, CDF band, hard core), then re-run.")
+        self.more_randomization.edit_button.clicked.connect(self._on_edit_randomization)
         lr.addWidget(self.more_randomization, 1, 0)
 
         # --- Contour
@@ -640,6 +655,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         for w in (self.combo_peak, self.spin_half, self.spin_eps,
                   self.spin_min, self.spin_maha,
                   self.chk_random, self.btn_reset, self.btn_contour,
+                  self.more_randomization.edit_button, self.more_occupancy.edit_button,
                   self.btn_slab_auto, self.chk_typed, self.edit_typed_min,
                   self.edit_typed_max, self.btn_typed_apply):
             w.setEnabled(enabled)
@@ -842,7 +858,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.table = QtWidgets.QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
             ["Parameter", "Measured", "All clusters", "Discard applied",
-             "Gazal 2026", "Note"])
+             PAPER_HEADER, "Note"])
         for col in (_COL_NAME, _COL_MEASURED, _COL_EVERY, _COL_DISCARD):
             self.table.horizontalHeader().setSectionResizeMode(
                 col, QtWidgets.QHeaderView.ResizeToContents)
@@ -1039,6 +1055,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.comparison = self._ask_discard()
         self._read_selection()
         self._sync_controls()
+        self._sync_more()
         self._sync_slab_widgets()
         self._sync_reset()
         self._sync_discard_widgets()
@@ -1465,9 +1482,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         elif col in (_COL_MEASURED, _COL_EVERY, _COL_DISCARD):
             own = item.toolTip()
             if name == _KS_ROW:
-                item.setToolTip(KS_P_TIP + (f"\n\n{own}" if own else ""))
+                item.setToolTip(KS_TIP + (f"\n\n{own}" if own else ""))
+            elif name == _MC_ROW:
+                item.setToolTip(MC_P_TIP + (f"\n\n{own}" if own else ""))
             elif name == _CROSSING_ROW:
-                item.setToolTip(CROSSING_TIP + "\n" + reg.tooltip("randomization.cdf_crossing_floor")
+                item.setToolTip(CROSSING_TIP + "\n" + reg.tooltip("randomization.cdf_band_alpha")
                                 + (f"\n\n{own}" if own else ""))
 
     @staticmethod
@@ -1822,12 +1841,69 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             peak = centre if mode == "component" else None
         self._rerun(main_peak_override_nm=(None if peak is None else float(peak)))
 
-    def _rerun(self, main_peak_override_nm: Optional[float]) -> None:
+    def _sync_more(self) -> None:
+        """The randomization and occupancy "More" lines say the values the analysis shown ran with (SCI-3)."""
+        from tools.mps_randomization_ui import analysis_values, more_values
+
+        a = self.analysis
+        self.more_randomization.set_values(more_values(analysis_values(a)))
+        self.more_occupancy.set_values(
+            {} if a is None else {"occupancy.sigma_cap_fraction": float(a.sigma_cap_fraction)})
+
+    def _rerun_with(self, extra: Dict[str, Any]) -> None:
+        """Re-run with the strip's values and ``extra`` keywords (the randomization's or the sigma cap's)."""
+        if self.analysis is None:
+            self._update_banner()
+            return
+        peak = self.combo_peak.currentData()
+        self._rerun(main_peak_override_nm=(None if peak is None else float(peak)), **extra)
+
+    def _on_edit_randomization(self) -> None:
+        """The randomization dialog: its values go into the one store and the analysis runs again with them."""
+        from tools.mps_randomization_ui import (
+            RandomizationDialog, analysis_values, analyze_kwargs, values_from_store,
+        )
+
+        if self.rerun_callback is None:
+            return
+        dialog = RandomizationDialog(analysis_values(self.analysis), self)
+        if dialog.exec_() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        if self.links.store is not None:
+            self.links.store({"randomization_params": values})
+        kw = analyze_kwargs(values)
+        # every keyword, so the run is these values whatever the store's defaults
+        full = values_from_store(values)
+        from tools.mps_randomization import RandomizationParams
+
+        kw.setdefault("n_randomizations", int(full["n_iterations"]))
+        kw.setdefault("random_seed", int(full["seed"]))
+        kw.setdefault("randomization_params", RandomizationParams.from_dict(full))
+        self._rerun_with(kw)
+
+    def _on_edit_occupancy(self) -> None:
+        """The sigma-cap dialog: the value goes into the one store and the analysis runs again with it."""
+        from tools.mps_randomization_ui import SigmaCapDialog
+
+        if self.rerun_callback is None:
+            return
+        cap = None if self.analysis is None else float(self.analysis.sigma_cap_fraction)
+        dialog = SigmaCapDialog(cap, self)
+        if dialog.exec_() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        value = float(dialog.values()["occupancy_sigma_cap_fraction"])
+        if self.links.store is not None:
+            self.links.store({"occupancy_sigma_cap_fraction": value})
+        self._rerun_with({"sigma_cap_fraction": value})
+
+    def _rerun(self, main_peak_override_nm: Optional[float], **extra: Any) -> None:
         if self.rerun_callback is None:
             return
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
             self.analysis = self.rerun_callback(
+                **extra,
                 main_peak_override_nm=main_peak_override_nm,
                 slab_half_width_nm=float(self.spin_half.value()),
                 eps_nm=float(self.spin_eps.value()),

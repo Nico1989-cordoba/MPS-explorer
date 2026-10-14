@@ -75,7 +75,7 @@ from tools.results_table import cell_text
 # file's own record matches a chosen one, and what a bead stack measured.
 # Empty cells, with z_magnification_origin "blank", when nothing was read.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v5"
+TABLE_VERSION = "axon tables v6"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
@@ -115,7 +115,12 @@ SHARED_COLUMNS: Tuple[str, ...] = (
     "n_clusters_raw", "n_clusters_removed", "removed_edge_touching",
     "removed_low_dbcv", "edge_criterion_disabled", "mahalanobis_threshold",
     "ellipse_mode", "random_seed", "randomization_requested",
-    "contour_guide_nm")
+    "contour_guide_nm",
+    # How the randomization and the occupancy ran (SCI-3).
+    "randomization_band_half_width_nm", "randomization_smoothing_rms_nm",
+    "randomization_exclude_incomplete", "randomization_max_attempts_factor",
+    "randomization_grid_spacing_nm", "randomization_hard_core",
+    "ks_band_alpha", "occupancy_sigma_cap_fraction")
 
 # Columns the discard does change: everything from the clusters that are
 # left onwards. These are the ones written twice, the second time with a
@@ -140,7 +145,13 @@ MEASURED_COLUMNS: Tuple[str, ...] = (
     "occupancy_n_capped_ellipses", "ks_statistic", "ks_cdf_crossing",
     "randomization_n_iterations", "randomization_min_sep_nm",
     "randomization_incomplete_iters", "randomized_median_1nn_nm",
-    "ks_pvalue", "n_warnings", "warnings")
+    # Where ks_pvalue stood until SCI-3: D's own null, the Monte Carlo
+    # p-values, the band's crossing flag, the placement diagnostics and the
+    # 1NN regularity index.
+    "ks_null_mean", "ks_z", "ks_p_mc_median", "ks_p_mc_d",
+    "ks_cdf_crossing_significant", "randomization_n_redrawn",
+    "randomization_packing_fraction", "randomization_n_outside_band",
+    "nn_regularity_index", "n_warnings", "warnings")
 
 DISCARD_SUFFIX = "_discard"
 
@@ -167,13 +178,18 @@ ROUNDING: Tuple[Tuple[str, int], ...] = (
 )
 # Fractions and the statistics that behave like one.
 _FOUR_DECIMALS = frozenset({"ks_statistic", "contour_tour_over_hull",
-                            "contour_length_in_long_edges"})
+                            "contour_length_in_long_edges", "ks_null_mean",
+                            "nn_regularity_index",
+                            "randomization_packing_fraction"})
 # Not measurements: what the analysis was RUN with is written exactly as
 # it was given, however many digits that takes.
 _SETTINGS: frozenset = frozenset({
     "pixel_size_nm", "eps_nm", "min_samples", "dbcv_threshold",
     "mahalanobis_threshold", "slab_half_width_nm", "discard_margin_nm",
     "random_seed", "randomization_requested", "randomization_min_sep_nm",
+    "randomization_band_half_width_nm", "randomization_smoothing_rms_nm",
+    "randomization_max_attempts_factor", "randomization_grid_spacing_nm",
+    "ks_band_alpha", "occupancy_sigma_cap_fraction",
 })
 
 
@@ -185,7 +201,7 @@ def _rounded(name: str, value: Any) -> Any:
         return value
     base = (name[:-len(DISCARD_SUFFIX)] if name.endswith(DISCARD_SUFFIX)
             else name)
-    if base in _SETTINGS or base.endswith("pvalue"):
+    if base in _SETTINGS or base.endswith("pvalue") or base.startswith("ks_p_mc"):
         return value
     if base in _FOUR_DECIMALS or base.startswith("fraction_"):
         return round(value, 4)
@@ -244,6 +260,8 @@ def analysis_id(analysis: AxonAnalysis) -> str:
         f"{analysis.discard_margin_nm}",
         str(analysis.contour_order_source),
         format_guide(analysis.contour_guide) or "",
+        repr(sorted(analysis.randomization_params.to_dict().items())),
+        f"{analysis.sigma_cap_fraction}",
     ]
     return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()[:10]
 

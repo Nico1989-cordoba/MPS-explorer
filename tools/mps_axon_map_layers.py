@@ -111,6 +111,8 @@ ROW_STYLES: Dict[str, Style] = {
     "cdf_observed": Style("observed", 255, "line", width=2.0),
     "cdf_randomized": Style("randomized", 255, "line", width=2.0),
     "cdf_crossing": Style("neutral", 255, "dashed line", width=1.0, pen="dash"),
+    # The null band of the CDF (the central 1 - alpha of the randomizations' own CDFs): this program's, neutral.
+    "cdf_null_band": Style("neutral", 255, "dotted lines", width=1.0, pen="dot"),
 }
 
 
@@ -1282,7 +1284,7 @@ NN_ON: FrozenSet[str] = frozenset({"nn_bars", "nn_median"})      # the reference
 
 
 def nn_details(shown: Any, n: int) -> List[DetailRow]:
-    """K, P, clusters per um, the median 1NN, N (12.8)."""
+    """K, P, clusters per um, the median 1NN, the regularity index r, N (12.8)."""
     if shown is None:
         return [_row("clusters", "- (no MPS analysis)")]
     rows = [_row("clusters K (analysis shown)", str(int(shown.n_clusters_kept)))]
@@ -1292,13 +1294,18 @@ def nn_details(shown: Any, n: int) -> List[DetailRow]:
     rows.append(_row("clusters per um", "-" if cpu is None else f"{cpu:,.2f}"))
     med = None if shown.nn is None else shown.nn.median_1nn_nm
     rows.append(_row("median 1NN", "-" if med is None else f"{med:,.1f} nm"))
+    r_index = getattr(shown, "nn_regularity_index", None)
+    rows.append(_row("regularity r = median 1NN x K / P", "-" if r_index is None else f"{r_index:.2f}",
+                     "about 0.47 for a random arrangement, 1 for evenly spaced centres (this program's "
+                     "simulation): the 1NN scales with the clusters per um, r does not"))
     rows.append(_row("neighbours N", str(int(n))))
     return rows
 
 
 def cdf_layers(shown: Any) -> List[Layer]:
-    """Observed and randomized 1NN CDFs (the old CDF plot's arrays) and the crossing line, which is this program's
-    heuristic: neutral, never the paper colour (P5)."""
+    """Observed and randomized 1NN CDFs (the old CDF plot's arrays), the null band (the central 1 - alpha of the
+    randomizations' own CDFs) and the line where the band-exceeding excess of short distances ends: this program's,
+    neutral, never the paper colour (P5)."""
     if shown is None or shown.randomization is None:
         return []
     r = shown.randomization
@@ -1312,10 +1319,20 @@ def cdf_layers(shown: Any) -> List[Layer]:
     layers = [Layer("cdf_randomized", "randomized", "cdf", "curves", {"x": xr, "y": yr}, None,
                     "Every randomized 1NN distance, pooled over the iterations."),
               Layer("cdf_observed", "observed", "cdf", "curves", {"x": xe, "y": ye}, None, "The measured 1NN.")]
+    grid = np.asarray(getattr(r, "cdf_grid_nm", np.empty(0)), float)
+    if grid.size:
+        alpha = float(r.params.cdf_band_alpha)
+        layers.append(Layer("cdf_null_band", f"null band ({100.0 * (1.0 - alpha):g} % of the randomizations)",
+                            "cdf", "curves",
+                            {"grid": grid, "curves": [np.asarray(r.cdf_band_lo, float),
+                                                      np.asarray(r.cdf_band_hi, float)]},
+                            None, reg.tooltip("randomization.cdf_band_alpha", alpha)))
     if r.cdf_crossing is not None:
-        layers.append(Layer("cdf_crossing", f"crossing {r.cdf_crossing:.2f} (heuristic)", "cdf", "hline",
-                            {"y": float(r.cdf_crossing), "label": f"crossing {r.cdf_crossing:.2f} (heuristic)"},
-                            None, reg.tooltip("randomization.cdf_crossing_floor")))
+        words = (f"excess up to F = {r.cdf_crossing:.2f}" if r.cdf_crossing_significant
+                 else f"excess up to F = {r.cdf_crossing:.2f} (not significant)")
+        layers.append(Layer("cdf_crossing", words, "cdf", "hline",
+                            {"y": float(r.cdf_crossing), "label": words},
+                            None, reg.tooltip("randomization.cdf_band_alpha", float(r.params.cdf_band_alpha))))
     return layers
 
 
@@ -1324,26 +1341,51 @@ def cdf_title(shown: Any, comparison: Any, measured: Any) -> str:
     return CDF_TITLE + (f" ({words})" if words else "")
 
 
+def _p(v: Optional[float]) -> str:
+    return "-" if v is None else f"{v:.3f}"
+
+
 def cdf_details(shown: Any) -> List[DetailRow]:
-    """D, B, the minimum separation, the candidates, the band (paper), incomplete iterations, the mean placed
-    fraction, the randomized median. Not the KS p: it has no valid reading on these samples."""
+    """D with its own null (null mean, z_D), the Monte Carlo p-values (approximate), the crossing, B, the minimum
+    separation and how it was set, the candidates, the band, the centres outside it, incomplete and re-drawn
+    iterations, the packing fraction, the randomized median. Not the KS p: it has no valid reading on these
+    samples."""
     if shown is None or shown.randomization is None:
         return [_row("randomization", "- (not run)")]
     r = shown.randomization
     band = float(r.annulus_half_width_nm)
     med = r.randomized_median_nm
+    pr = r.params
+    excluded = bool(pr.exclude_incomplete)
     return [
         _row("KS statistic D", f"{float(r.ks_statistic):.3f}",
-             "descriptive: the largest gap between the two CDFs. Its size under the null falls as about "
-             "0.87/sqrt(K), so it is not comparable between axons; a later version adds its null mean and z_D"),
-        _row("randomizations B", f"{int(r.n_iterations):,}", "", reg.badge("randomization.iterations",
-                                                                            int(r.n_iterations))),
-        _row("minimum separation used", f"{float(r.min_distance_nm):,.1f} nm"),
+             "descriptive: the largest gap between the two CDFs; its size under the null falls with K"),
+        _row("null mean of D", "-" if r.ks_null_mean is None else f"{r.ks_null_mean:.3f}",
+             f"the D each randomization reaches against the pool, for K = {int(r.n_clusters)}"),
+        _row("z_D", "-" if r.ks_z is None else f"{r.ks_z:+.2f}",
+             "D in null standard deviations: comparable between axons"),
+        _row("Monte Carlo p (median, two-sided)", _p(r.ks_p_mc_median),
+             "approximate: the hard core is estimated from the data"),
+        _row("Monte Carlo p (D)", _p(r.ks_p_mc_d), "approximate, as above"),
+        _row("CDF crossing", r.crossing_words(),
+             f"band alpha {pr.cdf_band_alpha:g}; DKW bound "
+             + ("-" if r.cdf_dkw_floor is None else f"{r.cdf_dkw_floor:.2f}"),
+             reg.badge("randomization.cdf_band_alpha", float(pr.cdf_band_alpha))),
+        _row("randomizations B", f"{int(r.n_iterations_used):,} used of {int(r.n_iterations):,}", "",
+             reg.badge("randomization.iterations", int(r.n_iterations))),
+        _row("minimum separation used", f"{float(r.min_distance_nm):,.1f} nm",
+             f"hard core: {r.hard_core}", reg.badge("randomization.hard_core", pr.hard_core)),
         _row("candidate positions", f"{int(r.n_candidates):,}"),
         _row("band half-width", f"{band:g} nm", reg.range_hint("randomization.band_half_width_nm", band),
              reg.badge("randomization.band_half_width_nm", band)),
-        _row("incomplete iterations", f"{int(r.n_incomplete_iterations):,}", "kept in the pool",
-             reg.badge("randomization.incomplete_iterations")),
+        _row("observed centres outside the band", f"{int(r.n_outside_band)}",
+             "the null cannot place a centre there; above 0 the comparison partly measures the band"),
+        _row("incomplete iterations", f"{int(r.n_incomplete_iterations):,}",
+             (f"re-drawn ({int(r.n_redrawn):,} redraws) and left out of the null" if excluded
+              else "kept in the pool"),
+             reg.badge("randomization.incomplete_iterations", excluded)),
+        _row("packing fraction phi", "-" if r.packing_fraction is None else f"{r.packing_fraction:.2f}",
+             "K pi d^2 / (4 x band area): near 0.5 or above, random placement jams"),
         _row("mean placed fraction", f"{float(r.mean_placed_fraction):.3f}",
              "the share of the K centres placed per iteration; below 1 the band could not hold them at the "
              "minimum separation"),
