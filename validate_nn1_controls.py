@@ -60,18 +60,27 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     print(f"  {'ok  ' if ok else 'FAIL'}  {name}" + (f"   [{detail}]" if detail else ""))
 
 
-def _middle_ring(sim: Any) -> int:
-    return int(np.max(sim.ring_true)) // 2
+def _target_ring(sim: Any, a: Any, keep_index: Optional[np.ndarray] = None) -> int:
+    """The ring the analysis' slab sits on: the true ring most of its localizations come from (the automatic slab
+    takes the strongest axial component, not necessarily the middle ring)."""
+    rings = np.asarray(sim.ring_true)
+    if keep_index is not None:
+        rings = rings[keep_index]
+    idx = np.asarray(a.slab_index)
+    inside = rings[idx[idx < rings.size]]          # added (interior) localizations carry no ring
+    inside = inside[inside >= 0]
+    return int(np.bincount(inside).argmax()) if inside.size else int(np.max(sim.ring_true)) // 2
 
 
-def _k_true(sim: Any) -> int:
-    ring = _middle_ring(sim)
+def _k_true(sim: Any, ring: int) -> int:
     return int(len(np.unique(sim.cluster_true[(sim.ring_true == ring) & (sim.cluster_true >= 0)])))
 
 
-def _measure(sim: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray, **kw: Any) -> Dict[str, Any]:
+def _measure(sim: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray, keep_index: Optional[np.ndarray] = None,
+             **kw: Any) -> Dict[str, Any]:
     a = analyze_axon(x, y, z, pixel_size_nm=113.0, pixel_size_source="yaml", run_randomization=False, **kw)
-    out = {"K": int(a.n_clusters_kept), "K_true": _k_true(sim),
+    ring = _target_ring(sim, a, keep_index)
+    out = {"K": int(a.n_clusters_kept), "K_true": _k_true(sim, ring), "ring": ring,
            "clusters_per_um": a.clusters_per_um, "median_1nn_nm": a.median_1nn_nm, "r": a.nn_regularity_index}
     out["K_ratio"] = out["K"] / out["K_true"] if out["K_true"] else None
     out["analysis"] = a
@@ -92,7 +101,7 @@ def _foreign_fraction(sim: Any, a: Any, keep_index: Optional[np.ndarray] = None)
     kept = [lab for lab in np.unique(labels) if lab >= 0 and int(lab) not in bad]
     if not kept:
         return None
-    middle = _middle_ring(sim)
+    middle = _target_ring(sim, a, keep_index)
     foreign = 0
     for lab in kept:
         r = rings[labels == lab]
@@ -139,7 +148,7 @@ def control_thinning(n: int, seed: int) -> None:
         rng = np.random.default_rng(seed + i)
         for keep in (1.0, 0.5, 0.25, 0.125):
             mask = rng.uniform(size=sim.x_nm.size) < keep
-            m = _measure(sim, sim.x_nm[mask], sim.y_nm[mask], sim.z_nm[mask])
+            m = _measure(sim, sim.x_nm[mask], sim.y_nm[mask], sim.z_nm[mask], keep_index=np.flatnonzero(mask))
             m.update(axon=i, keep=keep)
             rows.append(m)
             print(f"    axon {i}, keep {keep:5.3f}: K/K_true {_fmt(m['K_ratio'])}, median 1NN "
