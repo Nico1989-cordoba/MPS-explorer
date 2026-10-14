@@ -36,7 +36,8 @@ from tools.mps_origin_ui import OriginBadge
 from tools.mps_plot_style import verdict
 
 __all__ = ["ChannelFile", "MeasurementPanel", "measurement_lines", "z_record_line", "z_records_line", "TITLE",
-           "CALIBRATION_BUTTON", "BEAD_BUTTON", "CALIBRATION_TIP", "BEAD_TIP", "z_line", "z_detail_line",
+           "CALIBRATION_BUTTON", "BEAD_BUTTON", "USE_OWN_BUTTON", "CALIBRATION_TIP", "BEAD_TIP", "z_line",
+           "z_detail_line",
            "z_detail_lines", "z_match_line",
            "bead_line"]
 
@@ -47,6 +48,9 @@ Z_NOTE = "z as fitted by the localization software"
 BEAD_LINE = "bead stack: - (not given)"
 CALIBRATION_BUTTON = "Calibration record..."
 BEAD_BUTTON = "Bead stack..."
+USE_OWN_BUTTON = "Use the file's record"
+USE_OWN_TIP = ("Forget the calibration file chosen for this folder (or this file) and use the record each file carries "
+               "in its own Picasso metadata: the calibration its z was fitted with.")
 CALIBRATION_TIP = (
     "The astigmatism calibration that defines this measurement's z. By default the record the file carries in its "
     "Picasso metadata ('Z Calibration' block or 'Fit 3D' step) is read. Here you can choose a calibration file "
@@ -140,13 +144,16 @@ def z_match_line(state: Optional[zcal.ZCalibrationState]) -> str:
     if state is None or state.chosen_record is None:
         return ""
     if state.file_record is None:
-        return "Record: the file carries none of its own to compare with"
+        return "Record: the file carries none of its own; the chosen file is in use"
+    name = state.chosen_record.file_name or "the chosen file"
     diff = zcal.record_differences(state.file_record, state.chosen_record)
-    if diff is None:
-        return "Record: cannot be compared with the file's (one of them has no width curves)"
-    if not diff:
-        return "Record: same as the file's"
-    return "Record: DIFFERENT from the file's (" + ", ".join(diff) + ")"
+    if diff is not None and not diff:
+        return f"Record: same as the file's ({name})"
+    what = "one of them has no width curves" if diff is None else ", ".join(diff)
+    if state.chosen_in_use:
+        return (f"Record: the chosen {name} is in use, confirmed for this folder although it is DIFFERENT from the "
+                f"file's ({what})")
+    return f"Alternative (not in use): {name}, DIFFERENT from the file's ({what}); the file's own record is in use"
 
 
 def z_detail_lines(state: Optional[zcal.ZCalibrationState]) -> List[str]:
@@ -193,7 +200,8 @@ def z_detail_line(state: Optional[zcal.ZCalibrationState]) -> str:
 
 
 def _is_warning(line: str) -> bool:
-    return line.startswith(("Check: ", "Record: DIFFERENT", "The chosen calibration file could not"))
+    return line.startswith(("Check: ", "Alternative (not in use)", "Record: the chosen ",
+                            "The chosen calibration file could not"))
 
 
 def z_record_words(f: ChannelFile, state: Optional[zcal.ZCalibrationState] = None) -> str:
@@ -344,7 +352,12 @@ class MeasurementPanel(QtWidgets.QGroupBox):
             act.triggered.connect(lambda _=False, a=action: self.bead_requested.emit(a))
             self.bead_actions[action] = act
         self.btn_bead.setMenu(self.bead_menu)
-        for b in (self.btn_calibration, self.btn_bead):
+        # Back to the file's own record: forgets the calibration file chosen for this folder (manual test 4).
+        self.btn_use_own = QtWidgets.QPushButton(USE_OWN_BUTTON)
+        self.btn_use_own.setObjectName("button_z_use_file_record")
+        self.btn_use_own.setToolTip(USE_OWN_TIP)
+        self.btn_use_own.clicked.connect(lambda _=False: self.calibration_requested.emit("use_own"))
+        for b in (self.btn_calibration, self.btn_use_own, self.btn_bead):
             b.setEnabled(False)
             brow.addWidget(b)
         self.lbl_bead = _label(BEAD_LINE, reg.tooltip("measurement.bead_stack", None), wrap=True)
@@ -380,6 +393,9 @@ class MeasurementPanel(QtWidgets.QGroupBox):
         # The inputs act on a loaded 3D file: before one, there is no measurement to describe.
         for b in (self.btn_calibration, self.btn_bead):
             b.setEnabled(bool(three_d))
+        self.btn_use_own.setEnabled(any(
+            (st.chosen_record is not None or bool(st.chosen_error)) and st.file_record is not None
+            for st in self._states.values()))
         if not self._files:
             self.lbl_pixels.setText(NO_FILE)
             self.lbl_pixels.setStyleSheet("")

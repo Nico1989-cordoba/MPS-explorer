@@ -19,7 +19,10 @@ folder:
   6. (manual test 3) a file with its own record: each check warning, and whether a chosen file is the same record
      or a different one (and what differs), on a visible line of its own and in the tooltip; the panel is never
      squeezed below its own height;
-  7. the user's settings file is untouched.
+  7. (manual test 4) the file's own record is the one in use: a stored differing choice is only an alternative; a
+     differing choice replaces it only when confirmed (stored with record_override); "Use the file's record" clears
+     the choice; a file with no record uses the chosen one (point 2 above);
+  8. the user's settings file is untouched.
 
 Run:  venv\\Scripts\\python.exe test_zcalibration_gui.py      (offscreen; about half a minute)
 
@@ -344,19 +347,67 @@ def main() -> int:
         same = os.path.join(calib_dir, "same_3d_calib.yaml")
         with open(same, "w", encoding="utf-8") as f:
             yaml.safe_dump(turn, f)
-        assert mw.z_calibration_action("choose", channel=1, path=same)
-        assert "Record: same as the file's" in detail_lines(), detail_lines()
+        assert mw.z_calibration_action("choose", channel=1, path=same)          # the same record: no question
+        assert "Record: same as the file's (same_3d_calib.yaml)" in detail_lines(), detail_lines()
         assert "Record: same as the file's" in p.lbl_detail.text() and "same as the file's" in p.lbl_z.toolTip()
         other = os.path.join(calib_dir, "other_3d_calib.yaml")
         with open(other, "w", encoding="utf-8") as f:
             yaml.safe_dump(dict(T.calibration_dict(41, 25.0, 0.79)), f)
-        assert mw.z_calibration_action("choose", channel=1, path=other)
-        diff = [ln for ln in detail_lines() if ln.startswith("Record: DIFFERENT from the file's")]
+        st["own_data"], st["other"], st["detail_lines"] = data, other, detail_lines
+        assert mw.z_calibration_action("choose", channel=1, path=other, confirm=True)
+        diff = [ln for ln in detail_lines() if "DIFFERENT from the file's" in ln]
         assert diff and "the width curves" in diff[0] and "the number of frames (81 vs 41)" in diff[0], diff
-        assert "Record: DIFFERENT from the file's" in p.lbl_detail.text()
-        assert "Checks: passed" in detail_lines()                 # the chosen record's own checks
+        assert "DIFFERENT from the file's" in p.lbl_detail.text()
+        assert "Checks: passed" in detail_lines()                 # the confirmed chosen record's own checks
         assert mw.z_calibration_action("forget", channel=1)
         return "same / DIFFERENT (what differs) and each check on its own line, in the label and the tooltip"
+
+    def own_record_first() -> str:
+        # Manual test 4: a calibration file stored for the folder must not silently replace the record the file
+        # carries (the exported provenance would name a calibration the file was not fitted with).
+        from tools import mps_zcalibration as zcal
+        from tools.mps_pixel_size import folder_key
+        mw, p, data, other = st["mw"], st["mw"].measurement_panel, st["own_data"], st["other"]
+        detail_lines = st["detail_lines"]
+        # 1. a differing choice already stored for the folder (as an earlier version stored it): the file's own
+        #    record stays in use; the stored one is an alternative, not in use; the columns name the file's record
+        mw.mps_settings.z_calibration_by_folder = {folder_key(data): {"record_path": other}}
+        mw._refresh_measurement_panel()
+        state = mw._z_state(1)
+        assert state.record is state.file_record and state.alternative is not None
+        cols = zcal.export_columns(state)
+        assert cols["z_calibration_source"] == "file record (Z Calibration)", cols
+        assert cols["z_calibration_file"] == "own_3d_calib.yaml" and cols["z_calibration_match"] == "different"
+        alt = [ln for ln in detail_lines() if ln.startswith("Alternative (not in use): other_3d_calib.yaml")]
+        assert alt and "the file's own record is in use" in alt[0], detail_lines()
+        assert any(ln.startswith("Record in use: file record") for ln in detail_lines()), detail_lines()
+        assert p.btn_use_own.isEnabled()
+        # 2. "Use the file's record" clears the stored choice
+        assert mw.z_calibration_action("use_own", channel=1)
+        assert read_settings()["z_calibration_by_folder"] == {}
+        assert mw._z_state(1).chosen_record is None and not p.btn_use_own.isEnabled()
+        # 3. choosing a differing record and answering No: nothing stored, the file's record in use, the choice
+        #    shown as an alternative for this session
+        assert not mw.z_calibration_action("choose", channel=1, path=other, confirm=False)
+        assert read_settings()["z_calibration_by_folder"] == {}
+        state = mw._z_state(1)
+        assert state.record is state.file_record and state.alternative is not None
+        assert any(ln.startswith("Alternative (not in use)") for ln in detail_lines()), detail_lines()
+        # 4. answering Yes: stored as overriding, the chosen record in use, the columns say so
+        assert mw.z_calibration_action("choose", channel=1, path=other, confirm=True)
+        stored = read_settings()["z_calibration_by_folder"]
+        assert stored == {folder_key(data): {"record_path": other, "record_override": True}}, stored
+        state = mw._z_state(1)
+        assert state.record is state.chosen_record and state.alternative is None
+        cols = zcal.export_columns(state)
+        assert cols["z_calibration_source"] == "chosen record (calibration file)"
+        assert cols["z_calibration_file"] == "other_3d_calib.yaml"
+        assert any(ln.startswith("Record: the chosen other_3d_calib.yaml is in use") for ln in detail_lines())
+        # 5. "Use the file's record" returns to the file's own record
+        assert mw.z_calibration_action("use_own", channel=1)
+        assert read_settings()["z_calibration_by_folder"] == {}
+        assert mw._z_state(1).record is mw._z_state(1).file_record
+        return "the file's record in use by default; Yes stores the override, No stores nothing; the button clears it"
 
     def user_settings_untouched() -> str:
         path, mtime = st["user_settings"]
@@ -371,6 +422,7 @@ def main() -> int:
     check("a localized bead stack", bead_stack)
     check("Data quality's axial coverage", data_quality)
     check("the record's match and its checks, each on a visible line", match_and_checks_visible)
+    check("the file's own record first: alternative, confirmation, Use the file's record", own_record_first)
     check("the user's settings file", user_settings_untouched)
 
     app.processEvents()

@@ -2322,6 +2322,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         self._loaded_paths: Dict[int, str] = {}
         self._z_states: Dict[int, Any] = {}
+        # A differing calibration file the user declined to make the folder's
+        # record: shown as an alternative for this session only, never stored.
+        self._z_session_records: Dict[str, str] = {}
         self.measurement_panel = MeasurementPanel(self.ui.groupBox)
         self.measurement_panel.setGeometry(QtCore.QRect(20, 540, 640, 134))
         self.measurement_panel.calibration_requested.connect(
@@ -2370,9 +2373,19 @@ class MPS_explorer(QtWidgets.QMainWindow):
         loc = self.locs1 if channel == 1 else self.locs2
         if loc is None:
             return None
+        from tools.mps_pixel_size import folder_key
+
         store = getattr(self.mps_settings, "z_calibration_by_folder", None) or {}
-        return zcal.state_for(getattr(loc, "info", None) or [],
-                              zcal.store_entry(store, self._z_path(channel)))
+        path = self._z_path(channel)
+        entry = zcal.store_entry(store, path)
+        if not entry.get("record_path") and path:
+            session = getattr(self, "_z_session_records", {}) or {}
+            for key in (zcal.file_key(path), folder_key(path)):
+                if session.get(key):
+                    entry["record_path"] = session[key]
+                    entry.pop("record_override", None)
+                    break
+        return zcal.state_for(getattr(loc, "info", None) or [], entry)
 
     def _z_state(self, channel: int = 1) -> Optional[Any]:
         """The current z-calibration state of a channel (as the Measurement
@@ -2426,13 +2439,21 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
     def z_calibration_action(self, action: str, *, channel: Optional[int] = None,
                              path: Optional[str] = None,
-                             m: Optional[str] = None) -> bool:
+                             m: Optional[str] = None,
+                             confirm: Optional[bool] = None) -> bool:
         """
         "Calibration record...": ``choose`` (a calibration file for the
         folder), ``choose_file`` (for this file only), ``type_m`` (m, only
-        when the record has none) or ``forget``. ``channel``, ``path`` and
-        ``m`` replace the dialogs (tests). Writes the one store; returns
-        whether it changed.
+        when the record has none), ``forget`` (the chosen file and the typed
+        m) or ``use_own`` ("Use the file's record": the chosen file only).
+        ``channel``, ``path``, ``m`` and ``confirm`` (the answer to the
+        confirmation) replace the dialogs (tests). Writes the one store;
+        returns whether it changed.
+
+        The file's own record is the one in use. A chosen file that differs
+        from it replaces it only when the user confirms it for the folder
+        (stored with ``record_override``); declined, it is shown as an
+        alternative for this session and nothing is stored (manual test 4).
         """
         from tools import mps_zcalibration as zcal
         from tools.mps_pixel_size import folder_key
@@ -2448,11 +2469,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         store = dict(self.mps_settings.z_calibration_by_folder or {})
         per_file = zcal.file_key(data_path)
         per_folder = folder_key(data_path)
-        if action == "forget":
+        if action in ("forget", "use_own"):
             changed = False
+            names = ("record_path", "record_override") + (
+                ("m_typed",) if action == "forget" else ())
             for key in (per_file, per_folder):
+                self._z_session_records.pop(key, None)
                 entry = dict(store.get(key) or {})
-                for name in ("record_path", "m_typed"):
+                for name in names:
                     changed |= entry.pop(name, None) is not None
                 if entry:
                     store[key] = entry
@@ -2471,14 +2495,45 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if not path:
                 return False
             try:
-                zcal.read_calibration_file(path)
+                chosen = zcal.read_calibration_file(path)
             except (OSError, ValueError) as error:
                 QtWidgets.QMessageBox.warning(
                     self, title, f"Not used: {error}")
                 return False
             key = per_file if action == "choose_file" else per_folder
+            state = self._z_state(channel)
+            own = None if state is None else state.file_record
+            override = False
+            if own is not None:
+                diff = zcal.record_differences(own, chosen)
+                if diff is None or diff:
+                    what = ("one of them has no width curves" if diff is None
+                            else ", ".join(diff))
+                    where = ("this file" if action == "choose_file"
+                             else "every file of this folder")
+                    if confirm is None:
+                        answer = QtWidgets.QMessageBox.question(
+                            self, title,
+                            f"This record does not match the file's own "
+                            f"record ({what}).\n\nUse it for {where} instead "
+                            f"of their own records?",
+                            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                            QtWidgets.QMessageBox.No)
+                        confirm = answer == QtWidgets.QMessageBox.Yes
+                    if not confirm:
+                        # Shown beside the file's record for this session;
+                        # the file's own record stays in use, nothing stored.
+                        self._z_session_records[key] = str(path)
+                        self._z_store_changed()
+                        return False
+                    override = True
+            self._z_session_records.pop(key, None)
             entry = dict(store.get(key) or {})
             entry["record_path"] = str(path)
+            if override:
+                entry["record_override"] = True
+            else:
+                entry.pop("record_override", None)
             store[key] = entry
             self.mps_settings.z_calibration_by_folder = store
             self._z_store_changed()

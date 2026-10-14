@@ -717,6 +717,8 @@ class ZCalibrationState:
 
     file_record: Optional[CalibrationRecord] = None
     chosen_record: Optional[CalibrationRecord] = None
+    # The chosen record was confirmed to replace the file's own record although it differs from it.
+    chosen_overrides: bool = False
     chosen_error: str = ""
     typed_m: Optional[float] = None
     bead: Optional[BeadStackReport] = None
@@ -724,9 +726,24 @@ class ZCalibrationState:
     bead_error: str = ""
 
     @property
+    def chosen_in_use(self) -> bool:
+        """A chosen record is in use when the file carries none of its own, or when it was confirmed to replace a
+        differing one. Otherwise the file's own record -- the one Picasso fitted this file with -- is in use, and a
+        chosen record is only an alternative shown beside it (manual test 4: a stored choice must never claim, in
+        the exported provenance, a calibration the file was not fitted with)."""
+        if self.chosen_record is None:
+            return False
+        return self.file_record is None or self.chosen_overrides
+
+    @property
+    def alternative(self) -> Optional[CalibrationRecord]:
+        """The chosen record when it is not in use (shown, never exported as the record in use)."""
+        return self.chosen_record if (self.chosen_record is not None and not self.chosen_in_use) else None
+
+    @property
     def record(self) -> Optional[CalibrationRecord]:
-        """The record in use: the chosen one, else the file's own."""
-        return self.chosen_record if self.chosen_record is not None else self.file_record
+        """The record in use: the file's own, unless it has none or a chosen one was confirmed to replace it."""
+        return self.chosen_record if self.chosen_in_use else self.file_record
 
     @property
     def magnification(self) -> Optional[float]:
@@ -815,7 +832,8 @@ def export_columns(state: Optional[ZCalibrationState]) -> Dict[str, Any]:
 
 
 # ------------------------------------------------------------------ the store (one entry per folder, per file)
-STORE_FIELDS: Tuple[str, ...] = ("record_path", "bead_path", "bead_pixel_size_nm", "m_typed")
+# record_override: the chosen record was confirmed to replace the files' own records although it differs from them.
+STORE_FIELDS: Tuple[str, ...] = ("record_path", "record_override", "bead_path", "bead_pixel_size_nm", "m_typed")
 
 
 def file_key(path: str) -> str:
@@ -854,6 +872,8 @@ def clean_store(store: Any) -> Dict[str, Dict[str, Any]]:
         m = _float(entry.get("m_typed"))
         if m is not None and M_RANGE[0] <= m <= M_RANGE[1]:
             clean["m_typed"] = m
+        if entry.get("record_override") is True and "record_path" in clean:
+            clean["record_override"] = True
         px = _float(entry.get("bead_pixel_size_nm"))
         if px is not None and 1.0 <= px <= 5000.0:
             clean["bead_pixel_size_nm"] = px
@@ -872,6 +892,7 @@ def state_for(info: Sequence[Mapping[str, Any]], entry: Optional[Mapping[str, An
             state.chosen_record = read_calibration_file(path)
         except (OSError, ValueError) as error:
             state.chosen_error = f"{os.path.basename(path)}: {error}"
+    state.chosen_overrides = entry.get("record_override") is True
     m = _float(entry.get("m_typed"))
     state.typed_m = m if (m is not None and M_RANGE[0] <= m <= M_RANGE[1]) else None
     bead_path = entry.get("bead_path")
