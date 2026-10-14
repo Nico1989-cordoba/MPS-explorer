@@ -71,7 +71,7 @@ BADGE_MEANING: Dict[str, str] = {
     "ad hoc": "today's value has no written derivation; a science PR replaces it",
     "unreviewed": "no verified research record yet",
 }
-HOMES: Tuple[str, ...] = ("strip", "rings", "axoplasm", "measurement", "main", "none")
+HOMES: Tuple[str, ...] = ("strip", "rings", "axoplasm", "measurement", "main", "zquality", "none")
 # The publication the "paper" badges name.
 PAPER = "Gazal et al. 2026 (preprint v1)"
 # What a badge widget shows for an origin (manual test 2, item 10): "paper" is shown as the publication it names,
@@ -201,6 +201,12 @@ def _e(**kw: Any) -> ParamInfo:
 
 _S = "tools.mps_settings"
 _R = "tools.mps_randomization"
+_AP = "tools.mps_axial_precision"
+
+
+def _vp(field_name: str) -> Reader:
+    """The default of one ``ViabilityParams`` field (the dataclass's keyword default)."""
+    return _keyword(_AP, "ViabilityParams", field_name)
 
 _ENTRIES: Tuple[ParamInfo, ...] = (
     # ---------------------------------------------------------------- axial slab
@@ -539,6 +545,118 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        origin_note="convention: interior knots of the cubic B-spline of the shift with depth (Carlini et al. 2015), "
                    "closer than one ring period so that the shift between two rings is resolved",
        shown_as="Measurement panel: bead stack", records=("hecl-sigma-d",), not_editable_because="e1"),
+    # ---------------------------------------------------------------- ring-pair viability (the Z quality window's
+    # Criteria dialog; one store, MPSSettings.viability_params, read by Z quality, the viability explorer, the column
+    # review and the batch)
+    _e(key="viability.p_ref_nm", label="reference period P_ref", unit="nm", home="zquality",
+       default=_const(_AP, "P_REF_DEFAULT_NM"), origin="paper",
+       origin_note="the mean inter-peak distance along z reported for mouse sciatic nerve axons (Gazal et al. 2026, "
+                   "170 +/- 15 nm); presets: sciatic nerve lateral STED 186 nm (D'Este et al. 2016, mean), cultured "
+                   "neurons 182 nm (Xu et al. 2013) and about 190 nm (Zhong et al. 2014). The external yardstick of "
+                   "the merge flags (a ring wider than half of it, a gap over 1.3 of it), which must not depend on the "
+                   "axon they check; the period-scaled quantities use the axon's own measured period and fall back "
+                   "to this one",
+       documented_range=(150.0, 210.0), range_text="150-210",
+       shown_as="Z quality: Criteria dialog and header; the pair verdicts' merge flags",
+       records=("p-ref-default-170-8", "leak-axon-period", "lf-axial-resolution-def"), editable=True, fmt=".0f"),
+    _e(key="viability.h_over_p", label="SiZer bandwidth h / P", unit="", home="zquality", default=_vp("h_over_p"),
+       origin="derived",
+       origin_note="convention with a written derivation: bounded above by the resolution condition "
+                   "sqrt(sigma^2 + h^2) < P/2 of an equal pair (Schilling et al. 2002) and below by the slope "
+                   "variance, proportional to 1 / (n h^3) (Chaudhuri and Marron 1999); on synthetic clustered "
+                   "profiles 0.10 P found the valley more often than 0.20 P; P is the axon's own period; the map "
+                   "over 0.05-0.25 P is shown beside the verdict",
+       documented_range=(0.05, 0.25), range_text="0.05-0.25", shown_as="Z quality: Criteria dialog, pair table",
+       records=("sizer-h-over-p-0.10",), editable=True, fmt=".2f"),
+    _e(key="viability.peak_window_over_p", label="peak window / P", unit="", home="zquality",
+       default=_vp("peak_window_over_p"), origin="derived",
+       origin_note="convention with a written derivation: below P/2 so the windows of neighbouring rings do not "
+                   "overlap, above a few standard deviations of the peak position of a kernel density mode "
+                   "(Parzen 1962)",
+       documented_range=(0.2, 0.5), range_text="0.20-0.50", shown_as="Z quality: Criteria dialog",
+       records=("v2-peak-window-P-over-3",), editable=True, fmt=".3f"),
+    _e(key="viability.d_viable", label="separation d (viable)", unit="", home="zquality", default=_vp("d_viable"),
+       origin="simulation",
+       origin_note="a suggestion from a simulation study whose generator was parameterised on a pilot acquisition; "
+                   "no column statistic of a real axon entered it. Two equal Gaussian rings are bimodal only above "
+                   "d = sqrt 2 (Schilling et al. 2002); the dialog shows the equivalent sigma / P and valley depth",
+       documented_range=(1.41, 3.0), range_text="1.41-3.0", shown_as="Z quality: Criteria dialog",
+       records=("zq-d-viable", "zq-verdict-rule", "d39-thresholds-provenance-claim"), editable=True, fmt=".2f"),
+    _e(key="viability.d_marginal", label="separation d (marginal)", unit="", home="zquality",
+       default=_vp("d_marginal"), origin="simulation",
+       origin_note="a sensitivity tier from the same simulation study, bounded below by the bimodality floor "
+                   "sqrt 2 and above by the viable threshold",
+       documented_range=(1.41, 3.0), range_text="1.41-3.0", shown_as="Z quality: Criteria dialog",
+       records=("zq-d-marginal",), editable=True, fmt=".2f"),
+    _e(key="viability.delta_viable_sd", label="tolerated copy bias (viable)", unit="null sd", home="zquality",
+       default=_vp("delta_viable_sd"), origin="derived",
+       origin_note="first principles: a leak copy in register with its source adds a match unless the source was "
+                   "matched by chance, so a copy fraction c shifts the standardised excess by about 2 c (1 - p0) / "
+                   "sd* (toroidal-shift null, Lotwick and Silverman 1982); the pair tolerates c = delta sd* / "
+                   "(2 (1 - p0)), with p0 and sd* from its own cluster counts, ring lengths and the column test's "
+                   "tolerance",
+       documented_range=(0.1, 0.5), range_text="0.1-0.5", shown_as="Z quality: Criteria dialog, pair table",
+       records=("lf-leak-status", "leak-tiers-2-5"), editable=True, fmt=".2f"),
+    _e(key="viability.delta_marginal_sd", label="tolerated copy bias (marginal)", unit="null sd", home="zquality",
+       default=_vp("delta_marginal_sd"), origin="derived",
+       origin_note="the same per-pair tolerance at the marginal tier",
+       documented_range=(0.25, 1.0), range_text="0.25-1.0", shown_as="Z quality: Criteria dialog, pair table",
+       records=("zq-spur-marginal",), editable=True, fmt=".2f"),
+    _e(key="viability.copy_tiers_suggestion", label="fixed copy tiers (suggestion)", unit="", home="none",
+       default=_consts(_AP, ("V2_SPUR_VIABLE", "V2_SPUR_MARGINAL")), origin="simulation",
+       origin_note="shown only when a pair's own tolerance cannot be computed (cluster counts, ring lengths or the "
+                   "column test's tolerance unknown): a fixed fraction matches a fixed bias for one ring size only",
+       shown_as="Z quality: pair table", records=("leak-tiers-2-5",), not_editable_because="e1: a suggestion",
+       fmt=".2f"),
+    _e(key="viability.recall_tolerance", label="count floor: cluster recall", unit="", home="zquality",
+       default=_vp("recall_tolerance"), origin="derived",
+       origin_note="convention with a written derivation: random loss of clusters does not bias the toroidal-shift "
+                   "test but costs power, so the tolerance is a power convention (compare Cohen 1992); the same "
+                   "value is the cluster-count criterion of the cluster-level variant, since under random "
+                   "localization loss the count ratio is the recall",
+       documented_range=(0.80, 0.95), range_text="0.80-0.95", shown_as="Z quality: Criteria dialog",
+       records=("v2-fmin-recall-tolerance-0.90", "v2c-k-min-0.89", "v2-fmin-formula"), editable=True, fmt=".2f"),
+    _e(key="viability.count_floor_line", label="count floor: fitted line", unit="", home="none",
+       default=_consts(_AP, ("FMIN_INTERCEPT", "FMIN_SLOPE_PER_LN_X")), origin="simulation",
+       origin_note="a line fitted to a simulation study, shown as a suggestion until the count floor is calibrated "
+                   "on the axon by Bernoulli thinning of its reference ring's clusters (the DBSCAN core condition, "
+                   "Ester et al. 1996); valid only inside the simulated span of cluster brightness",
+       shown_as="Z quality: pair table and limiting factors", records=("v2-fmin-formula", "v2-fmin-x-range"),
+       not_editable_because="e1: replaced by the per-axon calibration"),
+    _e(key="viability.group_z_scale", label="3D groups: z scale", unit="", home="zquality",
+       default=_vp("group_z_scale"), origin="derived",
+       value_text="the file's lateral over axial precision; the suggestion without precisions",
+       origin_note="first principles: the variance groups are 3D DBSCAN clusters (eps and min samples of Gazal et "
+                   "al. 2026) with the axial coordinate scaled by the acquisition's lateral-to-axial precision "
+                   "ratio, so the neighbourhood is isotropic in precision units; astigmatic axial precision is "
+                   "typically 2-3x the lateral (Huang et al. 2008), hence one half as the suggestion",
+       documented_range=(0.25, 1.0), range_text="0.25-1.0", shown_as="Z quality: Criteria dialog",
+       records=("sizer-groups-3d", "v2c-variant-b-noise-left-out"), editable=True, fmt=".2f"),
+    _e(key="viability.keep_floor", label="copy count: slab retention floor", unit="", home="zquality",
+       default=_vp("keep_floor"), origin="derived",
+       origin_note="a numerical safeguard: the recovered original cluster size is capped at twenty times the "
+                   "detected one (an inclusion-probability correction, Horvitz and Thompson 1952); it does not act "
+                   "on realistic data",
+       documented_range=(0.01, 0.2), range_text="0.01-0.2", shown_as="Z quality: Criteria dialog (advanced)",
+       records=("zq-expected-copies", "v2c-floors"), editable=True, fmt=".2f"),
+    _e(key="viability.v2c_h_over_p", label="cluster-level SiZer bandwidth h / P", unit="", home="zquality",
+       default=_vp("v2c_h_over_p"), origin="derived",
+       origin_note="the same bandwidth as the localization profile for comparability, with the map across "
+                   "0.10-0.30 P: a profile of about a hundred cluster centres carries about one hundredth of the "
+                   "slope information of ten thousand localizations at that scale",
+       documented_range=(0.10, 0.30), range_text="0.10-0.30", shown_as="Z quality: Criteria dialog",
+       records=("v2c-h-over-p-0.10", "v2c-definition"), editable=True, fmt=".2f"),
+    _e(key="viability.v2c_cut_flag_over_h", label="slab-gap flag width / h", unit="", home="zquality",
+       default=_vp("v2c_cut_flag_over_h"), origin="derived",
+       origin_note="convention with a written derivation: the kernel spreads the edges of a slab gap by about one "
+                   "bandwidth, about twice the location noise of a valley among a hundred cluster centres",
+       documented_range=(0.5, 2.0), range_text="0.5-2.0", shown_as="Z quality: Criteria dialog",
+       records=("v2c-cut-flag-15nm",), editable=True, fmt=".2f"),
+    _e(key="viability.v2c_sigma_floor_nm", label="cluster-level leak: width floor", unit="nm", home="zquality",
+       default=_vp("v2c_sigma_floor_nm"), origin="derived",
+       origin_note="a numerical safeguard far below any astigmatic axial precision (Huang et al. 2008)",
+       documented_range=(1.0, 20.0), range_text="1-20", shown_as="Z quality: Criteria dialog (advanced)",
+       records=("v2c-floors", "tnfix-cluster-leak"), editable=True, fmt=".0f"),
     # ---------------------------------------------------------------- DNA-PAINT (the TODO-B9 hook, 12.9; filled by
     # B9). The DNA-PAINT window is not a stage-2 window: these entries are metadata for SCI-B9 and stage 3.
     _e(key="paint.link_radius_precisions", label="linking radius", unit="x precision", home="none",

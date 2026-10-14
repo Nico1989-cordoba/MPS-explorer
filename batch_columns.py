@@ -427,6 +427,14 @@ class ColumnBatchSettings:
     calibrated: bool = False
     # D-43: an exploratory selection's canonical label ("" = the pre-specified rule, the --viability function)
     selection: str = ""
+    # the viability's editable values that differ from the defaults (tools.mps_axial_precision.ViabilityParams;
+    # the GUI passes the stored ones); {} = the defaults
+    viability_params: Dict[str, Any] = dataclasses.field(default_factory=dict)
+
+    def viability(self) -> Any:
+        """The ``ViabilityParams`` of this run."""
+        from tools.mps_axial_precision import ViabilityParams
+        return ViabilityParams.from_store(self.viability_params)
 
     def selection_spec(self) -> Optional[Any]:
         """The ``SelectionSpec`` of ``selection`` (None for the default run)."""
@@ -577,7 +585,8 @@ def process_axon(path: str, settings: ColumnBatchSettings) -> Dict[str, Any]:
     if not rings or n_clusters == 0:
         return done("no ring with clusters", "; ".join(str(w) for w in res.warnings[:3]))
 
-    zq = z_quality(res)
+    vparams = settings.viability()
+    zq = z_quality(res, params=vparams)
     flags = calibration_range_flags(f"{inp.name} {inp.source}", zq)
     from tools.mps_axial_precision import ROI2_FLAG
     axon.update(calibration_flags=" | ".join(flags), roi2_flag=bool(ROI2_FLAG in flags),
@@ -588,7 +597,10 @@ def process_axon(path: str, settings: ColumnBatchSettings) -> Dict[str, Any]:
     from tools.mps_axial_precision import viability_v2
     xyz_lab = (np.asarray(inp.x_nm, dtype=np.float64), np.asarray(inp.y_nm, dtype=np.float64),
                np.asarray(inp.z_nm, dtype=np.float64))
-    v2 = viability_v2(res, zq, xyz_lab_nm=xyz_lab)
+    from tools.mps_axial_precision import file_precision_nm
+    v2 = viability_v2(res, zq, xyz_lab_nm=xyz_lab, params=vparams,
+                      precision_nm=file_precision_nm(inp.lp_lateral_nm, inp.lpz_nm), sizer_map=False,
+                      reference_readings=False)
     axon.update(_v2_axon_values(v2))
     v2_of = {(int(p.ring_a), int(p.ring_b)): p for p in v2.pairs}
     sel_spec = settings.selection_spec()
@@ -878,6 +890,8 @@ def _meta_of(settings: ColumnBatchSettings, n_null_effective: int) -> Dict[str, 
                 viability_spec=settings.viability_spec, viability_source_sha=viability_source_sha(settings.viability_spec),
                 widefield_dir=None if not settings.widefield_dir else os.path.abspath(settings.widefield_dir),
                 patterns=dict(settings.patterns), pixel_size_nm=settings.pixel_size_nm, git_head=settings.git_head)
+    if settings.viability_params:
+        meta["viability_params"] = dict(sorted(settings.viability_params.items()))
     spec = settings.selection_spec()
     if spec is not None:
         # D-43: only under an exploratory selection (a default run's meta stays byte-identical)
@@ -1114,6 +1128,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
                    help="D-43: an EXPLORATORY selection of the pairs, e.g. 'v2[peak,valley,count]' or "
                         "'v2[peak,valley,count,leak:D-39] AND v2c-B[peak,valley,count,leak:tnfix]' (tools.mps_selection); "
                         "a label equal to the pre-specified rule v2[peak,valley,count,leak:D-39] is the default run")
+    p.add_argument("--viability-params", default=None,
+                   help="the viability's edited values as a JSON object (tools.mps_axial_precision.ViabilityParams "
+                        "field names, e.g. '{\"d_viable\": 2.0}'); the GUI passes the stored ones; default: the "
+                        "declared defaults")
     p.add_argument("--exploration-log", default=None,
                    help="D-43: append one row per finished axon to this exploration log (selection_exploration_log.csv)")
     return p.parse_args(list(argv))
@@ -1164,9 +1182,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"--selection and --viability {args.viability}: one rule source per run", file=sys.stderr)
             return EXIT_ERRORS
         selection = "" if sel is None else sel.label
+    vparams: Dict[str, Any] = {}
+    if args.viability_params:
+        from tools.mps_axial_precision import ViabilityParams
+        try:
+            vparams = ViabilityParams.from_store(json.loads(args.viability_params)).to_store()
+        except ValueError as exc:
+            print(f"--viability-params: {exc}", file=sys.stderr)
+            return EXIT_ERRORS
     settings = ColumnBatchSettings(n_null=args.n_null, viability_spec=args.viability, allow_real=bool(args.allow_real),
                                    widefield_dir=args.widefield_dir, patterns=patterns, pixel_size_nm=args.pixel_size,
-                                   git_head=pc.git_commit(), selection=selection)
+                                   git_head=pc.git_commit(), selection=selection, viability_params=vparams)
     runner = Runner(args.out, inputs, settings, workers=args.workers, wall_hours=args.wall_hours, max_jobs=args.max_jobs)
     if args.exploration_log:
         from tools.mps_selection import ExplorationLog

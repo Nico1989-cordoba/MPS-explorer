@@ -335,6 +335,7 @@ def rule_v2_viability(res: RingsResult, xyz_lab_nm: Optional[Sequence[Any]] = No
     """
     import batch_columns as bc
     from tools.mps_axial_precision import viability_v2, z_quality
+    from tools.mps_selection import stored_viability_params
     from tools.mps_zquality_window import lab_xyz_of
 
     if xyz_lab_nm is None:
@@ -343,7 +344,9 @@ def rule_v2_viability(res: RingsResult, xyz_lab_nm: Optional[Sequence[Any]] = No
     else:
         xyz = tuple(np.asarray(v, dtype=np.float64).reshape(-1) for v in xyz_lab_nm)
         src = "lab coordinates of the selection"
-    v2 = viability_v2(res, z_quality(res), xyz_lab_nm=xyz)
+    vp = stored_viability_params()
+    v2 = viability_v2(res, z_quality(res, params=vp), xyz_lab_nm=xyz, params=vp, sizer_map=False,
+                      reference_readings=False)
     verdicts = bc.v2_viability(res, None, precomputed=v2)
     return ReviewViability(rule=str(verdicts.rule), pairs=tuple(verdicts.pairs), detail=v2, lab_source=src)
 

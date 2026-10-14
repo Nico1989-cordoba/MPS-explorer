@@ -336,8 +336,9 @@ def selection_thresholds() -> Tuple[Any, ...]:
     every hash)."""
     from tools import mps_axial_clusters as ac
     from tools import mps_axial_precision as ap
+    stored = sorted(stored_viability_params().to_store().items())
     return (ap.V2_SPUR_VIABLE, ap.V2_SPUR_MARGINAL, ac.V2C_SPUR_VIABLE, ac.V2C_SPUR_MARGINAL, ac.V2C_K_MIN,
-            ac.V2C_H_OVER_P, ap.VIABILITY_RULE_V2, ac.V2C_RULE)
+            ac.V2C_H_OVER_P, ap.VIABILITY_RULE_V2, ac.V2C_RULE, ap.P_REF_DEFAULT_NM, repr(stored))
 
 
 def selection_source_sha(base: str = "") -> str:
@@ -1273,5 +1274,7 @@ def geometry_for_file(path: str, *, pixel_size_nm: Optional[float] = None, with_
                       pixel_size_source=str(inp.pixel_size_source), n_frames=inp.n_frames, roi=None)
     xyz = (np.asarray(inp.x_nm, dtype=np.float64), np.asarray(inp.y_nm, dtype=np.float64),
            np.asarray(inp.z_nm, dtype=np.float64))
-    return compute_axon_criteria(res, xyz, with_v2c=with_v2c, axon_id=axon_id_of(os.path.basename(path), ""))
+    from tools.mps_axial_precision import file_precision_nm
+    return compute_axon_criteria(res, xyz, with_v2c=with_v2c, axon_id=axon_id_of(os.path.basename(path), ""),
+                                 precision_nm=file_precision_nm(inp.lp_lateral_nm, inp.lpz_nm))
 

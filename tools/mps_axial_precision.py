@@ -151,6 +151,7 @@ __all__ = [
     "copy_tolerance",
     "d_equivalents",
     "group_z_scale_of",
+    "file_precision_nm",
     "guard_star_nm",
     "guard_z_star",
     "peak_location_sd_nm",
@@ -2016,6 +2017,18 @@ def calibrate_count_floor(res: Any, *, ring_index: Optional[int] = None, toleran
 
 
 # ------------------------------------------------------------------- the rule
+def file_precision_nm(lp_lateral_nm: Any, lpz_nm: Any) -> Optional[Tuple[float, float]]:
+    """(median lateral, median axial) precision of a file's localizations, or None when either is missing."""
+    if lp_lateral_nm is None or lpz_nm is None:
+        return None
+    lp = np.asarray(lp_lateral_nm, dtype=np.float64)
+    lz = np.asarray(lpz_nm, dtype=np.float64)
+    lp, lz = lp[np.isfinite(lp) & (lp > 0)], lz[np.isfinite(lz) & (lz > 0)]
+    if not (lp.size and lz.size):
+        return None
+    return float(np.median(lp)), float(np.median(lz))
+
+
 def group_z_scale_of(params: ViabilityParams, precision_nm: Optional[Tuple[float, float]]) -> Tuple[float, str]:
     """The axial scale of the 3D variance groups and its source: the typed value, else sigma_xy / sigma_z of the
     file (median lateral over median axial precision), else 0.5 (the suggestion: astigmatic axial precision is 2-3x
