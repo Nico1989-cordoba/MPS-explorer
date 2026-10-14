@@ -263,10 +263,10 @@ def main() -> int:
 
     def identity_density():
         t = run("identity", IDENTITY)
-        assert t.locs_per_cell_a == t.locs_per_cell_b, \
-            (t.locs_per_cell_a, t.locs_per_cell_b)
+        assert t.locs_within_eps_a == t.locs_within_eps_b, \
+            (t.locs_within_eps_a, t.locs_within_eps_b)
         assert not any("different regimes" in w for w in t.warnings)
-        return f"{t.locs_per_cell_a:.0f} per cell in both, no warning"
+        return f"{t.locs_within_eps_a:.0f} per cell in both, no warning"
     check("the same density, and no regime warning", identity_density)
 
     # =====================================================================
@@ -514,7 +514,7 @@ def main() -> int:
         pairs = [("shared_of_a", s.shared_of_a), ("shared_of_b", s.shared_of_b),
                  ("median_hetero_nn_a_to_b_nm", t.median_hetero_nn_a_to_b),
                  ("radial_offset_b_median_nm", r.median_nm),
-                 ("locs_per_cell_b", t.locs_per_cell_b),
+                 ("locs_within_eps_b", t.locs_within_eps_b),
                  ("n_clusters_b_on_contour", s.n_clusters_b_on_contour)]
         for name, value in pairs:
             assert row[name] == value, (name, row[name], value)
@@ -529,7 +529,7 @@ def main() -> int:
         sel = in_slab(COLOCATED, "a")
         x, y = COLOCATED.x_a[sel], COLOCATED.y_a[sel]
         want = brute_locs_per_cell(x, y, 20.0)
-        got = locs_per_cell(x, y, sample=len(x) + 1)
+        got = locs_per_cell(x, y, 20.0, sample=len(x) + 1)
         assert got == want, (got, want)
         return f"{got:.0f} localizations per 20 nm cell, both ways"
     check("locs_per_cell agrees with a brute-force count", density_brute_force)
@@ -550,7 +550,7 @@ def main() -> int:
         pts = np.column_stack([x, y])
         d2 = ((pts[:, None, :] - pts[None, :, :]) ** 2).sum(axis=2)
         mean_got = float((d2 <= 400.0).sum(axis=1).mean())
-        median_got = locs_per_cell(x, y, sample=len(x) + 1)
+        median_got = locs_per_cell(x, y, 20.0, sample=len(x) + 1)
         assert abs(mean_got - mean_th) < 3.0, (mean_got, mean_th)
         assert mean_th < median_got <= top_th, (median_got, mean_th, top_th)
         return (f"mean {mean_got:.1f} (theory {mean_th:.1f}); median "
@@ -560,10 +560,10 @@ def main() -> int:
 
     def oversampled_is_named():
         t = run("oversampled", OVERSAMPLED)
-        ratio = t.locs_per_cell_b / t.locs_per_cell_a
+        ratio = t.locs_within_eps_b / t.locs_within_eps_a
         assert 6.0 < ratio < 14.0, ratio
         assert any("different regimes" in w for w in t.warnings), t.warnings
-        return (f"{t.locs_per_cell_a:.0f} against {t.locs_per_cell_b:.0f}: "
+        return (f"{t.locs_within_eps_a:.0f} against {t.locs_within_eps_b:.0f}: "
                 f"a factor of {ratio:.1f} for ten times the localizations")
     check("a ten-times oversampled partner is named as such",
           oversampled_is_named)

@@ -413,11 +413,13 @@ CROSSCHANNEL: Dict[str, str] = {
     "n_locs_slab_a": "Channel A localizations in the analysed slab.",
     "n_locs_slab_b": "Channel B localizations in it.",
     "eps_a_nm": "DBSCAN radius used on channel A.",
-    "eps_b_nm": "DBSCAN radius used on channel B. When nothing set it, it "
-                "is channel A's -- which is an assumption about the partner "
-                "protein's density, not a measurement of it.",
+    "eps_b_nm": "DBSCAN radius used on channel B: its own, never channel "
+                "A's. Derived as eps_a x NeNA_b / NeNA_a, or typed; "
+                "eps_b_origin says which.",
     "min_samples_a": "DBSCAN minimum cluster size on channel A.",
-    "min_samples_b": "On channel B, with the same caveat as eps_b_nm.",
+    "min_samples_b": "On channel B: its own, derived as round(1 + (n_loc_mol_b "
+                     "- 1) x (1 - exp(-eps_b^2 / (4 NeNA_b^2)))), or typed; "
+                     "min_samples_b_origin says which.",
 
     # --- heterotypic nearest neighbours
     "median_hetero_nn_a_to_b_nm": "From each channel-A cluster to the nearest "
@@ -442,19 +444,46 @@ CROSSCHANNEL: Dict[str, str] = {
                           "contour centre.",
     "median_radius_b_nm": "The same for channel B's.",
 
-    "locs_per_cell_a": "Median localizations within 20 nm of a channel-1 "
-                       "localization: how densely this channel is sampled, "
-                       "in the unit Min Pts counts.",
-    "locs_per_cell_b": "The same for channel 2. Far above channel 1's means "
-                       "the two are not in the same regime and cannot share "
-                       "a Min Pts; on unpublished adducin files the ratio "
-                       "reached two orders of magnitude.",
+    "locs_within_eps_a": "Median localizations within channel 1's eps of a "
+                         "channel-1 localization, itself included: how "
+                         "densely the channel is sampled, in the unit Min Pts "
+                         "counts. A diagnostic, never used to cluster.",
+    "locs_within_eps_b": "The same for channel 2, within its own eps. A ratio "
+                         "of three or more either way is warned about; it is "
+                         "never used to set Min Pts, because it also holds "
+                         "the partner protein's abundance.",
     "channel_b_parameter_source": "Where channel 2's Epsilon and Min Pts "
                                   "came from, as the caller stated it: "
-                                  "typed by a person, estimated by the "
-                                  "program from channel 2's own points, or "
-                                  "empty when a script supplied them and "
-                                  "nobody can say.",
+                                  "derived from channel 2's NeNA and dye, "
+                                  "typed by a person, or empty when a "
+                                  "script supplied them and nobody can say.",
+    "eps_b_origin": "'derived' when channel 2's eps is the value derived "
+                    "from the two channels' NeNA (docs/channel2_parameters"
+                    ".md); 'user' when it was typed or edited.",
+    "min_samples_b_origin": "'derived' when channel 2's Min Pts is the value "
+                            "derived from its NeNA and its dye's switching "
+                            "cycles; 'user' when typed or edited.",
+    "nena_a_nm": "Channel 1's precision used for eps_b: NeNA (Endesfelder et "
+                 "al. 2014) on channel 1's whole-field, unlinked file, or the "
+                 "published reference when it could not be measured "
+                 "(nena_a_origin).",
+    "nena_a_source_file": "The whole-field file channel 1's NeNA was measured "
+                          "on (name only).",
+    "nena_a_origin": "'measured', or 'reference (Gazal et al. 2026)' when "
+                     "channel 1's NeNA could not be measured.",
+    "eps_a_reference_nm": "The channel-1 radius eps_b was scaled from.",
+    "nena_b_nm": "Channel 2's precision: NeNA on its whole-field, unlinked "
+                 "file. Empty when it could not be measured.",
+    "nena_b_source_file": "The whole-field file channel 2's NeNA was measured "
+                          "on (name only).",
+    "dye_b": "Channel 2's dye, as chosen from the table of Dempsey et al. "
+             "(2011).",
+    "buffer_b": "Channel 2's imaging buffer (MEA or bME), as chosen.",
+    "n_loc_mol_b": "Localizations per labelled molecule used for Min Pts: "
+                   "the dye's mean switching cycles in that buffer.",
+    "n_loc_mol_b_origin": "Where n_loc_mol_b comes from: the dye table "
+                          "(Dempsey et al. 2011, Table 1), a lower bound "
+                          "until the label is calibrated.",
 
     # --- where channel B sits relative to channel A's outline
     "radial_offset_b_median_nm": "Median signed distance from channel B's "

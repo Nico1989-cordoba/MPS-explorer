@@ -86,16 +86,18 @@ from tools.mps_registration import (
 # range.
 PHASE_UNCERTAINTY_WARN = 0.1
 
-# One lateral resolution cell, near the median localization precision of
-# the lab's (unpublished) files; a pilot-derived suggestion. Used only to
-# compare how densely the two channels are sampled, never to cluster.
-RESOLUTION_CELL_NM = 20.0
-# Above this ratio of localizations per cell, channel B is sampled in a
-# different regime from channel A and cannot share its min_samples --
-# which counts localizations, not molecules. Measured on unpublished
-# adducin files the ratio ranged from about 1 to two orders of magnitude,
-# so there is no single number that fits both. 3 is a pilot-derived
-# suggestion, editable.
+# How densely each channel is sampled is measured as the median number of
+# localizations within the channel's OWN eps of a localization: the count
+# DBSCAN's core condition compares with min_samples (Ester et al. 1996).
+# With eps_2 derived from the NeNA ratio (tools.mps_channel_params) both
+# radii are the same multiple of each channel's precision. Above this
+# ratio of the two counts, either way, the same clustering parameters
+# would put the detected boundary of a Gaussian cluster about a fifth
+# farther out in the denser channel (r = sigma sqrt(2 ln(lambda_0 /
+# lambda_min)); a factor of three moves it from 2.15 to 2.61 sigma at
+# lambda_0 / lambda_min = 10). A warning only: the ratio also contains the
+# partner protein's abundance, so it never scales min_samples. 3 is an
+# editable convention with that meaning (docs/channel2_parameters.md).
 OVERSAMPLING_WARN = 3.0
 # Below this ratio of the two channels' slab fractions (B's over A's),
 # channel B's rings are measurably not where spectrin's are. Measured on
@@ -109,11 +111,11 @@ SLAB_FRACTION_WARN = 0.75
 # stuck and not how to get out. "Epsilon" and "Min Pts" are what the two
 # controls are actually labelled.
 CHANNEL2_PARAMETERS_REQUIRED = (
-    "Type channel 2's own Epsilon and Min Pts before comparing the "
-    "channels -- they are not channel 1's. Min Pts counts localizations, "
-    "and channel 2 can carry many times more of them per 20 nm cell than "
-    "channel 1; on one axon channel 1's 25 nm / 10 found several times "
-    "fewer clusters than channel 2's own.")
+    "Set channel 2's own Epsilon and Min Pts before comparing the "
+    "channels -- they are not channel 1's. DBSCAN's radius and count are "
+    "density parameters of one dataset; channel 2's are derived from its "
+    "own precision (NeNA on its whole-field file) and its dye, in the "
+    "box that opens, or typed.")
 
 
 def _usable_parameter(value: Any, lo: float, hi: float) -> bool:
@@ -329,15 +331,19 @@ class CrossChannelResult:
     # The lateral registration error, from ``registration``.
     registration_rms_nm: Optional[float]
     # How densely each channel is sampled, in the unit min_samples
-    # counts: the median localizations within one resolution cell. The
-    # reason channel B cannot share channel A's min_samples, as a number.
-    locs_per_cell_a: Optional[float] = None
-    locs_per_cell_b: Optional[float] = None
+    # counts: the median localizations within the channel's own eps of a
+    # localization. A diagnostic: never used to cluster.
+    locs_within_eps_a: Optional[float] = None
+    locs_within_eps_b: Optional[float] = None
     # Where channel B's clustering parameters came from, as the caller
-    # states it: "typed", "estimated from channel 2", or empty when a
-    # script supplied them and nobody can say. Never inferred here --
-    # this function sees two numbers and nothing about their origin.
+    # states it: "derived" (from channel 2's NeNA and dye), "typed", or
+    # empty when a script supplied them and nobody can say. Never
+    # inferred here -- this function sees two numbers and nothing about
+    # their origin.
     channel_b_parameter_source: str = ""
+    # The record behind them (tools.mps_channel_params.provenance): each
+    # value's origin, both channels' NeNA and files, dye, buffer, n_loc,mol.
+    channel_b_provenance: Dict[str, Any] = field(default_factory=dict)
     # How much of channel A's covered perimeter channel B also covers.
     shared: Optional["SharedOccupancyResult"] = None
     # How far inside or outside A's contour channel B's clusters sit.
@@ -347,14 +353,17 @@ class CrossChannelResult:
 
 
 def locs_per_cell(x: NDArray[np.float64], y: NDArray[np.float64],
-                  radius_nm: float = RESOLUTION_CELL_NM,
+                  radius_nm: float,
                   sample: int = 2000, seed: int = 0) -> Optional[float]:
     """
-    Median localizations within one resolution cell of a localization.
+    Median localizations within ``radius_nm`` of a localization, itself
+    included.
 
-    How densely a channel is sampled, in the unit ``min_samples``
-    actually counts. Subsampled, because the median of a few thousand
-    points is the same number and the full query is not free.
+    With the channel's eps as the radius this is how densely the channel
+    is sampled in the unit ``min_samples`` actually counts (DBSCAN's core
+    condition). Subsampled: the median of 2000 counts has a standard
+    error of about 2 % of their interquartile range, and the full query
+    is not free.
     """
     pts = np.column_stack([np.asarray(x, float).ravel(),
                            np.asarray(y, float).ravel()])
@@ -947,6 +956,7 @@ def cross_channel_transverse(
     n_null: int = 200,
     per_channel_randomization: bool = False,
     channel_b_parameter_source: str = "",
+    channel_b_provenance: Optional[Dict[str, Any]] = None,
     annulus_half_width_nm: float = 50.0,
     grid_spacing_nm: float = 5.0,
     random_seed: int = 0,
@@ -968,17 +978,20 @@ def cross_channel_transverse(
     registration : how channel B was registered. Cross-channel distances
         within three times its lateral error are flagged.
     channel_b_parameter_source : where channel B's eps and min_samples
-        came from, in the caller's own words -- "typed" when a person
-        supplied them, "estimated from channel 2" when the program did,
-        empty when a script did and nobody can say. Written to the export
-        as given; this function cannot tell and never guesses.
+        came from, in the caller's own words -- "derived" when they are
+        the values derived from channel 2's NeNA and dye, "typed" when a
+        person supplied or edited them, empty when a script did and
+        nobody can say. Written to the export as given; this function
+        cannot tell and never guesses.
+    channel_b_provenance : the record behind them
+        (``tools.mps_channel_params.provenance``), written to the export.
     analyze_kwargs_b : channel B's OWN clustering parameters. Both
         ``eps_nm`` and ``min_samples`` are required and a ValueError is
         raised without them: they used to fall back to channel A's,
-        which assumes the two proteins are sampled alike. Measured on
-        unpublished adducin files they can be up to two orders of magnitude
-        apart per resolution cell. Also overrides of ``analyze_kwargs`` for its
-        own clustering parameters, pixel size and source name.
+        which assumes the two proteins are sampled alike, while DBSCAN's
+        parameters belong to one dataset (Ester et al. 1996). Also
+        overrides of ``analyze_kwargs`` for its own clustering
+        parameters, pixel size and source name.
     n_null : randomizations for the null distribution of heterotypic 1NN,
         and for the null of the shared perimeter occupancy.
     per_channel_randomization : whether each channel ALSO gets its own
@@ -999,9 +1012,9 @@ def cross_channel_transverse(
     # clustering parameters. Until 2026-09-21 the line below merged
     # channel A's in for whatever channel B did not set, which is an
     # assumption about the partner protein's density rather than a
-    # measurement of it -- and measured, the two can be up to two orders of
-    # magnitude apart per resolution cell, so there is no single
-    # min_samples that fits both. Both keys are required: a half-set
+    # measurement of it: the two channels differ in precision and in
+    # localizations per molecule, so there is no single min_samples that
+    # fits both. Both keys are required: a half-set
     # channel B, with eps given and min_samples inherited, inherits the
     # parameter the measurement is actually about.
     provided = dict(analyze_kwargs_b or {})
@@ -1063,22 +1076,21 @@ def cross_channel_transverse(
 
     cell_a = cell_b = None
     if an_a is not None and an_b is not None:
-        cell_a = locs_per_cell(an_a.x_slab, an_a.y_slab)
-        cell_b = locs_per_cell(an_b.x_slab, an_b.y_slab)
+        eps_a = float(an_a.eps_nm)
+        eps_b = float(an_b.eps_nm)
+        cell_a = locs_per_cell(an_a.x_slab, an_a.y_slab, eps_a)
+        cell_b = locs_per_cell(an_b.x_slab, an_b.y_slab, eps_b)
         if cell_a and cell_b:
             ratio = cell_b / cell_a
-            same = (kwargs_b.get("min_samples", analyze_kwargs.get("min_samples"))
-                    == analyze_kwargs.get("min_samples"))
             if ratio >= OVERSAMPLING_WARN or ratio <= 1.0 / OVERSAMPLING_WARN:
                 warnings_.append(
                     f"The two channels are sampled in different regimes: "
-                    f"within {RESOLUTION_CELL_NM:g} nm of a localization "
-                    f"there are {cell_a:.0f} of channel A's and "
-                    f"{cell_b:.0f} of channel B's, a factor of "
-                    f"{max(ratio, 1 / ratio):.0f}."
-                    + (" min_samples counts localizations, so the same "
-                       "value does not mean the same thing in both."
-                       if same else ""))
+                    f"within each channel's own eps of a localization "
+                    f"({eps_a:g} and {eps_b:g} nm) there are {cell_a:.0f} of "
+                    f"channel A's and {cell_b:.0f} of channel B's, a factor "
+                    f"of {max(ratio, 1 / ratio):.1f}. A warning only: the "
+                    f"ratio also holds the partner protein's abundance, so "
+                    f"it does not set min_samples.")
 
     ca = an_a.centroids if an_a is not None else np.empty((0, 2))
     cb = an_b.centroids if an_b is not None else np.empty((0, 2))
@@ -1207,8 +1219,9 @@ def cross_channel_transverse(
         max_correlation=max_corr, rotation_fraction_of_spacing=rot_frac,
         median_radius_a_nm=rad_a, median_radius_b_nm=rad_b,
         registration_rms_nm=lateral_error, shared=shared, radial=radial,
-        locs_per_cell_a=cell_a, locs_per_cell_b=cell_b,
+        locs_within_eps_a=cell_a, locs_within_eps_b=cell_b,
         channel_b_parameter_source=channel_b_parameter_source,
+        channel_b_provenance=dict(channel_b_provenance or {}),
         registration=registration,
         warnings=warnings_,
     )
@@ -1311,11 +1324,16 @@ def export_cross_channel(
         "registration_band_lo_shared_of_a": None if band is None else band[0],
         "registration_band_hi_shared_of_a": None if band is None else band[1],
         "shared_not_measured_because": "" if s is None else s.reason,
-        "locs_per_cell_a": None if t is None else t.locs_per_cell_a,
-        "locs_per_cell_b": None if t is None else t.locs_per_cell_b,
+        "locs_within_eps_a": None if t is None else t.locs_within_eps_a,
+        "locs_within_eps_b": None if t is None else t.locs_within_eps_b,
         "channel_b_parameter_source":
             None if t is None else t.channel_b_parameter_source,
     })
+    # Where channel B's parameters come from: each value's origin, both
+    # channels' NeNA and the whole-field file (by name) it was measured
+    # on, the dye, the buffer and n_loc,mol (docs/channel2_parameters.md).
+    from tools.mps_channel_params import export_fields
+    row.update(export_fields(None if t is None else t.channel_b_provenance))
     rad = t.radial if t is not None else None
     r_iqr = rad.iqr_nm if rad is not None else None
     ref_iqr = rad.reference_iqr_nm if rad is not None else None

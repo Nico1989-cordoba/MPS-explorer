@@ -297,22 +297,45 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        change_note="a later version removes the automatic switch to HDBSCAN (DBSCAN always; HDBSCAN only when "
                    "chosen) and "
                    "ties the automatic eps to the (min samples - 1)-th neighbour, shown as a graph to read"),
-    _e(key="channel2.eps_nm", label="channel 2: eps", unit="nm", home="main", default=None, origin="blank",
-       value_text="typed per folder, or 'auto'",
-       origin_note="standard method: a second channel is never clustered with channel 1's parameters (Ester et al. "
-                   "1996): its own value is typed once per acquisition folder",
+    _e(key="channel2.eps_nm", label="channel 2: eps", unit="nm", home="main", default=None, origin="derived",
+       value_text="derived per folder from both channels' NeNA, pre-filled and editable; empty with the reason "
+                  "when the second channel's NeNA cannot be measured",
+       origin_note="derived: eps_2 = eps_1 x NeNA_2 / NeNA_1, NeNA (Endesfelder et al. 2014) measured on each "
+                   "channel's whole-field, unlinked file; a second channel is never clustered with channel 1's "
+                   "parameters (Ester et al. 1996); edited, it is 'user' (docs/channel2_parameters.md)",
        range_text="1-5 x the channel's NeNA precision",
-       records=("dbscan-channel2-own-parameters",), changes_in="SCI-B6",
-       change_note="a later version writes a suggestion beside the empty field, never pre-filled: eps_2 = eps_1 x "
-                   "sigma_2 / sigma_1 from each channel's NeNA"),
+       records=("dbscan-channel2-own-parameters",)),
     _e(key="channel2.min_samples", label="channel 2: min samples", unit="", home="main", default=None,
-       origin="blank", value_text="typed per folder, or 'auto'",
-       origin_note="standard method: channel 2's own DBSCAN count, typed once per acquisition folder",
+       origin="derived", value_text="derived per folder from the second channel's NeNA and its dye, pre-filled and editable; "
+                                    "empty with the reason when either is missing",
+       origin_note="derived: round(1 + (n_loc,mol - 1) x (1 - exp(-eps_2^2 / (4 NeNA_2^2)))), the expected "
+                   "number of one molecule's localizations within eps_2 of one of them, itself included (Ester et "
+                   "al. 1996); n_loc,mol from the dye table (Dempsey et al. 2011), a lower bound; edited, it is "
+                   "'user' (docs/channel2_parameters.md)",
        documented_range=(2.0, 50.0), range_text="2-50",
-       records=("dbscan-channel2-own-parameters",), changes_in="SCI-B6",
-       change_note="a later version writes a suggestion beside the empty field, never pre-filled: the expected "
-                   "number of one "
-                   "molecule's localizations within eps_2 of one of them"),
+       records=("dbscan-channel2-own-parameters",)),
+    _e(key="channel2.nena_reference_nm", label="channel 1's NeNA when not measured", unit="nm", home="none",
+       default=_const("tools.mps_channel_params", "GAZAL_NENA_NM"), origin="paper",
+       origin_note=f"the global NeNA precision of the published pipeline ({PAPER}), used for the ratio of eps_2 "
+                   "only when channel 1's own NeNA cannot be measured, and said so",
+       records=("dbscan-channel2-own-parameters",), not_editable_because="e1"),
+    _e(key="channel2.dye_cycles", label="switching cycles per molecule (dye table)", unit="", home="main",
+       default=None, origin="paper", value_text="chosen per folder: dye and buffer",
+       origin_note="mean switching cycles per molecule by dye and buffer (Dempsey et al. 2011, Table 1): a lower "
+                   "bound of the localizations per labelled molecule until the label is calibrated",
+       records=("dbscan-channel2-own-parameters",)),
+    _e(key="crosschannel.sampling_radius", label="sampling density radius", unit="nm", home="none", default=None,
+       origin="derived", value_text="each channel's own eps",
+       origin_note="the localizations within the channel's own eps of a localization: the count DBSCAN's core "
+                   "condition tests (Ester et al. 1996); a diagnostic, never used to cluster",
+       records=("channel2-resolution-cell-20nm",), not_editable_because="e1"),
+    _e(key="crosschannel.oversampling_warn", label="sampling-density ratio warning", unit="", home="none",
+       default=_const("tools.mps_crosschannel", "OVERSAMPLING_WARN"), origin="derived",
+       origin_note="convention with a written derivation: beyond this ratio either way, the same parameters put "
+                   "a Gaussian cluster's detected boundary about a fifth farther out in the denser channel; a "
+                   "warning only, never used to scale min samples (it holds the partner's abundance)",
+       documented_range=(1.5, 10.0), range_text="1.5-10",
+       records=("cc-oversampling-warn-3",), not_editable_because="e1"),
     # ---------------------------------------------------------------- occupancy
     _e(key="occupancy.mahalanobis", label="Mahalanobis", unit="", home="strip",
        default=_const(_S, "DEFAULT_MAHALANOBIS_THRESHOLD"), origin="paper",

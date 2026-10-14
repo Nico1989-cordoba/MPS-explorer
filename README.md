@@ -303,6 +303,12 @@ pytest test_mps_explorer.py -v
   change will replace: *ad hoc* (no written derivation yet) and *unreviewed* (no verified research record yet). The
   tooltip of each badge gives the source, the documented range and, in words, what a later version changes; a
   value outside its documented range is flagged, never clamped.
+- **Channel 2's clustering** (Two channels). A second channel is never clustered with channel 1's eps and Min Pts.
+  Its own are derived and pre-filled (editable, each with its origin): eps₂ = eps₁ × NeNA₂ / NeNA₁, with NeNA
+  measured on each channel's whole-field, unlinked file, and Min Pts₂ from channel 2's dye and buffer (switching
+  cycles of Dempsey et al. 2011); when the precision cannot be measured the fields stay empty with the reason. The
+  criteria, the derivation, the dye table and the decision record:
+  [docs/channel2_parameters.md](docs/channel2_parameters.md).
 - **Measurement panel** (main window). Each loaded channel's pixel size with the source of the number, and, for 3D
   files, the per-measurement z calibration: no z correction is applied yet, so z is used as the localization software
   fitted it; whether the file carries its own calibration record is shown (only Data quality's coverage check reads

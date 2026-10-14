@@ -23,6 +23,7 @@ shows what was restored.
 from __future__ import annotations
 
 import json
+import math
 import logging
 import os
 import re
@@ -60,6 +61,31 @@ DEFAULT_DBCV_THRESHOLD = -1.0
 # shrinks the occupancy many-fold -- so it is stored, exported, and never
 # left to whatever a spin box happens to show.
 DEFAULT_MAHALANOBIS_THRESHOLD = 3.0
+
+
+# What a channel-2 entry may carry besides its pair (tools.mps_channel_params):
+# numbers are kept when finite (else dropped), texts as texts.
+_CHANNEL2_NUMBERS = ("derived_eps_nm", "derived_min_samples", "nena_a_nm",
+                     "eps_a_reference_nm", "nena_b_nm", "n_loc_mol_b")
+_CHANNEL2_TEXTS = ("eps_b_origin", "min_samples_b_origin", "nena_a_source_file",
+                   "nena_a_origin", "nena_b_source_file", "dye_b", "buffer_b",
+                   "n_loc_mol_b_origin")
+
+
+def _channel2_provenance(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """The provenance fields of a stored channel-2 entry, cleaned."""
+    out: Dict[str, Any] = {}
+    for key in _CHANNEL2_NUMBERS:
+        value = entry.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if math.isfinite(float(value)):
+            out[key] = float(value)
+    for key in _CHANNEL2_TEXTS:
+        value = entry.get(key)
+        if isinstance(value, str):
+            out[key] = value
+    return out
 
 
 @dataclass
@@ -103,14 +129,14 @@ class MPSSettings:
     z_calibration_by_folder: Dict[str, Dict[str, Any]] = field(
         default_factory=dict)
     # Channel 2's OWN eps and min samples, one entry per folder, keyed by
-    # tools.mps_pixel_size.folder_key on the channel-2 file.
+    # tools.mps_pixel_size.folder_key on the channel-2 file, with where they
+    # came from (tools.mps_channel_params.provenance): each value's origin
+    # ("derived" from channel 2's NeNA and dye, or "user"), the NeNA of
+    # each channel and the whole-field file it was measured on (name
+    # only), the dye, the buffer and n_loc,mol with its origin.
     #
-    # Per folder and not global, because the measurement that forces this
-    # is per file: across five real adducin files, localizations within
-    # one 20 nm cell ran 4, 62, 238, 485, 550 against 3 to 5 for
-    # spectrin. A min samples chosen for the 550 file is as wrong on the
-    # 4 file as channel 1's ever was, so one global answer would only
-    # move the assumption rather than remove it.
+    # Per folder and not global, because what the values are derived from
+    # -- the precision and the dye of channel 2 -- is per acquisition.
     #
     # The keys are new on purpose. The fields that stood here until
     # 2026-09-21 were written from the two boxes on screen, which were
@@ -118,7 +144,7 @@ class MPSSettings:
     # channel 1's 25 / 10 under channel 2's name, with nothing to
     # distinguish it from a deliberate 25 / 10. No rule on the VALUE can
     # tell those apart, so the name changes and the old one is ignored.
-    channel2_clustering_by_folder: Dict[str, Dict[str, float]] = field(
+    channel2_clustering_by_folder: Dict[str, Dict[str, Any]] = field(
         default_factory=dict)
     # Which inputs come from an acquisition outside the calibrated range of
     # the column analysis (a regular expression matched against the file
@@ -178,7 +204,7 @@ class MPSSettings:
         if not isinstance(self.channel2_clustering_by_folder, dict):
             self.channel2_clustering_by_folder = {}
         else:
-            chosen: Dict[str, Dict[str, float]] = {}
+            chosen: Dict[str, Dict[str, Any]] = {}
             for folder, entry in self.channel2_clustering_by_folder.items():
                 if not isinstance(entry, dict):
                     continue
@@ -191,8 +217,10 @@ class MPSSettings:
                         "parameters; it will be asked for again", folder)
                     continue
                 if 0 < eps2 <= 1000 and 1 <= min2 <= 10000:
-                    chosen[str(folder)] = {"eps_nm": eps2,
-                                           "min_samples": float(min2)}
+                    kept: Dict[str, Any] = {"eps_nm": eps2,
+                                            "min_samples": float(min2)}
+                    kept.update(_channel2_provenance(entry))
+                    chosen[str(folder)] = kept
                 else:
                     logger.warning(
                         "Stored channel-2 clustering for %s is out of range "
