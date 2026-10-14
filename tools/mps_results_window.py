@@ -140,6 +140,8 @@ MC_P_TIP = (
     "separation of the null is estimated from the same data.")
 CROSSING_TIP = ("Reported only where the observed CDF leaves the band the randomizations themselves give; called "
                 "significant when the crossing is stronger than the randomizations themselves reach (Monte Carlo).")
+# The public methods page of the randomization rows (tools.mps_randomization.METHODS_DOC).
+METHODS_TIP = "Methods: docs/randomization_and_ks.md"
 # The reference cell of each row, by the row's name (summary_rows), and the registry entry that says what it is.
 _REFERENCE_KEYS: Dict[str, str] = {
     "Clusters per um": "reference.clusters_per_um",
@@ -152,6 +154,8 @@ _REFERENCE_KEYS: Dict[str, str] = {
 }
 _KS_ROW = "Randomization KS test"
 _MC_ROW = "  Monte Carlo p"
+# The other rows the randomization methods page documents.
+_RAND_ROWS = ("  centres outside the band", "  regularity r")
 _CROSSING_ROW = "  CDF crossing"
 
 # How much of the plot column the map takes when the window opens (the rest
@@ -1482,9 +1486,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         elif col in (_COL_MEASURED, _COL_EVERY, _COL_DISCARD):
             own = item.toolTip()
             if name == _KS_ROW:
-                item.setToolTip(KS_TIP + (f"\n\n{own}" if own else ""))
+                item.setToolTip(KS_TIP + "\n" + METHODS_TIP + (f"\n\n{own}" if own else ""))
             elif name == _MC_ROW:
-                item.setToolTip(MC_P_TIP + (f"\n\n{own}" if own else ""))
+                item.setToolTip(MC_P_TIP + "\n" + METHODS_TIP + (f"\n\n{own}" if own else ""))
+            elif name in _RAND_ROWS:
+                item.setToolTip(METHODS_TIP + (f"\n\n{own}" if own else ""))
             elif name == _CROSSING_ROW:
                 item.setToolTip(CROSSING_TIP + "\n" + reg.tooltip("randomization.cdf_band_alpha")
                                 + (f"\n\n{own}" if own else ""))

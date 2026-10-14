@@ -311,6 +311,24 @@ def test_constancy_refuses_without_animals() -> None:
     assert any("pseudoreplicated" in line for line in res.lines())
 
 
+def test_methods_page_exists_and_is_linked() -> None:
+    from tools import mps_param_registry as reg
+    from tools import mps_results_window as rw
+    page = os.path.join(REPO_ROOT, R.METHODS_DOC)
+    text = open(page, encoding="utf-8").read()
+    for heading in ("## 1.", "## 2.", "## 3.", "## 4.", "## 5.", "## 6.", "## 7.", "## 10. Decision record",
+                    "## References"):
+        assert heading in text, heading
+    for script in ("sim1_ks_mc.py", "sim1b_exchangeable.py", "sim2_icc_null.py", "sim3_nn_factors.py",
+                   "sim4_sigma_cap.py"):
+        assert script in text and os.path.exists(os.path.join(REPO_ROOT, "docs", "sims", "randomization", script))
+    assert R.METHODS_DOC in open(os.path.join(REPO_ROOT, "README.md"), encoding="utf-8").read()
+    assert R.METHODS_DOC in rw.METHODS_TIP
+    for key in ("randomization.band_half_width_nm", "randomization.cdf_band_alpha", "reference.ks",
+                "occupancy.sigma_cap_fraction", "batch.icc_percentile"):
+        assert f"Methods: {R.METHODS_DOC}" in reg.tooltip(key), key
+
+
 def _run_all() -> int:
     tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

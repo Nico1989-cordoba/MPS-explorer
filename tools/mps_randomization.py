@@ -92,6 +92,9 @@ from numpy.typing import NDArray
 from scipy.interpolate import splev, splprep
 from scipy.spatial import cKDTree
 
+# The public methods page of this control (every choice, its origin and its calibration).
+METHODS_DOC = "docs/randomization_and_ks.md"
+
 # Paper constants (Gazal et al. 2026; another dataset and pipeline)
 PAPER_KS_D = 0.054
 PAPER_CDF_CROSSING = 0.8

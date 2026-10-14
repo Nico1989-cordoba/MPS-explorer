@@ -813,10 +813,34 @@ def tooltip(key: str, value: Any = UNSET) -> str:
         # In words: the science PR's id is internal (``changes_in``); a reader cannot resolve it.
         note = e.change_note or "a later version changes it"
         lines.append(note[0].upper() + note[1:] + ".")
+    page = methods_page(key)
+    if page:
+        lines.append(f"Methods: {page}")
     if e.unreviewed_because:
         lines.append("Unreviewed: " + ("not inventoried by the research yet." if e.unreviewed_because ==
                                        NOT_INVENTORIED else f"its research batch ({e.unreviewed_because}) is pending."))
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- public methods pages
+# The page of the public repository that documents a group of values (origin, derivation, calibration, decisions).
+METHODS_PAGES: Tuple[Tuple[str, str], ...] = (
+    ("randomization.", "docs/randomization_and_ks.md"),
+    ("reference.ks", "docs/randomization_and_ks.md"),
+    ("reference.cdf_crossing", "docs/randomization_and_ks.md"),
+    ("reference.nn1_median_nm", "docs/randomization_and_ks.md"),
+    ("reference.clusters_per_um", "docs/randomization_and_ks.md"),
+    ("batch.", "docs/randomization_and_ks.md"),
+    ("occupancy.sigma_cap_fraction", "docs/randomization_and_ks.md"),
+)
+
+
+def methods_page(key: str) -> str:
+    """The public methods page of a value, or "" when it has none yet."""
+    for prefix, page in METHODS_PAGES:
+        if key == prefix or (prefix.endswith(".") and key.startswith(prefix)):
+            return page
+    return ""
 
 
 # --------------------------------------------------------------------------- the "More" lines (12.4)
