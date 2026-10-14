@@ -191,7 +191,7 @@ def main() -> int:
                     it = t.item(i, j)
                     assert it is None or it.background().style() == QtCore.Qt.BrushStyle.NoBrush, (t.objectName(), i, j)
         assert w.pairs_title.text() == zw.PAIRS_TITLE
-        assert "never selects pairs" in w.v2c_title.text() and "D-43" in w.v2c_title.text()
+        assert "selects no pair" in w.v2c_title.text() and "D-43" not in w.v2c_title.text()   # SCI-5: plain words
         st["zq_texts"] = [[w.pair_table.item(i, j).text() for j in range(w.pair_table.columnCount())]
                           for i in range(w.pair_table.rowCount())]
         a, b = os.path.join(WORK, "zq_default"), os.path.join(WORK, "zq_direct")
