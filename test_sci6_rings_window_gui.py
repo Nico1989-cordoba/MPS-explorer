@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 SCI-6 in the rings window (offscreen, one simulated axon, R8): the 'bayes' mode is offered; the correlation runs
-along the membrane by default and the angle frame and the masked bins are a choice that re-runs only the
+along the membrane by default and the angle frame and interpolated bins are a choice (masked bins are the default) that re-runs only the
 correlation; the pairs table shows the valley / Bayes / midpoint cut positions and d, and a one-sided p; the
 guard band is given in units of s_eff with its leak; one depth level colours the boundaries.
 
@@ -38,7 +38,8 @@ def test_modes_and_frame(window: Any) -> None:
     w = window
     assert w.combo_mode.findData("bayes") >= 0
     assert w.combo_frame.currentData() == "arc" and w.rings.frame == "arc"
-    assert w.combo_empty.currentData() == "interpolate"
+    assert w.combo_empty.currentData() == "mask" and w.rings.empty_bins == "mask"
+    assert "45 %" in w.combo_empty.toolTip() and "docs/axial_mixture_and_rings.md" in w.combo_empty.toolTip()
     assert "along the membrane" in w.lbl_header.text() and "m = 0.79" in w.lbl_header.text()
 
 
@@ -64,9 +65,9 @@ def test_frame_and_mask_rerun_only_the_correlation(window: Any) -> None:
     w.combo_frame.setCurrentIndex(w.combo_frame.findData("angle"))
     assert w.rings.frame == "angle" and w.ms is ms_before
     assert "exploratory" in w.lbl_header.text()
-    w.combo_empty.setCurrentIndex(w.combo_empty.findData("mask"))
-    assert w.rings.empty_bins == "mask"
-    assert all(p.export_dict()["empty_bins"] == "mask" for p in w.rings.pairs)
-    w.combo_frame.setCurrentIndex(w.combo_frame.findData("arc"))
     w.combo_empty.setCurrentIndex(w.combo_empty.findData("interpolate"))
-    assert w.rings.frame == "arc"
+    assert w.rings.empty_bins == "interpolate"
+    assert all(p.export_dict()["empty_bins"] == "interpolate" for p in w.rings.pairs)
+    w.combo_frame.setCurrentIndex(w.combo_frame.findData("arc"))
+    w.combo_empty.setCurrentIndex(w.combo_empty.findData("mask"))
+    assert w.rings.frame == "arc" and w.rings.empty_bins == "mask"

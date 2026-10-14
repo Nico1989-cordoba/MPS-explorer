@@ -199,6 +199,20 @@ def _e(**kw: Any) -> ParamInfo:
     return ParamInfo(**kw)
 
 
+# The public methods page of the axial mixture, the ring boundaries, the axon axis and the ring correlation: named
+# in the tooltip of every value it documents.
+AXIAL_RINGS_DOC = "docs/axial_mixture_and_rings.md"
+_AXIAL_RINGS_KEYS = frozenset({
+    "slab.centre", "slab.half_width_nm", "rings.mode", "rings.guard_nm", "rings.valley_depth_colour", "rings.frame",
+    "rings.empty_bins", "rings.n_bins", "rings.min_samples_per_bin", "rings.n_rotations",
+    "rings.valley_shift_warning_nm", "rings.depth_reference", "rings.posterior_model", "rings.posterior_min",
+    "axial.components", "axial.n_init", "axial.random_state", "slab.main_peak_mode", "slab.foreign_fraction_warn",
+    "reference.delta_z_periods", "axis.min_locs", "axis.max_slope_error_deg", "axis.loss", "axis.tilt_warning_deg",
+    "axis.z_usable_nm", "axis.delta_beta_warning_deg", "axis.sharpness_search", "axis.stage_tol_deg",
+    "axis.max_stages", "axis.candidate_disagreement_deg", "axis.stage_posterior_min", "axis.judge",
+    "acr.search_window", "acr.min_periods"})
+
+
 _S = "tools.mps_settings"
 _R = "tools.mps_randomization"
 
@@ -471,9 +485,12 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        records=("gaps-shared-angular-centre",), editable=True),
     _e(key="rings.empty_bins", label="bins no perimeter sample reaches", unit="", home="rings",
        default=_keyword("tools.mps_gaps", "analyze_rings", "empty_bins"), origin="derived",
-       origin_note="convention: interpolated from their neighbours (an unmeasured stretch read as zero would be a "
-                   "gap that was never measured), or masked out of the correlation; their number is exported "
-                   "either way",
+       origin_note="masked out of the correlation by default (an unmeasured stretch read as zero would be a gap "
+                   "that was never measured, and one interpolated in both profiles is shared structure the rotation "
+                   "null cannot remove: with a tenth of the bins so filled the false-positive rate at a nominal "
+                   "five per cent was about 45 per cent on synthetic independent profiles, measured by the public "
+                   "null validator); interpolation from the neighbours stays an option, warned; their number is "
+                   "exported either way",
        shown_as="rings window (combo); the pairs CSV (n_empty_bins_a, n_empty_bins_b)",
        range_text="interpolate / mask", records=("gaps-interpolated-empty-bins",), editable=True),
     _e(key="rings.n_bins", label="profile bins", unit="", home="none",
@@ -845,6 +862,8 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
 )
 
 _BY_KEY: Dict[str, ParamInfo] = {e.key: e for e in _ENTRIES}
+for _key in _AXIAL_RINGS_KEYS:
+    _BY_KEY[_key].extra["methods"] = AXIAL_RINGS_DOC
 
 
 # --------------------------------------------------------------------------- lookups
@@ -1020,6 +1039,8 @@ def tooltip(key: str, value: Any = UNSET) -> str:
         # In words: the science PR's id is internal (``changes_in``); a reader cannot resolve it.
         note = e.change_note or "a later version changes it"
         lines.append(note[0].upper() + note[1:] + ".")
+    if e.extra.get("methods"):
+        lines.append(f"Methods: {e.extra['methods']}.")
     if e.unreviewed_because:
         lines.append("Unreviewed: " + ("not inventoried by the research yet." if e.unreviewed_because ==
                                        NOT_INVENTORIED else f"its research batch ({e.unreviewed_because}) is pending."))

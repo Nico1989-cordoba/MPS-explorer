@@ -109,11 +109,18 @@ DEFAULT_N_ROTATIONS = 1999
 DEFAULT_ROTATION_SEED = 0
 
 # The frames the profile can be registered in, and what to do with bins no
-# perimeter sample reaches (gaps-interpolated-empty-bins).
+# perimeter sample reaches (gaps-interpolated-empty-bins). Masking is the
+# default (decided 2026-10-14 on the evidence of the public null validator):
+# a stretch interpolated in both profiles of a pair is shared structure the
+# rotation null cannot remove, and with 10 % of the bins so filled the
+# false-positive rate at a nominal 5 % was about 45 % on synthetic
+# independent profiles (masked: 6 %). Interpolation stays an option, warned.
 FRAMES: Tuple[str, ...] = ("arc", "angle")
 DEFAULT_FRAME = "arc"
 EMPTY_BINS: Tuple[str, ...] = ("interpolate", "mask")
-DEFAULT_EMPTY_BINS = "interpolate"
+DEFAULT_EMPTY_BINS = "mask"
+# Where every choice of this module is documented for review.
+METHODS_DOC = "docs/axial_mixture_and_rings.md"
 # The fewest bins two masked profiles must share at a rotation for its
 # correlation to be computed.
 MIN_SHARED_BINS = 8
@@ -914,9 +921,11 @@ def analyze_rings(
             if shared >= SHARED_INTERPOLATED_WARN:
                 warnings_.append(
                     f"Segments {p.index_a}-{p.index_b}: {shared:.0%} of the bins were measured in neither "
-                    f"profile and are interpolated in both, a shared stretch the rotation null cannot remove "
-                    f"(it raises the false positives): mask the unmeasured bins, and look for clusters off the "
-                    f"membrane (inside the axon) that pull the contours and the common curve inward.")
+                    f"profile and are interpolated in both, a shared stretch the rotation null cannot remove: "
+                    f"with 10 % of the bins so filled the false-positive rate at a nominal 5 % was about 45 % "
+                    f"on synthetic independent profiles (validate_ring_correlation_null.py). Mask the "
+                    f"unmeasured bins (the default), and look for clusters off the membrane (inside the axon) "
+                    f"that pull the contours and the common curve inward.")
         corr = profile_correlation(pa.coverage, pb.coverage, n_rotations=n_rotations,
                                    seed=seed, **mask_kw)
         warnings_.extend(

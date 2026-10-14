@@ -56,6 +56,14 @@ from tools.mps_periodicity import (  # noqa: E402
     fit_z_periodicity,
 )
 
+def pcorr(pa, pb, **kw):
+    """profile_correlation of two CoverageProfiles, with their unmeasured bins
+    masked when the profiles were built that way (the program's default)."""
+    if getattr(pa, "empty_bins", "") == "mask" or getattr(pb, "empty_bins", "") == "mask":
+        kw = dict(kw, measured_a=pa.measured, measured_b=pb.measured)
+    return profile_correlation(pa.coverage, pb.coverage, **kw)
+
+
 # Unpublished data, not in this repository: given from outside.
 DATA_ROOT = os.environ.get("MPS_VALIDATION_DATA", "")
 
@@ -195,7 +203,7 @@ def report_mode(files, mode: str) -> dict:
             pa, pb = profiles[i], profiles[i + 1]
             if pa is None or pb is None:
                 continue
-            c = profile_correlation(pa.coverage, pb.coverage)
+            c = pcorr(pa, pb)
             if not np.isfinite(c.r_at_zero):
                 continue
             n_pair += 1
@@ -207,7 +215,7 @@ def report_mode(files, mode: str) -> dict:
                 z_all.append(c.z_vs_null)
             if frac is not None:
                 frac_all.append(frac)
-            pairs_for_perm.append((f, pa.coverage, pb.coverage))
+            pairs_for_perm.append((f, pa, pb))
             if pair.angular_nn_median_deg is not None:
                 nn_all.append(pair.angular_nn_median_deg)
                 nn_n_all.append(0.5 * (pair.n_clusters_a + pair.n_clusters_b))
@@ -284,13 +292,13 @@ def axon_permutation(pairs: List[tuple], n_perm: int = 1999,
     length."""
     if len(pairs) < 2 or len({a for a, _, _ in pairs}) < 2:
         return None
-    if len({len(pa) for _, pa, _ in pairs} | {len(pb) for _, _, pb in pairs}) != 1:
+    if len({pa.coverage.size for _, pa, _ in pairs} | {pb.coverage.size for _, _, pb in pairs}) != 1:
         return None
 
     def mean_z(sides_b):
         rs = []
         for (_, pa, _), pb in zip(pairs, sides_b):
-            r = profile_correlation(pa, pb, n_rotations=1).r_at_zero
+            r = pcorr(pa, pb, n_rotations=1).r_at_zero
             if np.isfinite(r):
                 rs.append(np.arctanh(np.clip(r, -0.999999, 0.999999)))
         return float(np.mean(rs)) if rs else float("nan")

@@ -307,6 +307,15 @@ pytest test_mps_explorer.py -v
   files, the per-measurement z calibration: no z correction is applied yet, so z is used as the localization software
   fitted it; whether the file carries its own calibration record is shown (only Data quality's coverage check reads
   its calibrated range), and the inputs to read one are present but disabled.
+- **The axial mixture, the ring boundaries, the axon axis and the ring correlation.** The z mixture of a region (its
+  candidate components, the main peak as the mode of the fitted density, and the slab's expected foreign fraction F,
+  warned above 5 %); ΔZ with its standard error and its distance from the published periods (never a verdict); the
+  boundaries between rings (the valley as the antimode with its depth referred to the peaks, the Bayes boundary and
+  the midpoint, one depth level 0.10, the guard band in units of s_eff); the axon axis and its tilt checks; the ring
+  correlation along the membrane (arc length, 1999 rotations, a one-sided p, unmeasured bins masked by default
+  because interpolating them inflated the null's false positives to ~45 %), and the autocorrelation window. Every
+  number with its origin, the limitations and the decision record:
+  [docs/axial_mixture_and_rings.md](docs/axial_mixture_and_rings.md).
 
 ---
 

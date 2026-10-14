@@ -73,7 +73,7 @@ from tools.mps_periodicity import (  # noqa: E402
     guard_retention_cap_nm,
     guard_tradeoff,
 )
-from validate_gaps import find_axons, label, load  # noqa: E402
+from validate_gaps import find_axons, label, load, pcorr  # noqa: E402
 
 # The fallback grid, total widths in nm, when an axon has no s_eff.
 GUARDS_NM = (0.0, 30.0, 60.0, 90.0)
@@ -203,7 +203,7 @@ def main() -> int:
             for (sa, pa), (sb, pb) in zip(profs[:-1], profs[1:]):
                 if sb.index != sa.index + 1:
                     continue
-                c = profile_correlation(pa.coverage, pb.coverage)
+                c = pcorr(pa, pb)
                 if np.isfinite(c.r_at_zero):
                     r0s.append(c.r_at_zero)
         arr = np.asarray(r0s, float)
@@ -246,7 +246,7 @@ def main() -> int:
         x, y, z, px = data[f]
         profs, ms = build_profiles(x, y, z, px, f, guard_nm=0.0)
         for (sa, pa), (sb, pb) in itertools.combinations(profs, 2):
-            c = profile_correlation(pa.coverage, pb.coverage)
+            c = pcorr(pa, pb)
             if not np.isfinite(c.r_at_zero):
                 continue
             sep.append(abs(sb.center_nm - sa.center_nm))
@@ -282,7 +282,7 @@ def main() -> int:
     for f in files:
         x, y, z, px = data[f]
         profs, ms = build_profiles(x, y, z, px, f, guard_nm=0.0)
-        by_axon[f] = [(seg.index, p.coverage) for seg, p in profs]
+        by_axon[f] = [(seg.index, p) for seg, p in profs]
 
     cross: List[float] = []
     for fa, fb in itertools.combinations(files, 2):
@@ -290,7 +290,7 @@ def main() -> int:
             for (ib, cb) in by_axon.get(fb, []):
                 if ia != ib:
                     continue          # same segment rank, different axons
-                c = profile_correlation(ca, cb)
+                c = pcorr(ca, cb)
                 if np.isfinite(c.r_at_zero):
                     cross.append(c.r_at_zero)
 
@@ -375,7 +375,7 @@ def main() -> int:
             chance = float(np.mean(hits))
 
             pa, pb = by_index[sa.index][1], sb[1]
-            c_before = profile_correlation(pa.coverage, pb.coverage)
+            c_before = pcorr(pa, pb)
 
             # Drop the shared clusters from BOTH profiles and re-measure.
             drop_a: set = set()
@@ -399,7 +399,7 @@ def main() -> int:
                     pb2 = coverage_profile(
                         an_b.occupancy, an_b.perimeter.contour, ctr,
                         exclude_labels=drop_b, reference=ref)
-                    c_after = profile_correlation(pa2.coverage, pb2.coverage)
+                    c_after = pcorr(pa2, pb2)
                     if np.isfinite(c_after.r_at_zero):
                         r_aft = float(c_after.r_at_zero)
                 except ValueError:
@@ -469,7 +469,7 @@ def main() -> int:
             a, b = by_index.get(pair.index_a), by_index.get(pair.index_b)
             if a is None or b is None or pair.boundary_relative_depth is None:
                 continue
-            c = profile_correlation(a[1].coverage, b[1].coverage)
+            c = pcorr(a[1], b[1])
             if not np.isfinite(c.r_at_zero):
                 continue
             depth_l.append(pair.boundary_relative_depth)

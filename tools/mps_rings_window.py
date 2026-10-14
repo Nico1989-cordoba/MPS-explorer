@@ -59,7 +59,7 @@ from tools.copyable import copyable_list, copyable_table, selectable_labels
 from tools import mps_param_registry as reg
 from tools.mps_origin_ui import ParamField
 from tools.mps_gaps import (
-    DEFAULT_EMPTY_BINS, DEFAULT_FRAME, DEFAULT_N_ROTATIONS, RingAnalysis, analyze_rings)
+    DEFAULT_EMPTY_BINS, DEFAULT_FRAME, DEFAULT_N_ROTATIONS, METHODS_DOC, RingAnalysis, analyze_rings)
 from tools.mps_periodicity import (
     VALLEY_DEPTH_LEVEL, effective_width_nm, guard_retention_cap_nm, guard_tradeoff)
 from tools.mps_identity import AxonIdentity, axon_id
@@ -242,7 +242,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "  probable - the fewest wrong assignments; it equals the\n"
             "  valley for equal rings, and exists even where the two\n"
             "  components are not two peaks.\n\n"
-            "The pairs table shows all three cut positions of every boundary."
+            "The pairs table shows all three cut positions of every boundary.\n\n"
+            f"Methods: {METHODS_DOC}, section 3."
         )
         # Its origin badge after it (design 12.3); the combo keeps its name,
         # items and signals.
@@ -264,7 +265,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "in both. If the correlation survives a wide guard band, it is not\n"
             "axial bleed-through - but a guard also removes ring structure.\n"
             "0 in the primary analysis; 60 nm is the recorded sensitivity.\n"
-            "Ignored in 'paper' mode, which has no boundary."
+            "Ignored in 'paper' mode, which has no boundary.\n\n"
+            f"Methods: {METHODS_DOC}, section 3."
         )
         self.field_guard = ParamField("rings.guard_nm", self.spin_guard)
         lay.addWidget(self.field_guard)
@@ -288,7 +290,8 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "  analysis); valid for folded and notched contours.\n"
             "angle: the polar angle about the pooled centre. One-to-one only\n"
             "  on contours star-shaped about it; the pairs CSV reports how\n"
-            "  much of each contour runs backwards in angle.")
+            "  much of each contour runs backwards in angle.\n\n"
+            f"Methods: {METHODS_DOC}, section 5.")
         self.combo_frame.setCurrentIndex(max(self.combo_frame.findData(DEFAULT_FRAME), 0))
         self.field_frame = ParamField("rings.frame", self.combo_frame, show_range=False)
         lay.addWidget(self.field_frame)
@@ -297,9 +300,14 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.combo_empty.addItem("unmeasured bins interpolated", "interpolate")
         self.combo_empty.addItem("unmeasured bins masked", "mask")
         self.combo_empty.setToolTip(
-            "Bins no perimeter sample reaches: interpolated from their\n"
-            "neighbours, or left out of the correlation. Their number is in\n"
-            "the pairs CSV either way.")
+            "Bins no perimeter sample reaches: left out of the correlation\n"
+            "(masked, the default) or interpolated from their neighbours.\n"
+            "A stretch interpolated in both profiles is structure the rotation\n"
+            "null cannot remove: with 10 % of the bins so filled, independent\n"
+            "synthetic profiles came out significant at a nominal 5 % about\n"
+            "45 % of the time (masked: 6 %; validate_ring_correlation_null.py).\n"
+            "Their number is in the pairs CSV either way.\n\n"
+            f"Methods: {METHODS_DOC}, section 5.")
         self.combo_empty.setCurrentIndex(max(self.combo_empty.findData(DEFAULT_EMPTY_BINS), 0))
         self.field_empty = ParamField("rings.empty_bins", self.combo_empty, show_range=False)
         lay.addWidget(self.field_empty)
@@ -502,12 +510,15 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "midpoint (a warning says so).")
         self.table_pair.horizontalHeaderItem(4).setToolTip(
             "Separation d = |mu_b - mu_a| / sqrt(sigma_a^2 + sigma_b^2): two\n"
-            "equal components are two peaks only above d = 1.41.")
+            "equal components are two peaks only above d = 1.41.\n\n"
+            f"Methods: {METHODS_DOC}, section 3.")
         self.table_pair.horizontalHeaderItem(6).setToolTip(
             "One-sided p of r(0) against the rotation null: the fraction of\n"
             f"{DEFAULT_N_ROTATIONS:,} rotations of one profile (drawn without replacement, the\n"
             "unrotated one counted) whose correlation is at least r(0).\n"
             + reg.tooltip("rings.n_rotations"))
+        self.table_pair.horizontalHeaderItem(3).setToolTip(
+            self.table_pair.horizontalHeaderItem(3).toolTip() + f"\n\nMethods: {METHODS_DOC}, section 3.")
         self.table_pair.itemSelectionChanged.connect(self._draw_correlation)
         lay.addWidget(self.table_pair, stretch=2)
 

@@ -379,6 +379,8 @@ def test_registry_entries_of_sci6() -> None:
     assert reg.default("rings.valley_depth_colour") == mp.VALLEY_DEPTH_LEVEL == 0.10
     assert reg.default("rings.frame") == "arc" and reg.default("rings.n_rotations") == 1999
     assert reg.badge("rings.valley_shift_warning_nm") == "blank"
+    assert reg.default("rings.empty_bins") == "mask"
+    assert "Methods: docs/axial_mixture_and_rings.md" in reg.tooltip("rings.frame")
     assert not any(reg.info(k).changes_in == "SCI-6" for k in reg.keys())
 
 
