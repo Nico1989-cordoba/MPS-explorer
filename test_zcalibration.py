@@ -444,10 +444,12 @@ def test_own_record_comes_first() -> None:
 def test_axon_row_columns_and_dictionary() -> None:
     from tools import axon_export, column_dictionary
 
-    assert axon_export.TABLE_VERSION == "axon tables v5"
+    assert axon_export.TABLE_VERSION == "axon tables v6"   # v6: SCI-6's axial-mixture columns after these
     assert tuple(axon_export.Z_CALIBRATION_COLUMNS) == zcal.Z_CALIBRATION_COLUMNS
     known = column_dictionary.known_columns()
-    assert known[-len(zcal.Z_CALIBRATION_COLUMNS):] == list(zcal.Z_CALIBRATION_COLUMNS)   # last: nothing moved
+    tail = len(axon_export.AXIAL_MIXTURE_COLUMNS)
+    # Appended after every earlier column (nothing moved); SCI-6's five come after them.
+    assert known[-len(zcal.Z_CALIBRATION_COLUMNS) - tail:-tail] == list(zcal.Z_CALIBRATION_COLUMNS)
     assert column_dictionary.missing(list(zcal.Z_CALIBRATION_COLUMNS)) == []
     assert column_dictionary.unit_of("z_magnification") == "" and column_dictionary.unit_of("z_zero_nm") == "nm"
     for name in zcal.Z_CALIBRATION_COLUMNS:

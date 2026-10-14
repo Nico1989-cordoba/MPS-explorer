@@ -553,8 +553,8 @@ class ValleyResult:
     """Boundaries between consecutive MPS segments, and how well the axial
     density actually separates them."""
 
-    positions_nm: NDArray[np.float64]   # one per consecutive pair of means
-    is_true_valley: NDArray[np.bool_]   # False where the midpoint was used
+    positions_nm: NDArray[np.float64]   # the CUT of each consecutive pair of means (valley mode)
+    is_true_valley: NDArray[np.bool_]   # True where the two components are two modes (an antimode exists)
     relative_depth: NDArray[np.float64]  # 0 = no dip at all, 1 = density -> 0
     midpoints_nm: NDArray[np.float64]
     warnings: List[str] = field(default_factory=list)
@@ -578,6 +578,15 @@ class ValleyResult:
     weaker_side: NDArray[np.float64] = field(
         default_factory=lambda: np.array([], dtype=float))
     depth_reference: str = "peaks"
+    # The antimode itself (NaN where there is none). It is the cut unless the
+    # dip lies above the density at one of the two component means: there the
+    # density is nearly flat between the means, the antimode is ill-determined
+    # (it moved by 35 nm between simulated replicates of one axon) and the cut
+    # stays at the midpoint (``cut_at_antimode`` False).
+    antimode_nm: NDArray[np.float64] = field(
+        default_factory=lambda: np.array([], dtype=float))
+    cut_at_antimode: NDArray[np.bool_] = field(
+        default_factory=lambda: np.array([], dtype=bool))
 
     @property
     def n_boundaries(self) -> int:
@@ -587,22 +596,29 @@ class ValleyResult:
     def shift_from_midpoint_nm(self) -> NDArray[np.float64]:
         return np.abs(self.positions_nm - self.midpoints_nm)
 
+    def _valley_position(self) -> NDArray[np.float64]:
+        """The antimode where there is one, else the cut (the midpoint)."""
+        am = np.asarray(self.antimode_nm, dtype=float)
+        if am.size != self.positions_nm.size:
+            return np.asarray(self.positions_nm, dtype=float)
+        return np.where(np.isfinite(am), am, self.positions_nm)
+
     def _toward_weaker(self, other: NDArray[np.float64]) -> NDArray[np.float64]:
         side = np.asarray(self.weaker_side, dtype=float)
         if side.size != self.positions_nm.size:
             side = np.ones(self.positions_nm.size)
-        return np.asarray((self.positions_nm - np.asarray(other, dtype=float)) * side, dtype=float)
+        return np.asarray((self._valley_position() - np.asarray(other, dtype=float)) * side, dtype=float)
 
     @property
     def shift_toward_weaker_from_midpoint_nm(self) -> NDArray[np.float64]:
-        """Valley cut minus midpoint, positive toward the lighter ring
-        (valley-shift-warning: reported, never judged)."""
+        """The valley (antimode) minus the midpoint, positive toward the
+        lighter ring (valley-shift-warning: reported, never judged)."""
         return self._toward_weaker(self.midpoints_nm)
 
     @property
     def shift_toward_weaker_from_bayes_nm(self) -> NDArray[np.float64]:
-        """Valley cut minus the Bayes boundary, positive toward the lighter
-        ring (NaN where the Bayes boundary was not found)."""
+        """The valley (antimode) minus the Bayes boundary, positive toward the
+        lighter ring (NaN where the Bayes boundary was not found)."""
         if np.asarray(self.bayes_positions_nm).size != self.positions_nm.size:
             return np.full(self.positions_nm.size, np.nan)
         out = self._toward_weaker(self.bayes_positions_nm)
@@ -692,6 +708,17 @@ def density_valleys(
     with components broad against their spacing it is 0, and the two
     "segments" are two halves of one axial distribution.
 
+    Where the cut goes (``positions_nm``): at the antimode, unless the dip
+    lies above the density at one of the two component means. There the two
+    components are two modes only just, the density is nearly flat across
+    tens of nanometres and the lowest point wanders with the sampling (by
+    35 nm between simulated replicates of one axon, in either direction), so
+    the cut stays at the midpoint and a warning says so; the antimode is
+    still reported (``antimode_nm``) with its small positive depth. This is
+    exactly where the program's earlier search (the lowest point between the
+    means) cut, so no cut moves; only the depths and the resolved / not
+    resolved reading change.
+
     The density is the complete fitted mixture, low-weight components
     included (valley-uses-all-components): the fitted density is their sum,
     and a minor component between two rings makes their boundary shallower
@@ -762,6 +789,8 @@ def density_valleys(
     depths: List[float] = []
     modes_lo: List[float] = []
     modes_hi: List[float] = []
+    antimodes: List[float] = []
+    at_antimode: List[bool] = []
 
     for i, (lo, hi) in enumerate(zip(means[:-1], means[1:])):
         span = hi - lo
@@ -771,6 +800,8 @@ def density_valleys(
             depths.append(0.0)
             modes_lo.append(float("nan"))
             modes_hi.append(float("nan"))
+            antimodes.append(float("nan"))
+            at_antimode.append(False)
             continue
 
         n = int(np.clip(np.ceil(span / max(grid_step_nm, 1e-6)), 64, 20_000))
@@ -791,6 +822,8 @@ def density_valleys(
             depths.append(0.0)
             modes_lo.append(float("nan"))
             modes_hi.append(float("nan"))
+            antimodes.append(float("nan"))
+            at_antimode.append(False)
             continue
         k = int(minima[int(np.argmin(dens[minima]))])
         v = float(grid[k])
@@ -814,13 +847,20 @@ def density_valleys(
         else:
             ref = float(min(dens[0], dens[-1]))
         depth = 0.0 if ref <= 0 else float(np.clip(1.0 - f_v / ref, 0.0, 1.0))
-        positions.append(v)
+        # The cut: the antimode where the dip lies below the density at both
+        # means (a well-determined minimum), the midpoint otherwise.
+        below_means = f_v < float(min(dens[0], dens[-1]))
+        positions.append(v if below_means else float(midpoints[i]))
         true_valley.append(True)
         depths.append(depth)
+        antimodes.append(v)
+        at_antimode.append(bool(below_means))
 
     pos = np.asarray(positions, dtype=float)
     tv = np.asarray(true_valley, dtype=bool)
     dp = np.asarray(depths, dtype=float)
+    am = np.asarray(antimodes, dtype=float)
+    cut_am = np.asarray(at_antimode, dtype=bool)
     warnings_: List[str] = []
 
     n_flat = int(np.count_nonzero(~tv))
@@ -832,6 +872,14 @@ def density_valleys(
             f"fell back to the midpoint between means. Segments either side of "
             f"such a boundary are two halves of one unresolved axial "
             f"distribution, not two rings."
+        )
+
+    n_flat_cut = int(np.count_nonzero(tv & ~cut_am))
+    if n_flat_cut:
+        warnings_.append(
+            f"{n_flat_cut} boundary(ies) are two modes only just: the dip lies above the density at a "
+            f"component mean, so its position is ill-determined and the cut stays at the midpoint between "
+            f"the means."
         )
 
     shallow = int(np.count_nonzero(tv & (dp < float(shallow_level))))
@@ -848,7 +896,7 @@ def density_valleys(
         midpoints_nm=midpoints, warnings=warnings_,
         bayes_positions_nm=bayes, bayes_found=bayes_found, separation_d=sep,
         mode_lo_nm=np.asarray(modes_lo, dtype=float), mode_hi_nm=np.asarray(modes_hi, dtype=float),
-        weaker_side=side, depth_reference=depth_reference)
+        weaker_side=side, depth_reference=depth_reference, antimode_nm=am, cut_at_antimode=cut_am)
 
     if shift_warning_nm is not None:
         shift = np.abs(result_v.shift_toward_weaker_from_midpoint_nm)

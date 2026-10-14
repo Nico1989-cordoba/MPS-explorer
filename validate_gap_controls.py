@@ -61,7 +61,12 @@ from scipy import stats
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from tools.mps_gaps import analyze_rings, profile_correlation  # noqa: E402
+from tools.mps_gaps import (  # noqa: E402
+    analyze_rings,
+    arc_reference,
+    coverage_profile,
+    profile_correlation,
+)
 from tools.mps_multisegment import analyze_all_segments  # noqa: E402
 from tools.mps_periodicity import (  # noqa: E402
     effective_width_nm,
@@ -89,6 +94,15 @@ def guards_for(ms) -> Tuple[List[float], Optional[float], Optional[float]]:
     h = 0.5 * float(dz)
     cap = guard_retention_cap_nm(s_eff, h)
     return [min(k * s_eff, cap) for k in GUARD_GRID_S_EFF] + [cap], s_eff, h
+
+
+def safe_reference(ms):
+    """The common curve of the arc-length frame, or None (the angle frame)
+    when it cannot be fitted -- the frame analyze_rings used."""
+    try:
+        return arc_reference(ms)
+    except ValueError:
+        return None
 
 
 def build_profiles(x, y, z, px, source, mode="valley", guard_nm=0.0):
@@ -378,12 +392,13 @@ def main() -> int:
             r_aft: Optional[float] = None
             if drop_b or drop_a:
                 try:
+                    ref = safe_reference(ms)
                     pa2 = coverage_profile(
                         an_a.occupancy, an_a.perimeter.contour, ctr,
-                        exclude_labels=drop_a)
+                        exclude_labels=drop_a, reference=ref)
                     pb2 = coverage_profile(
                         an_b.occupancy, an_b.perimeter.contour, ctr,
-                        exclude_labels=drop_b)
+                        exclude_labels=drop_b, reference=ref)
                     c_after = profile_correlation(pa2.coverage, pb2.coverage)
                     if np.isfinite(c_after.r_at_zero):
                         r_aft = float(c_after.r_at_zero)

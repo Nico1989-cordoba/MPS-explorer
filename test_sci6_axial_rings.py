@@ -63,6 +63,20 @@ def test_antimode_near_the_resolution_limit() -> None:
     assert float(u.positions_nm[0]) == pytest.approx(0.95 * 50.0)
 
 
+def test_flat_antimode_keeps_the_cut_at_the_midpoint() -> None:
+    # Two modes only just (weights 0.55 / 0.45, 2.3 widths): the antimode sits ~21 nm off the midpoint in a
+    # nearly flat density, above the density at the lighter mean; it is reported, the cut stays at the midpoint.
+    r = _mixture((0.0, 2.3 * 50.0), (50.0, 50.0), (0.55, 0.45))
+    v = mp.density_valleys(r)
+    assert bool(v.is_true_valley[0]) and 0.0 < float(v.relative_depth[0]) < 0.01
+    assert not bool(v.cut_at_antimode[0]) and float(v.positions_nm[0]) == pytest.approx(57.5)
+    assert abs(float(v.antimode_nm[0]) - 57.5) > 15.0
+    assert any("ill-determined" in w for w in v.warnings)
+    # A well-determined valley is the cut.
+    clear = mp.density_valleys(_mixture((0.0, 170.0), (50.0, 50.0), (0.7, 0.3)))
+    assert bool(clear.cut_at_antimode[0]) and float(clear.positions_nm[0]) == float(clear.antimode_nm[0])
+
+
 def test_one_depth_level_and_peaks_against_means() -> None:
     at = mp.density_valleys(_mixture((0.0, 2.45 * 50.0), (50.0, 50.0), (0.5, 0.5)))
     assert abs(float(at.relative_depth[0]) - mp.VALLEY_DEPTH_LEVEL) < 0.02

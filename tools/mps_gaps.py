@@ -117,6 +117,13 @@ DEFAULT_EMPTY_BINS = "interpolate"
 # The fewest bins two masked profiles must share at a rotation for its
 # correlation to be computed.
 MIN_SHARED_BINS = 8
+# A stretch interpolated in BOTH profiles of a pair is shared structure the
+# rotation null cannot remove (two linear ramps over the same bins correlate
+# perfectly there): on synthetic independent profiles 10 % of such bins
+# raised the false-positive rate at a nominal 5 % to about 45 %
+# (validate_ring_correlation_null.py). A pair whose profiles share at least
+# this fraction of interpolated bins is warned about.
+SHARED_INTERPOLATED_WARN = 0.02
 
 
 # ============================================================================
@@ -902,6 +909,14 @@ def analyze_rings(
         mask_kw: Dict[str, Any] = {}
         if empty_bins == "mask":
             mask_kw = dict(measured_a=pa.measured, measured_b=pb.measured)
+        elif pa.measured.size == pb.measured.size and pa.measured.size:
+            shared = float(np.mean(~pa.measured & ~pb.measured))
+            if shared >= SHARED_INTERPOLATED_WARN:
+                warnings_.append(
+                    f"Segments {p.index_a}-{p.index_b}: {shared:.0%} of the bins were measured in neither "
+                    f"profile and are interpolated in both, a shared stretch the rotation null cannot remove "
+                    f"(it raises the false positives): mask the unmeasured bins, and look for clusters off the "
+                    f"membrane (inside the axon) that pull the contours and the common curve inward.")
         corr = profile_correlation(pa.coverage, pb.coverage, n_rotations=n_rotations,
                                    seed=seed, **mask_kw)
         warnings_.extend(

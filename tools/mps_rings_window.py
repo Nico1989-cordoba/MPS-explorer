@@ -496,7 +496,10 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             "at the midpoint between their means. The valley moves away\n"
             "from the midpoint toward the lighter ring whenever the rings\n"
             "differ in weight or width; '-' where there is no valley (or no\n"
-            "Bayes boundary between the means).")
+            "Bayes boundary between the means). In valley mode the cut is the\n"
+            "valley, except where the dip lies above the density at one of the\n"
+            "means: there the valley is ill-determined and the cut stays at the\n"
+            "midpoint (a warning says so).")
         self.table_pair.horizontalHeaderItem(4).setToolTip(
             "Separation d = |mu_b - mu_a| / sqrt(sigma_a^2 + sigma_b^2): two\n"
             "equal components are two peaks only above d = 1.41.")

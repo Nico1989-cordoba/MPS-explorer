@@ -549,7 +549,13 @@ def _finite_or_none(values: Any, i: int, digits: int = 2) -> Optional[float]:
 
 def _boundary_columns(valleys: ValleyResult, c: int) -> Dict[str, Optional[float]]:
     """Boundary ``c`` of ``valleys`` as the pair's boundary-table fields."""
-    valley = (float(valleys.positions_nm[c]) if bool(valleys.is_true_valley[c]) else None)
+    am = np.asarray(valleys.antimode_nm, dtype=float)
+    if not bool(valleys.is_true_valley[c]):
+        valley: Optional[float] = None
+    elif am.size > c and np.isfinite(am[c]):
+        valley = float(am[c])
+    else:
+        valley = float(valleys.positions_nm[c])
     bayes = (_finite_or_none(valleys.bayes_positions_nm, c)
              if np.asarray(valleys.bayes_found, dtype=bool).size > c and bool(valleys.bayes_found[c]) else None)
     return {
