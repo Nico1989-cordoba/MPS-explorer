@@ -16,6 +16,8 @@ else different (``golden_ui_stage2_manifest.py``). The manifest itself is checke
   5. B1 only in S6 through Rings (E4); B6 only in S7 and B4 only in S2, S3, S4, S6, through "cluster Ch1" (E2) and
      "MPS analysis" (E3); B11 only in S8, S12a, S12b through E2 / E3; B3 only where the slab was changed in the
      window (S3, S4, S10); B2 only where a value was set in the window (S2, S4, S6, S10).
+  6. B17 (SCI-1, the z calibration) in every cell: the axon table's 15 columns and v4, the dictionary's 15
+     entries, the settings' new store; nothing else.
 
 R8: simulated axons only (the harness's own); every cell runs in its own temporary folder.
 
@@ -53,7 +55,12 @@ WHERE = {   # B-change -> (scenarios, entry points) it may appear in (design 6.4
     # manual test 2, item 6: only through "MPS analysis" (E3), wherever the analysis was current
     "B14": ({"S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11a", "S11b", "S12a", "S12b"},
             {"E3"}),
+    # SCI-1: every export (15 z-calibration columns, table v4, the dictionary) and the settings' new store
+    "B17": ({"S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11a", "S11b", "S12a", "S12b"},
+            {"E1", "E2", "E3", "E4", "E5"}),
 }
+# Science PRs whose changes reach every cell (their columns are written beside every export).
+EVERY_CELL = {"B17"}
 
 
 def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]:
@@ -62,8 +69,8 @@ def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]
     for e in manifest:
         b = str(e.get("b_change"))
         by_cell[e["cell"]].add(b)
-        if b not in {f"B{i}" for i in range(1, 15)}:
-            problems.append(f"{e['cell']}: {b} is not one of B1-B13 (G6) or B14 (manual test 2)")
+        if b not in {f"B{i}" for i in range(1, 15)} | EVERY_CELL:
+            problems.append(f"{e['cell']}: {b} is not one of B1-B13 (G6), B14 (manual test 2) or B17 (SCI-1)")
         if b in ("B5", "B7", "B8", "B9", "B10"):
             problems.append(f"{e['cell']}: {b} changes no recorded field and may not be listed")
         if not e.get("reason"):
@@ -77,9 +84,12 @@ def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]
         if "B13" not in by_cell.get(cell, set()):
             problems.append(f"{cell}: no B13 entry (the dictionary line is written beside every export)")
         scenario = cell.split(":")[1]
-        if scenario in ONLY_B13 and by_cell.get(cell, set()) - {"B13", "B14"}:
-            problems.append(f"{cell}: {sorted(by_cell[cell] - {'B13', 'B14'})} in a scenario that differs only by "
-                            "B13 (and B14 at E3)")
+        if scenario in ONLY_B13 and by_cell.get(cell, set()) - {"B13", "B14"} - EVERY_CELL:
+            problems.append(f"{cell}: {sorted(by_cell[cell] - {'B13', 'B14'} - EVERY_CELL)} in a scenario that "
+                            "differs only by B13 (and B14 at E3, B17 everywhere)")
+        for b in sorted(EVERY_CELL):
+            if b not in by_cell.get(cell, set()):
+                problems.append(f"{cell}: no {b} entry (its columns are written beside every export)")
     return problems
 
 

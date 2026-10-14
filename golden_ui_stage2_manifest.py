@@ -23,9 +23,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from golden_ui_stage2_compare import _diff, _load
 
-# B1-B13: the stage-2 design; B14+: the behaviour changes of manual test 2 (MT2_REQUEST.md), each with a
-# one-line reason in the manifest.
-B_CHANGES = {f"B{i}" for i in range(1, 17)}
+# B1-B13: the stage-2 design; B14-B16: the behaviour changes of manual test 2 (MT2_REQUEST.md); B17 onwards: the
+# science PRs in merge order (design 13.0 SR-2), B17 = SCI-1 (the z calibration's export columns and store). Each
+# entry carries a one-line reason.
+B_CHANGES = {f"B{i}" for i in range(1, 18)}
 # The path ends where the compare tool's ": <first> != <second>" (or ": only in ...", ": n items vs m") begins: at
 # the first colon followed by a space. A key may hold a colon of its own ("other:_columns.csv").
 _PREFIX = re.compile(r"^(?P<cell>[^ ]+) / snapshots / (?P<snap>[^ /]+) / (?P<path>.*?)(?:: .*)?$")
@@ -61,7 +62,8 @@ def check(ref_path: str, branch_path: str, manifest_path: str) -> int:
     problems: List[str] = []
     for i, e in enumerate(manifest):
         if e.get("b_change") not in B_CHANGES:
-            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B16 (G6, manual test 2)")
+            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B17 (G6, manual test 2, "
+                            f"SCI-1)")
     found, other = differences(ref, branch)
     problems.extend(f"not a snapshot difference: {o}" for o in other)
     used: Set[int] = set()
