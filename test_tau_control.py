@@ -9,8 +9,8 @@ column tests of the review follow tau together while the 2D test's E(tau) curve 
   ``normalize_tau`` / ``is_tau0`` / ``params_at_tau`` (the loaded object itself at tau_0, only ``tau0_nm`` differs
   otherwise); the identity pins (the pre-specified selection at tau_0 keeps its label and hash, ``d9ebf7c1``; ``v2[]``
   keeps ``b85cb4b2``; at another tau the label gains " | tau = X nm" and an 8-hex hash of its own); distinct labels
-  and hashes over 64 selections x 5 taus; the hash follows the thresholds (SCI-5 changed them, hence the two pins); the log row at tau_0 is the selection's
-  row key by key.
+  and hashes over 64 selections x 5 taus; the hash follows the thresholds (SCI-5 changed them, hence the two pins);
+  the log row at tau_0 is the selection's row key by key.
 - The exploration log written by the program before this stage (its 22 columns as a literal here): a row at another
   tau is appended after the original bytes, the header unchanged; ``variant_counts`` equals
   ``tools.mps_selection_ui.variants_tried`` on a mixed log; the counter line under tau_0 is the old text exactly.
