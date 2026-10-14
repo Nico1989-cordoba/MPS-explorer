@@ -770,10 +770,12 @@ def test_api() -> None:
     def params_defaults_and_ranges():
         LeakParams = require("LeakParams")
         p = LeakParams()
-        assert tuple(p.guards_nm) == (0.0, 30.0, 60.0, 90.0) and p.guard_rule_nm == 60.0
-        assert p.shared_threshold == 0.25 and p.n_null_shared == 1999 and p.boundary_band_sigma == 1.0
+        # SCI-5: the guards come from the s_eff grid (None here), no guard rule, no shared highlight by default
+        assert p.guards_nm is None and tuple(p.guards_seff) == (0.0, 0.5, 1.0, 1.5) and not hasattr(p, "guard_rule_nm")
+        assert p.shared_threshold is None and p.n_null_shared == 1999 and p.boundary_band_sigma == 1.0
         assert p.lpz_scale == 1.0 and p.size_alpha == 0.01 and p.profile_n_bootstrap == 199
-        assert p.profile_min_locs_per_cluster == 100 and p.profile_alpha == 0.05
+        assert p.profile_min_locs_per_cluster == 100 and p.profile_alpha == 0.05 and p.profile_pi_min == 0.15
+        assert p.log_prior_odds == 0.0 and p.rule_ii_alpha == 0.05 and p.size_ratio_n_perm == 999
         assert abs(p.n_min_z - 1.959964) < 1e-9 and p.n_min_power == 0.8
         assert not hasattr(p, "random_seed"), "the seed is cols.random_seed (D-22), not a LeakParams field"
         for kw in ({"guards_nm": (-1.0, 30.0)}, {"shared_threshold": 1.5}, {"guards_nm": (60.0, 30.0)},
@@ -1262,7 +1264,8 @@ def test_reassignment_and_spearman() -> None:
         m = cols.adjacent[0]
         n = axon.n_locs
         # (a) every localization its own event: no cluster shares anything.
-        rp = ring_pair_leak(with_event_id(res, np.arange(n, dtype=np.int64)), m, params=leak_params(n_null_shared=199),
+        rp = ring_pair_leak(with_event_id(res, np.arange(n, dtype=np.int64)), m,
+                            params=leak_params(n_null_shared=199, shared_threshold=0.25),
                             lpz_nm=axon.lpz_nm, min_samples=int(cols.params.min_samples), random_seed=0)
         assert rp.p_shared >= 0.5 and rp.shared_fraction_paired_mean == 0.0 and rp.shared_fraction_unpaired_mean == 0.0, \
             (rp.p_shared, rp.shared_fraction_paired_mean, rp.shared_fraction_unpaired_mean)
@@ -1274,7 +1277,7 @@ def test_reassignment_and_spearman() -> None:
             a, b = ra.clusters[i], rb.clusters[j]
             parent, child = (a, b) if a.n_locs > b.n_locs else (b, a)
             ev[np.asarray(child.loc_index)] = np.resize(ev[np.asarray(parent.loc_index)], child.n_locs)
-        rp2 = ring_pair_leak(with_event_id(res, ev), m, params=leak_params(n_null_shared=199),
+        rp2 = ring_pair_leak(with_event_id(res, ev), m, params=leak_params(n_null_shared=199, shared_threshold=0.25),
                              lpz_nm=axon.lpz_nm, min_samples=int(cols.params.min_samples), random_seed=0)
         assert rp2.p_shared <= 0.05 and abs(rp2.shared_fraction_paired_mean - 1.0) < 1e-12, (rp2.p_shared, rp2.shared_fraction_paired_mean)
         assert rp2.n_shared_high == m.n_matched and abs(rp2.p_shared - 1.0 / 200.0) < 1e-12
@@ -1336,8 +1339,9 @@ def test_guard() -> None:
     def module_g0_reproduces_run():
         run = axon_leak("M1", 0, guard=True)
         leak, cols, res = run["leak"], run["cols"], run["res"]
-        guards = tuple(float(g) for g in leak.params.guards_nm)
-        assert tuple(sorted(float(g) for g in leak.guard)) == guards, (list(leak.guard), guards)
+        from tools.mps_leak import guard_grid_nm
+        guards = guard_grid_nm(leak.params, leak.s_eff_nm, leak.guard_star_nm, leak.period_nm)
+        assert tuple(sorted(float(g) for g in leak.guard)) == guards and 0.0 in guards, (list(leak.guard), guards)
         g0 = leak.guard[0.0]
         assert g0.n_rings == 3 and list(g0.ring_indices) == [r.index for r in res.rings]
         assert list(g0.K_per_ring) == [len(r.clusters) for r in res.rings]
@@ -1388,8 +1392,8 @@ def test_guard() -> None:
             assert gr.n_rings == 3 and len(gr.matches) == 2, (g, gr.n_rings, len(gr.matches))
             assert all(m.zeta > 0.0 for m in gr.matches), (g, [m.zeta for m in gr.matches])
             out.append(f"g {g:g}: K {list(gr.K_per_ring)}, zeta {[round(m.zeta, 2) for m in gr.matches]}")
-        assert leak.rules["iii_guard"] is True
-        return "; ".join(out) + "; rule iii True"
+        assert "iii_guard" not in leak.rules              # a sensitivity table, not a rule (SCI-5)
+        return "; ".join(out) + f"; s_eff {leak.s_eff_nm:.1f} nm, g* {leak.guard_star_nm:.1f} nm"
 
     def m1_leak_survives_guard():
         # The M1 direction of rule (iii) (re-review of 2026-09-24): the pre-specified dead zone does not remove
@@ -1403,12 +1407,12 @@ def test_guard() -> None:
         run = axon_leak("M1", 0, guard=True)
         axon, leak = run["axon"], run["leak"]
         n0, n60 = need(st, "children")
-        guard_half = leak.params.guard_rule_nm / 2.0
+        guard_half = 30.0                                  # the pre-registered 60 nm dead zone, half per side
         f60 = float(np.mean(norm.sf((axon.period_nm / 2.0 + guard_half) / axon.lpz_nm)))
         n_per = axon.n_fluor * axon.mean_locs_per_fluor
         p_survive = float(binom.sf(PARAMS.min_samples - 1, int(round(n_per)), f60))
         assert n60 > 0 and n60 >= 0.5 * n0, (n0, n60)
-        assert isinstance(leak.rules["iii_guard"], bool)
+        assert "iii_guard" not in leak.rules
         rows = []
         for g in sorted(leak.guard):
             gr = leak.guard[g]
@@ -1416,16 +1420,18 @@ def test_guard() -> None:
                         f"p_excess {[round(m.p_excess, 3) for m in gr.matches]}")
         return (f"leak-only axon: children {n0} at g = 0 -> {n60} at g = 60 ({n60 / n0:.2f} survive; physics: tail beyond "
                 f"{axon.period_nm / 2 + guard_half:.0f} nm F60 = {f60:.3f}, P[Bin({int(round(n_per))}, F60) >= "
-                f"{PARAMS.min_samples}] = {p_survive:.2f}); rule iii reads {leak.rules['iii_guard']} on INDEPENDENT rings "
-                f"(the dead zone does not separate leak from columns); " + "; ".join(rows))
+                f"{PARAMS.min_samples}] = {p_survive:.2f}); rule iii is no longer evaluated (the dead zone does not "
+                f"separate leak from columns); g* = {leak.guard_star_nm:.1f} nm; " + "; ".join(rows))
 
     check("module guard_sensitivity at g = 0: ring indices, K, n_locs per ring and the matches equal the run's (same seed)",
           module_g0_reproduces_run)
     check("harness rebuild on res.x_p/y_p/z_p with correct_tilt=False at g = 0 reproduces the rings exactly (centroids 1e-9); "
           "spurious children at g = 60 < at g = 0 (truth relabel)", harness_rebuild_and_children)
-    check("M5: zeta > 0 at every guard, 3 rings at g = 90 (rule iii holds for real columns)", m5_positive_at_every_guard)
+    check("M5: zeta > 0 at every guard of the s_eff grid, 3 rings at every guard (no guard rule)",
+          m5_positive_at_every_guard)
     check("M1 (leak only): >= half the children survive g = 60 (tail beyond 115 nm = 6.8 %, P[Bin(200, F) >= 10] ~ 0.85), so "
-          "rule iii cannot separate leak from columns; its value and the zetas by guard are PRINTED", m1_leak_survives_guard)
+          "a guard rule cannot separate leak from columns (not evaluated); the zetas by guard are PRINTED",
+          m1_leak_survives_guard)
 
 
 # ============================================================ 10. profile fit
@@ -1641,6 +1647,9 @@ def test_column_profiles() -> None:
             assert prof.n_locs == sum(by[k].clusters[i].n_locs for k, i in col.members)
             meets = all(by[k].clusters[i].n_locs >= leak.params.profile_min_locs_per_cluster for k, i in col.members)
             assert bool(prof.meets_min_locs) == meets
+            # SCI-5: eligibility in events, n_events >= n_80(pi_min)
+            assert prof.pi_min == leak.params.profile_pi_min
+            assert bool(prof.eligible) == bool(math.isfinite(prof.n_80_pi_min) and prof.n_events >= prof.n_80_pi_min)
             assert prof.unit_is_events is True and prof.period_nm == leak.period_nm
             truth_z = event_z_truth(res, col)
             assert prof.n_events == truth_z.size and np.asarray(prof.z_events_nm).size == prof.n_events
@@ -1703,22 +1712,21 @@ def test_rules_determinism_api() -> None:
     print("\n13. RULES dict, determinism, seeds, analyze_columns_and_leak")
 
     def rules_dict():
-        expected = {"i_shared", "ii_lpz", "iii_guard", "iv_profile", "v_size_ratio"}
+        expected = {"ii_lpz"}                                   # SCI-5: (i), (iii), (iv) are not rules; (v) is a p
         out = []
         for model, seed, guard in (("M1", 0, True), ("M5", 0, True), ("M1", 1, False)):
             leak = axon_leak(model, seed, guard=guard)["leak"]
             rules = leak.rules
             assert set(rules) == expected, set(rules)
-            assert rules["iv_profile"] is None
-            assert isinstance(rules["v_size_ratio"], bool)
-            assert isinstance(rules["i_shared"], bool) and isinstance(rules["ii_lpz"], bool)
-            assert isinstance(rules["iii_guard"], bool) if guard else rules["iii_guard"] is None
+            assert isinstance(rules["ii_lpz"], bool)
+            assert 0.0 < leak.size_ratio_p <= 1.0 and all(0.0 < rp.size_ratio_p <= 1.0 for rp in leak.pairs)
             assert leak.events_available is True and leak.lpz_per_localization is True
             assert leak.n_matched == sum(m.n_matched for m in axon_base(model, seed)["cols"].adjacent)
             assert leak.n_leak_explained == sum(rp.n_leak_explained for rp in leak.pairs)
             assert abs(leak.fraction_leak_explained - leak.n_leak_explained / leak.n_matched) < 1e-12
             assert leak.k2 is axon_base(model, seed)["cols"].k2 or len(leak.k2) == len(axon_base(model, seed)["cols"].k2)
-            out.append(f"{model} seed {seed}: {rules}, leak_explained {leak.n_leak_explained}/{leak.n_matched}")
+            out.append(f"{model} seed {seed}: {rules}, size-ratio p {leak.size_ratio_p:.3f}, leak_explained "
+                       f"{leak.n_leak_explained}/{leak.n_matched}")
         return "; ".join(out)
 
     # The M1 seed-2 axon (K = 30, the smallest cached one; children, leak-explained pairs and columns of both
@@ -1812,8 +1820,8 @@ def test_integration() -> None:
         leak = out.leak
         st["axon"], st["out"] = axon, out
         assert len(res.rings) == 3 and len(leak.pairs) == 2 and len(leak.k2) == 1
-        assert len(leak.guard) == 4 and all(g.n_rings == 3 for g in leak.guard.values()), {g: r.n_rings for g, r in leak.guard.items()}
-        assert all(isinstance(leak.rules[k], bool) for k in ("i_shared", "iii_guard", "v_size_ratio")) and leak.rules["iv_profile"] is None
+        assert len(leak.guard) >= 4 and all(g.n_rings == 3 for g in leak.guard.values()), {g: r.n_rings for g, r in leak.guard.items()}
+        assert set(leak.rules) == {"ii_lpz"} and 0.0 < leak.size_ratio_p <= 1.0
         # Rule (ii) on this axon: make_columns_axon has ONE lpz value (35 nm) for every localization, so every
         # cluster's median lpz is 35 and the Spearman against it is undefined (a constant variable): None is
         # the module's documented extension of "None without lpz" (an undefined correlation cannot vote).
@@ -1838,14 +1846,14 @@ def test_integration() -> None:
         assert res.event_id is None
         out = analyze_columns_and_leak(res, PARAMS, n_null=N_NULL, leak_params=leak_params(), lpz_nm=axon.lpz_nm, guard=False)
         leak = out.leak
-        assert leak.events_available is False and leak.rules["i_shared"] is None and leak.guard == {}
+        assert leak.events_available is False and "i_shared" not in leak.rules and leak.guard == {}
         for rp in leak.pairs:
             assert is_nan(rp.p_shared) and is_nan(rp.shared_fraction_paired_mean) and rp.n_shared_high is None
             assert all(p.shared_events is None and is_nan(p.shared_fraction) and p.shared_high is None for p in rp.pairs)
             assert all(p.n_events_parent is None and p.n_events_child is None for p in rp.pairs)
         assert all(f.unit_is_events is False and f.n_events is None for f in leak.profiles)
         assert any("event" in w.lower() for w in leak.warnings + [w for f in leak.profiles for w in f.warnings])
-        return f"events None: shared quantities NaN/None, rules i_shared None, guard {{}} (guard=False), {len(leak.profiles)} profiles per localization with a warning"
+        return f"events None: shared quantities NaN/None, guard {{}} (guard=False), {len(leak.profiles)} profiles per localization with a warning"
 
     check("tilted columns axon: 3 rings, 4 guard runs of 3 rings, rules evaluated (ii None: constant lpz), profiles for every "
           "column of length >= 2", with_frame)

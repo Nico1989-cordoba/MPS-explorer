@@ -26,7 +26,13 @@ Per axon (one picked-localization file each), exactly as the review window
    pairs are read as a separate "sensitivity" tier (viable + marginal);
    NOT VIABLE pairs are reported (z-quality metrics, verdict, reasons) and
    NOT analysed (their statistic cells are empty). An axon with no viable or
-   marginal pair does not run the arc test at all.
+   marginal pair does not run the arc test at all. The viability never reads
+   the column statistic (it is the geometry of the z profile only), so
+   restricting the joint Monte Carlo null to the selected pairs does not bias
+   its (b + 1) / (B + 1) p (Phipson & Smyth 2010). The viability's editable
+   values (reference period, thresholds, copy tolerance) are
+   ``--viability-params`` (the GUI passes the stored ones) and are written in
+   ``batch_meta.json``.
 
 Every p in the output is labelled UNCALIBRATED (columns ``*_uncalibrated``
 and ``calibration``): the H5-E calibration of the simulated null was closed
