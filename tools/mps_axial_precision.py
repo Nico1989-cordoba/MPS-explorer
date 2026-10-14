@@ -2017,6 +2017,9 @@ def calibrate_count_floor(res: Any, *, ring_index: Optional[int] = None, toleran
 
 
 # ------------------------------------------------------------------- the rule
+Z_SCALE_OUTSIDE = "outside the documented range"
+
+
 def file_precision_nm(lp_lateral_nm: Any, lpz_nm: Any) -> Optional[Tuple[float, float]]:
     """(median lateral, median axial) precision of a file's localizations, or None when either is missing."""
     if lp_lateral_nm is None or lpz_nm is None:
@@ -2032,14 +2035,20 @@ def file_precision_nm(lp_lateral_nm: Any, lpz_nm: Any) -> Optional[Tuple[float, 
 def group_z_scale_of(params: ViabilityParams, precision_nm: Optional[Tuple[float, float]]) -> Tuple[float, str]:
     """The axial scale of the 3D variance groups and its source: the typed value, else sigma_xy / sigma_z of the
     file (median lateral over median axial precision), else 0.5 (the suggestion: astigmatic axial precision is 2-3x
-    the lateral, Huang et al. 2008)."""
+    the lateral, Huang et al. 2008). A ratio measured outside the documented range (``VIABILITY_RANGES``) is used and
+    flagged in the source words (``Z_SCALE_OUTSIDE``), never clamped."""
     from tools.mps_sizer import GROUP_Z_SCALE
     if params.group_z_scale is not None:
         return float(params.group_z_scale), "user"
     if precision_nm is not None:
         lp, lpz = (float(v) for v in precision_nm)
         if math.isfinite(lp) and math.isfinite(lpz) and lp > 0 and lpz > 0:
-            return lp / lpz, f"from the file: lateral {lp:.0f} nm / axial {lpz:.0f} nm"
+            ratio = lp / lpz
+            src = f"from the file: lateral {lp:.0f} nm / axial {lpz:.0f} nm"
+            lo, hi = VIABILITY_RANGES["group_z_scale"]
+            if not lo <= ratio <= hi:
+                src += f"; {Z_SCALE_OUTSIDE} {lo:g}-{hi:g} (used as measured)"
+            return ratio, src
     return float(GROUP_Z_SCALE), "suggestion 0.5 (no precision in the file)"
 
 
@@ -2104,6 +2113,10 @@ def viability_v2(res: Any, zq: Optional[ZQuality] = None, *, xyz_lab_nm: Optiona
 
     # ---- groups of the cluster-robust variance
     zscale, zscale_src = group_z_scale_of(vp, precision_nm)
+    if Z_SCALE_OUTSIDE in zscale_src:
+        warnings.append(f"3D groups: the file's lateral / axial precision ratio {zscale:.2f} is {Z_SCALE_OUTSIDE} "
+                        f"{VIABILITY_RANGES['group_z_scale'][0]:g}-{VIABILITY_RANGES['group_z_scale'][1]:g}: used as "
+                        "measured; check the precisions (Data quality) or type a scale in Criteria...")
     if groups is not None:
         g = np.asarray(groups, dtype=np.int64)
         g_src = "given"

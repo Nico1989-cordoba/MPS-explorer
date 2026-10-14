@@ -378,3 +378,27 @@ def test_exploration_log_counts_across_sessions(tmp_path: Any) -> None:
             log.log_once(("batch", sid, spec.hash), ms.log_row(source="batch", spec=spec, axon_id="a"))
     log = ms.ExplorationLog(path, session_id="s2")
     assert log.variants_tried_all_sessions() == 2 and log.variants_tried_all_sessions("review") == 0
+
+
+def test_measured_z_scale_outside_its_range_is_flagged_and_used() -> None:
+    res = _ring_res([0.0, 172.0, 344.0], [20, 20, 20])
+    v2 = ap.viability_v2(res, precision_nm=(10.0, 80.0), sizer_map=False, reference_readings=False)
+    assert v2.group_z_scale == pytest.approx(0.125)                       # used as measured, never clamped
+    assert ap.Z_SCALE_OUTSIDE in v2.group_z_scale_source
+    assert any("precision ratio 0.12" in w and ap.Z_SCALE_OUTSIDE in w for w in v2.warnings)
+    ok = ap.viability_v2(res, precision_nm=(12.0, 30.0), sizer_map=False, reference_readings=False)
+    assert ap.Z_SCALE_OUTSIDE not in ok.group_z_scale_source and not any("precision ratio" in w for w in ok.warnings)
+
+
+def test_criteria_dialog_links_the_public_page() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QtWidgets = pytest.importorskip("PyQt5.QtWidgets")
+    from tools import mps_viability_params_ui as ui
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    assert os.path.isfile(ui.doc_path())
+    dlg = ui.ViabilityParamsDialog()
+    assert ui.DOC_PAGE in dlg.doc_label.text() and dlg.doc_label.openExternalLinks()
+    dlg.deleteLater()
+    app.processEvents()
+    readme = open(os.path.join(os.path.dirname(ui.doc_path()), "..", "README.md"), encoding="utf-8").read()
+    assert ui.DOC_PAGE in readme

@@ -14,6 +14,7 @@ apart; the reference period offers the published values as presets.
 """
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtWidgets
@@ -23,7 +24,16 @@ from tools.mps_axial_precision import (
     AGGREGATIONS, P_REF_PRESETS, REFERENCE_RINGS, X_STATISTICS, ViabilityParams, d_equivalents)
 from tools.mps_origin_ui import OriginBadge, RangeHint
 
-__all__ = ["ViabilityParamsDialog", "VIABILITY_DIALOG_TOOLTIPS", "load_stored", "save_stored", "FREE_PRESET"]
+__all__ = ["ViabilityParamsDialog", "VIABILITY_DIALOG_TOOLTIPS", "load_stored", "save_stored", "FREE_PRESET",
+           "DOC_PAGE", "doc_path"]
+
+# The public page that documents every value of this dialog, its origin and the decisions behind it.
+DOC_PAGE = "docs/viability_and_reference_period.md"
+
+
+def doc_path() -> str:
+    """The absolute path of ``DOC_PAGE`` in this installation."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), *DOC_PAGE.split("/"))
 
 FREE_PRESET = "free value"
 # (registry key, ViabilityParams field, decimals, step, editor minimum, editor maximum): the editor limits are only
@@ -91,6 +101,13 @@ class ViabilityParamsDialog(QtWidgets.QDialog):
             "review and the batch read the same values).")
         intro.setWordWrap(True)
         lay.addWidget(intro)
+        url = QtCore.QUrl.fromLocalFile(doc_path()).toString()
+        self.doc_label = QtWidgets.QLabel(
+            f'Where each value comes from, the derivations and the decision record: <a href="{url}">{DOC_PAGE}</a>')
+        self.doc_label.setObjectName("doc_label")
+        self.doc_label.setOpenExternalLinks(True)
+        self.doc_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextBrowserInteraction)
+        lay.addWidget(self.doc_label)
         form = QtWidgets.QGridLayout()
         self.spins: Dict[str, QtWidgets.QDoubleSpinBox] = {}
         self.hints: Dict[str, RangeHint] = {}
