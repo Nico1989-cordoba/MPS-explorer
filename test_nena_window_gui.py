@@ -26,6 +26,8 @@ sys.path.insert(0, os.path.join(HERE, "docs", "sims", "nena"))
 
 from nena_sim import simulate  # noqa: E402
 
+_APP = None
+
 
 def _window(seed: int, sigma: float = 12.0, **sim_kw):
     from PyQt5 import QtWidgets
@@ -33,7 +35,9 @@ def _window(seed: int, sigma: float = 12.0, **sim_kw):
     from tools import mps_quality as q
     from tools.mps_quality_window import MPSQualityWindow
 
-    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    global _APP
+    # Kept in a module global: a QApplication nobody references is collected at once, and Qt then crashes.
+    _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     frame, x, y, _ = simulate(sigma, seed=seed, **sim_kw)
     lp = np.full(frame.size, sigma)
     loc = SimpleNamespace(path="synthetic_whole_field.hdf5", n=frame.size, frame=frame, x_nm=x, y_nm=y,

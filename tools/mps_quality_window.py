@@ -216,8 +216,10 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
             "Picasso least squares (before 2026-10-14)": (
                 "Picasso's own fit of the same model, by least squares on "
                 "the histogram. It was the value shown here until "
-                "2026-10-14; on synthetic files it came out 5-20 % low in "
-                "about one in four. docs/nena.md, section 2."),
+                "2026-10-14; on synthetic files of known precision with no "
+                "other molecules nearby it was more than 5 % off in 15 % of "
+                "them (from 30 % low to 12 % high). docs/nena.md, "
+                "section 2."),
         }
         for row, (name, value) in enumerate(rows):
             name_label = _label(name, _DIM)

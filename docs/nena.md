@@ -112,7 +112,9 @@ global optimum: if it ever finds a higher likelihood, the fit restarts from ther
 
 **Independent estimate** (`random_term_nm`). The same fit with a third term, the nearest-neighbour law of randomly
 placed localizations (2πρd·exp(−πρd²), a Rayleigh law of its own, scale ≥ 2 s; derivation). It is not reported as
-NeNA; it is what the agreement check compares against.
+NeNA; it is what the agreement check compares against. Its likelihood has several local optima, so it is started
+from a fixed grid of 20 points around the two-component fit and the best is kept: the check then does not depend on
+the starting point (an earlier version with 4 starts changed its verdict when the reported lpx was added as a start).
 
 **Warnings** (`flags`, `warnings`, in Data quality's findings; `well_identified` is False for the first three):
 
@@ -144,12 +146,12 @@ the best any fit of these distances could do.
 |---|---|---|---|---|---|---|---|---|---|
 | none | 160 | 15 % (136) | 0 % (136) | 0 % | 5 % | 1.2 % | 0.7 % | 90 % | 85 % |
 | uniform 10 % | 160 | 14 % (157) | 15 % (157) | 8 % | 5 % | 1.4 % | 1.2 % | 81 % | 83 % |
-| uniform 30 % | 160 | 19 % (160) | 19 % (160) | 6 % | 8 % | 1.7 % | 1.7 % | 74 % | 75 % |
-| uniform 50 % | 160 | 74 % (160) | 34 % (160) | 8 % | 4 % | 7.2 % | 3.1 % | 52 % | 55 % |
+| uniform 30 % | 160 | 19 % (160) | 19 % (160) | 7 % | 8 % | 1.7 % | 1.7 % | 74 % | 75 % |
+| uniform 50 % | 160 | 74 % (160) | 34 % (160) | 6 % | 4 % | 7.2 % | 3.1 % | 52 % | 55 % |
 | clustered, moderate | 160 | 23 % (145) | 3 % (145) | 2 % | 8 % | 2.2 % | 1.1 % | 79 % | 69 % |
 | clustered, heavy | 160 | 64 % (160) | 40 % (160) | 1 % | 36 % | 6.3 % | 3.7 % | 37 % | 61 % |
 | linked, none | 100 | — (0) | — (0) | 0 % | 43 % | — | — | — | — |
-| linked, clustered heavy | 100 | 92 % (50) | 82 % (50) | 3 % | 99 % | 21.5 % | 34.7 % | 18 % | 2 % |
+| linked, clustered heavy | 100 | 92 % (50) | 82 % (50) | 4 % | 99 % | 21.5 % | 34.7 % | 18 % | 2 % |
 
 Per cell (bias = median of estimate/σ − 1; sd = spread of estimate/σ):
 
@@ -160,91 +162,91 @@ Per cell (bias = median of estimate/σ − 1; sd = spread of estimate/σ):
 | uniform 10 % | 6 | 500 | 547 | 11 % | -0.3 | 3 | 0 % | -0.3 | 3 | 0 % | 0 % | -0.2 | -0.5 | 100 % | 100 % | 10 % | too_few_pairs 1 |
 | uniform 10 % | 6 | 2000 | 2262 | 10 % | -0.9 | 1 | 0 % | -0.1 | 1 | 0 % | 0 % | -0.4 | -0.2 | 100 % | 100 % | 0 % |  |
 | uniform 10 % | 6 | 10000 | 11210 | 10 % | +0.1 | 0 | 0 % | -0.4 | 0 | 0 % | 0 % | -0.4 | -0.3 | 100 % | 100 % | 0 % |  |
-| uniform 10 % | 10 | 500 | 556 | 9 % | -3.1 | 8 | 22 % | -2.1 | 3 | 11 % | 10 % | +0.3 | -2.2 | 89 % | 100 % | 10 % | too_few_pairs 1 |
+| uniform 10 % | 10 | 500 | 556 | 9 % | -3.1 | 8 | 22 % | -2.1 | 3 | 11 % | 10 % | +0.3 | -2.4 | 89 % | 100 % | 20 % | disagreement 1, too_few_pairs 1 |
 | uniform 10 % | 10 | 2000 | 2206 | 10 % | +0.3 | 1 | 0 % | -0.3 | 1 | 0 % | 0 % | -0.4 | -0.3 | 90 % | 100 % | 0 % |  |
-| uniform 10 % | 10 | 10000 | 11274 | 10 % | -0.1 | 1 | 0 % | -0.1 | 1 | 0 % | 0 % | -0.6 | -0.3 | 100 % | 100 % | 0 % |  |
-| uniform 10 % | 12 | 500 | 580 | 10 % | +1.7 | 4 | 22 % | +2.2 | 3 | 0 % | 0 % | +0.1 | +0.5 | 89 % | 100 % | 10 % | too_few_pairs 1 |
-| uniform 10 % | 12 | 2000 | 2198 | 10 % | -0.6 | 2 | 0 % | -0.0 | 1 | 0 % | 0 % | -0.4 | -0.4 | 100 % | 100 % | 0 % |  |
-| uniform 10 % | 12 | 10000 | 11205 | 10 % | +0.3 | 1 | 0 % | +0.2 | 1 | 0 % | 0 % | -0.3 | +0.0 | 100 % | 100 % | 0 % |  |
+| uniform 10 % | 10 | 10000 | 11274 | 10 % | -0.1 | 1 | 0 % | -0.1 | 1 | 0 % | 0 % | -0.6 | -0.5 | 100 % | 100 % | 0 % |  |
+| uniform 10 % | 12 | 500 | 580 | 10 % | +1.7 | 4 | 22 % | +2.2 | 3 | 0 % | 0 % | +0.1 | +0.7 | 89 % | 100 % | 10 % | too_few_pairs 1 |
+| uniform 10 % | 12 | 2000 | 2198 | 10 % | -0.6 | 2 | 0 % | -0.0 | 1 | 0 % | 0 % | -0.4 | -1.0 | 100 % | 100 % | 0 % |  |
+| uniform 10 % | 12 | 10000 | 11205 | 10 % | +0.3 | 1 | 0 % | +0.2 | 1 | 0 % | 0 % | -0.3 | -0.1 | 100 % | 100 % | 0 % |  |
 | uniform 10 % | 12 | 50000 | 55873 | 11 % | +0.2 | 0 | 0 % | +0.1 | 0 | 0 % | 0 % | -0.2 | -0.2 | 90 % | 100 % | 0 % |  |
-| uniform 10 % | 20 | 500 | 534 | 10 % | +0.3 | 17 | 40 % | -0.9 | 6 | 30 % | 20 % | -0.3 | -1.2 | 80 % | 90 % | 30 % | wide_interval 3 |
-| uniform 10 % | 20 | 2000 | 2192 | 10 % | +1.3 | 3 | 0 % | +1.5 | 2 | 10 % | 10 % | -0.3 | +1.5 | 90 % | 100 % | 0 % |  |
-| uniform 10 % | 20 | 10000 | 11152 | 10 % | +0.5 | 1 | 0 % | +1.3 | 1 | 0 % | 0 % | +0.1 | +0.6 | 60 % | 80 % | 0 % |  |
-| uniform 10 % | 30 | 500 | 570 | 11 % | -2.5 | 13 | 60 % | +9.3 | 4 | 80 % | 50 % | -2.7 | +0.6 | 20 % | 0 % | 50 % | disagreement 5 |
-| uniform 10 % | 30 | 2000 | 2226 | 10 % | -3.9 | 7 | 50 % | +8.8 | 5 | 100 % | 20 % | -3.8 | -5.6 | 10 % | 10 % | 80 % | disagreement 7, wide_interval 1 |
-| uniform 10 % | 30 | 10000 | 10883 | 11 % | +1.1 | 4 | 30 % | +1.0 | 3 | 10 % | 10 % | -3.7 | -0.3 | 80 % | 50 % | 0 % |  |
+| uniform 10 % | 20 | 500 | 534 | 10 % | +0.3 | 17 | 40 % | -0.9 | 6 | 30 % | 20 % | -0.3 | -1.7 | 80 % | 90 % | 30 % | wide_interval 3 |
+| uniform 10 % | 20 | 2000 | 2192 | 10 % | +1.3 | 3 | 0 % | +1.5 | 2 | 10 % | 10 % | -0.3 | +0.2 | 90 % | 100 % | 0 % |  |
+| uniform 10 % | 20 | 10000 | 11152 | 10 % | +0.5 | 1 | 0 % | +1.3 | 1 | 0 % | 0 % | +0.1 | +0.8 | 60 % | 80 % | 0 % |  |
+| uniform 10 % | 30 | 500 | 570 | 11 % | -2.5 | 13 | 60 % | +9.3 | 4 | 80 % | 50 % | -2.7 | +0.7 | 20 % | 0 % | 50 % | disagreement 5 |
+| uniform 10 % | 30 | 2000 | 2226 | 10 % | -3.9 | 7 | 50 % | +8.8 | 5 | 100 % | 30 % | -3.8 | -5.6 | 10 % | 10 % | 70 % | disagreement 6, wide_interval 1 |
+| uniform 10 % | 30 | 10000 | 10883 | 11 % | +1.1 | 4 | 30 % | +1.0 | 3 | 10 % | 10 % | -3.7 | -1.0 | 80 % | 50 % | 0 % |  |
 | uniform 30 % | 6 | 500 | 683 | 31 % | -0.4 | 2 | 0 % | -1.1 | 2 | 10 % | 10 % | -1.1 | -1.1 | 90 % | 100 % | 0 % |  |
-| uniform 30 % | 6 | 2000 | 2854 | 30 % | +0.6 | 1 | 0 % | +0.6 | 1 | 0 % | 0 % | +0.3 | +0.4 | 100 % | 100 % | 0 % |  |
-| uniform 30 % | 6 | 10000 | 14306 | 30 % | -0.2 | 1 | 0 % | -0.6 | 0 | 0 % | 0 % | -0.5 | -0.4 | 90 % | 100 % | 0 % |  |
+| uniform 30 % | 6 | 2000 | 2854 | 30 % | +0.6 | 1 | 0 % | +0.6 | 1 | 0 % | 0 % | +0.3 | +0.2 | 100 % | 100 % | 0 % |  |
+| uniform 30 % | 6 | 10000 | 14306 | 30 % | -0.2 | 1 | 0 % | -0.6 | 0 | 0 % | 0 % | -0.5 | -0.5 | 90 % | 100 % | 0 % |  |
 | uniform 30 % | 10 | 500 | 726 | 31 % | +2.7 | 3 | 30 % | +2.7 | 2 | 10 % | 10 % | +0.8 | +1.6 | 100 % | 100 % | 0 % |  |
-| uniform 30 % | 10 | 2000 | 2904 | 29 % | -0.5 | 2 | 0 % | +0.4 | 2 | 0 % | 0 % | -0.9 | -0.4 | 90 % | 100 % | 10 % | disagreement 1 |
-| uniform 30 % | 10 | 10000 | 14241 | 30 % | +0.2 | 1 | 0 % | +0.4 | 1 | 0 % | 0 % | -0.0 | -0.3 | 90 % | 100 % | 0 % |  |
-| uniform 30 % | 12 | 500 | 681 | 31 % | +1.4 | 4 | 30 % | +2.7 | 2 | 30 % | 30 % | -0.0 | +1.6 | 80 % | 90 % | 0 % |  |
-| uniform 30 % | 12 | 2000 | 2839 | 30 % | +2.0 | 2 | 0 % | +1.5 | 2 | 0 % | 0 % | +0.0 | +1.0 | 80 % | 100 % | 0 % |  |
-| uniform 30 % | 12 | 10000 | 14326 | 30 % | +0.9 | 1 | 0 % | +0.9 | 1 | 0 % | 0 % | -0.0 | +0.2 | 70 % | 80 % | 0 % |  |
-| uniform 30 % | 12 | 50000 | 72184 | 31 % | +0.9 | 0 | 0 % | +1.2 | 0 | 0 % | 0 % | +0.1 | +0.0 | 20 % | 0 % | 0 % |  |
-| uniform 30 % | 20 | 500 | 726 | 31 % | +1.4 | 5 | 20 % | +4.2 | 4 | 40 % | 20 % | -0.7 | +0.2 | 90 % | 80 % | 60 % | disagreement 1, wide_interval 6 |
-| uniform 30 % | 20 | 2000 | 2863 | 30 % | +1.5 | 2 | 0 % | +2.0 | 2 | 0 % | 0 % | +0.1 | -0.2 | 100 % | 100 % | 0 % |  |
-| uniform 30 % | 20 | 10000 | 14266 | 30 % | +2.4 | 1 | 0 % | +2.7 | 1 | 0 % | 0 % | +0.1 | +1.0 | 30 % | 30 % | 0 % |  |
-| uniform 30 % | 30 | 500 | 696 | 30 % | -3.9 | 13 | 80 % | +25.6 | 14 | 100 % | 0 % | -5.6 | -11.1 | 10 % | 20 % | 100 % | disagreement 8, wide_interval 2, window_short 1 |
-| uniform 30 % | 30 | 2000 | 2784 | 30 % | +6.6 | 11 | 90 % | -0.4 | 12 | 60 % | 0 % | -3.8 | -3.1 | 90 % | 80 % | 100 % | disagreement 3, wide_interval 9 |
-| uniform 30 % | 30 | 10000 | 14102 | 31 % | +5.2 | 3 | 50 % | +5.3 | 3 | 50 % | 30 % | -3.8 | +1.0 | 60 % | 20 % | 30 % | disagreement 3 |
+| uniform 30 % | 10 | 2000 | 2904 | 29 % | -0.5 | 2 | 0 % | +0.4 | 2 | 0 % | 0 % | -0.9 | -1.0 | 90 % | 100 % | 10 % | disagreement 1 |
+| uniform 30 % | 10 | 10000 | 14241 | 30 % | +0.2 | 1 | 0 % | +0.4 | 1 | 0 % | 0 % | -0.0 | -0.4 | 90 % | 100 % | 0 % |  |
+| uniform 30 % | 12 | 500 | 681 | 31 % | +1.4 | 4 | 30 % | +2.7 | 2 | 30 % | 30 % | -0.0 | +0.3 | 80 % | 90 % | 10 % | disagreement 1 |
+| uniform 30 % | 12 | 2000 | 2839 | 30 % | +2.0 | 2 | 0 % | +1.5 | 2 | 0 % | 0 % | +0.0 | +0.7 | 80 % | 100 % | 10 % | disagreement 1 |
+| uniform 30 % | 12 | 10000 | 14326 | 30 % | +0.9 | 1 | 0 % | +0.9 | 1 | 0 % | 0 % | -0.0 | -0.3 | 70 % | 80 % | 0 % |  |
+| uniform 30 % | 12 | 50000 | 72184 | 31 % | +0.9 | 0 | 0 % | +1.2 | 0 | 0 % | 0 % | +0.1 | +0.1 | 20 % | 0 % | 0 % |  |
+| uniform 30 % | 20 | 500 | 726 | 31 % | +1.4 | 5 | 20 % | +4.2 | 4 | 40 % | 20 % | -0.7 | -3.2 | 90 % | 80 % | 70 % | disagreement 2, wide_interval 6 |
+| uniform 30 % | 20 | 2000 | 2863 | 30 % | +1.5 | 2 | 0 % | +2.0 | 2 | 0 % | 0 % | +0.1 | -0.6 | 100 % | 100 % | 10 % | disagreement 1 |
+| uniform 30 % | 20 | 10000 | 14266 | 30 % | +2.4 | 1 | 0 % | +2.7 | 1 | 0 % | 0 % | +0.1 | +0.5 | 30 % | 30 % | 0 % |  |
+| uniform 30 % | 30 | 500 | 696 | 30 % | -3.9 | 13 | 80 % | +25.6 | 14 | 100 % | 0 % | -5.6 | -11.4 | 10 % | 20 % | 100 % | disagreement 8, wide_interval 2, window_short 1 |
+| uniform 30 % | 30 | 2000 | 2784 | 30 % | +6.6 | 11 | 90 % | -0.4 | 12 | 60 % | 0 % | -3.8 | -3.1 | 90 % | 80 % | 100 % | disagreement 2, wide_interval 9 |
+| uniform 30 % | 30 | 10000 | 14102 | 31 % | +5.2 | 3 | 50 % | +5.3 | 3 | 50 % | 40 % | -3.8 | +1.5 | 60 % | 20 % | 20 % | disagreement 2 |
 | uniform 50 % | 6 | 500 | 996 | 50 % | +3.4 | 1 | 10 % | -0.1 | 2 | 0 % | 0 % | +0.5 | -0.4 | 100 % | 100 % | 90 % | nearby_dominates 9 |
 | uniform 50 % | 6 | 2000 | 3939 | 50 % | +1.6 | 2 | 10 % | -0.1 | 2 | 0 % | 0 % | -0.6 | -1.2 | 100 % | 100 % | 100 % | nearby_dominates 10 |
-| uniform 50 % | 6 | 10000 | 20002 | 50 % | +3.4 | 1 | 0 % | +0.9 | 0 | 0 % | 0 % | +0.1 | +0.3 | 80 % | 100 % | 100 % | nearby_dominates 10 |
-| uniform 50 % | 10 | 500 | 1016 | 50 % | +8.0 | 3 | 90 % | +4.2 | 3 | 30 % | 10 % | +0.8 | +2.4 | 80 % | 90 % | 60 % | nearby_dominates 6 |
-| uniform 50 % | 10 | 2000 | 4007 | 50 % | +5.8 | 2 | 70 % | +2.1 | 2 | 0 % | 0 % | +0.1 | +0.1 | 60 % | 90 % | 80 % | nearby_dominates 8 |
-| uniform 50 % | 10 | 10000 | 20136 | 50 % | +5.9 | 1 | 80 % | +2.1 | 1 | 0 % | 0 % | +0.1 | +0.5 | 10 % | 10 % | 100 % | nearby_dominates 10 |
-| uniform 50 % | 12 | 500 | 985 | 49 % | +7.6 | 3 | 70 % | +3.0 | 3 | 40 % | 10 % | +0.2 | +0.9 | 70 % | 100 % | 50 % | nearby_dominates 5 |
-| uniform 50 % | 12 | 2000 | 3986 | 51 % | +6.8 | 1 | 100 % | +3.1 | 1 | 0 % | 0 % | -0.5 | +1.1 | 60 % | 60 % | 50 % | nearby_dominates 5 |
-| uniform 50 % | 12 | 10000 | 19940 | 50 % | +6.6 | 1 | 100 % | +2.7 | 1 | 0 % | 0 % | +0.4 | -0.1 | 10 % | 0 % | 70 % | nearby_dominates 7 |
-| uniform 50 % | 12 | 50000 | 100799 | 51 % | +7.3 | 0 | 100 % | +2.6 | 0 | 0 % | 0 % | -0.3 | -0.3 | 0 % | 0 % | 100 % | nearby_dominates 10 |
-| uniform 50 % | 20 | 500 | 1009 | 49 % | +12.5 | 4 | 90 % | +9.7 | 4 | 80 % | 0 % | -0.5 | +6.7 | 90 % | 80 % | 90 % | wide_interval 9 |
-| uniform 50 % | 20 | 2000 | 4078 | 49 % | +7.2 | 121 | 100 % | +3.2 | 2 | 40 % | 30 % | -0.6 | -1.6 | 60 % | 60 % | 40 % | disagreement 4 |
-| uniform 50 % | 20 | 10000 | 20071 | 50 % | +8.7 | 1 | 100 % | +6.0 | 1 | 70 % | 20 % | -0.1 | +0.1 | 0 % | 0 % | 80 % | disagreement 8 |
-| uniform 50 % | 30 | 500 | 973 | 51 % | +9.6 | 14 | 60 % | +53.8 | 28 | 100 % | 0 % | -4.0 | -8.5 | 20 % | 20 % | 100 % | disagreement 9, nearby_dominates 1, wide_interval 2, window_short 8 |
-| uniform 50 % | 30 | 2000 | 3952 | 51 % | +16.5 | 6 | 100 % | +12.4 | 6 | 100 % | 0 % | -3.8 | +6.2 | 90 % | 60 % | 100 % | wide_interval 10 |
-| uniform 50 % | 30 | 10000 | 19912 | 51 % | +13.8 | 5 | 100 % | +10.7 | 4 | 90 % | 50 % | -3.7 | +2.6 | 10 % | 10 % | 50 % | disagreement 5 |
-| clustered, heavy | 6 | 500 | 628 | 22 % | +0.6 | 5 | 40 % | +1.1 | 4 | 20 % | 20 % | -0.6 | +1.5 | 100 % | 100 % | 0 % |  |
-| clustered, heavy | 6 | 2000 | 2540 | 21 % | -2.8 | 2 | 0 % | -1.9 | 1 | 0 % | 0 % | -2.9 | -2.4 | 80 % | 100 % | 0 % |  |
-| clustered, heavy | 6 | 10000 | 12600 | 21 % | -2.1 | 1 | 0 % | -1.8 | 1 | 0 % | 0 % | -2.3 | -2.7 | 30 % | 90 % | 0 % |  |
+| uniform 50 % | 6 | 10000 | 20002 | 50 % | +3.4 | 1 | 0 % | +0.9 | 0 | 0 % | 0 % | +0.1 | +0.1 | 80 % | 100 % | 100 % | nearby_dominates 10 |
+| uniform 50 % | 10 | 500 | 1016 | 50 % | +8.0 | 3 | 90 % | +4.2 | 3 | 30 % | 10 % | +0.8 | +1.9 | 80 % | 90 % | 60 % | nearby_dominates 6 |
+| uniform 50 % | 10 | 2000 | 4007 | 50 % | +5.8 | 2 | 70 % | +2.1 | 2 | 0 % | 0 % | +0.1 | -0.1 | 60 % | 90 % | 80 % | nearby_dominates 8 |
+| uniform 50 % | 10 | 10000 | 20136 | 50 % | +5.9 | 1 | 80 % | +2.1 | 1 | 0 % | 0 % | +0.1 | +0.1 | 10 % | 10 % | 100 % | nearby_dominates 10 |
+| uniform 50 % | 12 | 500 | 985 | 49 % | +7.6 | 3 | 70 % | +3.0 | 3 | 40 % | 10 % | +0.2 | +0.2 | 70 % | 100 % | 50 % | disagreement 2, nearby_dominates 5 |
+| uniform 50 % | 12 | 2000 | 3986 | 51 % | +6.8 | 1 | 100 % | +3.1 | 1 | 0 % | 0 % | -0.5 | +0.4 | 60 % | 60 % | 50 % | disagreement 1, nearby_dominates 5 |
+| uniform 50 % | 12 | 10000 | 19940 | 50 % | +6.6 | 1 | 100 % | +2.7 | 1 | 0 % | 0 % | +0.4 | -0.3 | 10 % | 0 % | 70 % | nearby_dominates 7 |
+| uniform 50 % | 12 | 50000 | 100799 | 51 % | +7.3 | 0 | 100 % | +2.6 | 0 | 0 % | 0 % | -0.3 | -0.1 | 0 % | 0 % | 100 % | nearby_dominates 10 |
+| uniform 50 % | 20 | 500 | 1009 | 49 % | +12.5 | 4 | 90 % | +9.7 | 4 | 80 % | 0 % | -0.5 | +7.8 | 90 % | 80 % | 90 % | wide_interval 9 |
+| uniform 50 % | 20 | 2000 | 4078 | 49 % | +7.2 | 121 | 100 % | +3.2 | 2 | 40 % | 20 % | -0.6 | -4.1 | 60 % | 60 % | 70 % | disagreement 7 |
+| uniform 50 % | 20 | 10000 | 20071 | 50 % | +8.7 | 1 | 100 % | +6.0 | 1 | 70 % | 20 % | -0.1 | -1.7 | 0 % | 0 % | 80 % | disagreement 8 |
+| uniform 50 % | 30 | 500 | 973 | 51 % | +9.6 | 14 | 60 % | +53.8 | 28 | 100 % | 0 % | -4.0 | -16.0 | 20 % | 20 % | 100 % | disagreement 9, nearby_dominates 1, wide_interval 2, window_short 8 |
+| uniform 50 % | 30 | 2000 | 3952 | 51 % | +16.5 | 6 | 100 % | +12.4 | 6 | 100 % | 0 % | -3.8 | +4.3 | 90 % | 60 % | 100 % | disagreement 1, wide_interval 10 |
+| uniform 50 % | 30 | 10000 | 19912 | 51 % | +13.8 | 5 | 100 % | +10.7 | 4 | 90 % | 40 % | -3.7 | +3.4 | 10 % | 10 % | 60 % | disagreement 6 |
+| clustered, heavy | 6 | 500 | 628 | 22 % | +0.6 | 5 | 40 % | +1.1 | 4 | 20 % | 20 % | -0.6 | +2.1 | 100 % | 100 % | 0 % |  |
+| clustered, heavy | 6 | 2000 | 2540 | 21 % | -2.8 | 2 | 0 % | -1.9 | 1 | 0 % | 0 % | -2.9 | -2.5 | 80 % | 100 % | 0 % |  |
+| clustered, heavy | 6 | 10000 | 12600 | 21 % | -2.1 | 1 | 0 % | -1.8 | 1 | 0 % | 0 % | -2.3 | -2.8 | 30 % | 90 % | 0 % |  |
 | clustered, heavy | 10 | 500 | 619 | 23 % | -1.6 | 12 | 40 % | -0.1 | 4 | 20 % | 0 % | -3.8 | -3.7 | 90 % | 90 % | 70 % | crowded 7, disagreement 2 |
-| clustered, heavy | 10 | 2000 | 2631 | 24 % | -4.2 | 3 | 30 % | -2.0 | 2 | 10 % | 0 % | -3.8 | -4.9 | 70 % | 90 % | 80 % | crowded 8, disagreement 1 |
-| clustered, heavy | 10 | 10000 | 12640 | 24 % | -4.4 | 1 | 30 % | -2.4 | 1 | 0 % | 0 % | -4.0 | -5.2 | 0 % | 40 % | 100 % | crowded 10 |
+| clustered, heavy | 10 | 2000 | 2631 | 24 % | -4.2 | 3 | 30 % | -2.0 | 2 | 10 % | 0 % | -3.8 | -5.1 | 70 % | 90 % | 80 % | crowded 8, disagreement 1 |
+| clustered, heavy | 10 | 10000 | 12640 | 24 % | -4.4 | 1 | 30 % | -2.4 | 1 | 0 % | 0 % | -4.0 | -5.5 | 0 % | 40 % | 100 % | crowded 10 |
 | clustered, heavy | 12 | 500 | 622 | 25 % | -4.9 | 5 | 60 % | -5.6 | 4 | 70 % | 0 % | -2.9 | -6.4 | 70 % | 100 % | 100 % | crowded 10, disagreement 2, wide_interval 3 |
 | clustered, heavy | 12 | 2000 | 2556 | 25 % | -7.3 | 3 | 90 % | -4.7 | 2 | 50 % | 0 % | -4.2 | -8.3 | 40 % | 90 % | 100 % | crowded 10, disagreement 5 |
-| clustered, heavy | 12 | 10000 | 12718 | 25 % | -6.4 | 1 | 80 % | -3.5 | 1 | 10 % | 0 % | -4.2 | -6.7 | 0 % | 90 % | 100 % | crowded 10, disagreement 2 |
+| clustered, heavy | 12 | 10000 | 12718 | 25 % | -6.4 | 1 | 80 % | -3.5 | 1 | 10 % | 0 % | -4.2 | -6.7 | 0 % | 90 % | 100 % | crowded 10, disagreement 3 |
 | clustered, heavy | 12 | 50000 | 63848 | 26 % | -5.9 | 0 | 100 % | -2.1 | 0 | 0 % | 0 % | -4.2 | -5.9 | 0 % | 0 % | 100 % | crowded 10, disagreement 1 |
 | clustered, heavy | 20 | 500 | 626 | 27 % | -12.5 | 9 | 80 % | +0.9 | 2 | 20 % | 0 % | -5.1 | -11.5 | 70 % | 0 % | 100 % | crowded 10, disagreement 9 |
 | clustered, heavy | 20 | 2000 | 2566 | 29 % | -17.9 | 5 | 100 % | -11.0 | 5 | 90 % | 0 % | -5.8 | -11.1 | 10 % | 60 % | 100 % | crowded 10, wide_interval 2 |
 | clustered, heavy | 20 | 10000 | 12578 | 29 % | -13.6 | 2 | 100 % | -10.3 | 2 | 100 % | 0 % | -5.3 | -11.9 | 0 % | 0 % | 100 % | crowded 10 |
 | clustered, heavy | 30 | 500 | 590 | 30 % | -15.0 | 9 | 70 % | -5.8 | 3 | 70 % | 0 % | -8.4 | -10.9 | 30 % | 100 % | 100 % | crowded 10, disagreement 5 |
-| clustered, heavy | 30 | 2000 | 2463 | 31 % | -18.7 | 6 | 100 % | -5.7 | 1 | 80 % | 0 % | -8.7 | -15.6 | 0 % | 20 % | 100 % | crowded 10, disagreement 9 |
+| clustered, heavy | 30 | 2000 | 2463 | 31 % | -18.7 | 6 | 100 % | -5.7 | 1 | 80 % | 0 % | -8.7 | -15.5 | 0 % | 20 % | 100 % | crowded 10, disagreement 9 |
 | clustered, heavy | 30 | 10000 | 12540 | 31 % | -21.2 | 4 | 100 % | -15.6 | 2 | 100 % | 0 % | -8.7 | -15.6 | 0 % | 0 % | 100 % | crowded 10, wide_interval 3 |
-| clustered, moderate | 6 | 500 | 530 | 7 % | +2.2 | 8 | 25 % | +1.5 | 3 | 0 % | 0 % | +0.2 | +1.6 | 100 % | 100 % | 20 % | too_few_pairs 2 |
-| clustered, moderate | 6 | 2000 | 2228 | 7 % | +0.7 | 2 | 0 % | +0.2 | 1 | 0 % | 0 % | -0.6 | -0.5 | 100 % | 100 % | 10 % | disagreement 1 |
+| clustered, moderate | 6 | 500 | 530 | 7 % | +2.2 | 8 | 25 % | +1.5 | 3 | 0 % | 0 % | +0.2 | +1.0 | 100 % | 100 % | 20 % | too_few_pairs 2 |
+| clustered, moderate | 6 | 2000 | 2228 | 7 % | +0.7 | 2 | 0 % | +0.2 | 1 | 0 % | 0 % | -0.6 | -0.2 | 100 % | 100 % | 10 % | disagreement 1 |
 | clustered, moderate | 6 | 10000 | 10682 | 7 % | -0.6 | 1 | 0 % | -0.4 | 1 | 0 % | 0 % | -0.2 | -0.7 | 90 % | 100 % | 0 % |  |
-| clustered, moderate | 10 | 500 | 500 | 7 % | -0.8 | 5 | 60 % | +0.9 | 4 | 20 % | 0 % | -1.4 | +0.9 | 100 % | 80 % | 60 % | too_few_pairs 5, wide_interval 1 |
-| clustered, moderate | 10 | 2000 | 2128 | 8 % | -3.4 | 9 | 60 % | -1.0 | 2 | 0 % | 0 % | -1.1 | -1.7 | 80 % | 100 % | 0 % |  |
+| clustered, moderate | 10 | 500 | 500 | 7 % | -0.8 | 5 | 60 % | +0.9 | 4 | 20 % | 0 % | -1.4 | +0.9 | 100 % | 80 % | 70 % | disagreement 1, too_few_pairs 5, wide_interval 1 |
+| clustered, moderate | 10 | 2000 | 2128 | 8 % | -3.4 | 9 | 60 % | -1.0 | 2 | 0 % | 0 % | -1.1 | -2.4 | 80 % | 100 % | 10 % | disagreement 1 |
 | clustered, moderate | 10 | 10000 | 10735 | 8 % | -0.8 | 3 | 10 % | +0.1 | 1 | 0 % | 0 % | -1.0 | -0.3 | 90 % | 90 % | 0 % |  |
 | clustered, moderate | 12 | 500 | 531 | 8 % | -1.4 | 4 | 25 % | +2.5 | 4 | 25 % | 20 % | -0.4 | +0.4 | 75 % | 75 % | 20 % | too_few_pairs 2 |
-| clustered, moderate | 12 | 2000 | 2128 | 8 % | -1.2 | 4 | 30 % | -0.4 | 2 | 0 % | 0 % | -0.1 | -0.5 | 90 % | 100 % | 0 % |  |
+| clustered, moderate | 12 | 2000 | 2128 | 8 % | -1.2 | 4 | 30 % | -0.4 | 2 | 0 % | 0 % | -0.1 | -0.4 | 90 % | 100 % | 0 % |  |
 | clustered, moderate | 12 | 10000 | 10828 | 8 % | -0.6 | 2 | 10 % | -0.7 | 1 | 0 % | 0 % | -1.0 | -1.0 | 70 % | 90 % | 0 % |  |
-| clustered, moderate | 12 | 50000 | 53478 | 8 % | -1.1 | 0 | 0 % | -0.0 | 0 | 0 % | 0 % | -1.1 | -1.2 | 80 % | 10 % | 0 % |  |
+| clustered, moderate | 12 | 50000 | 53478 | 8 % | -1.1 | 0 | 0 % | -0.0 | 0 | 0 % | 0 % | -1.1 | -1.3 | 80 % | 10 % | 0 % |  |
 | clustered, moderate | 20 | 500 | 521 | 9 % | -2.4 | 5 | 25 % | +1.3 | 3 | 25 % | 20 % | -1.3 | -2.1 | 75 % | 100 % | 40 % | disagreement 2, too_few_pairs 2 |
-| clustered, moderate | 20 | 2000 | 2148 | 9 % | -2.4 | 8 | 40 % | +0.5 | 1 | 0 % | 0 % | -1.2 | -2.6 | 70 % | 80 % | 30 % | disagreement 3 |
-| clustered, moderate | 20 | 10000 | 10668 | 9 % | -2.1 | 2 | 20 % | +0.5 | 2 | 0 % | 0 % | -1.2 | -1.6 | 40 % | 10 % | 0 % |  |
-| clustered, moderate | 30 | 500 | 515 | 10 % | -2.8 | 12 | 33 % | -2.6 | 1 | 0 % | 0 % | -4.4 | -3.3 | 100 % | 100 % | 60 % | disagreement 2, too_few_pairs 4 |
-| clustered, moderate | 30 | 2000 | 2101 | 10 % | -1.7 | 6 | 30 % | -0.7 | 1 | 0 % | 0 % | -4.3 | -2.5 | 80 % | 0 % | 10 % | disagreement 1 |
-| clustered, moderate | 30 | 10000 | 10510 | 10 % | -2.6 | 6 | 20 % | -1.1 | 1 | 0 % | 0 % | -4.9 | -2.1 | 50 % | 0 % | 0 % |  |
+| clustered, moderate | 20 | 2000 | 2148 | 9 % | -2.4 | 8 | 40 % | +0.5 | 1 | 0 % | 0 % | -1.2 | -2.7 | 70 % | 80 % | 30 % | disagreement 3 |
+| clustered, moderate | 20 | 10000 | 10668 | 9 % | -2.1 | 2 | 20 % | +0.5 | 2 | 0 % | 0 % | -1.2 | -1.9 | 40 % | 10 % | 0 % |  |
+| clustered, moderate | 30 | 500 | 515 | 10 % | -2.8 | 12 | 33 % | -2.6 | 1 | 0 % | 0 % | -4.4 | -3.5 | 100 % | 100 % | 60 % | disagreement 2, too_few_pairs 4 |
+| clustered, moderate | 30 | 2000 | 2101 | 10 % | -1.7 | 6 | 30 % | -0.7 | 1 | 0 % | 0 % | -4.3 | -2.5 | 80 % | 0 % | 20 % | disagreement 2 |
+| clustered, moderate | 30 | 10000 | 10510 | 10 % | -2.6 | 6 | 20 % | -1.1 | 1 | 0 % | 0 % | -4.9 | -1.9 | 50 % | 0 % | 0 % |  |
 | linked, clustered heavy | 6 | 2000 | 241 | 89 % | — | — | — | — | — | — | 0 % | -23.7 | — | — % | — % | 100 % | too_few_pairs 10 |
 | linked, clustered heavy | 6 | 10000 | 1229 | 90 % | +239.8 | 19 | 100 % | +219.2 | 15 | 100 % | 0 % | -22.8 | +241.6 | 0 % | 0 % | 100 % | disagreement 4, nearby_dominates 1, wide_interval 9 |
 | linked, clustered heavy | 10 | 2000 | 244 | 89 % | — | — | — | — | — | — | 0 % | -23.6 | — | — % | — % | 100 % | too_few_pairs 10 |
 | linked, clustered heavy | 10 | 10000 | 1234 | 90 % | +56.0 | 41 | 100 % | +66.2 | 28 | 100 % | 10 % | -25.3 | +12.1 | 0 % | 0 % | 90 % | disagreement 7, nearby_dominates 5, wide_interval 8 |
 | linked, clustered heavy | 12 | 2000 | 242 | 90 % | — | — | — | — | — | — | 0 % | -25.1 | — | — % | — % | 100 % | too_few_pairs 10 |
-| linked, clustered heavy | 12 | 10000 | 1244 | 91 % | +13.4 | 19 | 90 % | +55.2 | 15 | 100 % | 10 % | -20.3 | +5.7 | 0 % | 0 % | 90 % | disagreement 7, wide_interval 8 |
+| linked, clustered heavy | 12 | 10000 | 1244 | 91 % | +13.4 | 19 | 90 % | +55.2 | 15 | 100 % | 10 % | -20.3 | +5.7 | 0 % | 0 % | 90 % | disagreement 8, wide_interval 8 |
 | linked, clustered heavy | 20 | 2000 | 246 | 90 % | — | — | — | — | — | — | 0 % | -24.2 | — | — % | — % | 100 % | too_few_pairs 10 |
-| linked, clustered heavy | 20 | 10000 | 1239 | 90 % | -1.1 | 12 | 70 % | +19.3 | 7 | 90 % | 10 % | -26.0 | +0.6 | 30 % | 0 % | 90 % | disagreement 7, wide_interval 4 |
+| linked, clustered heavy | 20 | 10000 | 1239 | 90 % | -1.1 | 12 | 70 % | +19.3 | 7 | 90 % | 20 % | -26.0 | +0.7 | 30 % | 0 % | 80 % | disagreement 6, wide_interval 4 |
 | linked, clustered heavy | 30 | 2000 | 240 | 90 % | — | — | — | — | — | — | 0 % | -26.5 | — | — % | — % | 100 % | too_few_pairs 10 |
 | linked, clustered heavy | 30 | 10000 | 1197 | 90 % | -14.6 | 7 | 100 % | -3.0 | 6 | 20 % | 0 % | -22.0 | -14.8 | 60 % | 10 % | 90 % | disagreement 8, wide_interval 1 |
 | linked, none | 6 | 2000 | 0 | 0 % | — | — | — | — | — | — | 0 % | -59.4 | — | — % | — % | 100 % | too_few_pairs 10 |
@@ -258,18 +260,18 @@ Per cell (bias = median of estimate/σ − 1; sd = spread of estimate/σ):
 | linked, none | 30 | 2000 | 0 | 0 % | — | — | — | — | — | — | 0 % | -31.7 | — | — % | — % | 100 % | too_few_pairs 10 |
 | linked, none | 30 | 10000 | 1 | 12 % | — | — | — | — | — | — | 0 % | -22.8 | — | — % | — % | 100 % | too_few_pairs 10 |
 | none | 6 | 500 | 467 | 0 % | -1.4 | 2 | 0 % | -0.3 | 2 | 0 % | 0 % | +1.3 | -0.3 | 100 % | 100 % | 60 % | too_few_pairs 6 |
-| none | 6 | 2000 | 2042 | 0 % | -0.7 | 2 | 10 % | -1.3 | 2 | 0 % | 0 % | -1.3 | -1.3 | 90 % | 100 % | 0 % |  |
+| none | 6 | 2000 | 2042 | 0 % | -0.7 | 2 | 10 % | -1.3 | 2 | 0 % | 0 % | -1.3 | -1.1 | 90 % | 100 % | 0 % |  |
 | none | 6 | 10000 | 9944 | 0 % | -0.0 | 2 | 10 % | +0.1 | 1 | 0 % | 0 % | +0.1 | +0.1 | 80 % | 100 % | 0 % |  |
 | none | 10 | 500 | 503 | 0 % | -0.1 | 2 | 0 % | +3.0 | 2 | 0 % | 0 % | +2.7 | +2.7 | 60 % | 100 % | 50 % | too_few_pairs 5 |
-| none | 10 | 2000 | 1999 | 0 % | -0.7 | 5 | 20 % | +0.9 | 1 | 0 % | 0 % | +0.9 | +0.8 | 100 % | 100 % | 0 % |  |
+| none | 10 | 2000 | 1999 | 0 % | -0.7 | 5 | 20 % | +0.9 | 1 | 0 % | 0 % | +0.9 | +0.9 | 100 % | 100 % | 0 % |  |
 | none | 10 | 10000 | 9998 | 0 % | -0.5 | 2 | 0 % | +0.1 | 1 | 0 % | 0 % | +0.0 | -0.0 | 100 % | 100 % | 0 % |  |
 | none | 12 | 500 | 499 | 0 % | -0.9 | 9 | 20 % | -2.7 | 2 | 0 % | 0 % | -0.2 | -2.7 | 100 % | 100 % | 50 % | too_few_pairs 5 |
-| none | 12 | 2000 | 1930 | 0 % | -2.7 | 8 | 30 % | -0.2 | 1 | 0 % | 0 % | -0.2 | -0.2 | 80 % | 100 % | 10 % | disagreement 1 |
+| none | 12 | 2000 | 1930 | 0 % | -2.7 | 8 | 30 % | -0.2 | 1 | 0 % | 0 % | -0.2 | -0.3 | 80 % | 100 % | 20 % | disagreement 2 |
 | none | 12 | 10000 | 10053 | 0 % | -1.0 | 1 | 0 % | +0.1 | 1 | 0 % | 0 % | +0.1 | +0.1 | 90 % | 100 % | 0 % |  |
 | none | 12 | 50000 | 49904 | 0 % | -0.3 | 2 | 10 % | -0.2 | 0 | 0 % | 0 % | -0.2 | -0.2 | 90 % | 100 % | 0 % |  |
 | none | 20 | 500 | 502 | 0 % | -3.0 | 9 | 60 % | +0.9 | 1 | 0 % | 0 % | +1.2 | +0.9 | 100 % | 100 % | 60 % | disagreement 1, too_few_pairs 5 |
 | none | 20 | 2000 | 2002 | 0 % | -0.4 | 6 | 20 % | -0.7 | 1 | 0 % | 0 % | -0.8 | -0.7 | 90 % | 100 % | 0 % |  |
-| none | 20 | 10000 | 9945 | 0 % | -0.9 | 2 | 10 % | +0.0 | 1 | 0 % | 0 % | -0.1 | -0.0 | 90 % | 100 % | 0 % |  |
+| none | 20 | 10000 | 9945 | 0 % | -0.9 | 2 | 10 % | +0.0 | 1 | 0 % | 0 % | -0.1 | -0.2 | 90 % | 100 % | 0 % |  |
 | none | 30 | 500 | 510 | 0 % | -4.1 | 12 | 29 % | -0.2 | 2 | 0 % | 0 % | -4.0 | -0.2 | 100 % | 100 % | 30 % | too_few_pairs 3 |
 | none | 30 | 2000 | 1918 | 0 % | -0.9 | 3 | 20 % | -1.0 | 1 | 0 % | 0 % | -4.5 | -1.7 | 90 % | 0 % | 0 % |  |
 | none | 30 | 10000 | 9802 | 0 % | -0.6 | 5 | 20 % | +0.2 | 0 | 0 % | 0 % | -3.6 | +0.3 | 90 % | 0 % | 0 % |  |
@@ -284,21 +286,21 @@ How to read it (own simulation; numbers from `nena_grid.json`):
   off, new 15-19 %). At σ ≤ 12 nm the new estimate fails only at ~500 pairs; nearly all other failures of both are at
   σ = 20-30 nm, where the 120 nm window holds only 3-4 s and the background ramp overlaps the whole peak. There the
   new estimate reads high and most failing files are flagged, but not all (unflagged up to 50 % of a σ = 30 nm cell).
-  For σ ≳ 20 nm use a longer window (section 6).
+  A longer window is not a general cure (section 6).
 - **Uniform background at half the pairs.** Old: 74 % of the files off by more than 5 % (median +7 %); new: 34 %
-  (median +3 %), flagged as `nearby_dominates` or `disagreement`; the random-neighbour estimate is within ±2.5 % of σ in
+  (median +3 %), flagged as `nearby_dominates` or `disagreement`; the random-neighbour estimate is within ±2 % of σ in
   every cell at σ ≤ 12 nm.
 - **Clustered molecules.** Moderate crowding: old 23 % off, new 3 %. Heavy crowding: old 64 %, new 40 % — and the
   oracle itself 36 %: the nearest-neighbour rule, not the fit, loses the same-molecule pairs. All but 1 % of
   the files there are either within 5 % or carry a warning (`crowded`, calibrated on these files: below a crowding of 0.15 at most 2 % of the
-  files read more than 5 % low; from 0.15 to 0.20, 20 %; above 0.20, 70-76 %).
+  files read more than 5 % low; from 0.15 to 0.20, 20 %; above 0.20, 73 %).
 - **Linked files.** Linking left 0-2 pairs in the uncrowded files ("not measured"). In crowded linked files about
   1200 pairs remain, 90 % of them between different molecules; the value is meaningless and at least 90 % of those files are flagged.
   NeNA must not be run on linked files (section 6).
 - **Interval.** Without contamination it covered σ in 90 % of the files (nominal 95 %): pairs that share a
   localization are not independent (section 6). With contamination coverage drops further, because the interval
   measures the noise of the fit, not the error of the model; that is what the agreement check is for.
-- **False alarms.** In the uncontaminated files 2 of 136 measured files carried `disagreement` (the random-neighbour
+- **False alarms.** In the uncontaminated files 3 of 136 measured files carried `disagreement` (the random-neighbour
   model over-fitted) and none was off by more than 5 %.
 - The oracle is a second-moment estimate and reads ~4 % low at σ = 30 nm because the 120 nm window cuts the tail it
   is most sensitive to; the fitted estimators account for the cut.
@@ -315,6 +317,13 @@ How to read it (own simulation; numbers from `nena_grid.json`):
 - **Model shape.** Picasso's nearby term is a Gaussian; randomly placed neighbours follow 2πρd·exp(−πρd²). With
   uniform background at half the pairs the Picasso-model value reads a few percent high and the random-neighbour model
   is closer (section 5); the disagreement check flags the larger cases.
+- **Large precision with background.** At σ = 30 nm the 120 nm window holds only 4 s, and the background overlaps
+  the whole peak; with uniform background both fits often miss by more than 5 % (section 5). Own simulation
+  (`docs/sims/nena/nena_window.py`, `nena_window.json`; the grid's files at 2000 pairs, 10 per cell): doubling the
+  window to 240 nm brought the median error at σ = 30 nm from +8.8 % to +1.9 % with background at 10 % of the pairs,
+  but made it worse with background at 30 % (from −0.4 % to +16 %, all flagged), because the background pairs grow
+  with the window's area. No single window suits every file; the warnings are the guard, and a sparser file is the
+  cure.
 - **Dependent pairs.** An event of L frames gives L − 1 pairs and neighbouring pairs share a localization (the
   correlation of their squared distances is 1/4; derivation). The interval treats pairs as independent, so it is
   somewhat too narrow on large files (coverage in section 5).

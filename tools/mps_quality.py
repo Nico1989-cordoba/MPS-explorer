@@ -103,8 +103,8 @@ NENA_MAX_CI_HALF_WIDTH = 0.10
 # molecule's own next localization, and NeNA reads low whatever the fit.
 # Own simulation (docs/sims/nena/nena_grid.py, 1160 files, seeds in the
 # script): below 0.15 at most 2 % of the files read more than 5 % low; from
-# 0.15 to 0.20, 20 % did (median -2 %); above 0.20, 70-76 % did (median
-# -6 to -10 %).
+# 0.15 to 0.20, 20 % did (median -2 %); above 0.20, 73 % did (median
+# -7 %).
 NENA_CROWDING_LIMIT = 0.15
 # Share of the same-molecule distance law beyond max_distance_nm above which
 # the window is too short (the likelihood accounts for the cut; it just has
@@ -489,14 +489,24 @@ def _nena_random_term(
     lik: _NeNALikelihood, best: Tuple[float, float, float, float],
 ) -> float:
     """s of the three-component model (same molecule + random neighbours +
-    nearby Gaussian), started from the two-component fit."""
+    nearby Gaussian). Its likelihood has several local optima, and a check
+    that moved with the starting point would raise or drop the agreement
+    warning at random, so it starts from a fixed grid around the
+    two-component fit (3 x s, 3 weight splits, 2 random-term scales) plus
+    two generic points, and keeps the best."""
     d_max = lik.d_max
     s_hat, w_hat, dc_hat, sc_hat = best
+    if not (np.isfinite(dc_hat) and np.isfinite(sc_hat)):
+        dc_hat, sc_hat = 3.0 * s_hat, 2.0 * s_hat
     s_low, s_high = max(1e-3 * d_max, 0.05), 0.5 * d_max
-    starts = [
-        (s_hat, w_hat, 0.5, d_max, dc_hat, sc_hat),
-        (s_hat, min(1.0, w_hat + 0.05), 0.9, 0.5 * d_max, dc_hat, sc_hat),
-        (s_hat, max(0.0, w_hat - 0.2), 0.8, d_max, 0.5 * d_max, 0.25 * d_max),
+    starts = []
+    for factor in (0.85, 1.0, 1.15):
+        for w0, u0 in ((w_hat, 0.5), (min(1.0, w_hat + 0.05), 0.9),
+                       (max(0.3, w_hat - 0.2), 0.8)):
+            for t0 in (0.5 * d_max, 2.0 * d_max):
+                starts.append((factor * s_hat, w0, u0, t0, dc_hat, sc_hat))
+    starts += [
+        (s_hat, max(0.3, w_hat - 0.2), 0.8, d_max, 0.5 * d_max, 0.25 * d_max),
         (lik.median / 1.665, 0.7, 0.5, d_max, 0.5 * d_max, 0.25 * d_max),
     ]
     best_nll, best_s = np.inf, float("nan")

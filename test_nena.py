@@ -131,6 +131,18 @@ def test_disagreement_is_reported_and_value_kept() -> None:
     assert any(f"{r.random_term_nm:.1f} nm" in w and f"{r.precision_nm:.1f} nm" in w for w in r.warnings)
 
 
+def test_checks_do_not_depend_on_the_reported_precision() -> None:
+    """Data quality passes the reported lpx/lpy as one more starting point; the value, the interval, the independent
+    estimate and the flags must not change with it."""
+    n_mol = 333
+    frame, x, y, _ = simulate(20.0, n_mol=n_mol, bg_per_frame=background_for(0.5, n_mol), seed=73003)
+    plain = q.nena(frame, x, y)
+    seeded = q.nena(frame, x, y, reported_lp_nm=20.0)
+    assert plain.flags == seeded.flags
+    for name in ("precision_nm", "ci_low_nm", "ci_high_nm", "random_term_nm"):
+        assert getattr(plain, name) == pytest.approx(getattr(seeded, name), rel=1e-3), name
+
+
 def test_background_at_half_the_pairs_is_flagged() -> None:
     """sigma 12 nm, background at half the pairs: the same-molecule share sits at Picasso's limit (a >= ac) and the
     warning says so (grid cell "uniform 50 %", sigma 12, 2000 pairs, seed 69000)."""
