@@ -46,10 +46,15 @@ What is reported, and why (SCI-3)
   Monte Carlo p is then exact on its grid.
 * The CDF crossing is reported only where the observed difference leaves
   the band the iterations themselves give (2.5-97.5 % of F_i - F_pool on a
-  grid of 256 distances); it is called significant when, in addition, both
-  branches exceed the Dvoretzky-Kiefer-Wolfowitz bound sqrt(ln(2/alpha) /
-  (2K)) (Massart 1990). A single axon with tens of clusters often cannot
-  resolve the crossing, and the program then says so.
+  grid of 256 distances). It is called significant when its strength (the
+  smaller of the largest excess before it and the largest deficit after it)
+  is beyond what the iterations themselves reach, a Monte Carlo rank test at
+  alpha: the exact version of a fixed sampling bound. The
+  Dvoretzky-Kiefer-Wolfowitz bound sqrt(ln(2/alpha) / (2K)) (Massart 1990)
+  is reported beside it; required on both branches it detected a strong
+  planted crossing at K = 50 in only 7 % of synthetic draws, the Monte Carlo
+  rank in about 80 % (validate_randomization.py). A single axon with tens
+  of clusters often cannot resolve the crossing, and the program says so.
 
 Implementation choices the paper does not specify
 -------------------------------------------------
@@ -256,6 +261,7 @@ class RandomizationResult:
     cdf_band_hi: NDArray[np.float64] = field(default_factory=lambda: np.empty(0))
     cdf_dkw_floor: Optional[float] = None
     cdf_crossing_significant: bool = False
+    cdf_crossing_p_mc: Optional[float] = None   # Monte Carlo p of the crossing's strength
 
     # --- how it ran -----------------------------------------------------------
     params: RandomizationParams = field(default_factory=RandomizationParams)
@@ -287,8 +293,8 @@ class RandomizationResult:
             return "not detectable at this K"
         if self.cdf_crossing_significant:
             return f"short-distance excess up to F = {self.cdf_crossing:.2f}"
-        return (f"excess up to F = {self.cdf_crossing:.2f} inside the DKW bound "
-                f"(not significant at this K)")
+        return (f"excess up to F = {self.cdf_crossing:.2f}, within what random placements "
+                f"reach (not significant at this K)")
 
 
 def smooth_contour_bspline(
@@ -540,6 +546,18 @@ def cdf_band_crossing(
     return level, bool(sig_up and sig_down)
 
 
+def crossing_strength(diff: NDArray[np.float64], support: NDArray[np.bool_]) -> NDArray[np.float64]:
+    """How strongly a CDF difference (last axis: the grid) crosses from an excess to a deficit: the largest, over
+    the split points, of the smaller of the largest excess before the split (only where the null has support) and
+    the largest deficit after it; 0 when it never does."""
+    d = np.asarray(diff, dtype=float)
+    up = np.where(np.asarray(support, dtype=bool), d, -np.inf)
+    pre = np.maximum.accumulate(up, axis=-1)
+    suf = np.maximum.accumulate((-d)[..., ::-1], axis=-1)[..., ::-1]
+    s = np.minimum(pre[..., :-1], suf[..., 1:]).max(axis=-1)
+    return np.maximum(s, 0.0)
+
+
 def cdf_band_from_samples(
     obs_sorted: NDArray[np.float64], iterations_sorted: List[NDArray[np.float64]], pool_sorted: NDArray[np.float64],
     alpha: float = DEFAULT_CDF_BAND_ALPHA, n_obs: Optional[int] = None,
@@ -548,7 +566,8 @@ def cdf_band_from_samples(
 
     On ``CDF_GRID_POINTS`` distances spanning both samples: F_null (the pooled CDF), the central 1 - alpha of
     F_i - F_null over the iterations (``band_lo`` / ``band_hi``, differences), the DKW bound of ``n_obs`` points
-    and ``cdf_band_crossing``'s level and significance."""
+    and ``cdf_band_crossing``'s level; "significant" is the Monte Carlo rank test of the crossing's strength
+    (``crossing_strength``) against the iterations' own, at alpha ("p_mc"); "significant_dkw" the DKW rule."""
     lo_x = float(min(pool_sorted[0], obs_sorted[0]))
     hi_x = float(max(pool_sorted[-1], obs_sorted[-1]))
     grid = np.linspace(lo_x, hi_x, CDF_GRID_POINTS)
@@ -560,9 +579,15 @@ def cdf_band_from_samples(
     band_lo = np.percentile(diffs, 100.0 * alpha / 2.0, axis=0)
     band_hi = np.percentile(diffs, 100.0 * (1.0 - alpha / 2.0), axis=0)
     floor = dkw_floor(obs_sorted.size if n_obs is None else int(n_obs), alpha)
-    crossing, significant = cdf_band_crossing(grid, f_obs, f_null, band_lo, band_hi, floor)
+    crossing, significant_dkw = cdf_band_crossing(grid, f_obs, f_null, band_lo, band_hi, floor)
+    support = f_null > 0.0
+    s_null = crossing_strength(diffs, support)
+    s_obs = float(crossing_strength(f_obs - f_null, support))
+    p_mc = monte_carlo_p(s_obs, s_null) if s_obs > 0 else 1.0
+    significant = bool(crossing is not None and p_mc is not None and p_mc <= alpha)
     return {"grid": grid, "f_null": f_null, "f_obs": f_obs, "band_lo": band_lo, "band_hi": band_hi,
-            "floor": floor, "crossing": crossing, "significant": significant}
+            "floor": floor, "crossing": crossing, "significant": significant, "significant_dkw": significant_dkw,
+            "p_mc": p_mc}
 
 
 def randomize_cluster_positions(
@@ -769,6 +794,7 @@ def randomize_cluster_positions(
     grid, f_null = band["grid"], band["f_null"]
     band_lo, band_hi, floor = band["band_lo"], band["band_hi"], band["floor"]
     crossing, significant = band["crossing"], band["significant"]
+    crossing_p = band["p_mc"]
 
     return RandomizationResult(
         experimental_1nn_nm=experimental_1nn_nm,
@@ -799,6 +825,7 @@ def randomize_cluster_positions(
         cdf_band_hi=np.clip(f_null + band_hi, 0.0, 1.0),
         cdf_dkw_floor=floor,
         cdf_crossing_significant=bool(significant),
+        cdf_crossing_p_mc=crossing_p,
         params=RandomizationParams(**{**p.to_dict(), "band_half_width_nm": half_width,
                                       "grid_spacing_nm": grid_step}),
         n_redrawn=n_redrawn,

@@ -223,9 +223,10 @@ ANALYSIS: Dict[str, str] = {
                        "give. Empty when no such crossing is seen. Until "
                        "axon tables v6 this column held a heuristic "
                        "crossing without a band.",
-    "ks_cdf_crossing_significant": "Whether that crossing also exceeds the "
-                                   "sampling bound of K distances (DKW) on "
-                                   "both sides: true is a crossing this "
+    "ks_cdf_crossing_significant": "Whether that crossing is stronger than "
+                                   "random placements of this axon's "
+                                   "clusters reach (Monte Carlo, at the "
+                                   "band's level): true is a crossing this "
                                    "axon resolves.",
     "randomization_n_iterations": "Randomized rings in the null: the "
                                   "complete ones.",

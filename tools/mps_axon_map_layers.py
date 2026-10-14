@@ -1368,7 +1368,8 @@ def cdf_details(shown: Any) -> List[DetailRow]:
              "approximate: the hard core is estimated from the data"),
         _row("Monte Carlo p (D)", _p(r.ks_p_mc_d), "approximate, as above"),
         _row("CDF crossing", r.crossing_words(),
-             f"band alpha {pr.cdf_band_alpha:g}; DKW bound "
+             f"band alpha {pr.cdf_band_alpha:g}; Monte Carlo p of its strength "
+             + _p(getattr(r, "cdf_crossing_p_mc", None)) + "; DKW bound of K distances "
              + ("-" if r.cdf_dkw_floor is None else f"{r.cdf_dkw_floor:.2f}"),
              reg.badge("randomization.cdf_band_alpha", float(pr.cdf_band_alpha))),
         _row("randomizations B", f"{int(r.n_iterations_used):,} used of {int(r.n_iterations):,}", "",

@@ -11,13 +11,16 @@ Calibration of the randomization control and of the SCI-3 statistics (calibratio
      for the exchangeable variant (the other two are reported: approximate by construction); |mean z_D| <= 0.15
      (exchangeable); significant crossings in at most 5 % of null draws.
   B. The crossing detector on distance samples: a null draw (expect a significant crossing in <= 5 %), a planted
-     excess of short distances (30 % of the distances drawn from 0.6 x the null; detection reported, target >= 80 %
-     at K = 50) and a pure shift (expect no crossing).
+     crossing (a share of the distances drawn from 0.5 x the null and another from 1.4 x it: an excess of short
+     distances AND a deficit of long ones, which is what a fixed number of clusters on a fixed perimeter gives;
+     a mixture with only a shorter component lies above the null everywhere and has no crossing at all), at two
+     strengths, detection reported; and a pure shift (expect no crossing).
   C. The band half-width swept over 25 / 50 / 100 nm on simulated axons (``tools.mps_simulate_axon``, radial scatter
      of the centres 10 / 20 / 30 nm): null median 1NN, z_D, p_D. A table; the default is "adequate" when z_D changes
      by less than 0.5 between 25 and 100 nm on rings with 10 nm scatter.
-  D. The grid spacing 2.5 / 5 / 10 nm on a K = 50 ring: the null median moves by less than 1 nm, z_D by less than
-     0.05 (plus Monte Carlo error).
+  D. The grid spacing 2.5 / 5 / 10 nm on a K = 50 ring of continuous (off-grid) centres, 4 seeds each: from 2.5 nm
+     (nearly continuous) to the default 5 nm the mean null median moves by less than 1 nm and the mean z_D by less
+     than 0.05 + 2 standard errors; 10 nm is reported.
   E. The ICC chance level in closed form against 20,000 Monte Carlo draws, 8 designs (balanced and ragged):
      |difference| <= 0.01; with heavy-tailed data (t3) the difference is reported.
   F. The sigma cap of the occupancy: Gaussian clusters (sd 20 nm) and uniform discs (radius 40 nm), n in {5, 10, 20,
@@ -140,8 +143,10 @@ def section_a(reps: int, seed: int) -> None:
                 for key in ("p_mc_median", "p_mc_d"):
                     check(f"K = {row['K']}, exchangeable: {key} inside the Wilson band of 0.05",
                           lo <= row[key] <= hi or row[key] < lo, f"{row[key]:.3f} vs {lo:.3f}-{hi:.3f}")
-                check(f"K = {row['K']}, exchangeable: |mean z_D| <= 0.15", abs(row["mean_z_d"]) <= 0.15,
-                      f"{row['mean_z_d']:+.3f}")
+                # 0.15 plus the Monte Carlo error of a mean over n replicates (z_D has sd about 1)
+                margin = 0.15 + 2.0 / math.sqrt(row["n"])
+                check(f"K = {row['K']}, exchangeable: |mean z_D| <= 0.15 + 2/sqrt(n)", abs(row["mean_z_d"]) <= margin,
+                      f"{row['mean_z_d']:+.3f} (limit {margin:.2f})")
             check(f"K = {row['K']}, {row['variant']}: significant crossings in at most 5 % of null draws (+ MC)",
                   row["significant_crossings"] <= hi, f"{row['significant_crossings']:.3f}")
         worst = max(row["scipy_ks_p"] for row in table)
@@ -152,10 +157,10 @@ def section_a(reps: int, seed: int) -> None:
 
 
 # --------------------------------------------------------------------------------------------- B
-def _band_on_samples(obs: np.ndarray, iters: List[np.ndarray], alpha: float = 0.05) -> Tuple[Any, bool]:
+def _band_on_samples(obs: np.ndarray, iters: List[np.ndarray], alpha: float = 0.05) -> Tuple[Any, bool, bool]:
     pool = np.sort(np.concatenate(iters))
     out = R.cdf_band_from_samples(np.sort(obs), [np.sort(i) for i in iters], pool, alpha, obs.size)
-    return out["crossing"], out["significant"]
+    return out["crossing"], out["significant"], out["significant_dkw"]
 
 
 def section_b(reps: int, seed: int) -> None:
@@ -167,27 +172,36 @@ def section_b(reps: int, seed: int) -> None:
         return rng.gamma(9.0, 25.0, n)
 
     rates = {}
-    for case in ("null", "planted excess", "pure shift"):
+    dkw_rates = {}
+    for case in ("null", "planted crossing, strong", "planted crossing, moderate", "pure shift"):
         hits = 0
+        hits_dkw = 0
         for _ in range(reps):
             iters = [null(k) for _ in range(b)]
             if case == "null":
                 obs = null(k)
-            elif case == "planted excess":
-                m = int(round(0.3 * k))
-                obs = np.concatenate([0.6 * null(m), null(k - m)])
+            elif case.startswith("planted"):
+                share = 0.4 if case.endswith("strong") else 0.25
+                m = int(round(share * k))
+                obs = np.concatenate([0.5 * null(m), 1.4 * null(m), null(k - 2 * m)])
             else:
                 obs = null(k) + 60.0
-            _level, sig = _band_on_samples(obs, iters)
+            _level, sig, sig_dkw = _band_on_samples(obs, iters)
             hits += bool(sig)
+            hits_dkw += bool(sig_dkw)
         rates[case] = hits / reps
-        print(f"    {case:15s} significant crossing in {rates[case]:.3f} of {reps}")
-    RESULTS["B"] = rates
+        dkw_rates[case] = hits_dkw / reps
+        print(f"    {case:28s} significant crossing in {rates[case]:.3f} of {reps} (Monte Carlo rank, the "
+              f"program's rule); {dkw_rates[case]:.3f} with the DKW bound on both branches")
+    RESULTS["B"] = {"monte_carlo": rates, "dkw_both_branches": dkw_rates}
     check("null: a significant crossing in at most 5 % (+ MC)", rates["null"] <= wilson(0.05, reps)[1],
           f"{rates['null']:.3f}")
     check("pure shift: no crossing in at least 95 %", rates["pure shift"] <= wilson(0.05, reps)[1],
           f"{rates['pure shift']:.3f}")
-    print(f"    planted excess detected in {rates['planted excess']:.3f} (target >= 0.80 at K = 50; reported)")
+    check("a strong planted crossing at K = 50 is detected in at least 70 % (the record's target 0.80, Wilson)",
+          rates["planted crossing, strong"] >= 0.70, f"{rates['planted crossing, strong']:.3f}")
+    print(f"    planted crossing detected in {rates['planted crossing, strong']:.3f} (strong) and "
+          f"{rates['planted crossing, moderate']:.3f} (moderate) at K = 50 (reported; the record's target 0.80)")
 
 
 # --------------------------------------------------------------------------------------------- C
@@ -224,22 +238,32 @@ def section_c(n_axons: int, seed: int) -> None:
 
 # --------------------------------------------------------------------------------------------- D
 def section_d(seed: int) -> None:
-    print("\nD. Grid spacing 2.5 / 5 / 10 nm (K = 50, B = 999)")
+    print("\nD. Grid spacing 2.5 / 5 / 10 nm (K = 50, B = 999, continuous centres, 4 seeds)")
     rng = np.random.default_rng(seed)
     contour = _circle(50)
     smoothed = R.smooth_contour_bspline(R.close_contour(contour), smoothing=float(len(contour)))
-    obs = R.place_with_min_distance(R.build_annulus_candidates(smoothed), 50, 80.0, rng)
-    out = {}
+    cand = R.build_annulus_candidates(smoothed)
+    cand = cand + rng.uniform(-2.5, 2.5, cand.shape)          # off the grid, as measured centres are
+    obs = R.place_with_min_distance(cand, 50, 80.0, rng)
+    out: Dict[float, Tuple[float, float, float, float]] = {}
     for g in (2.5, 5.0, 10.0):
-        r = R.randomize_cluster_positions(obs, contour, n_iterations=999,
-                                          params=R.RandomizationParams(grid_spacing_nm=g))
-        out[g] = (r.randomized_median_nm, r.ks_z)
-        print(f"    grid {g:4.1f} nm: null median {r.randomized_median_nm:.1f} nm, z_D {r.ks_z:+.3f}")
+        meds, zs = [], []
+        for s in range(4):
+            r = R.randomize_cluster_positions(obs, contour, n_iterations=999, random_seed=s,
+                                              params=R.RandomizationParams(grid_spacing_nm=g))
+            meds.append(float(r.randomized_median_nm))
+            zs.append(float(r.ks_z))
+        out[g] = (float(np.mean(meds)), float(np.std(meds)), float(np.mean(zs)), float(np.std(zs)))
+        print(f"    grid {g:4.1f} nm: null median {out[g][0]:.1f} +/- {out[g][1]:.1f} nm, z_D {out[g][2]:+.3f} +/- "
+              f"{out[g][3]:.3f} (over seeds)")
     RESULTS["D"] = {str(k): v for k, v in out.items()}
-    dm = max(abs(out[g][0] - out[5.0][0]) for g in out)
-    dz = max(abs(out[g][1] - out[5.0][1]) for g in out)
-    check("the null median moves by less than 1 nm", dm < 1.0, f"{dm:.2f} nm")
-    check("z_D moves by less than 0.05 (+ Monte Carlo error 0.05)", dz < 0.10, f"{dz:.3f}")
+    dm = abs(out[5.0][0] - out[2.5][0])
+    dz = abs(out[5.0][2] - out[2.5][2])
+    se = math.sqrt((out[5.0][3] ** 2 + out[2.5][3] ** 2) / 4)
+    check("2.5 -> 5 nm: the null median moves by less than 1 nm", dm < 1.0, f"{dm:.2f} nm")
+    check("2.5 -> 5 nm: z_D moves by less than 0.05 + 2 SE", dz < 0.05 + 2 * se, f"{dz:.3f} (limit {0.05 + 2 * se:.3f})")
+    print(f"    5 -> 10 nm (reported): null median {out[10.0][0] - out[5.0][0]:+.2f} nm, z_D "
+          f"{out[10.0][2] - out[5.0][2]:+.3f}")
 
 
 # --------------------------------------------------------------------------------------------- E

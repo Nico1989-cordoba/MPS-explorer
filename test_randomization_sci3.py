@@ -176,6 +176,26 @@ def test_cdf_band_crossing() -> None:
     assert level is not None and not sig
 
 
+def test_crossing_strength_and_its_monte_carlo() -> None:
+    grid = np.linspace(0, 1, 11)
+    d = np.array([0.0, 0.1, 0.3, 0.1, 0.0, -0.1, -0.2, -0.05, 0.0, 0.0, 0.0])
+    support = np.ones(11, dtype=bool)
+    assert abs(float(R.crossing_strength(d, support)) - 0.2) < 1e-12
+    support[:3] = False                     # the excess where the null has no support does not count
+    assert abs(float(R.crossing_strength(d, support)) - 0.1) < 1e-12
+    assert float(R.crossing_strength(-np.abs(d), np.ones(11, bool))) == 0.0
+    # a strong planted crossing (excess of short AND deficit of long distances) is significant; a null draw is not
+    rng = np.random.default_rng(9)
+    iters = [np.sort(rng.gamma(9.0, 25.0, 50)) for _ in range(199)]
+    pool = np.sort(np.concatenate(iters))
+    m = 25
+    planted = np.sort(np.concatenate([0.4 * rng.gamma(9.0, 25.0, m), 1.6 * rng.gamma(9.0, 25.0, m)]))
+    out = R.cdf_band_from_samples(planted, iters, pool, 0.05, 50)
+    assert out["crossing"] is not None and out["significant"] and out["p_mc"] <= 0.05, out["p_mc"]
+    null = R.cdf_band_from_samples(np.sort(rng.gamma(9.0, 25.0, 50)), iters, pool, 0.05, 50)
+    assert not null["significant"]
+
+
 def test_params_store_never_clamps() -> None:
     p = R.RandomizationParams.from_dict({"band_half_width_nm": 300, "grid_spacing_nm": "x", "foo": 1,
                                          "hard_core": "bias-corrected", "exclude_incomplete": False})

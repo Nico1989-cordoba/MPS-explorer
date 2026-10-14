@@ -398,9 +398,11 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        words=lambda v: f"CDF band alpha {v:g}",
        origin_note="first principles: a sign change of the CDF difference is reported only where it leaves the "
                    "band the randomizations themselves give (the central 1 - alpha of F_i - F_pool); it is "
-                   "significant when both branches also exceed the sampling bound of K distances, sqrt(ln(2 / "
-                   "alpha) / (2K)) (Dvoretzky-Kiefer-Wolfowitz, Massart 1990); the earlier relative floor had no "
-                   "sampling basis",
+                   "significant when its strength (the smaller of the excess before it and the deficit after it) "
+                   "is beyond what the randomizations reach, a Monte Carlo rank test at alpha (Besag and Diggle "
+                   "1977), the exact version of the sampling bound of K distances sqrt(ln(2 / alpha) / (2K)) "
+                   "(Dvoretzky-Kiefer-Wolfowitz, Massart 1990), which is shown beside it; the earlier relative "
+                   "floor had no sampling basis",
        shown_as="Randomization editor and 'More' line; the CDF-crossing cell; axon table",
        documented_range=(0.01, 0.10), range_text="0.01-0.10",
        records=("rand-cdf-crossing-level", "rand-cdf-crossing-floor-015"), editable=True, fmt=".2f"),

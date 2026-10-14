@@ -139,7 +139,7 @@ MC_P_TIP = (
     "and minimum separation gives a median 1NN (two-sided) or a D at least as extreme. Approximate: the minimum "
     "separation of the null is estimated from the same data.")
 CROSSING_TIP = ("Reported only where the observed CDF leaves the band the randomizations themselves give; called "
-                "significant when both branches also exceed the sampling bound of K distances (DKW).")
+                "significant when the crossing is stronger than the randomizations themselves reach (Monte Carlo).")
 # The reference cell of each row, by the row's name (summary_rows), and the registry entry that says what it is.
 _REFERENCE_KEYS: Dict[str, str] = {
     "Clusters per um": "reference.clusters_per_um",
