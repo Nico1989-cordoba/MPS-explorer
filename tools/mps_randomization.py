@@ -538,6 +538,31 @@ def cdf_band_crossing(
     return level, bool(sig_up and sig_down)
 
 
+def cdf_band_from_samples(
+    obs_sorted: NDArray[np.float64], iterations_sorted: List[NDArray[np.float64]], pool_sorted: NDArray[np.float64],
+    alpha: float = DEFAULT_CDF_BAND_ALPHA, n_obs: Optional[int] = None,
+) -> Dict[str, Any]:
+    """The null band of the CDF difference and the crossing read against it.
+
+    On ``CDF_GRID_POINTS`` distances spanning both samples: F_null (the pooled CDF), the central 1 - alpha of
+    F_i - F_null over the iterations (``band_lo`` / ``band_hi``, differences), the DKW bound of ``n_obs`` points
+    and ``cdf_band_crossing``'s level and significance."""
+    lo_x = float(min(pool_sorted[0], obs_sorted[0]))
+    hi_x = float(max(pool_sorted[-1], obs_sorted[-1]))
+    grid = np.linspace(lo_x, hi_x, CDF_GRID_POINTS)
+    f_null = np.searchsorted(pool_sorted, grid, side="right") / pool_sorted.size
+    f_obs = np.searchsorted(obs_sorted, grid, side="right") / obs_sorted.size
+    diffs = np.empty((len(iterations_sorted), grid.size))
+    for i, nn in enumerate(iterations_sorted):
+        diffs[i] = np.searchsorted(nn, grid, side="right") / nn.size - f_null
+    band_lo = np.percentile(diffs, 100.0 * alpha / 2.0, axis=0)
+    band_hi = np.percentile(diffs, 100.0 * (1.0 - alpha / 2.0), axis=0)
+    floor = dkw_floor(obs_sorted.size if n_obs is None else int(n_obs), alpha)
+    crossing, significant = cdf_band_crossing(grid, f_obs, f_null, band_lo, band_hi, floor)
+    return {"grid": grid, "f_null": f_null, "f_obs": f_obs, "band_lo": band_lo, "band_hi": band_hi,
+            "floor": floor, "crossing": crossing, "significant": significant}
+
+
 def randomize_cluster_positions(
     centroids: NDArray[np.float64],
     contour: NDArray[np.float64],
@@ -738,19 +763,10 @@ def randomize_cluster_positions(
     p_med = monte_carlo_p(float(np.median(experimental_1nn_nm)), med_arr, two_sided=True)
 
     # ---------------- the CDF band and the crossing -----------------------
-    lo_x = float(min(pool[0], exp_sorted[0]))
-    hi_x = float(max(pool[-1], exp_sorted[-1]))
-    grid = np.linspace(lo_x, hi_x, CDF_GRID_POINTS)
-    f_null = np.searchsorted(pool, grid, side="right") / pool.size
-    f_obs = np.searchsorted(exp_sorted, grid, side="right") / exp_sorted.size
-    diffs = np.empty((b_used, grid.size))
-    for i, nn in enumerate(sorted_iters):
-        diffs[i] = np.searchsorted(nn, grid, side="right") / nn.size - f_null
-    alpha = float(p.cdf_band_alpha)
-    band_lo = np.percentile(diffs, 100.0 * alpha / 2.0, axis=0)
-    band_hi = np.percentile(diffs, 100.0 * (1.0 - alpha / 2.0), axis=0)
-    floor = dkw_floor(n_clusters, alpha)
-    crossing, significant = cdf_band_crossing(grid, f_obs, f_null, band_lo, band_hi, floor)
+    band = cdf_band_from_samples(exp_sorted, sorted_iters, pool, float(p.cdf_band_alpha), n_clusters)
+    grid, f_null = band["grid"], band["f_null"]
+    band_lo, band_hi, floor = band["band_lo"], band["band_hi"], band["floor"]
+    crossing, significant = band["crossing"], band["significant"]
 
     return RandomizationResult(
         experimental_1nn_nm=experimental_1nn_nm,

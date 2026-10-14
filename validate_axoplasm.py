@@ -1149,7 +1149,7 @@ def test_without_clusters() -> None:
         assert again.randomization.n_iterations == 100
         # ... and give what analyze_axon now measures in the first place.
         for name in ("perimeter_um", "occupancy_percent", "ks_statistic",
-                     "ks_pvalue", "median_1nn_nm"):
+                     "median_1nn_nm"):
             assert getattr(again, name) == getattr(default, name), name
         assert np.array_equal(again.perimeter.order, default.perimeter.order)
         assert again.centre.x_nm == default.centre.x_nm
@@ -1207,7 +1207,7 @@ def test_without_clusters() -> None:
         assert none.all_clusters is every
         assert same.discard_applied and same.n_clusters_discarded == 0
         for name in ("perimeter_um", "median_1nn_nm", "occupancy_percent",
-                     "ks_statistic", "ks_pvalue", "median_area_nm2"):
+                     "ks_statistic", "median_area_nm2"):
             assert getattr(same, name) == getattr(every, name), name
         assert any("none of the 40" in w for w in same.warnings)
         return "every number equal to 'all clusters'"

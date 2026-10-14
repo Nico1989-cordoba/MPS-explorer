@@ -203,12 +203,14 @@ class MoreLine(QtWidgets.QWidget):
         self.label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         self.label.setStyleSheet(f"color: {_dim(dark)};")
         lay.addWidget(self.label, 1)
-        # SCI-3: the group's values are edited in a dialog the window opens from this button.
+        # SCI-3: the group's values are edited in a dialog the window opens from this button, shown with the
+        # values (expanded), so the collapsed strip keeps its width at 1366 px.
+        self._editable = bool(editable)
         self.edit_button = QtWidgets.QToolButton()
         self.edit_button.setObjectName(f"more_edit_{group}")
         self.edit_button.setText("Edit...")
         self.edit_button.setAutoRaise(True)
-        self.edit_button.setVisible(bool(editable))
+        self.edit_button.setVisible(False)
         lay.addWidget(self.edit_button, 0, QtCore.Qt.AlignmentFlag.AlignTop)
         self.button.toggled.connect(self._fold)
         self.refresh()
@@ -228,6 +230,7 @@ class MoreLine(QtWidgets.QWidget):
 
     def _fold(self, expanded: bool) -> None:
         self.label.setVisible(bool(expanded))
+        self.edit_button.setVisible(self._editable and bool(expanded))
         self.button.setArrowType(QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow)
 
     def is_expanded(self) -> bool:

@@ -139,9 +139,19 @@ def main() -> int:
         assert m.label.text() == reg.more_line("randomization")
         m.button.setChecked(True)
         assert m.is_expanded() and not m.label.isHidden()
-        assert "later version" in m.toolTip() and "Documented range" in m.toolTip()
+        assert "Documented range" in m.toolTip() and "Monte Carlo p-value is exact" in m.toolTip()
         assert "SCI-" not in m.toolTip() and "record " not in m.toolTip(), m.toolTip()
-        return "collapsed by default; the registry's line; every item's tooltip"
+        # SCI-3: "Edit..." only where the window edits the group, shown with the values (expanded); the values
+        # in use set the badges
+        assert m.edit_button.isHidden()
+        e = oui.MoreLine("randomization", editable=True)
+        assert e.edit_button.isHidden(), "collapsed: the strip keeps its width"
+        e.button.setChecked(True)
+        assert not e.edit_button.isHidden() and e.edit_button.text() == "Edit..."
+        e.set_values({"randomization.band_half_width_nm": 80.0})
+        assert e.label.text().startswith("band +/-80 nm [user; 20-150]"), e.label.text()
+        assert "you set 80 nm" in e.toolTip()
+        return "collapsed by default; the registry's line; every item's tooltip; Edit... and the values in use"
 
     def details_panel() -> str:
         p = oui.DetailsPanel("Details", object_name="details_axial")
@@ -283,7 +293,10 @@ def main() -> int:
         rows = [w.table.item(r, 0).text() for r in range(w.table.rowCount())]
         ks = rows.index("Randomization KS test")
         cell = w.table.item(ks, 1)
-        assert "four times" in cell.toolTip() and "Monte Carlo" in cell.toolTip()
+        # SCI-3: the KS p is gone; the KS cell says why, the Monte Carlo row carries the p-values
+        assert "four times" in cell.toolTip() and "z_D" in cell.toolTip()
+        mc = w.table.item(rows.index("  Monte Carlo p"), 1)
+        assert "Monte Carlo" in mc.toolTip() and "Approximate" in mc.toolTip()
         assert "P-R" not in cell.toolTip() and "SCI-" not in cell.toolTip(), cell.toolTip()
         shown = w._shown()
         assert cell.text() == next(m for n, m, _p, _note in shown.summary_rows() if n == rows[ks])
