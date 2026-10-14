@@ -7,9 +7,9 @@ column tests of the review follow tau together while the 2D test's E(tau) curve 
 
 - Pure: ``tau_choices`` from the loaded parameters (and from modified ones: the presets follow the file);
   ``normalize_tau`` / ``is_tau0`` / ``params_at_tau`` (the loaded object itself at tau_0, only ``tau0_nm`` differs
-  otherwise); the identity pins (the pre-specified selection at tau_0 keeps its label and hash, ``733f8476``; ``v2[]``
-  keeps ``ed9a648f``; at another tau the label gains " | tau = X nm" and an 8-hex hash of its own); distinct labels
-  and hashes over 64 selections x 5 taus; the hash follows the thresholds; the log row at tau_0 is the selection's
+  otherwise); the identity pins (the pre-specified selection at tau_0 keeps its label and hash, ``d9ebf7c1``; ``v2[]``
+  keeps ``b85cb4b2``; at another tau the label gains " | tau = X nm" and an 8-hex hash of its own); distinct labels
+  and hashes over 64 selections x 5 taus; the hash follows the thresholds (SCI-5 changed them, hence the two pins); the log row at tau_0 is the selection's
   row key by key.
 - The exploration log written by the program before this stage (its 22 columns as a literal here): a row at another
   tau is appended after the original bytes, the header unchanged; ``variant_counts`` equals
@@ -55,8 +55,8 @@ DD62D5A_LOG_HEADER: Tuple[str, ...] = (
 DD62D5A_COUNTER_1 = ("1 selection variant tried this session on this axon - p values are not corrected for trying "
                      "several selections")
 DEFAULT_LABEL = "v2[peak,valley,count,leak:D-39]"
-DEFAULT_HASH = "733f8476"
-EMPTY_HASH = "ed9a648f"
+DEFAULT_HASH = "d9ebf7c1"
+EMPTY_HASH = "b85cb4b2"
 OTHER_TAUS = (10.0, 30.0, 55.5, 100.0, 300.0)
 
 
