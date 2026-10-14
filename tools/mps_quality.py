@@ -42,8 +42,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.optimize import curve_fit
+from scipy.optimize import brentq, curve_fit, minimize, minimize_scalar
 from scipy.spatial import cKDTree
+from scipy.special import ndtr
 
 # A component wider than this multiple of the localization precision is
 # carrying structure, not just noise. 1.5 is the upper sigma bound G5M
@@ -53,9 +54,60 @@ from scipy.spatial import cKDTree
 RESOLVED_SIGMA_FACTOR = 1.5
 
 # Below this many next-frame neighbour pairs the NeNA fit is not worth
-# reporting. Endesfelder's method needs the single-molecule peak to
-# stand out of the random-neighbour background.
+# reporting. The number itself was set by hand (ad hoc) when NeNA was first
+# added; it is kept because a derivation agrees with it: for pairs that are
+# all the same molecule seen twice, the maximum-likelihood scale of a
+# Rayleigh law has a standard error of s / (2 sqrt(n)), so its 95 % interval
+# is narrower than +-5 % once n >= (1.96 / (2 x 0.05))^2 = 384. Below that
+# even a perfect file cannot give NeNA to 5 %. docs/nena.md, section 6.
 MIN_NENA_PAIRS = 500
+
+# --- the maximum-likelihood NeNA estimator (docs/nena.md) -----------------
+# Width of the bins the likelihood is evaluated on. The likelihood uses the
+# exact probability of each bin (differences of the two components' CDFs),
+# so binning only loses the position of a distance inside 0.05 nm -- 1/60 of
+# the smallest precision this module expects (3 nm). Derivation, not a fit
+# setting: the result does not depend on the 0.5 nm display histogram.
+NENA_ML_BIN_NM = 0.05
+# 95 % quantile of chi-square with 1 degree of freedom: the profile-likelihood
+# interval is where 2 (logL_max - logL_profile(s)) <= 3.841 (Wilks 1938).
+NENA_CHI2_95 = 3.841458820694124
+# Picasso's constraint a >= ac, restated for components normalized on the
+# fitted range: the same-molecule term carries at least half of the pairs.
+NENA_MIN_SAME_FRACTION = 0.5
+# Lower bound on the "nearby" Gaussian's width, in units of s. The distance
+# between localizations of two DIFFERENT molecules a fixed distance apart
+# spreads radially by the two localization errors, i.e. sqrt(2) s; a spread
+# of separations only widens it. A narrower "nearby" term is not a
+# population of neighbours -- it is the fit carving the same-molecule peak.
+# Derivation (docs/nena.md, section 3).
+NENA_NEARBY_MIN_SD_FACTOR = float(np.sqrt(2.0))
+# The nearby term costs three parameters (its weight, centre and width). It
+# is kept only when it raises the log-likelihood by more than the Bayesian
+# information criterion's price, 3/2 ln(n) (Schwarz 1978); otherwise the
+# fit is Picasso's model with ac = 0 -- inside Picasso's own bounds -- and
+# the nearby term is not allowed to carve the peak's shoulder out of noise.
+# Without this the likelihood fit, like the least-squares one, came out
+# 5 % low or more on pure same-molecule data (docs/nena.md, section 2).
+NENA_NEARBY_PARAMETERS = 3
+# Agreement check: the estimate with an extra random-neighbour term must lie
+# inside NeNA's 95 % interval OR within 5 % of it. 5 % is the same tolerance
+# the validation counts as a failure (own simulation, docs/sims/nena).
+NENA_AGREEMENT_TOLERANCE = 0.05
+# A 95 % interval wider than +-10 % of the value means the fit is poorly
+# identified (twice the 5 % tolerance; ad hoc, documented).
+NENA_MAX_CI_HALF_WIDTH = 0.10
+# Share of the close pairs (d < 2 sqrt(2) s) that also have a SECOND
+# localization within that distance in the next frame. Above it the
+# nearest-neighbour rule itself starts picking another molecule over the
+# molecule's own next localization, and NeNA reads low whatever the fit.
+# Own simulation (docs/sims/nena/nena_grid.py, clustered cells): above 0.15
+# the median NeNA is more than 5 % low.
+NENA_CROWDING_LIMIT = 0.15
+# Share of the same-molecule distance law beyond max_distance_nm above which
+# the window is too short (the likelihood accounts for the cut; it just has
+# little left to measure).
+NENA_TRUNCATION_LIMIT = 0.10
 
 
 # ===================================================================
@@ -73,6 +125,10 @@ class NeNAResult:
     peak whose width IS the localization precision. It needs no
     calibration and no knowledge of the photon count, which is what makes
     it the check on the precision the fit reports.
+
+    ``precision_nm`` is Picasso's two-component model fitted by maximum
+    likelihood (docs/nena.md). The added fields describe how well that one
+    number is pinned down; none of them replaces it.
     """
 
     precision_nm: float
@@ -88,6 +144,71 @@ class NeNAResult:
         default_factory=lambda: np.array([])
     )
     warnings: List[str] = field(default_factory=list)
+    # --- added with the maximum-likelihood estimator (all optional) ---
+    method: str = ""
+    ci_low_nm: float = float("nan")      # 95 % profile-likelihood interval
+    ci_high_nm: float = float("nan")
+    same_molecule_fraction: float = float("nan")   # weight of the peak
+    nearby_centre_nm: float = float("nan")
+    nearby_sd_nm: float = float("nan")
+    # The same fit with a third term for randomly placed neighbours: the
+    # independent estimate the agreement check compares against.
+    random_term_nm: float = float("nan")
+    # Picasso's own least-squares fit of the same model on the 0.5 nm
+    # histogram (the estimator used before 2026-10-14), for comparison.
+    lsq_nm: float = float("nan")
+    crowding_fraction: float = float("nan")
+    well_identified: bool = False
+    flags: List[str] = field(default_factory=list)
+    nearby_term_used: bool = False
+
+
+def _next_frame_neighbours_nm(
+    frame: NDArray[np.int64],
+    x_nm: NDArray[np.float64],
+    y_nm: NDArray[np.float64],
+    max_distance_nm: float,
+) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """
+    Distance from each localization to its nearest and second-nearest
+    neighbour in the NEXT frame, for the localizations whose nearest one is
+    closer than ``max_distance_nm``. The second is ``inf`` when the next
+    frame has a single localization.
+    """
+    order = np.argsort(frame, kind="stable")
+    frame, x_nm, y_nm = frame[order], x_nm[order], y_nm[order]
+    unique, start = np.unique(frame, return_index=True)
+    end = np.append(start[1:], frame.size)
+    bounds = {int(f): (int(s), int(e)) for f, s, e in zip(unique, start, end)}
+
+    first_chunks: List[NDArray[np.float64]] = []
+    second_chunks: List[NDArray[np.float64]] = []
+    for value, first, last in zip(unique, start, end):
+        following = bounds.get(int(value) + 1)
+        if following is None:
+            continue
+        n_first, n_last = following
+        if n_last <= n_first or last <= first:
+            continue
+        tree = cKDTree(np.column_stack([x_nm[n_first:n_last],
+                                        y_nm[n_first:n_last]]))
+        k = 2 if n_last - n_first >= 2 else 1
+        distances, _ = tree.query(
+            np.column_stack([x_nm[first:last], y_nm[first:last]]), k=k
+        )
+        distances = np.asarray(distances, dtype=float).reshape(last - first, k)
+        first_chunks.append(distances[:, 0])
+        second_chunks.append(
+            distances[:, 1] if k == 2 else np.full(last - first, np.inf)
+        )
+
+    if not first_chunks:
+        empty = np.array([], dtype=float)
+        return empty, empty
+    nearest = np.concatenate(first_chunks)
+    second = np.concatenate(second_chunks)
+    keep = nearest < max_distance_nm
+    return nearest[keep], second[keep]
 
 
 def _next_frame_distances_nm(
@@ -104,31 +225,355 @@ def _next_frame_distances_nm(
     both; anything else contributes a random neighbour, which is the
     broad background the fit separates out.
     """
-    order = np.argsort(frame, kind="stable")
-    frame, x_nm, y_nm = frame[order], x_nm[order], y_nm[order]
-    unique, start = np.unique(frame, return_index=True)
-    end = np.append(start[1:], frame.size)
-    bounds = {int(f): (int(s), int(e)) for f, s, e in zip(unique, start, end)}
+    return _next_frame_neighbours_nm(frame, x_nm, y_nm, max_distance_nm)[0]
 
-    chunks: List[NDArray[np.float64]] = []
-    for value, first, last in zip(unique, start, end):
-        following = bounds.get(int(value) + 1)
-        if following is None:
-            continue
-        n_first, n_last = following
-        if n_last <= n_first or last <= first:
-            continue
-        tree = cKDTree(np.column_stack([x_nm[n_first:n_last],
-                                        y_nm[n_first:n_last]]))
-        distances, _ = tree.query(
-            np.column_stack([x_nm[first:last], y_nm[first:last]]), k=1
-        )
-        chunks.append(np.asarray(distances, dtype=float))
 
-    if not chunks:
-        return np.array([], dtype=float)
-    everything = np.concatenate(chunks)
-    return everything[everything < max_distance_nm]
+def _picasso_model(
+    d: NDArray[np.float64], delta_a: float, s: float, ac: float, dc: float,
+    sc: float,
+) -> NDArray[np.float64]:
+    """Picasso's NeNA model on a histogram (``picasso.postprocess.nena``)."""
+    a = ac + delta_a  # keeps a >= ac, as in Picasso
+    single = a * (d / (2.0 * s**2)) * np.exp(-(d**2) / (4.0 * s**2))
+    nearby = (
+        ac / (sc * np.sqrt(2.0 * np.pi))
+        * np.exp(-0.5 * ((d - dc) / sc) ** 2)
+    )
+    return np.asarray(single + nearby, dtype=float)
+
+
+def _picasso_lsq(
+    centres: NDArray[np.float64],
+    counts: NDArray[np.float64],
+    max_distance_nm: float,
+    reported_lp_nm: Optional[float],
+) -> float:
+    """
+    The estimator used before 2026-10-14, kept for comparison: Picasso's
+    least-squares fit of its model on the histogram, three starting points,
+    the smallest residual kept. It can settle on a narrower peak while the
+    "nearby" term takes the peak's shoulder (docs/nena.md, section 2).
+    """
+    area = float(np.trapezoid(counts, centres))
+    seed = float(reported_lp_nm) if reported_lp_nm else max_distance_nm / 12.0
+    peak = float(centres[int(np.argmax(counts))])
+    starts = [
+        [0.8 * area, seed, 0.1 * area, 2.0 * seed, seed],
+        [0.8 * area, peak / np.sqrt(2.0), 0.1 * area,
+         0.7 * centres[-1], 0.3 * centres[-1]],
+        [0.8 * area, seed, 0.1 * area, 0.5 * centres[-1], seed],
+    ]
+    best = float("nan")
+    best_residual = np.inf
+    for start in starts:
+        if not np.all(np.isfinite(start)):
+            continue
+        try:
+            candidate, _ = curve_fit(
+                _picasso_model, centres, counts, p0=start,
+                bounds=([0.0] * 5, [np.inf] * 5), maxfev=20000,
+            )
+        except (RuntimeError, ValueError):
+            continue
+        residual = float(np.sum(
+            (_picasso_model(centres, *candidate) - counts) ** 2))
+        if residual < best_residual:
+            best_residual, best = residual, float(candidate[1])
+    return best
+
+
+def _rayleigh_cdf(d: Any, s: float) -> Any:
+    """CDF of the same-molecule distance: Rayleigh law of scale sqrt(2) s."""
+    return -np.expm1(-(np.asarray(d, dtype=float) ** 2) / (4.0 * s * s))
+
+
+class _NeNALikelihood:
+    """
+    Multinomial likelihood of the next-frame distances on [0, D), with
+    every component normalized on that range:
+
+        w * Rayleigh(s)  +  (1 - w) * Gaussian(dc, sc)            (Picasso)
+        w * Rayleigh(s)  +  (1 - w) * [u * Rayleigh(t)
+                                        + (1 - u) * Gaussian(dc, sc)]
+
+    The second adds the nearest-neighbour law of randomly placed
+    localizations (2 pi rho d exp(-pi rho d^2), a Rayleigh law of its own
+    with t >= 2 s): the independent estimate of the agreement check.
+    """
+
+    def __init__(self, distances: NDArray[np.float64], max_distance_nm: float):
+        self.d_max = float(max_distance_nm)
+        edges = np.arange(0.0, self.d_max, NENA_ML_BIN_NM)
+        edges = np.append(edges, self.d_max)
+        counts, _ = np.histogram(distances, bins=edges)
+        used = counts > 0
+        self.lo = edges[:-1][used]
+        self.hi = edges[1:][used]
+        self.n = counts[used].astype(float)
+        self.n_total = float(self.n.sum())
+        cumulative = np.cumsum(self.n)
+        self.median = float(
+            self.hi[int(np.searchsorted(cumulative, 0.5 * cumulative[-1]))])
+
+    # ------------------------------------------------ component masses
+    def _rayleigh_mass(self, s: float) -> NDArray[np.float64]:
+        total = float(_rayleigh_cdf(self.d_max, s))
+        return np.asarray(
+            (_rayleigh_cdf(self.hi, s) - _rayleigh_cdf(self.lo, s))
+            / max(total, 1e-300), dtype=float)
+
+    def _gauss_mass(self, dc: float, sc: float) -> NDArray[np.float64]:
+        total = float(ndtr((self.d_max - dc) / sc) - ndtr(-dc / sc))
+        return np.asarray(
+            (ndtr((self.hi - dc) / sc) - ndtr((self.lo - dc) / sc))
+            / max(total, 1e-300), dtype=float)
+
+    def _nll(self, p: NDArray[np.float64]) -> float:
+        return -float(np.sum(self.n * np.log(np.maximum(p, 1e-300))))
+
+    def nll2(self, s: float, w: float, dc: float, sc: float) -> float:
+        p = w * self._rayleigh_mass(s)
+        if w < 1.0:
+            p = p + (1.0 - w) * self._gauss_mass(dc, sc)
+        return self._nll(p)
+
+    def nll3(self, s: float, w: float, u: float, t: float, dc: float,
+             sc: float) -> float:
+        rest = (u * self._rayleigh_mass(t)
+                + (1.0 - u) * self._gauss_mass(dc, sc))
+        return self._nll(w * self._rayleigh_mass(s) + (1.0 - w) * rest)
+
+    # ------------------------------------------------ display
+    def cdf2(self, d: NDArray[np.float64], s: float, w: float, dc: float,
+             sc: float) -> NDArray[np.float64]:
+        ray = _rayleigh_cdf(d, s) / max(float(_rayleigh_cdf(self.d_max, s)),
+                                        1e-300)
+        low = float(ndtr(-dc / sc))
+        total = float(ndtr((self.d_max - dc) / sc)) - low
+        gauss = (ndtr((np.asarray(d) - dc) / sc) - low) / max(total, 1e-300)
+        return np.asarray(w * ray + (1.0 - w) * gauss, dtype=float)
+
+
+def _nena_fit_two(
+    lik: _NeNALikelihood,
+    starts: Sequence[Tuple[float, float, float, float]],
+    s_fixed: Optional[float] = None,
+) -> Tuple[float, Optional[Tuple[float, float, float, float]]]:
+    """
+    Minimize the two-component negative log-likelihood from every start and
+    keep the smallest. Parameters inside the optimizer are scaled to order
+    one; sc is s x (sqrt(2) + rho) so the nearby term can never be narrower
+    than NENA_NEARBY_MIN_SD_FACTOR x s. With ``s_fixed`` s is held (the
+    profile).
+    """
+    d_max = lik.d_max
+    s_low, s_high = max(1e-3 * d_max, 0.05), 0.5 * d_max
+    best_nll, best = np.inf, None
+    for s0, w0, dc0, sc0 in starts:
+        s_start = s_fixed if s_fixed is not None else s0
+        rho0 = min(max(sc0 / s_start - NENA_NEARBY_MIN_SD_FACTOR, 0.05), 49.0)
+        w0 = min(max(w0, NENA_MIN_SAME_FRACTION), 1.0)
+        dc0 = min(max(dc0, 0.0), 3.0 * d_max)
+
+        def unpack(v: NDArray[np.float64]) -> Tuple[float, float, float, float]:
+            s = s_fixed if s_fixed is not None else float(v[0]) * d_max
+            return (s, float(v[1]), float(v[2]) * d_max,
+                    s * (NENA_NEARBY_MIN_SD_FACTOR + 10.0 * float(v[3])))
+
+        def objective(v: NDArray[np.float64]) -> float:
+            return lik.nll2(*unpack(v))
+
+        x0 = np.array([s_start / d_max, w0, dc0 / d_max, rho0 / 10.0])
+        s_bounds = ((s_fixed / d_max, s_fixed / d_max) if s_fixed is not None
+                    else (s_low / d_max, s_high / d_max))
+        bounds = [s_bounds, (NENA_MIN_SAME_FRACTION, 1.0), (0.0, 3.0),
+                  (0.0, 5.0)]
+        x0[0] = min(max(x0[0], s_bounds[0]), s_bounds[1])
+        try:
+            found = minimize(objective, x0, method="L-BFGS-B", bounds=bounds)
+        except (ValueError, FloatingPointError):
+            continue
+        if np.isfinite(found.fun) and found.fun < best_nll:
+            best_nll, best = float(found.fun), unpack(found.x)
+    return best_nll, best
+
+
+def _nena_starts(
+    lik: _NeNALikelihood, reported_lp_nm: Optional[float],
+) -> List[Tuple[float, float, float, float]]:
+    """Starting points: four seeds for s (the median of a pure Rayleigh law
+    is 1.665 s) x two weights x three placements of the nearby term."""
+    d_max = lik.d_max
+    s_med = lik.median / 1.665
+    seeds = [0.6 * s_med, s_med, 1.4 * s_med]
+    if reported_lp_nm and np.isfinite(reported_lp_nm) and reported_lp_nm > 0:
+        seeds.append(float(reported_lp_nm))
+    out: List[Tuple[float, float, float, float]] = []
+    for s0 in seeds:
+        for w0 in (0.95, 0.7):
+            for dc0, sc0 in ((3.0 * s0, 2.0 * s0), (0.5 * d_max, 0.25 * d_max),
+                             (d_max, d_max / 3.0)):
+                out.append((s0, w0, dc0, sc0))
+    return out
+
+
+def _nena_profile_interval(
+    lik: _NeNALikelihood,
+    best_nll: float,
+    best: Tuple[float, float, float, float],
+) -> Tuple[float, float, bool, bool, Optional[Tuple[float, Tuple[float, float, float, float]]]]:
+    """
+    95 % profile-likelihood interval for s: the values where the
+    negative log-likelihood, minimized over the nuisance parameters, rises
+    NENA_CHI2_95 / 2 above its minimum. Returns (low, high, low_open,
+    high_open, better) where ``better`` is a fit with a smaller
+    negative log-likelihood met on the way (the global search missed it).
+    """
+    s_hat = best[0]
+    d_max = lik.d_max
+    s_low, s_high = max(1e-3 * d_max, 0.05), 0.5 * d_max
+    target = 0.5 * NENA_CHI2_95
+    nuisance = [(best[0], best[1], best[2], best[3])]
+
+    def profile(s: float) -> float:
+        starts = [(s, w, dc, sc / best[0] * s) for _, w, dc, sc in nuisance[-2:]]
+        starts.append((s, 1.0, best[2], best[3]))
+        value, params = _nena_fit_two(lik, starts, s_fixed=s)
+        if params is not None:
+            nuisance.append(params)
+            if value < best_nll - 1e-6:
+                better.append((value, params))
+        return value - best_nll
+
+    better: List[Tuple[float, Tuple[float, float, float, float]]] = []
+    step0 = 2.0 * s_hat / np.sqrt(max(lik.n_total, 1.0))
+    limits: List[float] = []
+    opens: List[bool] = []
+    for direction, wall in ((-1.0, s_low), (1.0, s_high)):
+        del nuisance[1:]
+        inner, step, edge = s_hat, step0, None
+        for _ in range(40):
+            trial = s_hat + direction * step
+            if (trial - wall) * direction >= 0.0:
+                trial = wall
+            rise = profile(trial)
+            if better:
+                return float("nan"), float("nan"), True, True, better[-1]
+            if rise >= target:
+                edge = trial
+                break
+            if trial == wall:
+                break
+            inner, step = trial, step * 1.6
+        if edge is None:
+            limits.append(wall)
+            opens.append(True)
+            continue
+        a, b = inner, edge
+        for _ in range(30):            # bisection on the crossing
+            mid = 0.5 * (a + b)
+            if profile(mid) >= target:
+                b = mid
+            else:
+                a = mid
+            if abs(b - a) < 1e-3 * s_hat:
+                break
+        limits.append(0.5 * (a + b))
+        opens.append(False)
+    return limits[0], limits[1], opens[0], opens[1], None
+
+
+def _nena_random_term(
+    lik: _NeNALikelihood, best: Tuple[float, float, float, float],
+) -> float:
+    """s of the three-component model (same molecule + random neighbours +
+    nearby Gaussian), started from the two-component fit."""
+    d_max = lik.d_max
+    s_hat, w_hat, dc_hat, sc_hat = best
+    s_low, s_high = max(1e-3 * d_max, 0.05), 0.5 * d_max
+    starts = [
+        (s_hat, w_hat, 0.5, d_max, dc_hat, sc_hat),
+        (s_hat, min(1.0, w_hat + 0.05), 0.9, 0.5 * d_max, dc_hat, sc_hat),
+        (s_hat, max(0.0, w_hat - 0.2), 0.8, d_max, 0.5 * d_max, 0.25 * d_max),
+        (lik.median / 1.665, 0.7, 0.5, d_max, 0.5 * d_max, 0.25 * d_max),
+    ]
+    best_nll, best_s = np.inf, float("nan")
+    for s0, w0, u0, t0, dc0, sc0 in starts:
+        s0 = min(max(s0, s_low), s_high)
+
+        def unpack(v: NDArray[np.float64]) -> Tuple[float, float, float, float, float, float]:
+            s = float(v[0]) * d_max
+            return (s, float(v[1]), float(v[2]),
+                    s * (2.0 + 10.0 * float(v[3])), float(v[4]) * d_max,
+                    s * (NENA_NEARBY_MIN_SD_FACTOR + 10.0 * float(v[5])))
+
+        def objective(v: NDArray[np.float64]) -> float:
+            return lik.nll3(*unpack(v))
+
+        x0 = np.array([
+            s0 / d_max, w0, u0,
+            min(max(t0 / s0 - 2.0, 0.01), 999.0) / 10.0,
+            min(max(dc0, 0.0), 3.0 * d_max) / d_max,
+            min(max(sc0 / s0 - NENA_NEARBY_MIN_SD_FACTOR, 0.05), 49.0) / 10.0,
+        ])
+        bounds = [(s_low / d_max, s_high / d_max), (0.0, 1.0), (0.0, 1.0),
+                  (0.0, 100.0), (0.0, 3.0), (0.0, 5.0)]
+        try:
+            found = minimize(objective, x0, method="L-BFGS-B", bounds=bounds)
+        except (ValueError, FloatingPointError):
+            continue
+        if np.isfinite(found.fun) and found.fun < best_nll:
+            best_nll, best_s = float(found.fun), unpack(found.x)[0]
+    return best_s
+
+
+def _nena_fit_rayleigh(lik: _NeNALikelihood) -> Tuple[float, float]:
+    """Maximum likelihood of the same-molecule term alone (ac = 0)."""
+    d_max = lik.d_max
+    found = minimize_scalar(
+        lambda s: lik.nll2(float(s), 1.0, 0.0, 1.0),
+        bounds=(max(1e-3 * d_max, 0.05), 0.5 * d_max), method="bounded",
+        options={"xatol": 1e-5 * d_max},
+    )
+    return float(found.fun), float(found.x)
+
+
+def _nena_rayleigh_interval(
+    lik: _NeNALikelihood, nll_hat: float, s_hat: float,
+) -> Tuple[float, float, bool, bool]:
+    """95 % likelihood interval for s when the nearby term is not used (a
+    one-parameter likelihood: no nuisance to profile)."""
+    d_max = lik.d_max
+    s_low, s_high = max(1e-3 * d_max, 0.05), 0.5 * d_max
+    target = 0.5 * NENA_CHI2_95
+
+    def rise(s: float) -> float:
+        return lik.nll2(s, 1.0, 0.0, 1.0) - nll_hat
+
+    out: List[float] = []
+    opens: List[bool] = []
+    step0 = 2.0 * s_hat / np.sqrt(max(lik.n_total, 1.0))
+    for direction, wall in ((-1.0, s_low), (1.0, s_high)):
+        inner, step, edge = s_hat, step0, None
+        for _ in range(60):
+            trial = s_hat + direction * step
+            if (trial - wall) * direction >= 0.0:
+                trial = wall
+            if rise(trial) >= target:
+                edge = trial
+                break
+            if trial == wall:
+                break
+            inner, step = trial, step * 1.6
+        if edge is None:
+            out.append(wall)
+            opens.append(True)
+            continue
+        found = brentq(lambda s: rise(s) - target, min(inner, edge),
+                       max(inner, edge), xtol=1e-4 * s_hat)
+        out.append(float(found))
+        opens.append(False)
+    return out[0], out[1], opens[0], opens[1]
 
 
 def nena(
@@ -149,19 +594,34 @@ def nena(
         a * (d / 2s^2) * exp(-d^2 / 4s^2)
 
     plus a Gaussian for the structured background of nearby OTHER
-    molecules. ``s`` is the precision. Three starting points are tried
-    and the best residual kept, because a single start diverges on sparse
-    data.
+    molecules. ``s`` is the precision.
+
+    Since 2026-10-14 the model is fitted by maximum likelihood on the
+    distances themselves (exact bin probabilities on 0.05 nm bins), from 24
+    starting points, with the nearby term no narrower than sqrt(2) s, and
+    the profile likelihood double-checks that the optimum is the global
+    one. Picasso's least-squares fit on the histogram settled on a peak
+    5-20 % too narrow in 5 of 20 synthetic files of known precision
+    (docs/nena.md, section 2); its value is still reported as ``lsq_nm``.
+
+    Next to the value: a 95 % profile-likelihood interval, the same fit
+    with a random-neighbour term as an independent estimate, and how
+    crowded the next frame is. A warning names each problem; the value is
+    never replaced by another estimate.
 
     Parameters
     ----------
     max_distance_nm : distances beyond this are dropped before fitting.
         Picasso uses 1 camera pixel; expressed in nm here so the value
         does not silently change meaning with the camera.
-    reported_lp_nm : the fit's own precision, used only to seed the fit.
+    bin_nm : width of the histogram that is DRAWN (and that Picasso's
+        least-squares comparison is fitted on); the estimate does not use
+        it.
+    reported_lp_nm : the fit's own precision, used only as one more
+        starting point.
     """
     warnings: List[str] = []
-    distances = _next_frame_distances_nm(
+    distances, second = _next_frame_neighbours_nm(
         np.asarray(frame, dtype=np.int64),
         np.asarray(x_nm, dtype=float),
         np.asarray(y_nm, dtype=float),
@@ -179,47 +639,17 @@ def nena(
             n_pairs=int(distances.size),
             converged=False,
             warnings=warnings,
+            flags=["too_few_pairs"],
         )
 
     edges = np.arange(0.0, max_distance_nm + bin_nm, bin_nm)
     counts, edges = np.histogram(distances, bins=edges)
     centres = 0.5 * (edges[:-1] + edges[1:])
     counts = counts.astype(float)
+    lsq = _picasso_lsq(centres, counts, max_distance_nm, reported_lp_nm)
 
-    def model(d, delta_a, s, ac, dc, sc):
-        a = ac + delta_a  # keeps a >= ac, as in Picasso
-        single = a * (d / (2.0 * s**2)) * np.exp(-(d**2) / (4.0 * s**2))
-        nearby = (
-            ac / (sc * np.sqrt(2.0 * np.pi))
-            * np.exp(-0.5 * ((d - dc) / sc) ** 2)
-        )
-        return single + nearby
-
-    area = float(np.trapezoid(counts, centres))
-    seed = float(reported_lp_nm) if reported_lp_nm else max_distance_nm / 12.0
-    peak = float(centres[int(np.argmax(counts))])
-    starts = [
-        [0.8 * area, seed, 0.1 * area, 2.0 * seed, seed],
-        [0.8 * area, peak / np.sqrt(2.0), 0.1 * area,
-         0.7 * centres[-1], 0.3 * centres[-1]],
-        [0.8 * area, seed, 0.1 * area, 0.5 * centres[-1], seed],
-    ]
-    best: Optional[NDArray[np.float64]] = None
-    best_residual = np.inf
-    for start in starts:
-        if not np.all(np.isfinite(start)):
-            continue
-        try:
-            candidate, _ = curve_fit(
-                model, centres, counts, p0=start,
-                bounds=([0.0] * 5, [np.inf] * 5), maxfev=20000,
-            )
-        except (RuntimeError, ValueError):
-            continue
-        residual = float(np.sum((model(centres, *candidate) - counts) ** 2))
-        if residual < best_residual:
-            best_residual, best = residual, candidate
-
+    lik = _NeNALikelihood(distances, max_distance_nm)
+    best_nll, best = _nena_fit_two(lik, _nena_starts(lik, reported_lp_nm))
     if best is None:
         warnings.append(
             "NeNA did not converge on the next-frame neighbour histogram."
@@ -231,16 +661,144 @@ def nena(
             distances_nm=centres,
             histogram=counts,
             warnings=warnings,
+            method="maximum likelihood (Picasso model)",
+            lsq_nm=lsq,
+            flags=["no_fit"],
         )
 
+    # Is the nearby term worth its three parameters? (BIC, Schwarz 1978.)
+    ray_nll, ray_s = _nena_fit_rayleigh(lik)
+    gain = 2.0 * (ray_nll - best_nll)
+    use_nearby = gain > NENA_NEARBY_PARAMETERS * np.log(lik.n_total)
+
+    low = high = float("nan")
+    low_open = high_open = True
+    if use_nearby:
+        # The profile walks away from the optimum; if it ever finds a
+        # better one the global search missed it, so restart from there.
+        for _ in range(4):
+            low, high, low_open, high_open, better = _nena_profile_interval(
+                lik, best_nll, best)
+            if better is None:
+                break
+            refit_nll, refit = _nena_fit_two(lik, [better[1]])
+            if refit is None or refit_nll >= better[0]:
+                best_nll, best = better
+            else:
+                best_nll, best = refit_nll, refit
+    else:
+        best_nll = ray_nll
+        best = (ray_s, 1.0, float("nan"), float("nan"))
+        low, high, low_open, high_open = _nena_rayleigh_interval(
+            lik, ray_nll, ray_s)
+
+    s, w, dc, sc = best
+    flags: List[str] = []
+    converged = True
+    s_ceiling = 0.5 * max_distance_nm
+    if s >= 0.99 * s_ceiling:
+        converged = False
+        flags.append("no_peak")
+        warnings.append(
+            f"NeNA found no same-molecule peak inside {max_distance_nm:g} nm "
+            f"(the fit ran to its limit of {s_ceiling:g} nm). Is this file "
+            f"linked (Picasso Link merges the consecutive-frame pairs NeNA "
+            f"needs), or is the field so dense that random neighbours swamp "
+            f"the peak?"
+        )
+
+    random_term = _nena_random_term(
+        lik, best if use_nearby else (s, 0.95, 3.0 * s, 2.0 * s))
+    tail = float(np.exp(-(max_distance_nm**2) / (4.0 * s * s)))
+    close = distances < 2.0 * np.sqrt(2.0) * s
+    crowding = (float(np.mean(second[close] < 2.0 * np.sqrt(2.0) * s))
+                if np.any(close) else float("nan"))
+
+    if converged:
+        half = max(s - low, high - s) / s if np.isfinite(low + high) else np.inf
+        if low_open or high_open or half > NENA_MAX_CI_HALF_WIDTH:
+            flags.append("wide_interval")
+            warnings.append(
+                f"NeNA {s:.1f} nm is poorly pinned down: its 95 % interval "
+                f"is {low:.1f}-{high:.1f} nm"
+                + (" and does not close inside the fitted range"
+                   if (low_open or high_open) else
+                   f" (more than +-{100 * NENA_MAX_CI_HALF_WIDTH:.0f} %)")
+                + f", from {distances.size:,} next-frame pairs. Treat any "
+                  f"threshold derived from it as uncertain by as much."
+            )
+        if w <= NENA_MIN_SAME_FRACTION + 0.01:
+            flags.append("nearby_dominates")
+            warnings.append(
+                f"In the NeNA fit the nearby-molecule term carries half of "
+                f"the next-frame pairs, the most Picasso's model allows "
+                f"(a >= ac). The same-molecule peak is not separated from "
+                f"the background; NeNA {s:.1f} nm may be too large. A "
+                f"sparser field of view, or a file with fewer background "
+                f"localizations, gives a cleaner peak."
+            )
+        if np.isfinite(random_term):
+            outside = not (low <= random_term <= high)
+            if outside and abs(random_term - s) > NENA_AGREEMENT_TOLERANCE * s:
+                flags.append("disagreement")
+                warnings.append(
+                    f"NeNA {s:.1f} nm (95 % interval {low:.1f}-{high:.1f}) "
+                    f"and the same fit with a term for randomly placed "
+                    f"neighbours ({random_term:.1f} nm) disagree by "
+                    f"{100 * abs(random_term - s) / s:.0f} %. The background "
+                    f"of the next-frame distances is not the shape the model "
+                    f"assumes; check the fitted curve in Data quality > "
+                    f"Precision before using either value (docs/nena.md)."
+                )
+        if np.isfinite(crowding) and crowding > NENA_CROWDING_LIMIT:
+            flags.append("crowded")
+            warnings.append(
+                f"{100 * crowding:.0f} % of the close next-frame pairs have a "
+                f"second localization just as close. The nearest-neighbour "
+                f"rule then often picks another molecule instead of the same "
+                f"one, and NeNA reads LOW whatever the fit (on synthetic "
+                f"files: more than 5 % low above "
+                f"{100 * NENA_CROWDING_LIMIT:.0f} %). A sparser region or "
+                f"file measures it better."
+            )
+        if tail > NENA_TRUNCATION_LIMIT:
+            flags.append("window_short")
+            warnings.append(
+                f"{100 * tail:.0f} % of the same-molecule distances at "
+                f"NeNA {s:.1f} nm fall beyond the {max_distance_nm:g} nm "
+                f"window. The fit accounts for the cut, but a longer window "
+                f"would measure it better."
+            )
+
+    # The fitted curve, on the drawn histogram's bins: the expected count of
+    # each bin under the fitted law.
+    fitted = lik.n_total * np.diff(lik.cdf2(
+        edges.astype(float), s, w, dc if use_nearby else 0.0,
+        sc if use_nearby else 1.0))
+    well = converged and not (
+        {"wide_interval", "nearby_dominates", "disagreement"} & set(flags))
     return NeNAResult(
-        precision_nm=float(best[1]),
+        precision_nm=float(s),
         n_pairs=int(distances.size),
-        converged=True,
+        converged=converged,
         distances_nm=centres,
         histogram=counts,
-        best_fit=model(centres, *best),
+        best_fit=np.asarray(fitted, dtype=float),
         warnings=warnings,
+        method=("maximum likelihood, Picasso model"
+                + (" with its nearby term" if use_nearby
+                   else " without its nearby term (BIC)")),
+        ci_low_nm=float(low),
+        ci_high_nm=float(high),
+        same_molecule_fraction=float(w),
+        nearby_centre_nm=float(dc),
+        nearby_sd_nm=float(sc),
+        random_term_nm=float(random_term),
+        lsq_nm=float(lsq),
+        crowding_fraction=crowding,
+        well_identified=bool(well),
+        flags=flags,
+        nearby_term_used=bool(use_nearby),
     )
 
 
@@ -260,6 +818,11 @@ class PrecisionCheck:
     n_pairs: int
     verdict: str
     warnings: List[str] = field(default_factory=list)
+    # The NeNA measurement itself (interval, fitted curve, diagnostics), so
+    # that a window drawing it does not fit it a second time.
+    nena_ci_low_nm: float = float("nan")
+    nena_ci_high_nm: float = float("nan")
+    nena: Optional[NeNAResult] = None
 
 
 def precision_check(
@@ -322,6 +885,9 @@ def precision_check(
         n_pairs=result.n_pairs,
         verdict=verdict,
         warnings=warnings,
+        nena_ci_low_nm=result.ci_low_nm,
+        nena_ci_high_nm=result.ci_high_nm,
+        nena=result,
     )
 
 

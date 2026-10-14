@@ -1049,7 +1049,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.action_quality = QtWidgets.QAction("Data quality", self)
         self.action_quality.setToolTip(
             "NeNA precision, fitting-box check, axial resolvedness and "
-            "residual drift for the loaded file."
+            "residual drift for the loaded file. NeNA's method, interval "
+            "and validation: docs/nena.md."
         )
         self.action_quality.triggered.connect(self.show_quality_panel)
 
