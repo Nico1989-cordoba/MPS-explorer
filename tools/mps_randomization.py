@@ -518,10 +518,12 @@ def cdf_band_crossing(
     ``band_lo`` / ``band_hi`` are the null band of F_obs - F_null (differences, not levels). A crossing is
     reported when the difference rises above the band at some distance and falls below it at a longer one; its
     level is F_null where the difference first turns non-positive after the last excess point. It is
-    significant when both branches also exceed ``floor`` (the DKW bound). Returns (level or None,
-    significant)."""
+    significant when both branches also exceed ``floor`` (the DKW bound). An excess counts only where the null has
+    support (F_null > 0): below the null's shortest distance the observed CDF is ahead by construction (the minimum
+    pair sits at the hard core, which the null never undercuts: the 2/K the paper's rule builds in). Returns (level
+    or None, significant)."""
     diff = np.asarray(f_obs, float) - np.asarray(f_null, float)
-    up = diff > np.asarray(band_hi, float)
+    up = (diff > np.asarray(band_hi, float)) & (np.asarray(f_null, float) > 0.0)
     down = diff < np.asarray(band_lo, float)
     if not up.any() or not down.any():
         return None, False
