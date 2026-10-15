@@ -312,6 +312,14 @@ pytest test_mps_explorer.py -v
   when the data support it), with a 95 % interval, an independent estimate and warnings when the fit is poorly
   identified or the field too crowded; the value is never replaced by another. Picasso's least-squares value is still
   shown for comparison. Why the fit changed, the synthetic validation and the limitations: [docs/nena.md](docs/nena.md).
+- **Clusters cut by the Picasso pick** (MPS analysis window, under the results table). Where the edge of the pick a
+  per-axon file was cut with runs through a cluster, part of its localizations are missing. A kept cluster with any
+  localization within 1 NeNA of the pick's edge is counted as cut ("k of K (x %)"), drawn on the axon map (a layer
+  that can be switched off) and written to the tables; it is left out of the analysis only when "Exclude cut
+  clusters" is ticked (off by default). The edge is read from the file Picasso's *Save picks* writes, found beside
+  the per-axon file or pointed to by hand; without it, or without a NeNA, the rule is not applied and the tables say
+  so. Derivation, simulated validation and the comparison with centroid selection:
+  [docs/cut_clusters.md](docs/cut_clusters.md).
 
 ---
 
