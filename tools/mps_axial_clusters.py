@@ -800,5 +800,5 @@ def v2c_summary_lines(v2c: AxonViabilityV2C) -> List[str]:
     lines.append("   Each cluster's centre is still spread by the axial precision, so the axial resolution can "
                  "limit this rule as it limits rule v2 [H6 clusters research, 2026-10-02].")
     if v2c.warnings:
-        lines.append("   Warnings: " + " | ".join(v2c.warnings))
+        lines.append("   Notes: " + " | ".join(v2c.warnings))
     return lines

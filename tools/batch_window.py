@@ -686,9 +686,9 @@ class BatchWindow(QtWidgets.QMainWindow):
             text = (f"{r.get('n_clusters_kept')} clusters"
                     + ("" if perimeter is None
                        else f", perimeter {perimeter:g} um")
-                    + f", {r.get('n_warnings') or 0} warning(s)")
+                    + f", {r.get('n_warnings') or 0} analysis note(s)")
             cell.setText(marked("good", text))
-            cell.setToolTip(str(r.get("warnings") or "No warnings."))
+            cell.setToolTip(str(r.get("warnings") or "No analysis notes."))
         else:
             cell.setText(marked("bad", record.error or "failed"))
             cell.setToolTip(record.error or "")

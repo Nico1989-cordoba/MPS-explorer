@@ -1836,7 +1836,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
         self.results_view.setFont(font)
         lay.addWidget(self.results_view, stretch=5)  # H6 toggles: the results keep their room under the switches
-        lay.addWidget(QtWidgets.QLabel("Warnings"))
+        lay.addWidget(QtWidgets.QLabel("Analysis notes"))
         self.warnings_list = QtWidgets.QListWidget()
         self.warnings_list.setObjectName("warnings_list")
         self.warnings_list.setWordWrap(True)
@@ -1925,7 +1925,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
             msgs += [("warn", f"run: {w}") for w in self.last_result.warnings]
         msgs += [("dim", f"rings: {w}") for w in self.res.warnings]
         if not msgs:
-            msgs = [("good", "No warnings.")]
+            msgs = [("good", "No analysis notes.")]
         for kind, text in msgs:
             item = QtWidgets.QListWidgetItem(marked(kind, text))
             item.setForeground(QtGui.QColor(verdict(kind, dark=False)))

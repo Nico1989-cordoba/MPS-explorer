@@ -620,7 +620,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_reset.setObjectName("btn_reset")
         self.btn_reset.setToolTip(reg.reset_tooltip())
         self.btn_reset.clicked.connect(self._on_reset)
-        # placed under the results table, beside 'Warnings (N)...' (_build_left_column): with the badges'
+        # placed under the results table, beside 'Analysis notes (N)...' (_build_left_column): with the badges'
         # publication name the strip keeps two lines at 1366 px only without it (manual test 2)
 
         # The axon's actions sit at the right of the plot tabs' bar, a line
@@ -886,7 +886,26 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        # Every row in sight without scrolling (manual test of SCI-3: the last rows, "CDF crossing" and "centres
+        # outside the band", sat below the fold at 1366 x 768 and a new user did not know to scroll): one text line
+        # per row, compact, instead of the style's ~31 px. Every cell is one line of text.
+        vh = self.table.verticalHeader()
+        row_px = self.table.fontMetrics().height() + 4
+        vh.setMinimumSectionSize(row_px)
+        vh.setDefaultSectionSize(row_px)
+        vh.setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
+        self.table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         lay.addWidget(self.table, stretch=3)
+        # If the user still makes the table shorter than its rows (a dragged divider, a smaller screen), it says
+        # so in words: a scrollbar alone is easy to miss.
+        self.lbl_more_rows = QtWidgets.QLabel("More rows below: scroll the table.")
+        self.lbl_more_rows.setObjectName("lbl_more_rows")
+        self.lbl_more_rows.setStyleSheet(f"color: {_C_TEXT_WARN}; font-weight: bold;")
+        self.lbl_more_rows.setVisible(False)
+        lay.addWidget(self.lbl_more_rows)
+        bar = self.table.verticalScrollBar()
+        bar.rangeChanged.connect(lambda *_a: self._update_more_rows())
+        bar.valueChanged.connect(lambda *_a: self._update_more_rows())
 
         # The two columns leave together, in one row. A table holding the
         # two analyses of one axon as two rows is how a statistic over it
@@ -904,10 +923,12 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.box_export)
 
         # The warnings leave the window (manual test 2, item 5): a button with their count, a preview in its
-        # tooltip, and the whole list written to a .txt file on a click (never over an existing file).
+        # tooltip, and the whole list written to a .txt file on a click (never over an existing file). The
+        # user reads them as "Analysis notes" (manual test of SCI-3: "Warnings" sounded like danger, a new
+        # user would hesitate to press it); the code keeps calling them warnings.
         row = QtWidgets.QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        self.btn_warnings = QtWidgets.QPushButton("Warnings (0)...")
+        self.btn_warnings = QtWidgets.QPushButton("Analysis notes (0)...")
         self.btn_warnings.setObjectName("btn_warnings")
         self.btn_warnings.clicked.connect(self._on_save_warnings)
         row.addWidget(self.btn_warnings)
@@ -918,6 +939,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._warning_count = 0
 
         return w
+
+    def _update_more_rows(self) -> None:
+        """The 'more rows below' line: shown while rows of the table lie below its visible part."""
+        bar = self.table.verticalScrollBar()
+        self.lbl_more_rows.setVisible(bar.maximum() > 0 and bar.value() < bar.maximum())
 
     def _build_plots(self) -> QtWidgets.QWidget:
         """The axon map above, the tabs under it (design 3.1, Q4)."""
@@ -1530,11 +1556,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                     messages += [prefix + w for w in other.warnings
                                  if w not in seen]
                     seen.update(other.warnings)
-            lines = list(messages) if messages else ["No warnings."]
+            lines = list(messages) if messages else ["No analysis notes."]
         self._warning_lines = lines
         self._warning_count = len(messages)
         n = len(messages)
-        self.btn_warnings.setText(f"Warnings ({n})...")
+        self.btn_warnings.setText(f"Analysis notes ({n})...")
         self.btn_warnings.setEnabled(n > 0)
         self.btn_warnings.setStyleSheet(f"color: {_C_TEXT_WARN}; font-weight: bold;" if n else "")
         if n:
@@ -1544,7 +1570,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             more = n - len(preview)
             tip = "\n".join(preview) + (f"\n... and {more} more." if more > 0 else "")
             self.btn_warnings.setToolTip(
-                tip + "\n\nClick to save every warning, in full, as a .txt file (an existing file is never "
+                tip + "\n\nClick to save every note, in full, as a .txt file (an existing file is never "
                 "overwritten: a new name is chosen).")
         else:
             self.btn_warnings.setToolTip(lines[0] if lines else "")
@@ -1555,9 +1581,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _warnings_text(self) -> str:
         a = self._display_analysis()
-        head = [f"MPS analysis warnings: {os.path.basename(a.source_name) if a is not None else ''}",
+        head = [f"MPS analysis notes: {os.path.basename(a.source_name) if a is not None else ''}",
                 _strip(self.lbl_provenance.text()).replace("<br>", " | "),
-                f"{self._warning_count} warning(s)", ""]
+                f"{self._warning_count} note(s)", ""]
         body = [f"{i}. {w}" for i, w in enumerate(self._warning_lines, 1)]
         return "\n".join(head) + "\n" + "\n\n".join(body) + "\n"
 
@@ -1571,7 +1597,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         parent = os.path.dirname(str(source)) if source else ""
         folder = parent if parent and os.path.isdir(parent) else os.getcwd()
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save the warnings", os.path.join(folder, f"{stem}_warnings.txt"), "Text (*.txt)")
+            self, "Save the analysis notes", os.path.join(folder, f"{stem}_analysis_notes.txt"), "Text (*.txt)")
         if not path:
             return
         if os.path.splitext(path)[1].lower() != ".txt":
@@ -1579,13 +1605,13 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         try:
             written = write_text_file(path, self._warnings_text())
         except OSError as error:
-            QtWidgets.QMessageBox.critical(self, "Warnings not saved",
-                                           f"Could not write the warnings:\n\n{error}")
+            QtWidgets.QMessageBox.critical(self, "Analysis notes not saved",
+                                           f"Could not write the analysis notes:\n\n{error}")
             return
         renamed = ("" if os.path.normcase(written) == os.path.normcase(path)
                    else f"\n\n{os.path.basename(path)} already existed and was left as it is.")
         QtWidgets.QMessageBox.information(
-            self, "Warnings saved", f"{self._warning_count} warning(s) written to\n{written}{renamed}")
+            self, "Analysis notes saved", f"{self._warning_count} note(s) written to\n{written}{renamed}")
 
     # ------------------------------------------------------------------
     # the banner (3.4 rule 5)
