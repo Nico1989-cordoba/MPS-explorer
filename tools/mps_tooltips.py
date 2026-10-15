@@ -99,9 +99,12 @@ MAIN_WINDOW: Dict[str, str] = {
     "comboBox_algorithm":
         "Which algorithm groups the localizations into clusters.\n\n"
         "DBSCAN uses Epsilon and Min Pts. HDBSCAN uses Min Cluster Size "
-        "instead and finds clusters of differing density. Auto picks "
-        "DBSCAN below 100,000 localizations and HDBSCAN above, which is "
-        "a choice about speed, not about the data.",
+        "instead and finds clusters of differing density. 'Adaptive "
+        "(exploratory)' -- called 'Auto' before -- runs DBSCAN below "
+        "100,000 localizations and HDBSCAN above, a choice about speed, "
+        "not about the data; it is for looking at new data, never for "
+        "the analysis. Whatever is chosen here affects this window's "
+        "clustering only: the MPS analysis always runs DBSCAN.",
     "lineEdit_eps":
         "DBSCAN's epsilon, in nanometres: how far apart two "
         "localizations can be and still belong to the same cluster. Too "
@@ -111,7 +114,12 @@ MAIN_WINDOW: Dict[str, str] = {
         "strip: both edit the same one value, and an edit re-runs the "
         "analysis on screen as the strip does. The MPS analysis, the "
         "window clustering, Rings, Batch and Two channels all use that one "
-        "value for channel 1; channel 2 has its own. Not used by HDBSCAN.",
+        "value for channel 1; channel 2 has its own. Not used by HDBSCAN.\n\n"
+        "Type 'auto' (or press 'k-distance...') to open the k-distance "
+        "graph of the selection: its valley is marked as a suggestion, "
+        "25 nm (Gazal et al. 2026) as a reference, and a click sets eps. "
+        "Nothing is chosen for you, and how eps was chosen is written in "
+        "the export. docs/eps_kdistance.md",
     "lineEdit_minsamples":
         "DBSCAN's Min Pts: how many localizations have to sit within "
         "epsilon of a point for it to start a cluster. Raising it leaves "
@@ -131,8 +139,9 @@ MAIN_WINDOW: Dict[str, str] = {
         "randomization, the export -- comes from this one press.",
     "lineEdit_eps_2":
         "DBSCAN's epsilon for channel 2, in nanometres.\n\n"
-        "'auto' means nobody has chosen one: the cluster button will "
-        "estimate it from channel 2's own points, and the Two channels "
+        "'auto' means nobody has chosen one: the cluster button opens "
+        "the k-distance graph of channel 2's own points to choose one by "
+        "eye for that window clustering, and the Two channels "
         "panel will ask before it compares. It is never filled in from "
         "channel 1's.",
     "lineEdit_minsamples_2":
@@ -145,10 +154,42 @@ MAIN_WINDOW: Dict[str, str] = {
         "Cluster the channel-2 selection, to look at.\n\n"
         "The Two channels panel clusters channel 2 again from whatever "
         "is in the two boxes above, so these clusters are not the ones "
-        "it compares. With 'auto' in the boxes this button is how you "
-        "find a number to put in them. The per-axon analysis stays on "
-        "channel 1.",
+        "it compares. With 'auto' in Epsilon this button opens the "
+        "k-distance graph of channel 2 first (docs/eps_kdistance.md). The "
+        "per-axon analysis stays on channel 1.",
 }
+
+
+# The entries of the algorithm selector, each on its own item.
+ALGORITHM_ITEMS: Dict[str, str] = {
+    "Adaptive (exploratory)":
+        "DBSCAN below 100,000 localizations, HDBSCAN above: a switch for "
+        "speed with no basis in the data (formerly 'Auto'). Exploratory, "
+        "for a first look at new data; this window's clustering only, "
+        "never the MPS analysis.",
+    "DBSCAN":
+        "DBSCAN with Epsilon and Min Pts: the algorithm of the MPS "
+        "analysis (Ester et al. 1996).",
+    "HDBSCAN":
+        "HDBSCAN with Min Pts and Min Cluster Size: clusters of differing "
+        "density; this window's clustering only.",
+}
+
+# The buttons that open the k-distance graph (decision P-R58).
+KDIST_BUTTON_CH1 = (
+    "Open the k-distance graph of the channel-1 selection: each "
+    "localization's distance to its (Min Pts - 1)-th other neighbour. The "
+    "valley of their density is marked as a suggestion with its bootstrap "
+    "interval and the share DBSCAN would leave unclustered; 25 nm (Gazal "
+    "et al. 2026) is drawn as a reference; a click sets eps. With no "
+    "valley nothing is suggested. The same as typing 'auto' in Epsilon. "
+    "In simulated rings the valley lay above the best eps in 9 runs of "
+    "10 (median 1.8 times). docs/eps_kdistance.md")
+KDIST_BUTTON_CH2 = (
+    "Open the k-distance graph of the channel-2 selection, as an "
+    "exploratory check: the pair chosen there clusters channel 2 in this "
+    "window only; channel 2's boxes and the Two channels panel keep "
+    "their own values. docs/eps_kdistance.md")
 
 
 def apply_tooltips(window: Any, texts: Dict[str, str]) -> List[str]:

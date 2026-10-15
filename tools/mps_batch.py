@@ -237,15 +237,21 @@ class BatchSettings:
     slab_half_width_nm: float
     dbcv_threshold: float
     mahalanobis_threshold: float
+    # How eps was chosen on the k-distance graph (P-R58), when it was: the
+    # settings' record, written beside every row (on another file's graph).
+    eps_choice: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_settings(cls, settings: Any) -> "BatchSettings":
+        record = getattr(settings, "eps_choice", None)
         return cls(eps_nm=float(settings.eps_nm),
                    min_samples=int(settings.min_samples),
                    slab_half_width_nm=float(settings.slab_half_width_nm),
                    dbcv_threshold=float(settings.dbcv_threshold),
                    mahalanobis_threshold=float(
-                       settings.mahalanobis_threshold))
+                       settings.mahalanobis_threshold),
+                   eps_choice=dict(record) if isinstance(record, dict)
+                   else {})
 
     def describe(self) -> str:
         return (f"DBSCAN eps {self.eps_nm:g} nm, min samples "
@@ -401,7 +407,8 @@ def analyse_file(item: BatchFile, settings: BatchSettings,
         z_state = zcal.state_for(loc.info, zcal.store_entry(z_store,
                                                             item.path))
         row = axon_row(analysis, identity=item.identity,
-                       z_calibration=zcal.export_columns(z_state))
+                       z_calibration=zcal.export_columns(z_state),
+                       eps_choice=settings.eps_choice)
     except Exception as error:                        # noqa: BLE001
         return AxonRecord(source=item.path, identity=item.identity,
                           error=f"could not be analysed: {error}")

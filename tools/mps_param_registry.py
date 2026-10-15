@@ -291,12 +291,49 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        fmt=",.0f"),
     _e(key="window.clustering", label="window clustering (algorithm, min cluster size)", unit="", home="main",
        default=None, origin="ad hoc", value_text="as typed in the main window (the window clustering only)",
-       origin_note="the main window's own clustering preview, not the MPS analysis; its 'Auto' algorithm switches "
-                   "to HDBSCAN on large selections and its automatic eps reads a fixed neighbour rank",
-       records=("dbscan-hdbscan-auto-switch-100k", "kdist-k-5", "kdist-percentile-90"), changes_in="SCI-B6",
+       origin_note="the main window's own clustering preview, not the MPS analysis; its 'Adaptive (exploratory)' "
+                   "algorithm (formerly 'Auto') switches to HDBSCAN on large selections, a choice about speed",
+       records=("dbscan-hdbscan-auto-switch-100k",), changes_in="SCI-B6",
        change_note="a later version removes the automatic switch to HDBSCAN (DBSCAN always; HDBSCAN only when "
-                   "chosen) and "
-                   "ties the automatic eps to the (min samples - 1)-th neighbour, shown as a graph to read"),
+                   "chosen)"),
+    # ---------------------------------------------------------------- eps = auto: the k-distance graph
+    _e(key="kdist.k_rank", label="k-distance rank", unit="", home="none", default=None, origin="derived",
+       value_text="min samples minus one, counted in other localizations (the point itself is not one)",
+       origin_note="standard method: k-dist is the distance to the k-th nearest neighbour (Ester et al. 1996); "
+                   "scikit-learn's min samples counts the point itself, so k = min samples - 1 (Schubert et al. "
+                   "2017) and a localization is a core point exactly when its k-distance is at most eps",
+       shown_as="k-distance graph (eps = auto)",
+       records=("kdist-k-5", "kdist-percentile-90", "eps-adjustment-suggestion-factors"),
+       not_editable_because="e1"),
+    _e(key="kdist.bandwidth", label="k-distance density bandwidth", unit="log10 nm", home="none", default=None,
+       origin="derived", value_text="Silverman's rule of thumb, on the logarithm of the k-distance",
+       origin_note="standard method: Gaussian kernel density of log10(k-distance), bandwidth 0.9 min(sd, IQR / "
+                   "1.34) n^(-1/5) (Silverman 1986), which over-smooths a two-mode density and so hides weak "
+                   "valleys rather than inventing them",
+       shown_as="k-distance graph (eps = auto)", not_editable_because="e1"),
+    _e(key="kdist.dip_z", label="valley depth, in standard errors", unit="", home="none",
+       default=_const("tools.mps_kdistance", "DIP_Z"), origin="derived",
+       origin_note="convention with a written derivation: a valley is reported only when the lower of its two "
+                   "peaks exceeds it by more than this many standard errors of the kernel estimate (variance f R(K) "
+                   "/ n h, Silverman 1986): two-sided 95 % of a normal",
+       shown_as="k-distance graph (eps = auto)", not_editable_because="e1"),
+    _e(key="kdist.bootstrap_n", label="valley bootstrap resamples", unit="", home="none",
+       default=_const("tools.mps_kdistance", "BOOTSTRAP_N"), origin="derived", fmt=",.0f",
+       origin_note="convention with a written derivation: resamples of the k-distances that give the valley's "
+                   "interval and how often it is found again; with this many, the Monte Carlo error of a share "
+                   "near 0.95 is about 0.015",
+       shown_as="k-distance graph (eps = auto)", not_editable_because="e1"),
+    _e(key="kdist.presence_level", label="valley presence level", unit="", home="none",
+       default=_const("tools.mps_kdistance", "PRESENCE_LEVEL"), origin="derived",
+       origin_note="convention: the share of bootstrap resamples that must show the valley for it to be "
+                   "suggested at all (a conventional 95 %); below it the graph says there is no stable valley "
+                   "and suggests nothing",
+       shown_as="k-distance graph (eps = auto)", not_editable_because="e1"),
+    _e(key="kdist.reference_eps_nm", label="reference line on the k-distance graph", unit="nm", home="none",
+       default=_const("tools.mps_kdistance", "GAZAL_EPS_NM"), origin="paper",
+       origin_note=f"the published DBSCAN radius ({PAPER}), drawn as a labelled reference line with the share it "
+                   "leaves unclustered; the same constant as the analysis default",
+       shown_as="k-distance graph (eps = auto)", not_editable_because="e1"),
     _e(key="channel2.eps_nm", label="channel 2: eps", unit="nm", home="main", default=None, origin="blank",
        value_text="typed per folder, or 'auto'",
        origin_note="standard method: a second channel is never clustered with channel 1's parameters (Ester et al. "
