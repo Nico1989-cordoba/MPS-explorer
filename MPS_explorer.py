@@ -1030,7 +1030,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         ch2.addWidget(ui.lineEdit_minsamples_2, 2, 0)
         ch2.addWidget(ui.lineEdit_eps_2, 2, 1)
         ch2.addWidget(ui.pushButton_clusterch2, 2, 2)
-        self.button_kdist2 = QtWidgets.QPushButton("k-distance...", ui.groupBox)
+        self.button_kdist2 = QtWidgets.QPushButton("k-distance... (exploratory)", ui.groupBox)
         self.button_kdist2.setObjectName("button_kdist2")
         self.button_kdist2.setToolTip(KDIST_BUTTON_CH2)
         self.button_kdist2.clicked.connect(self._kdistance_channel2)
@@ -2388,9 +2388,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
                            and float(typed).is_integer() else None)
             editable = True
             path = self.ui.lineEdit_filename_2.text().strip()
-            note = ("Channel 2: an exploratory check. The value chosen here "
-                    "clusters channel 2 in this window only; channel 2's "
-                    "boxes and the Two channels panel keep their own.")
+            note = ("Channel 2: an exploratory check only. Channel 2's "
+                    "parameters are the ones derived from its precision "
+                    "(NeNA) in the Two channels box; the value chosen here "
+                    "clusters channel 2 in this window and is never written "
+                    "to its boxes.")
             current = self._usable_field(self.ui.lineEdit_eps_2, 1e-9, 1000.0)
         try:
             record = choose_eps(
@@ -2458,11 +2460,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.eps_from_kdistance()
 
     def _kdistance_channel2(self) -> None:
-        """Channel 2's k-distance graph, as an exploratory check (P-R58).
+        """Channel 2's k-distance graph, as an exploratory check only.
 
-        The pair chosen clusters channel 2 in this window; the boxes, and
-        so the Two channels panel and its NeNA-derived values, are left as
-        they are.
+        P-R57 governs channel 2 (user, 2026-10-14): its eps and Min Pts come
+        from the Two channels box (derived from each channel's NeNA, then
+        editable), and its 'auto' is not this graph. This button is the one
+        way to it. The pair chosen clusters channel 2 in this window; the
+        boxes, and so the Two channels panel and its NeNA-derived values,
+        are never written.
         """
         typed = self._usable_field(self.ui.lineEdit_minsamples_2, 2, 10000)
         record = self._open_kdistance(2, None if typed is None else int(typed))
@@ -5003,8 +5008,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         channel : int
             1 for primary channel, 2 for secondary channel.
         pair : (eps_nm, min_samples), optional
-            Channel 2 only: a pair chosen on the k-distance graph for this
-            window clustering, instead of the boxes (which keep theirs).
+            Channel 2 only: a pair chosen on its k-distance graph (the
+            exploratory button) for this window clustering, instead of the
+            boxes, which keep theirs. Channel 2's own parameters are governed
+            by P-R57 (derived from NeNA in the Two channels box); its 'auto'
+            here is the estimate of before, untouched by P-R58.
         """
         self.logger.info(f"Clustering: Starting DBSCAN on channel {channel}")
 
@@ -5081,26 +5089,46 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
             # DBSCAN and the adaptive mode require epsilon
             if strategy_type in ["dbscan", "auto"]:
-                if channel == 2 and pair is None and eps_input.lower().strip() == "auto":
-                    # "auto" never picks a number (P-R58): the k-distance
-                    # graph of channel 2's own points opens, and the pair
-                    # chosen there clusters this window only.
-                    typed_min = self._usable_field(
-                        self.ui.lineEdit_minsamples_2, 2, 10000)
-                    record = self._open_kdistance(
-                        2, None if typed_min is None else int(typed_min))
-                    if record is None:
-                        self.logger.info(
-                            "Clustering Ch2: k-distance graph closed without "
-                            "a choice; nothing clustered")
-                        return
-                    pair = (float(record["eps_nm"]), int(record["min_samples"]))
                 if pair is not None:
+                    # Channel 2's exploratory k-distance graph (its button):
+                    # the pair chosen there, for this window only.
                     self.eps = float(pair[0])
                     self.minsamples = int(pair[1])
                     use_auto_eps = False
                     use_auto_ms = False
                     source = "k-distance graph"
+                elif eps_input.lower().strip() == "auto":
+                    # Phase 4: Check cache first for similar dataset
+                    cached_params = self.param_cache.get_cached_parameters(roi_points)
+
+                    if cached_params:
+                        # Use cached parameters (scientific quality UNCHANGED)
+                        self.eps = cached_params.eps
+                        self.minsamples = cached_params.min_samples
+                        use_auto_eps = True
+                        use_auto_ms = True
+                        source = "cache"
+                    else:
+                        # Estimate fresh parameters and cache them
+                        import time
+                        start_time = time.time()
+                        self.eps = clustering.estimate_optimal_eps(roi_points, k=5, percentile=90)
+                        estimation_time = (time.time() - start_time) * 1000  # Convert to ms
+
+                        # Also estimate min_samples in auto mode
+                        self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
+
+                        # Cache the estimated parameters
+                        self.param_cache.cache_parameters(
+                            roi_points,
+                            self.eps,
+                            int(self.minsamples),
+                            estimation_time_ms=estimation_time,
+                            source="estimated"
+                        )
+                        use_auto_eps = True
+                        use_auto_ms = True
+                        source = "estimated"
                 else:
                     self.eps = float(eps_input)
                     use_auto_eps = False
@@ -5115,7 +5143,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if source == "k-distance graph":
                 pass  # the pair chosen on the graph, both values
             elif minsamples_input.lower().strip() == "auto":
-                self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
+                # If eps was auto and came from cache, min_samples already set
+                if source != "cache":
+                    self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
                 use_auto_ms = True
             else:
                 self.minsamples = int(float(minsamples_input))
@@ -5158,7 +5188,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 self.logger.info(
                     f"Clustering Ch{channel}: Algorithm={algorithm_selection}, "
                     f"eps={self.eps:.3f} "
-                    f"({source if source == 'k-distance graph' else 'auto-detected' if use_auto_eps else 'manual'}), "
+                    f"({'cache' if source == 'cache' else source if source == 'k-distance graph' else 'auto-detected' if use_auto_eps else 'manual'}), "
                     f"min_samples={int(self.minsamples)} "
                     f"({'auto-detected' if use_auto_ms else 'manual'})"
                 )
@@ -5270,12 +5300,17 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 f"Clustering Ch{channel}: No clusters found with "
                 f"eps={self.eps:.2f}, min_samples={int(self.minsamples)}"
             )
+            where = ("Type 'auto' in eps to open the k-distance graph of these "
+                     "localizations, where eps can be read and set by eye."
+                     if channel == 1 else
+                     "Channel 2's parameters come from its own precision "
+                     "(the Two channels box); its 'k-distance... "
+                     "(exploratory)' button shows the graph of these "
+                     "localizations.")
             QtWidgets.QMessageBox.information(
                 self, "No clusters",
                 f"No clusters were found with eps={self.eps:.2f} nm and "
-                f"min samples={int(self.minsamples)}.\n\n"
-                f"Type 'auto' in eps to open the k-distance graph of these "
-                f"localizations, where eps can be read and set by eye."
+                f"min samples={int(self.minsamples)}.\n\n{where}"
             )
 
         # Create cluster visualization

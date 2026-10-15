@@ -139,9 +139,8 @@ MAIN_WINDOW: Dict[str, str] = {
         "randomization, the export -- comes from this one press.",
     "lineEdit_eps_2":
         "DBSCAN's epsilon for channel 2, in nanometres.\n\n"
-        "'auto' means nobody has chosen one: the cluster button opens "
-        "the k-distance graph of channel 2's own points to choose one by "
-        "eye for that window clustering, and the Two channels "
+        "'auto' means nobody has chosen one: the cluster button will "
+        "estimate it from channel 2's own points, and the Two channels "
         "panel will ask before it compares. It is never filled in from "
         "channel 1's.",
     "lineEdit_minsamples_2":
@@ -154,9 +153,9 @@ MAIN_WINDOW: Dict[str, str] = {
         "Cluster the channel-2 selection, to look at.\n\n"
         "The Two channels panel clusters channel 2 again from whatever "
         "is in the two boxes above, so these clusters are not the ones "
-        "it compares. With 'auto' in Epsilon this button opens the "
-        "k-distance graph of channel 2 first (docs/eps_kdistance.md). The "
-        "per-axon analysis stays on channel 1.",
+        "it compares. With 'auto' in the boxes this button is how you "
+        "find a number to put in them. The per-axon analysis stays on "
+        "channel 1.",
 }
 
 
@@ -187,9 +186,11 @@ KDIST_BUTTON_CH1 = (
     "10 (median 1.8 times). docs/eps_kdistance.md")
 KDIST_BUTTON_CH2 = (
     "Open the k-distance graph of the channel-2 selection, as an "
-    "exploratory check: the pair chosen there clusters channel 2 in this "
-    "window only; channel 2's boxes and the Two channels panel keep "
-    "their own values. docs/eps_kdistance.md")
+    "exploratory check only. Channel 2's eps and Min Pts are the ones "
+    "derived from its precision (NeNA) in the Two channels box, and its "
+    "'auto' does not open this graph. The pair chosen here clusters "
+    "channel 2 in this window only and is never written to its boxes. "
+    "docs/eps_kdistance.md")
 
 
 def apply_tooltips(window: Any, texts: Dict[str, str]) -> List[str]:

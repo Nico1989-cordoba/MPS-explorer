@@ -13,8 +13,11 @@ store and the selection log in a temporary folder:
      typed value is stored (the analysis re-runs with it) together with the record of how it was chosen, which the
      settings file keeps and the axon table writes (eps_source and the eps_kdist_ columns);
   4. the record follows eps: typed afterwards -> 'typed'; Reset to defaults -> 'gazal_default';
-  5. channel 2: 'auto' in its boxes opens the graph with an empty Min Pts (never channel 1's); the pair chosen clusters
-     channel 2 in this window only -- the boxes, channel 2's stored values and channel 1's record are untouched;
+  5. channel 2 (P-R57 governs it; user, 2026-10-14): 'auto' in its eps does NOT open the graph (main's behaviour);
+     the graph opens only through its 'k-distance... (exploratory)' button, with its box's Min Pts or an empty one
+     to type (never channel 1's); the pair chosen clusters channel 2 in this window only -- the boxes (whether 'auto'
+     or holding values, as a NeNA prefill leaves them), channel 2's stored values and channel 1's record are
+     untouched;
   6. no selection: the graph is not drawn and the message says why.
 
 Screenshots of the dialog (with and without a valley) are written when KDIST_SCREENSHOTS names a folder.
@@ -318,10 +321,27 @@ def main() -> int:
 
     print("\n5. Channel 2: an exploratory check")
 
-    def channel2() -> str:
+    def channel2_auto_is_main() -> str:
+        # P-R57 governs channel 2 (user, 2026-10-14): 'auto' in its eps does NOT open the graph; the cluster
+        # button keeps main's estimate, and the boxes are not touched.
         mw = need(st, "mw")
         mw.ui.lineEdit_eps_2.setText("auto")
         mw.ui.lineEdit_minsamples_2.setText("auto")
+        n_dialogs = len(st.get("dialogs", []))
+        script["action"] = lambda dlg: (_ for _ in ()).throw(AssertionError("the graph opened on channel 2's auto"))
+        mw.cluster(2)
+        pump(app, 0.2)
+        assert len(st.get("dialogs", [])) == n_dialogs, "channel 2's 'auto' opened the k-distance graph"
+        assert mw.cluster_labels2 is not None and mw.eps is not None and mw.eps > 0
+        assert mw.ui.lineEdit_eps_2.text() == "auto" and mw.ui.lineEdit_minsamples_2.text() == "auto"
+        assert "k-distance graph" not in mw.ui.lineEdit_eps_2.toolTip()
+        return f"no dialog; clustered with main's estimate (eps {mw.eps:.1f} nm); boxes still 'auto'"
+
+    def channel2_button() -> str:
+        # The graph only through its own button, as an exploratory check: never written to channel 2's boxes,
+        # whether they say 'auto' or hold values (as the NeNA-derived ones of the Two channels box would).
+        mw = need(st, "mw")
+        assert "exploratory" in mw.button_kdist2.text() and "NeNA" in mw.button_kdist2.toolTip()
         before = (dict(mw.mps_settings.eps_choice), dict(mw.mps_settings.channel2_clustering_by_folder),
                   mw.mps_settings.eps_nm)
         seen: Dict[str, Any] = {}
@@ -339,24 +359,36 @@ def main() -> int:
                 dlg.grab().save(os.path.join(SHOTS, "kdist_gui_channel2.png"))
             dlg.button_chosen.click()
 
+        mw.ui.lineEdit_eps_2.setText("auto")
+        mw.ui.lineEdit_minsamples_2.setText("auto")
         script["action"] = explore
-        mw.cluster(2)
+        mw.button_kdist2.click()
         pump(app, 0.2)
         assert seen["min"] is None and not seen["gazal_enabled"] and not seen["readonly"], seen
         assert mw.cluster_labels2 is not None
         assert (mw.eps, int(mw.minsamples)) == (30.0, 8)
         assert mw.ui.lineEdit_eps_2.text() == "auto" and mw.ui.lineEdit_minsamples_2.text() == "auto"
+        # boxes holding values (as a NeNA prefill leaves them): drawn for their Min Pts, and kept as they are
+        mw.ui.lineEdit_eps_2.setText("31.5")
+        mw.ui.lineEdit_minsamples_2.setText("9")
+
+        def other(dlg: Any) -> None:
+            seen["min2"] = dlg.min_samples
+            dlg.set_chosen(40.0)
+            dlg.button_chosen.click()
+
+        script["action"] = other
+        mw.button_kdist2.click()
+        pump(app, 0.2)
+        assert seen["min2"] == 9
+        assert (mw.eps, int(mw.minsamples)) == (40.0, 9)
+        assert mw.ui.lineEdit_eps_2.text() == "31.5" and mw.ui.lineEdit_minsamples_2.text() == "9"
         after = (dict(mw.mps_settings.eps_choice), dict(mw.mps_settings.channel2_clustering_by_folder),
                  mw.mps_settings.eps_nm)
         assert after == before, "channel 2's check touches neither channel 1 nor channel 2's stored values"
-        # the button, with a typed Min Pts: drawn at once for it
-        mw.ui.lineEdit_minsamples_2.setText("12")
-        script["action"] = lambda dlg: (seen.__setitem__("min2", dlg.min_samples), dlg.reject())
-        mw.button_kdist2.click()
-        pump(app, 0.1)
-        assert seen["min2"] == 12
+        mw.ui.lineEdit_eps_2.setText("auto")
         mw.ui.lineEdit_minsamples_2.setText("auto")
-        return "Min Pts typed in the dialog (never channel 1's); clustered 30 nm / 8 here only; boxes still 'auto'"
+        return "Min Pts typed in the dialog or from the box (never channel 1's); clustered here only; boxes kept"
 
     def no_selection() -> str:
         mw = need(st, "mw")
@@ -370,7 +402,8 @@ def main() -> int:
         assert msgs[n:] and "Select an ROI" in msgs[-1][2], msgs[n:]
         return msgs[-1][2][:60]
 
-    check("'auto' in channel 2 opens its graph; the pair clusters this window only", channel2)
+    check("'auto' in channel 2 keeps main's behaviour: no graph (P-R57 governs channel 2)", channel2_auto_is_main)
+    check("channel 2's graph only through its button: exploratory, never written to its boxes", channel2_button)
     check("no selection: nothing drawn, and the reason given", no_selection)
 
     kdd.KDistanceDialog.exec_ = real_exec  # type: ignore[method-assign]

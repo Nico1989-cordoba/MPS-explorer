@@ -330,10 +330,12 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
     _e(key="window.clustering", label="window clustering (algorithm, min cluster size)", unit="", home="main",
        default=None, origin="ad hoc", value_text="as typed in the main window (the window clustering only)",
        origin_note="the main window's own clustering preview, not the MPS analysis; its 'Adaptive (exploratory)' "
-                   "algorithm (formerly 'Auto') switches to HDBSCAN on large selections, a choice about speed",
-       records=("dbscan-hdbscan-auto-switch-100k",), changes_in="SCI-B6",
+                   "algorithm (formerly 'Auto') switches to HDBSCAN on large selections, and channel 2's automatic "
+                   "eps reads a fixed neighbour rank",
+       records=("dbscan-hdbscan-auto-switch-100k", "kdist-k-5", "kdist-percentile-90"), changes_in="SCI-B6",
        change_note="a later version removes the automatic switch to HDBSCAN (DBSCAN always; HDBSCAN only when "
-                   "chosen)"),
+                   "chosen) and "
+                   "ties the automatic eps to the (min samples - 1)-th neighbour, shown as a graph to read"),
     _e(key="channel2.eps_nm", label="channel 2: eps", unit="nm", home="main", default=None, origin="blank",
        value_text="typed per folder, or 'auto'",
        origin_note="standard method: a second channel is never clustered with channel 1's parameters (Ester et al. "

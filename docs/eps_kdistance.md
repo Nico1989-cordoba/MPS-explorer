@@ -1,13 +1,15 @@
 # eps = auto: the k-distance graph and its valley
 
-> **Resumen.** Escribir `auto` en Epsilon (o el botón **k-distance...**) ya no elige un número: abre el gráfico de
+> **Resumen.** Escribir `auto` en Epsilon del **canal 1** (o el botón **k-distance...**) ya no elige un número: abre el gráfico de
 > k-distancias de la selección (k = Min Pts − 1). El **valle** de la densidad de log(k-distancia) se marca como
 > **sugerencia**, con su intervalo bootstrap y la fracción de localizaciones que DBSCAN dejaría sin agrupar; 25 nm
 > (Gazal et al. 2026) aparece como línea de referencia; un clic fija eps. Si no hay valle, se dice y no se sugiere nada.
 > Cómo se eligió eps queda en la configuración y en cada exportación (`eps_source` y columnas `eps_kdist_*`). En
 > simulaciones propias el valle existió en el 70 % de los anillos, nunca en fondo puro, y cayó **por encima** del eps
 > que mejor recupera los clusters en 9 de cada 10 corridas (mediana 1,8×): es una referencia para mirar, no una
-> respuesta. La entrada "Auto" del selector de algoritmo pasa a llamarse **"Adaptive (exploratory)"**.
+> respuesta. El **canal 2** se rige por P-R57 (parámetros derivados de la NeNA de cada canal, editables): su `auto`
+> no abre este gráfico; sólo su botón **k-distance... (exploratory)** lo muestra, como chequeo que nunca escribe en
+> sus casillas. La entrada "Auto" del selector de algoritmo pasa a llamarse **"Adaptive (exploratory)"**.
 
 Decision P-R58 (2026-10-14). Labels used below: **[literature]** a published source; **[derivation]** follows from a
 definition or a formula written here; **[own simulation]** this repository's script and seed; **[ad hoc]** a convention
@@ -103,10 +105,13 @@ dropped, and the export says `typed`, or `gazal_default` when eps equals 25 nm. 
 settings beside every row. The parameter registry lists the rank, the bandwidth rule, the depth (1.96), the bootstrap
 (200, 95 %) and the reference line, each with its origin.
 
-**Channel 2.** `auto` in channel 2's eps (or its **k-distance...** button) opens the graph of channel 2's own
-localizations as an exploratory check. Its Min Pts is channel 2's box, or typed in the dialog; it is never taken
-from channel 1. The pair chosen clusters channel 2 in the main window only: channel 2's boxes, its remembered
-values and the Two channels panel's (derived from NeNA where that is available) are not touched.
+**Channel 2.** Channel 2's eps and Min Pts are governed by decision P-R57: derived from each channel's NeNA in the
+Two channels box, pre-filled and editable (docs/channel2_parameters.md, on the channel-2 branch). This change does
+not alter what `auto` does in channel 2's boxes (the program's behaviour before P-R58). The k-distance graph of
+channel 2's own localizations is available **only** through its **k-distance... (exploratory)** button, as an
+exploratory check: its Min Pts is channel 2's box, or typed in the dialog, and is never taken from channel 1; the
+pair chosen clusters channel 2 in the main window only, and is never written to channel 2's boxes, its remembered
+values or the Two channels panel's (derived from NeNA where available).
 
 **The algorithm selector.** "Auto" is renamed **"Adaptive (exploratory)"**: it runs DBSCAN below 100,000
 localizations and HDBSCAN above, a switch for speed with no basis in the data, used by the main window's own
@@ -159,8 +164,19 @@ known agrees with this: the suggestion is shown with its interval and its bias, 
   reasons; the record, its cleaning and its export columns; settings that say "auto" for eps or predate the record;
   the batch; the column dictionary; the algorithm labels.
 * `test_kdistance_gui.py` (offscreen, simulated axons): a real click on the graph sets eps; no valley, no suggestion;
-  `auto` in channel 1's box (cancel, accept, re-run, saved, exported); the record follows eps; channel 2's check
-  leaves both channels' stored values alone; no selection, no graph.
+  `auto` in channel 1's box (cancel, accept, re-run, saved, exported); the record follows eps; `auto` in channel 2
+  does not open the graph; channel 2's button opens it and leaves both channels' boxes and stored values alone
+  (with 'auto' or with values in them); no selection, no graph.
+
+## 7. Decision record
+
+* 2026-10-14, user (P-R58): `auto` for eps never picks a fixed reading of a curve; it opens the k-distance graph
+  with the valley as a suggestion, a reference line at 25 nm (Gazal et al. 2026), eps set by click, no number when
+  there is no valley, and the choice recorded in settings and export; the algorithm selector's "Auto" renamed.
+* 2026-10-14, user: **P-R57 governs channel 2; k-distance in channel 2 is exploratory only, via its button.**
+  Channel 2's parameters are the NeNA-derived, editable ones of the Two channels box; `auto` in channel 2's eps
+  does not open the k-distance dialog; the graph, through its own button, never writes to channel 2's boxes nor
+  overrides the NeNA prefill. Channel 1's behaviour is unchanged.
 
 ## References
 

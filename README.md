@@ -293,12 +293,13 @@ pytest test_mps_explorer.py -v
   already holds; nothing is computed for them.
 - **One editor per parameter.** eps, min samples, the axial slab, the Mahalanobis threshold, the randomization and
   the drawn contour are edited only in the window's parameter strip; the main window shows them read-only.
-- **eps = auto: the k-distance graph.** Typing `auto` in Epsilon (or the **k-distance...** button) never picks a
+- **eps = auto: the k-distance graph.** Typing `auto` in channel 1's Epsilon (or the **k-distance...** button) never picks a
   number: it opens the k-distance graph of the selection (k = Min Pts - 1), marks the valley of the k-distance
   density as a suggestion with its bootstrap interval and the share DBSCAN would leave unclustered, draws 25 nm
   (Gazal et al. 2026) as a reference, and lets a click set eps; with no valley it says so and suggests nothing. How
   eps was chosen is written in every export (`eps_source`, `eps_kdist_*`). On simulated rings the valley lay above
-  the best eps in 9 runs of 10. Channel 2's graph is an exploratory check that leaves its own values alone. The
+  the best eps in 9 runs of 10. Channel 2 keeps its own parameters (derived from NeNA); its graph is only an
+  exploratory check, through its **k-distance... (exploratory)** button, that never writes to its boxes. The
   algorithm selector's "Auto" is now "Adaptive (exploratory)". Method and validation:
   [docs/eps_kdistance.md](docs/eps_kdistance.md).
 - **Origin of every value.** Each parameter of the MPS analysis, Rings and Axoplasm windows, and each published
