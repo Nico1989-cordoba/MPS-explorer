@@ -186,6 +186,14 @@ ROLES: Dict[str, str] = {
     # dichromacy or another, which is why a match is a line between two
     # markers and never a marker (validate_plot_colours.py, BY_SHAPE).
     "matched": OKABE_ITO["reddish_purple"],
+    # --- the clusters cut by the Picasso pick (tools/mps_cut_clusters.py)
+    # The pick's edge and the centres of the clusters it cut: one colour,
+    # because they say one thing. Reddish purple is the one chromatic hue
+    # the MPS view of the axon map does not use; the cut centres are
+    # cased hollow hexagons drawn AROUND a centre (a kept centre stays a
+    # green circle inside its hexagon), and the edge is a cased dashed
+    # line, so neither relies on the hue (validate_plot_colours.py).
+    "cut": OKABE_ITO["reddish_purple"],
 }
 
 # What a finding of each kind is prefixed with. Colour says it twice; the
