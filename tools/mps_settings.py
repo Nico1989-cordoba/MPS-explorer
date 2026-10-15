@@ -106,11 +106,12 @@ class MPSSettings:
     # tools.mps_pixel_size.folder_key on the channel-2 file.
     #
     # Per folder and not global, because the measurement that forces this
-    # is per file: across five real adducin files, localizations within
-    # one 20 nm cell ran 4, 62, 238, 485, 550 against 3 to 5 for
-    # spectrin. A min samples chosen for the 550 file is as wrong on the
-    # 4 file as channel 1's ever was, so one global answer would only
-    # move the assumption rather than remove it.
+    # is per file: on unpublished adducin files the localizations within
+    # one 20 nm cell differed by up to two orders of magnitude from file
+    # to file, while spectrin's stayed within a narrow range. A min
+    # samples chosen for the densest file is as wrong on the sparsest as
+    # channel 1's ever was, so one global answer would only move the
+    # assumption rather than remove it.
     #
     # The keys are new on purpose. The fields that stood here until
     # 2026-09-21 were written from the two boxes on screen, which were
