@@ -591,6 +591,34 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        changes_in="SCI-B9",
        change_note="a later version applies it to the excess of short gaps over the expected share, not to the raw "
                    "share", fmt=".2f"),
+    # ---------------------------------------------------------------- clusters cut by the pick (P-R59)
+    _e(key="cut.nena_multiple", label="cut clusters: distance to the pick boundary", unit="NeNA", home="none",
+       default=_const("tools.mps_cut_clusters", "DEFAULT_NENA_MULTIPLE"), origin="derived",
+       origin_note="a kept cluster is cut when any of its localizations lies within this many NeNA of the Picasso "
+                   "pick boundary: a localization at one precision from the edge has a sibling of the same molecule "
+                   "beyond it with probability Phi(-1/sqrt 2) = 24 % (derivation and own simulation, "
+                   "docs/cut_clusters.md)",
+       shown_as="results table (Clusters cut by the pick); the map's pick layer; axon table cut_ columns",
+       documented_range=(0.5, 2.0), range_text="0.5-2 (reported in docs/cut_clusters.md)",
+       range_note="the documentation reports the detection at 0.5, 1 and 2 NeNA; the default is not changed by it",
+       not_editable_because="one rule for every axon, decided with the user",
+       fmt="g"),
+    _e(key="cut.exclude", label="exclude cut clusters from the analysis", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "exclude_cut_clusters"), origin="derived",
+       words=lambda v: ("cut clusters left out of the analysis" if v
+                        else "cut clusters flagged and counted, kept in the analysis"),
+       origin_note="convention decided with the user: a cut cluster is flagged and counted, never removed "
+                   "without being asked; the switch beside 'Pick boundary...' in the parameter strip leaves them "
+                   "out, and the axon table says so (cut_excluded)",
+       shown_as="parameter strip (Pick boundary); axon table cut_excluded",
+       not_editable_because="a switch, not a value: set in the parameter strip"),
+    _e(key="cut.nena_nm", label="cut clusters: NeNA of the channel", unit="nm", home="none", default=None,
+       origin="blank", value_text="measured for each acquisition on the whole-field, unlinked file",
+       origin_note="the localization precision of channel 1 (Endesfelder et al. 2014), measured on this file when "
+                   "it has enough next-frame pairs, otherwise on the whole-field file of the acquisition; without "
+                   "it the cut-cluster rule is not applied and says so",
+       shown_as="Pick boundary dialog; axon table cut_nena_nm and cut_nena_source",
+       not_editable_because="measured, never typed"),
 )
 
 _BY_KEY: Dict[str, ParamInfo] = {e.key: e for e in _ENTRIES}

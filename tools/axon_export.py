@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
+from tools import mps_cut_clusters as _cut
 from tools import mps_zcalibration as _zcal
 from tools.cluster_quality import describe_roi, good_cluster_labels
 from tools.mps_analysis import AxonAnalysis
@@ -74,8 +75,15 @@ from tools.results_table import cell_text
 # calibrated range (nominal, or resolved by a bead stack), whether the
 # file's own record matches a chosen one, and what a bead stack measured.
 # Empty cells, with z_magnification_origin "blank", when nothing was read.
+# v6 (2026-10-14, P-R59): the clusters cut by the pick boundary
+# (CUT_COLUMNS), written once at the very end of the row: the rule, the
+# NeNA it used and where that came from, the boundary and where it came
+# from, k of K and whether the cut clusters were left out; "boundary
+# unknown: not evaluated" when no pick boundary was known. The clusters
+# table ends with cut_by_pick. Other unmerged branches also call their
+# table v6: renumber to the next free version when this one is merged.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v5"
+TABLE_VERSION = "axon tables v6"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
@@ -148,6 +156,11 @@ DISCARD_SUFFIX = "_discard"
 # once, last: what the z axis of this file is in, never a correction of it.
 Z_CALIBRATION_COLUMNS: Tuple[str, ...] = _zcal.Z_CALIBRATION_COLUMNS
 
+# The clusters cut by the pick boundary (P-R59, tools.mps_cut_clusters),
+# written once, last. The discard cannot change them: they describe the
+# clusters the curation kept, before any discard.
+CUT_COLUMNS: Tuple[str, ...] = _cut.CUT_COLUMNS
+
 # Columns of the axoplasm panel's row that the axon row already holds, and
 # that must not be written a second time under another name.
 _AXOPLASM_DROPPED: Tuple[str, ...] = (
@@ -174,6 +187,7 @@ _SETTINGS: frozenset = frozenset({
     "pixel_size_nm", "eps_nm", "min_samples", "dbcv_threshold",
     "mahalanobis_threshold", "slab_half_width_nm", "discard_margin_nm",
     "random_seed", "randomization_requested", "randomization_min_sep_nm",
+    "cut_nena_multiple",
 })
 
 
@@ -245,6 +259,12 @@ def analysis_id(analysis: AxonAnalysis) -> str:
         str(analysis.contour_order_source),
         format_guide(analysis.contour_guide) or "",
     ]
+    # Leaving the cut clusters out is another analysis of the same slab
+    # (P-R59); flagging them changes no number, so it adds nothing here.
+    cut = getattr(analysis, "cut", None)
+    if cut is not None and cut.evaluated and cut.excluded:
+        parts.append(f"cut clusters excluded at {cut.multiple:g} NeNA = "
+                     f"{cut.margin_nm:.4f} nm")
     return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()[:10]
 
 
@@ -409,6 +429,11 @@ def axon_row(
             f"{', '.join(unplaced_z)}.")
     for name in Z_CALIBRATION_COLUMNS:
         row[name] = _rounded(name, zc.get(name))
+
+    # --- the clusters cut by the pick boundary (P-R59), last -------------
+    cut = _cut.export_columns(getattr(measured, "cut", None))
+    for name in CUT_COLUMNS:
+        row[name] = _rounded(name, cut.get(name))
     return row
 
 
@@ -505,6 +530,8 @@ def cluster_table(
         panel[int(label)] = row
 
     centroids = np.asarray(measured.centroids, dtype=float)
+    cut = getattr(measured, "cut", None)
+    cut_known = cut is not None and cut.evaluated
     rows: List[Dict[str, Any]] = []
     for position, label in enumerate(labels):
         label = int(label)
@@ -534,6 +561,11 @@ def cluster_table(
                         "x_nm", "y_nm", "discarded"):
                 continue
             out[AXOPLASM_PREFIX + name] = value
+        # Last (P-R59): whether the pick's edge cut this cluster; empty
+        # when the rule was not applied. A cluster left out as cut is not
+        # a row here, like any other cluster the curation removed.
+        out[_cut.CLUSTER_CUT_COLUMN] = (int(label) in cut.cut_labels
+                                        if cut_known else None)
         rows.append(out)
     return rows
 

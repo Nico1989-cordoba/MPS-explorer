@@ -24,6 +24,7 @@ from tools.axon_export import (
     AXOPLASM_PREFIX, DISCARD_SUFFIX, HEAD_COLUMNS, MEASURED_COLUMNS,
     SHARED_COLUMNS, STATE_COLUMNS, Z_CALIBRATION_COLUMNS,
 )
+from tools.mps_cut_clusters import CUT_COLUMNS
 from tools.mps_identity import FIELD_HINTS, FIELDS as IDENTITY_FIELDS
 
 # Units, read off the end of the name. The rule is the convention: a
@@ -311,6 +312,10 @@ CLUSTERS: Dict[str, str] = {
                                 "without the discarded clusters.",
     "nn_1_nm_discard": "Its nearest neighbour once those are gone.",
     "nn_1_label_discard": "Which cluster that is.",
+    "cut_by_pick": "Whether the pick boundary cut this cluster: one of its "
+                   "localizations lies within cut_margin_nm of the edge "
+                   "(docs/cut_clusters.md). Empty when the rule was not "
+                   "applied (see cut_status in the axon table).",
 }
 
 LOCALIZATIONS: Dict[str, str] = {
@@ -567,13 +572,55 @@ Z_CALIBRATION: Dict[str, str] = {
     "z_lateral_shift_y_nm": "The same for y.",
 }
 
+# The clusters cut by the pick boundary (decision P-R59;
+# docs/cut_clusters.md).
+CUT_CLUSTERS: Dict[str, str] = {
+    "cut_status": "Whether the cut-cluster rule was applied: 'evaluated', or "
+                  "why not -- 'boundary unknown: not evaluated' (no Picasso "
+                  "pick boundary known for this file, or more than one pick "
+                  "fits it and none was chosen), 'NeNA unknown: not "
+                  "evaluated' (no localization precision for the channel), "
+                  "'boundary does not hold the localizations: not "
+                  "evaluated'. Nothing is guessed in their place.",
+    "cut_rule": "The rule: a kept cluster is cut when any of its "
+                "localizations lies within cut_nena_multiple x NeNA of the "
+                "pick boundary (docs/cut_clusters.md).",
+    "cut_nena_multiple": "How many NeNA from the boundary count as 'at the "
+                         "edge' (1 by default: derivation and simulation in "
+                         "docs/cut_clusters.md).",
+    "cut_nena_nm": "The NeNA (localization precision) the rule used, in nm.",
+    "cut_nena_source": "Where that NeNA came from: this file (when it has "
+                       "enough next-frame pairs), a whole-field file "
+                       "measured for this acquisition folder, and how many "
+                       "next-frame pairs it had.",
+    "cut_margin_nm": "cut_nena_multiple x cut_nena_nm: the distance from the "
+                     "boundary within which a localization marks its "
+                     "cluster as cut.",
+    "cut_boundary_source": "The Picasso pick file and the pick in it the "
+                           "boundary is, what the file's own record (group, "
+                           "shape, area) says about it, and whether it was "
+                           "found automatically or chosen by hand.",
+    "cut_boundary_shape": "The pick's shape in Picasso: Polygon, Circle, "
+                          "Rectangle or Square.",
+    "n_clusters_cut": "k: how many of the clusters the curation kept were "
+                      "cut by the pick boundary.",
+    "n_clusters_cut_of": "K: how many clusters the curation kept (before "
+                         "the cut ones were left out, when they were).",
+    "cut_percent": "100 k / K.",
+    "cut_excluded": "True when the cut clusters were left out of the "
+                    "analysis ('Exclude cut clusters from the analysis'); "
+                    "they are then counted in n_clusters_removed and every "
+                    "measured column is without them. False: they are "
+                    "flagged only, and measured as they are in the file.",
+}
+
 _PANEL = {**AXOPLASM, **AXOPLASM_CLUSTERS, **AXOPLASM_LOCALIZATIONS}
 
 
 def describe(name: str) -> Optional[str]:
     """What one column means, or None when nothing here describes it."""
     for table in (IDENTITY, STATE, ANALYSIS, CLUSTERS, LOCALIZATIONS,
-                  CROSSCHANNEL, Z_CALIBRATION):
+                  CROSSCHANNEL, Z_CALIBRATION, CUT_CLUSTERS):
         if name in table:
             return table[name]
     if name.endswith(DISCARD_SUFFIX):
@@ -634,4 +681,5 @@ def known_columns() -> List[str]:
     columns += [name + DISCARD_SUFFIX for name in MEASURED_COLUMNS]
     columns += [AXOPLASM_PREFIX + name for name in AXOPLASM]
     columns += list(Z_CALIBRATION_COLUMNS)
+    columns += list(CUT_COLUMNS)
     return columns
