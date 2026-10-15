@@ -1726,10 +1726,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """Keep channel 2's parameters for the rest of this acquisition.
 
         Per folder, like the pixel size, and for the same reason: the
-        measurement that forces the question is per file. Across five
-        real adducin files the localizations per resolution cell ran 4,
-        62, 238, 485 and 550, so one global answer would only move the
-        assumption instead of removing it.
+        measurement that forces the question is per file. On unpublished
+        adducin files the localizations per resolution cell differed by up
+        to two orders of magnitude from file to file, so one global answer
+        would only move the assumption instead of removing it.
         """
         key = self._channel2_folder()
         if not key:
@@ -3935,11 +3935,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.xroi2 = self.yroi2 = self.zroi2 = None
         self.cluster_labels2 = self.cluster_centroids2 = None
         self._clustered_x[2] = None
-        # A new acquisition is a new question. Across five real adducin
-        # files the localizations per resolution cell ran 4, 62, 238,
-        # 485 and 550, so a choice made for one folder is not an answer
-        # for the next; the boxes go back to auto unless this folder
-        # already has one.
+        # A new acquisition is a new question. On unpublished adducin
+        # files the localizations per resolution cell differed by up to
+        # two orders of magnitude from file to file, so a choice made for
+        # one folder is not an answer for the next; the boxes go back to
+        # auto unless this folder already has one.
         self._show_channel2_parameters(self._remembered_channel2())
         if self.two_channel_window is not None:
             self.two_channel_window.close()

@@ -571,9 +571,9 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         mw.close()
     elif s == "file_match_panel":
         import shutil
-        stem = "26.04.30_bIIspt_50ms_TIRF_1_MMStack_Pos0.ome_locs"
-        session = os.path.join(out_dir, "30.4.26")
-        sr = os.path.join(session, "26.04.30_bIIspt_50ms_TIRF_1")
+        stem = "25.03.17_bIIspt_50ms_TIRF_1_MMStack_Pos0.ome_locs"
+        session = os.path.join(out_dir, "17.3.25")
+        sr = os.path.join(session, "25.03.17_bIIspt_50ms_TIRF_1")
         os.makedirs(sr, exist_ok=True)
         picked = os.path.join(sr, stem + "_undrift_filter_picked_axon1.hdf5")
         shutil.copyfile(os.path.join(inputs, "sim_axon_A.hdf5"), picked)
