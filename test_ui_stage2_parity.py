@@ -20,6 +20,7 @@ else different (``golden_ui_stage2_manifest.py``). The manifest itself is checke
      axon table's 15 z-calibration columns and v5, the dictionary's entries, the settings' new store; nothing else.
   7. B19 (SCI-3) in every cell: the settings' randomization store and sigma cap; the axon table's columns (v6) and the
      dictionary fall under the paths B17 and B18 already list.
+  8. B20 (SCI-5) in every cell: the settings file's new (empty) store of the viability parameters; nothing else.
 
 R8: simulated axons only (the harness's own); every cell runs in its own temporary folder.
 
@@ -67,9 +68,13 @@ WHERE = {   # B-change -> (scenarios, entry points) it may appear in (design 6.4
     # B17 / B18 paths)
     "B19": ({"S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11a", "S11b", "S12a", "S12b"},
             {"E1", "E2", "E3", "E4", "E5"}),
+    # SCI-5: the settings file's new store of the viability parameters (empty), in every cell
+    "B20": ({"S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11a", "S11b", "S12a", "S12b"},
+            {"E1", "E2", "E3", "E4", "E5"}),
 }
-# Changes that reach every cell (their columns are written beside every export).
-EVERY_CELL = {"B17", "B18", "B19"}
+# Changes that reach every cell (their columns are written beside every export, or the settings file every cell
+# leaves behind).
+EVERY_CELL = {"B17", "B18", "B19", "B20"}
 
 
 def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]:
@@ -80,7 +85,7 @@ def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]
         by_cell[e["cell"]].add(b)
         if b not in {f"B{i}" for i in range(1, 15)} | EVERY_CELL:
             problems.append(f"{e['cell']}: {b} is not one of B1-B13 (G6), B14 (manual test 2), B17 (species), "
-                            f"B18 (SCI-1) or B19 (SCI-3)")
+                            f"B18 (SCI-1), B19 (SCI-3) or B20 (SCI-5)")
         if b in ("B5", "B7", "B8", "B9", "B10"):
             problems.append(f"{e['cell']}: {b} changes no recorded field and may not be listed")
         if not e.get("reason"):

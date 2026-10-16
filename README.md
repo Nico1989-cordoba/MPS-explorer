@@ -342,7 +342,13 @@ and to judge first whether the z profile of the axon can answer that at all.
     simulated null always run at tau_0.
 - **Z quality...** — the axial profile of the axon, ring by ring and pair by pair: the viability rule v2 (SiZer peak
   and valley, localization minimum, expected leak copies), the exploratory cluster-level variant, switches for each
-  criterion, the limiting factors in plain words, and an export of the report.
+  criterion, the limiting factors in plain words, and an export of the report. **Criteria...** edits every value of
+  the viability (reference period 170 nm after Gazal et al. 2026 and its presets, SiZer bandwidth and peak window as
+  fractions of the axon's own period, separation thresholds, the per-pair tolerance of leak copies, the count-floor
+  recall), each with its origin and documented range; **Calibrate count floor** calibrates criterion (3) on the axon by
+  thinning. Where every number comes from, the derivations, the simulations (scripts in `docs/sims/viability/`), the
+  leak diagnostics that were removed and why, the limitations and the decision record:
+  [docs/viability_and_reference_period.md](docs/viability_and_reference_period.md).
 - **Columns batch...** — runs `batch_columns.py` in a separate process with live progress.
 - **Viability explorer...** — rule v2 over many picked axons at once (computed in worker processes and cached), with
   the criteria switches and a combination table.

@@ -137,6 +137,14 @@ class MPSSettings:
     # The cap of each cluster's ellipse (sigma <= this fraction of d_max):
     # 1/3, the published rule; documented range 0.2-1.0.
     occupancy_sigma_cap_fraction: float = 1.0 / 3.0
+    # The ring-pair viability's editable values (reference period, SiZer
+    # bandwidth and peak window, separation thresholds, copy tolerance,
+    # count-floor recall, ...): only the ones the user changed, by name
+    # (tools.mps_axial_precision.ViabilityParams.to_store). One store for
+    # Z quality, the viability explorer, the batch and the selection. A value
+    # outside its documented range is kept and flagged, never clamped; an
+    # entry that is not a value at all is dropped.
+    viability_params: Dict[str, Any] = field(default_factory=dict)
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -259,6 +267,10 @@ class MPSSettings:
                 "using 1/3", self.occupancy_sigma_cap_fraction)
             cap = 1.0 / 3.0
         self.occupancy_sigma_cap_fraction = cap
+        from tools.mps_axial_precision import ViabilityParams
+
+        self.viability_params = ViabilityParams.from_store(
+            self.viability_params).to_store()
         # A stored pattern that no longer compiles would raise at the next
         # export, in the middle of writing tables; drop it here instead and
         # fall back to the default for that field.
