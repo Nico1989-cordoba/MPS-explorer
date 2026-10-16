@@ -271,6 +271,10 @@ def _no_slab_state() -> Tuple[str, Optional[float], Optional[Tuple[float, float]
     return "automatic", None, None
 
 
+def _no_cut_state() -> Tuple[bool, str]:
+    return False, ""
+
+
 @dataclass
 class WindowLinks:
     """The providers and callbacks the main window gives this window (Appendix B). Every default is the standalone
@@ -293,6 +297,11 @@ class WindowLinks:
     slab_state: Callable[[], Tuple[str, Optional[float], Optional[Tuple[float, float]]]] = field(
         default=_no_slab_state)
     apply_typed: Optional[Callable[[Optional[Tuple[float, float]]], Any]] = None
+    # The clusters cut by the Picasso pick (P-R59): the switch "Exclude cut clusters" and what the next analysis
+    # will do before there is one (``cut_state``), the switch's setter (it re-runs) and the Pick boundary dialog.
+    cut_state: Callable[[], Tuple[bool, str]] = field(default=_no_cut_state)
+    set_exclude_cut: Optional[Callable[[bool], Any]] = None
+    pick_boundary: Optional[Callable[[], Any]] = None
     nn_bins: int = L.NN_DEFAULT_BINS
     nn_range: Tuple[float, float] = (0.0, 800.0)
 
@@ -933,6 +942,18 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.box_export.setVisible(False)
         lay.addWidget(self.box_export)
 
+        # The clusters cut by the Picasso pick (P-R59, docs/cut_clusters.md): their count, the switch that leaves
+        # them out and the Pick boundary dialog, under the table that counts them (the strip keeps its two lines
+        # at 1366 px, and the map its share of the height).
+        from tools.mps_cut_ui import CutStrip
+
+        self.cut_strip = CutStrip()
+        self.cut_strip.exclude_toggled.connect(self._on_exclude_cut)
+        self.cut_strip.pick_requested.connect(self._on_pick_boundary)
+        self.cut_strip.chk_exclude.setEnabled(self.links.set_exclude_cut is not None)
+        self.cut_strip.btn_pick.setEnabled(self.links.pick_boundary is not None)
+        lay.addWidget(self.cut_strip)
+
         # The warnings leave the window (manual test 2, item 5): a button with their count, a preview in its
         # tooltip, and the whole list written to a .txt file on a click (never over an existing file). The
         # user reads them as "Analysis notes" (manual test of SCI-3: "Warnings" sounded like danger, a new
@@ -1107,11 +1128,28 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._sync_slab_widgets()
         self._sync_reset()
         self._sync_discard_widgets()
+        self._sync_cut()
         self._fill_provenance()
         self._fill_table()
         self._fill_warnings()
         self._update_banner()
         self._draw_plots()
+
+    def _sync_cut(self) -> None:
+        """The Pick item of the strip: the analysis' count, or what the
+        next analysis will do."""
+        exclude, words = self.links.cut_state()
+        shown = self._display_analysis()
+        self.cut_strip.sync(None if shown is None else getattr(shown, "cut", None), exclude,
+                            "" if shown is not None else words)
+
+    def _on_exclude_cut(self, on: bool) -> None:
+        if self.links.set_exclude_cut is not None:
+            self.links.set_exclude_cut(bool(on))
+
+    def _on_pick_boundary(self) -> None:
+        if self.links.pick_boundary is not None:
+            self.links.pick_boundary()
 
     def selection_changed(self) -> None:
         """The main window applied another selection (an ROI moved, an

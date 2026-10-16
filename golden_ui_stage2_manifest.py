@@ -8,8 +8,8 @@ MANIFEST.json is a list of entries ``{"cell": "A:S2:E2", "snapshot": "entry", "p
 "b_change": "B2", "reason": "..."}``. ``path`` is a prefix of the difference's path inside the snapshot, as
 ``golden_ui_stage2_compare.py`` prints it after "<cell> / snapshots / <snapshot> / "; an entry may cover several
 differences under that prefix, and must cover at least one; a difference belongs to the longest prefix that matches
-it. ``b_change`` must be one of B1-B23 or B26 (G6: no rev-3 item may appear; B19-B22 are the science PRs SCI-3, SCI-5,
-SCI-6 and channel 2's parameters, numbered in their planned merge order; B23 the beginner tour; B26 P-R58, how eps was chosen; B24, B25 reserved). An empty list (``[]``) means "byte-identical": the expectation of every step before IMPL-D (IMPL-0 to
+it. ``b_change`` must be one of B1-B23, B26 or B27 (G6: no rev-3 item may appear; B19-B22 are the science PRs SCI-3, SCI-5,
+SCI-6 and channel 2's parameters, numbered in their planned merge order; B23 the beginner tour; B26 P-R58, how eps was chosen; B27 P-R59, the clusters cut by the Picasso pick; B24, B25 reserved). An empty list (``[]``) means "byte-identical": the expectation of every step before IMPL-D (IMPL-0 to
 IMPL-C), since no B-change is implemented before it.
 
 Exit status 0 when the differences are exactly the manifest's, 1 otherwise. Nothing is normalised here (the golden
@@ -32,9 +32,11 @@ from golden_ui_stage2_compare import _diff, _load
 # B22 = channel 2's DBSCAN parameters from the NeNA (P-R57; reserved: its golden is identical to main's, so it has no
 # entries), B23 = the beginner tour (feat/beginner-tour: the tour's state in the settings),
 # B26 = P-R58 (eps = auto opens the k-distance graph; how eps was chosen is recorded in the
-# settings and the axon table, v8).
+# settings and the axon table, v8), B27 = P-R59 (the clusters cut by the Picasso pick: the axon
+# table's cut_ columns, v9, the clusters table's cut_by_pick, the results table's row, the
+# settings' store).
 # Each entry carries a one-line reason.
-B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26"}
+B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26", "B27"}
 # The path ends where the compare tool's ": <first> != <second>" (or ": only in ...", ": n items vs m") begins: at
 # the first colon followed by a space. A key may hold a colon of its own ("other:_columns.csv").
 _PREFIX = re.compile(r"^(?P<cell>[^ ]+) / snapshots / (?P<snap>[^ /]+) / (?P<path>.*?)(?:: .*)?$")
@@ -70,8 +72,8 @@ def check(ref_path: str, branch_path: str, manifest_path: str) -> int:
     problems: List[str] = []
     for i, e in enumerate(manifest):
         if e.get("b_change") not in B_CHANGES:
-            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B23 or B26 (G6, manual test 2, "
-                            f"species, the science PRs, beginner tour, P-R58)")
+            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B23, B26 or B27 (G6, manual test 2, "
+                            f"species, the science PRs, beginner tour, P-R58, P-R59)")
     found, other = differences(ref, branch)
     problems.extend(f"not a snapshot difference: {o}" for o in other)
     used: Set[int] = set()

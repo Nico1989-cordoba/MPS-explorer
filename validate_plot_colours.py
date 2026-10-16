@@ -284,6 +284,7 @@ TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
         ("centroid", 255, "circle"),
         ("occupied", 255, "thick line"),
         ("centre", 255, "plus"),
+        ("cut", 255, "cased hollow hexagon and cased dashed line"),
     ),
     # The Axoplasm view, on the widefield image: the contours are the
     # analysis' neutral ones now (cased), and the centre "+" is drawn over
@@ -309,6 +310,7 @@ TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
         ("centre", 255, "plus"),
         ("image_tubulin", 255, "cased line and cased rings"),
         ("image_spectrin", 255, "cased line and cased squares"),
+        ("cut", 255, "cased hollow hexagon and cased dashed line"),
     ),
     # The single axial view, "MPS analysis slab": the ROI's z inside the
     # slab (sky blue) and outside it (grey, alpha 100: 80 is 19.9 off black,
@@ -468,6 +470,36 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
     ("occupied", "image_spectrin"):
         "on the axon map, a thick line along the contour against a cased "
         "image edge and cased squares",
+    # --- the Picasso pick on the axon map (clusters cut by its edge) ------
+    # The one hue the MPS view leaves free, reddish purple, is close to
+    # several of its roles under one dichromacy or another; the pick's two
+    # rows are shapes no other row has.
+    ("curated", "cut"):
+        "on the axon map, 16 px cased hollow hexagons drawn around a "
+        "cluster centre and a cased dashed line, against 5 px x marks of "
+        "single localizations",
+    ("locs", "cut"):
+        "on the axon map, 16 px cased hollow hexagons around a centre and a "
+        "cased dashed line along the pick's edge, against 3 px dots; apart "
+        "for everyone but a protanope",
+    ("centroid", "cut"):
+        "on the axon map the hexagon is drawn around the centre it flags: a "
+        "16 px hollow cased ring with the 7 px filled green circle inside it",
+    ("occupied", "cut"):
+        "on the axon map, a thick solid line along the contour against a "
+        "thin cased dashed line along the pick's edge and hollow hexagons",
+    ("centre", "cut"):
+        "on the axon map, one 18 px plus at the middle of the axon against "
+        "hollow hexagons on the ring and a cased dashed line",
+    ("image_tubulin", "cut"):
+        "on the axon map the pick's rows are disabled while the centres are "
+        "coloured by the two widefield images; the tubulin mask edge is a "
+        "solid cased line against the pick's cased dashed line",
+    ("image_spectrin", "cut"):
+        "the same purple: the pick's rows are disabled while the centres "
+        "are coloured by the two widefield images, the only colouring with "
+        "the spectrin squares; the spectrin interior's edge is a solid "
+        "cased line against the pick's cased dashed line",
     # --- the single axial view --------------------------------------------
     ("dim", "slab"):
         "in the axial view they never overlap: the grey bars are the ROI "
@@ -851,7 +883,8 @@ def test_stage2_widgets() -> None:
     where = {
         "the axon map (MPS analysis view)": (
             "slab_kept", "slab_noise", "slab_curated", "slab_discarded",
-            "c_kept", "c_discarded", "occupied", "centre"),
+            "c_kept", "c_discarded", "occupied", "centre", "c_cut",
+            "pick_boundary"),
         "the axon map over a widefield image": (
             "sel_inside", "sel_membrane", "c_both", "c_tubulin", "c_spectrin",
             "tubulin_edge", "spectrin_edge", "centre"),
@@ -963,8 +996,26 @@ def test_stage2_widgets() -> None:
           segment_bands_by_their_lines)
     check("the randomization band is a texture under everything",
           the_randomization_band_is_a_texture)
+    def the_pick_is_told_apart_by_its_shapes():
+        # P-R59: the cut centres and the pick's edge share the reddish
+        # purple of the spectrin image; they are hexagons and a dashed line
+        # (no other row is either), and both rows are disabled with the
+        # colouring that draws the spectrin squares.
+        c, b = styles["c_cut"], styles["pick_boundary"]
+        assert c.role == b.role == "cut", (c.role, b.role)
+        assert c.symbol == "h" and c.hollow and c.cased, c
+        assert b.pen == "dash" and b.cased, b
+        others = {k for k, st in styles.items() if k not in ("c_cut", "pick_boundary")}
+        assert not [k for k in others if styles[k].symbol == "h"]
+        assert "c_cut" in layers_spec.SEGMENTS_DISABLE
+        assert "pick_boundary" in layers_spec.SEGMENTS_DISABLE
+        assert layers_spec.PICK_DISABLED_WITH_IMAGES
+        return "hollow cased hexagons and a cased dashed line; off with the images' colouring and the segments"
+
     check("channel 2 and the components are never drawn together",
           channel_2_and_the_components_are_exclusive)
+    check("the Picasso pick's rows are told apart by their shapes",
+          the_pick_is_told_apart_by_its_shapes)
 
 
 def main() -> int:

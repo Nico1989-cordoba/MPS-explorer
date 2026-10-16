@@ -184,6 +184,14 @@ class MPSSettings:
     # other way it is cleared, and an export reads eps as typed or as the
     # published default (tools.mps_kdistance.export_columns).
     eps_choice: Dict[str, Any] = field(default_factory=dict)
+    # The clusters cut by the pick boundary (P-R59, tools.mps_cut_clusters):
+    # one entry per acquisition folder (tools.mps_pixel_size.folder_key on
+    # the per-axon file) with the NeNA measured on that acquisition's
+    # whole-field file (nena_nm, the words saying which file and how many
+    # pairs, n_pairs) and the pick files the user pointed to there
+    # (pick_files). A NeNA that is not one is dropped, never clamped.
+    cut_clusters_by_folder: Dict[str, Dict[str, Any]] = field(
+        default_factory=dict)
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -322,6 +330,10 @@ class MPSSettings:
 
         self.viability_params = ViabilityParams.from_store(
             self.viability_params).to_store()
+        from tools.mps_cut_clusters import clean_store as clean_cut_store
+
+        self.cut_clusters_by_folder = clean_cut_store(
+            self.cut_clusters_by_folder)
         # A stored pattern that no longer compiles would raise at the next
         # export, in the middle of writing tables; drop it here instead and
         # fall back to the default for that field.

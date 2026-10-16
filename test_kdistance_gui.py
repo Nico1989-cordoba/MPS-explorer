@@ -286,7 +286,7 @@ def main() -> int:
         tables = axon_export.build_tables(mw.mps_analysis, eps_choice=mw.mps_settings.eps_choice)
         row = tables.axon
         assert row["eps_nm"] == eps and row["eps_source"] == rec["source"] and row["eps_kdist_k"] == 9
-        assert row["eps_kdist_file"] == "sim_axon_A.hdf5" and row["table_version"] == "axon tables v8"
+        assert row["eps_kdist_file"] == "sim_axon_A.hdf5" and row["table_version"] == "axon tables v9"
         assert (row["eps_kdist_valley_nm"] is None) == (rec["source"] == "kdist_click" and
                                                        not rec.get("valley_found", False))
         st["row"] = row

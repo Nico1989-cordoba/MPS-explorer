@@ -92,6 +92,9 @@ ROW_STYLES: Dict[str, Style] = {
     "tubulin_edge": Style("image_tubulin", 255, "cased line", cased=True),
     "spectrin_edge": Style("image_spectrin", 255, "cased line", cased=True),
     "ring_origin": Style("neutral", 255, "star", "star", 12.0),
+    # map: the Picasso pick (clusters cut by its edge, P-R59)
+    "c_cut": Style("cut", 255, "cased hollow hexagon", "h", 16.0, width=1.5, cased=True, hollow=True),
+    "pick_boundary": Style("cut", 255, "cased dashed line", width=1.5, pen="dash", cased=True),
     # axial view
     "roi_in": Style("locs", 170, "bars"),
     "roi_out": Style("dim", 100, "bars"),
@@ -351,7 +354,7 @@ VIEW_SOURCE: Dict[str, str] = {"mps": "slab", "axoplasm": "selection", "segments
 VIEW_COLOUR_BY: Dict[str, str] = {"mps": "status", "axoplasm": "images", "segments": "status"}
 VIEW_ON: Dict[str, FrozenSet[str]] = {
     "mps": frozenset({"slab_kept", "slab_noise", "slab_curated", "slab_discarded", "c_kept", "c_discarded",
-                      "contour", "contour_all", "occupied", "centre", "centre_all"}),
+                      "contour", "contour_all", "occupied", "centre", "centre_all", "c_cut", "pick_boundary"}),
     "axoplasm": frozenset({"sel_inside", "sel_membrane", "sel_free", "c_both", "c_tubulin", "c_spectrin",
                            "c_neither", "contour", "contour_all", "centre", "centre_all", "image", "tubulin_edge",
                            "spectrin_edge"}),
@@ -363,7 +366,7 @@ OVER_IMAGE_REASON = "grey on the grey image: use the axoplasm classes"
 # Rows disabled with the segments' source (3.5): the five segment colours are five roles' colours.
 SEGMENT_COLOUR_REASON = "the segments use these colours"
 SEGMENTS_DISABLE: Tuple[str, ...] = ("c_kept", "c_discarded", "c_both", "c_tubulin", "c_spectrin", "occupied",
-                                     "tubulin_edge", "spectrin_edge")
+                                     "tubulin_edge", "spectrin_edge", "c_cut", "pick_boundary")
 # What may be drawn over the segments (validator: "segments against the map's overlays").
 SEGMENTS_ALLOW: Tuple[str, ...] = ("contour", "contour_all", "centre", "centre_all", "centres_mean", "rand_band",
                                    "c_neither", "image", "ring_origin")
@@ -466,6 +469,8 @@ def _localization_group(inp: MapInputs, shown: Any) -> Group:
         kept = (~noise) & (~bad_mask) & (~gone)
         curated_word = ("Removed by the edge criterion or by DBCV" if getattr(shown.bad_report, "low_dbcv", None)
                         else "Removed by the edge criterion")
+        if getattr(shown.bad_report, "cut_by_pick", None):
+            curated_word += " or as cut by the pick"
         g.layers = [
             Layer("slab_kept", "In kept clusters", g.key, "scatter", {"x": x[kept], "y": y[kept]},
                   int(kept.sum()), "Localizations of the analysis slab in the clusters the analysis kept."),
@@ -713,12 +718,72 @@ def _rings_group(inp: MapInputs) -> Group:
     return g
 
 
+PICK_TIP = ("The Picasso pick this file was cut with, and the clusters its edge cut: a kept cluster is cut when any "
+            "of its localizations lies within 1 NeNA of the edge (docs/cut_clusters.md). Choose the pick file, or "
+            "measure the NeNA, with 'Pick boundary...' in the parameter strip.")
+
+
+# The pick's rows share the reddish purple of the spectrin image's rows: they are disabled with the colouring that
+# draws the spectrin squares (validate_plot_colours.py).
+PICK_DISABLED_WITH_IMAGES = ("the betaII-spectrin rows of this colouring use the same purple: colour the centres by "
+                             "status to see the pick")
+
+
+def _pick_group(inp: MapInputs) -> Group:
+    """The pick boundary and the clusters it cut (P-R59): read from the MEASURED analysis' cut report, whichever
+    analysis is shown (the discard does not change which clusters the edge cut)."""
+    g = _pick_rows(inp)
+    if inp.colour_by == "images":
+        for layer in g.layers:
+            layer.enabled, layer.reason = False, PICK_DISABLED_WITH_IMAGES
+    return g
+
+
+def _pick_rows(inp: MapInputs) -> Group:
+    g = Group("pick", "Picasso pick boundary")
+    a = inp.analysis
+    if a is None:
+        g.caption = "No MPS analysis of this selection yet."
+        g.enabled, g.reason = False, "no MPS analysis of this selection yet"
+        return g
+    cut = getattr(a, "cut", None)
+    if cut is None or not cut.evaluated:
+        status = "boundary unknown: not evaluated" if cut is None else cut.status
+        why = "no Picasso pick boundary was given for this file" if cut is None else cut.reason
+        g.caption = f"{status}: {why}"
+        reason = status
+        boundary = None if cut is None else cut.boundary
+        if boundary is not None:
+            o = boundary.outline_nm()
+            g.layers.append(Layer("pick_boundary", f"Pick boundary ({boundary.shape.lower()})", g.key, "polyline",
+                                  {"x": o[:, 0], "y": o[:, 1]}, None, PICK_TIP))
+        else:
+            g.layers.append(Layer("pick_boundary", "Pick boundary", g.key, "polyline",
+                                  {"x": np.empty(0), "y": np.empty(0)}, None, PICK_TIP, enabled=False,
+                                  reason=reason))
+        g.layers.append(Layer("c_cut", "Clusters cut by the pick", g.key, "scatter",
+                              {"x": np.empty(0), "y": np.empty(0)}, None, PICK_TIP, enabled=False, reason=reason))
+        return g
+    what = "left out of the analysis" if cut.excluded else "kept in the analysis, flagged only"
+    g.caption = (f"{cut.count_words()} kept clusters cut: a localization within {cut.multiple:g} NeNA "
+                 f"({cut.margin_nm:.1f} nm; NeNA {cut.nena_nm:.1f} nm, {cut.nena_source}) of the edge; {what}. "
+                 f"Boundary: {cut.boundary_source}")
+    if cut.boundary is not None:
+        o = cut.boundary.outline_nm()
+        g.layers.append(Layer("pick_boundary", f"Pick boundary ({cut.boundary.shape.lower()})", g.key, "polyline",
+                              {"x": o[:, 0], "y": o[:, 1]}, None, PICK_TIP))
+    c = np.asarray(cut.cut_centroids, float).reshape(-1, 2)
+    g.layers.append(Layer("c_cut", f"Clusters cut by the pick: {cut.count_words()}", g.key, "scatter",
+                          {"x": c[:, 0], "y": c[:, 1]}, int(len(c)), PICK_TIP))
+    return g
+
+
 def build_map(inp: MapInputs) -> List[Group]:
     """Every group of the map for these inputs, with the rows of the chosen source and colouring only, each with
     its availability and reason (3.3, 3.4, 3.5)."""
     shown = inp.shown_analysis()
     groups = [_localization_group(inp, shown), _centres_group(inp, shown), _contour_group(inp, shown),
-              _image_group(inp), _rings_group(inp)]
+              _pick_group(inp), _image_group(inp), _rings_group(inp)]
     if inp.source == "segments":
         for g in groups:
             for layer in g.layers:
@@ -758,6 +823,9 @@ def map_title(inp: MapInputs, ticked: Set[str]) -> str:
         parts.append("centres by status in the analysis")
     elif ticked & {"c_both", "c_tubulin", "c_spectrin", "c_neither"} and inp.colour_by == "images":
         parts.append("centres by the two widefield images")
+    cut = getattr(inp.analysis, "cut", None)
+    if "c_cut" in ticked and cut is not None and cut.evaluated:
+        parts.append(f"clusters cut by the pick (hexagons): {cut.count_words()} at {cut.multiple:g} NeNA")
     if "image" in ticked:
         st = inp.axoplasm
         which = "spectrin" if (inp.image == "spectrin" and st is not None and st.spectrin_region is not None) \

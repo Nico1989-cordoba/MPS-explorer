@@ -29,7 +29,7 @@ the paper's own interpretation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
@@ -407,6 +407,10 @@ class BadClusterReport:
     # that the GUI must surface to the user — silently keeping every
     # cluster would be just as misleading as silently dropping them all.
     edge_criterion_disabled: Optional[str] = None
+    # The clusters left out because the pick boundary cut them (P-R59,
+    # tools.mps_cut_clusters), only when the user asked to exclude them;
+    # they are in bad_labels too. Empty otherwise.
+    cut_by_pick: Set[int] = field(default_factory=set)
 
 
 def identify_bad_clusters(

@@ -105,6 +105,7 @@ from tools.mps_spatial import (
     NNResult,
     compute_nn_distances,
 )
+from tools import mps_cut_clusters as cut_rule
 from tools.mps_settings import DEFAULT_DBCV_THRESHOLD
 from tools.results_table import cell_text
 
@@ -244,6 +245,11 @@ class AxonAnalysis:
     # F, the share of the slab's localizations the fitted mixture expects
     # from components other than the slab's own ring (None: not computed).
     slab_foreign: Optional[ForeignFraction] = None
+    # --- clusters cut by the pick boundary (P-R59) ------------------------
+    # tools.mps_cut_clusters.CutReport: which kept clusters the pick's edge
+    # cut, and whether they were left out. None: no boundary was given to
+    # the analysis (the table then says "boundary unknown: not evaluated").
+    cut: Optional[cut_rule.CutReport] = None
 
     # ---------------- convenience accessors for the panel ----------------
 
@@ -437,9 +443,16 @@ class AxonAnalysis:
             ("Clusters detected (raw)", f"{self.n_clusters_raw}", "-", ""),
             ("Clusters kept (auto-curated)", kept, "-",
              f"{len(self.bad_report.bad_labels)} removed"
+             + (f" ({len(self.bad_report.cut_by_pick)} as cut by the pick)"
+                if self.bad_report.cut_by_pick else "")
              + ("" if not self.discard_applied else
                 f"; discarded: inside both widefield images by more than "
                 f"{self.discard_margin_nm:,.0f} nm")),
+            ("Clusters cut by the pick",
+             (self.cut or cut_rule.not_evaluated(
+                 cut_rule.STATUS_NO_BOUNDARY, "")).count_words(), "-",
+             "no Picasso pick boundary was given for this file"
+             if self.cut is None else self.cut.note_words()),
             ("Perimeter", fmt(self.perimeter_um, 2) + " um", "-", joined),
             # These checks and their limits are this program's, not the
             # paper's: the paper column stays "-".
@@ -934,6 +947,8 @@ def analyze_axon(
     gmm_n_init: int = DEFAULT_N_INIT,
     gmm_random_state: int = DEFAULT_RANDOM_STATE,
     foreign_fraction_warn: float = FOREIGN_FRACTION_WARN,
+    cut_context: Optional[cut_rule.CutContext] = None,
+    exclude_cut_clusters: bool = False,
 ) -> AxonAnalysis:
     """
     Run the full per-axon pipeline on one ROI's localizations.
@@ -964,6 +979,14 @@ def analyze_axon(
     sigma_cap_fraction : the cap of each cluster's ellipse, sigma <= this
         fraction of d_max (1/3, the published rule; documented range
         0.2-1.0).
+    cut_context : the pick boundary the file was cut with and the
+        channel's NeNA (tools.mps_cut_clusters.CutContext). The clusters
+        the curation kept that have a localization within 1 NeNA of the
+        boundary are flagged as cut (P-R59, docs/cut_clusters.md). None:
+        the rule is not applied, and the analysis says so.
+    exclude_cut_clusters : leave the cut clusters out of steps 3-6, as
+        the curation leaves out its own (off by default: they are only
+        flagged).
 
     all_starts : build the contour with 2-opt from every start and keep
         the shortest tour (default). False refines it from one start, as
@@ -1095,6 +1118,9 @@ def analyze_axon(
             centroids=np.empty((0, 2)),
             perimeter=None, areas=None, nn=None,
             warnings=warnings_, upstream_warnings=list(warnings_),
+            cut=(None if cut_context is None else cut_rule.evaluate(
+                xs, ys, np.full(xs.size, -1, dtype=np.int64), [], cut_context,
+                exclude=exclude_cut_clusters)),
             **settings, **base,
         )
 
@@ -1124,6 +1150,28 @@ def analyze_axon(
     if report.edge_criterion_disabled:
         warnings_.append(report.edge_criterion_disabled)
 
+    # ---------------- clusters cut by the pick boundary (P-R59) ---------
+    cut: Optional[cut_rule.CutReport] = None
+    if cut_context is not None:
+        cut = cut_rule.evaluate(
+            xs, ys, labels,
+            cut_rule.considered_labels(labels, report.bad_labels),
+            cut_context, exclude=exclude_cut_clusters)
+        if cut.evaluated and cut.cut_labels:
+            if exclude_cut_clusters:
+                report.cut_by_pick = set(cut.cut_labels)
+                report.bad_labels = set(report.bad_labels) | report.cut_by_pick
+                warnings_.append(
+                    f"{cut.count_words()} kept clusters were cut by the pick "
+                    f"boundary and are left out of the analysis "
+                    f"({cut_rule.rule_words(cut.multiple)}).")
+            else:
+                warnings_.append(
+                    f"{cut.count_words()} kept clusters were cut by the pick "
+                    f"boundary ({cut_rule.rule_words(cut.multiple)}); they "
+                    f"are measured as they are in the file. Tick 'Exclude "
+                    f"cut clusters' to leave them out.")
+
     centroids = good_cluster_centroids(xs, ys, labels, report.bad_labels)
     n_kept = len(centroids)
 
@@ -1144,6 +1192,7 @@ def analyze_axon(
         warnings=warnings_ + steps.warnings,
         upstream_warnings=list(warnings_),
         edge_reference=edge_reference,
+        cut=cut,
         **settings, **base, **base_cluster,
     )
 

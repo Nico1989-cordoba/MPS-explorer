@@ -2697,6 +2697,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         self._loaded_paths: Dict[int, str] = {}
         self._z_states: Dict[int, Any] = {}
+        # The clusters cut by the Picasso pick (P-R59): the loaded channel-1
+        # file's pick match and NeNA (tools.mps_cut_clusters.CutSession),
+        # the switch that leaves the cut ones out (off by default, for this
+        # session only), and the dialog.
+        self._cut_session: Optional[Any] = None
+        self.exclude_cut_clusters = False
+        self._pick_dialog: Optional[Any] = None
         # A differing calibration file the user declined to make the folder's
         # record: shown as an alternative for this session only, never stored.
         self._z_session_records: Dict[str, str] = {}
@@ -3223,6 +3230,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
 
         s = self.mps_settings
+        # The switch of the cut clusters (P-R59) is the main window's: the
+        # strip and the dialog set it, every later run keeps it.
+        if "exclude_cut_clusters" in overrides:
+            self.exclude_cut_clusters = bool(overrides.pop("exclude_cut_clusters"))
         params = dict(
             source_name=self.ui.lineEdit_filename.text(),
             pixel_size_nm=self._channel1_pixel_size()[0],
@@ -3284,6 +3295,19 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 s.occupancy_sigma_cap_fraction).items():
             if key not in overrides:
                 params[key] = value
+        # The clusters cut by the Picasso pick (P-R59): passed only when a
+        # pick file was found or chosen for this file (rule K); without one
+        # the analysis records "boundary unknown: not evaluated" itself.
+        if "cut_context" not in overrides:
+            try:
+                cut_context = self._cut_context()
+            except Exception as exc:                      # noqa: BLE001
+                self.logger.warning(f"Pick boundary: {exc}")
+                cut_context = None
+            if cut_context is not None:
+                params["cut_context"] = cut_context
+        if self.exclude_cut_clusters:
+            params["exclude_cut_clusters"] = True
         if "contour_guide" not in overrides and self._guide is not None:
             if self._guide[1] == self._guide_key():
                 params["contour_guide"] = self._guide[0]
@@ -3370,6 +3394,140 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if show_window:
             self._show_mps_window(analysis)
         return analysis
+
+    # ------------------------------------------------------------------
+    # The clusters cut by the Picasso pick (P-R59, docs/cut_clusters.md)
+    # ------------------------------------------------------------------
+    def _cut_store_entry(self, path: str) -> Dict[str, Any]:
+        entry = self.mps_settings.cut_clusters_by_folder.get(
+            mps_pixel_size.folder_key(path))
+        return dict(entry) if isinstance(entry, dict) else {}
+
+    def _put_cut_store_entry(self, path: str, values: Dict[str, Any]) -> None:
+        key = mps_pixel_size.folder_key(path)
+        entry = dict(self.mps_settings.cut_clusters_by_folder.get(key) or {})
+        entry.update(values)
+        self.mps_settings.cut_clusters_by_folder[key] = entry
+        try:
+            save_settings(self.mps_settings)
+        except Exception as exc:                          # noqa: BLE001
+            self.logger.warning(f"Could not save the MPS settings: {exc}")
+
+    def cut_session_now(self) -> Optional[Any]:
+        """The pick match of the loaded channel-1 file, looked for once per
+        file (a Picasso file only: its x and y are camera pixels)."""
+        from tools import mps_cut_clusters as cut_rule
+
+        path = (getattr(self, "_loaded_paths", {}) or {}).get(1, "")
+        loc = self.locs1
+        if not path or loc is None or getattr(loc, "fileformat", None) != mps_io.FORMAT_PICASSO_HDF5:
+            return None
+        if self._cut_session is None or self._cut_session.path != path:
+            self._cut_session = cut_rule.open_session(path, loc, self._cut_store_entry(path))
+            self.logger.info(f"Pick boundary: {self._cut_session.match.message}")
+        return self._cut_session
+
+    def _cut_context(self) -> Optional[Any]:
+        """What the analysis is given about the pick: None when no pick
+        file was found or chosen; the NeNA is resolved once a boundary is
+        known (stored for the folder, else this file's own)."""
+        from tools import mps_cut_clusters as cut_rule
+
+        session = self.cut_session_now()
+        if session is None:
+            return None
+        if session.boundary is not None and session.nena is None:
+            session.nena = cut_rule.resolve_nena(
+                session, self.locs1, self._cut_store_entry(session.path))
+            self.logger.info(
+                "Pick boundary: NeNA "
+                + (f"{session.nena.nena_nm:.2f} nm, {session.nena.words}" if session.nena.measured
+                   else f"unknown ({session.nena.reason})"))
+        return session.context()
+
+    def _cut_changed(self) -> None:
+        """The pick, the NeNA or the switch changed: the analysis shown is
+        re-run with the strip's values, as any parameter change does."""
+        if self.mps_analysis is None:
+            if self.mps_window is not None:
+                self.mps_window.refresh()
+        elif self.mps_window is not None and self.mps_window.analysis is not None:
+            self.mps_window._on_param_changed()
+        else:
+            self.run_mps_analysis(show_window=False)
+        if self._pick_dialog is not None:
+            self._pick_dialog.refresh()
+
+    def set_exclude_cut(self, on: bool) -> None:
+        """The switch "Exclude cut clusters" (strip or dialog)."""
+        if bool(on) == self.exclude_cut_clusters:
+            return
+        self.exclude_cut_clusters = bool(on)
+        self._cut_changed()
+
+    def choose_pick_file(self, pick_path: str) -> None:
+        from tools import mps_cut_clusters as cut_rule
+
+        session = self.cut_session_now()
+        if session is None:
+            return
+        cut_rule.choose_pick_file(session, self.locs1, pick_path)
+        if session.match.status != "none":
+            picks = list(self._cut_store_entry(session.path).get("pick_files") or [])
+            if pick_path not in picks:
+                self._put_cut_store_entry(session.path, {"pick_files": picks + [pick_path]})
+        self.logger.info(f"Pick boundary (by hand): {session.match.message}")
+        self._cut_changed()
+
+    def choose_pick_candidate(self, index: int) -> None:
+        from tools import mps_cut_clusters as cut_rule
+
+        session = self.cut_session_now()
+        if session is None:
+            return
+        cut_rule.choose_candidate(session, index)
+        session.nena = None
+        self._cut_changed()
+
+    def set_pick_aside(self) -> None:
+        session = self.cut_session_now()
+        if session is None:
+            return
+        session.set_aside = True
+        self._cut_changed()
+
+    def measure_whole_field_nena(self, path: str) -> Optional[Any]:
+        """NeNA of the whole-field file ``path``, kept for the folder of the
+        loaded file (the acquisition) and used from now on."""
+        from tools import mps_cut_clusters as cut_rule
+
+        session = self.cut_session_now()
+        if session is None:
+            return None
+        source = cut_rule.nena_from_file(path)
+        if source.measured:
+            self._put_cut_store_entry(session.path, cut_rule.nena_entry(source))
+            session.nena = cut_rule.stored_nena(self._cut_store_entry(session.path))
+            self.logger.info(f"Pick boundary: NeNA {source.nena_nm:.2f} nm from {source.words}")
+            self._cut_changed()
+        return source
+
+    def open_pick_boundary(self) -> Any:
+        """The Pick boundary dialog (not modal)."""
+        from tools.mps_cut_ui import PickBoundaryDialog
+
+        if self._pick_dialog is None:
+            self._pick_dialog = PickBoundaryDialog(self, parent=self.mps_window or self)
+        self._pick_dialog.refresh()
+        self._pick_dialog.show()
+        self._pick_dialog.raise_()
+        return self._pick_dialog
+
+    def _cut_strip_state(self) -> Tuple[bool, str]:
+        """The switch, and what the next analysis will do (before one)."""
+        session = self._cut_session
+        words = "" if session is None else session.status_words()
+        return self.exclude_cut_clusters, words
 
     def _make_mps_window(self, analysis: Optional[Any]) -> Any:
         """Build the MPS analysis window (with an analysis or without)."""
@@ -3466,6 +3624,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
             apply_typed=self._apply_typed_range,
             root_name=self.get_root_filename,
             z_calibration=self._z_calibration_words,
+            cut_state=self._cut_strip_state,
+            set_exclude_cut=self.set_exclude_cut,
+            pick_boundary=self.open_pick_boundary,
             nn_bins=int(DEFAULT_KNN_BINS),
             nn_range=(0.0, float(MAX_LATERAL_DISTANCE_NM)))
 
@@ -4240,6 +4401,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if self.mps_window is not None:
             self.mps_window.analysis = None
             self.mps_window.refresh()
+        # The pick of the previous file is not this one's (P-R59).
+        self._cut_session = None
         # A contour drawn by hand belongs to the previous file (B11).
         if self._guide is not None:
             self._guide = None

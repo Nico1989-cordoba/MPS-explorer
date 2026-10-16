@@ -196,7 +196,8 @@ def test_main_peak_disagreement_at_the_half_width_and_no_weight_test() -> None:
 
 
 def test_analysis_exports_the_axial_mixture_columns(tmp_path: Any) -> None:
-    from tools.axon_export import AXIAL_MIXTURE_COLUMNS, EPS_CHOICE_COLUMNS, TABLE_VERSION, axon_row
+    from tools.axon_export import (AXIAL_MIXTURE_COLUMNS, CUT_COLUMNS, EPS_CHOICE_COLUMNS, TABLE_VERSION,
+                                   axon_row)
     from tools.column_dictionary import describe, known_columns
     from tools.mps_analysis import analyze_axon
     rng = np.random.default_rng(5)
@@ -210,10 +211,10 @@ def test_analysis_exports_the_axial_mixture_columns(tmp_path: Any) -> None:
                      run_randomization=False)
     assert a.slab_foreign is not None and a.slab_foreign_fraction is not None
     row = axon_row(a, exported_at="t")
-    # the axial mixture, then (P-R58, v8) how eps was chosen, last
-    tail = list(AXIAL_MIXTURE_COLUMNS) + list(EPS_CHOICE_COLUMNS)
+    # the axial mixture, then how eps was chosen (P-R58, v8), then the cut clusters (P-R59, v9), last
+    tail = list(AXIAL_MIXTURE_COLUMNS) + list(EPS_CHOICE_COLUMNS) + list(CUT_COLUMNS)
     assert list(row)[-len(tail):] == tail
-    assert row["table_version"] == TABLE_VERSION == "axon tables v8"   # v6 SCI-3, v7 SCI-6, v8 P-R58
+    assert row["table_version"] == TABLE_VERSION == "axon tables v9"   # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59
     assert row["main_peak_mode"] == "density" and 0.0 <= row["slab_foreign_fraction"] <= 1.0
     assert all(describe(c) for c in AXIAL_MIXTURE_COLUMNS)
     assert known_columns()[-len(tail):] == tail
