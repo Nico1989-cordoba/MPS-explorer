@@ -313,6 +313,11 @@ pytest test_mps_explorer.py -v
   files, the per-measurement z calibration: no z correction is applied yet, so z is used as the localization software
   fitted it; whether the file carries its own calibration record is shown (only Data quality's coverage check reads
   its calibrated range), and the inputs to read one are present but disabled.
+- **NeNA precision** (Data quality → Precision). The localization precision measured from the data (Endesfelder et
+  al. 2014) with Picasso's model, fitted since 2026-10-14 by maximum likelihood (the nearby-molecule term kept only
+  when the data support it), with a 95 % interval, an independent estimate and warnings when the fit is poorly
+  identified or the field too crowded; the value is never replaced by another. Picasso's least-squares value is still
+  shown for comparison. Why the fit changed, the synthetic validation and the limitations: [docs/nena.md](docs/nena.md).
 - **Randomization control, KS and the 1NN** (parameter 8 of Gazal et al. 2026). The null (999 iterations, ±50 nm band
   around the closed smoothed contour, the smallest observed 1NN as minimum separation, incomplete iterations re-drawn
   and excluded) is editable from the strip (Randomization → More → Edit...). The KS distance D is reported with its
