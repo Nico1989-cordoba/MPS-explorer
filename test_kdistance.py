@@ -250,7 +250,7 @@ def main() -> int:
         assert set(EPS_CHOICE_COLUMNS) <= set(cd.known_columns())
         assert not cd.missing(list(EPS_CHOICE_COLUMNS)), cd.missing(list(EPS_CHOICE_COLUMNS))
         assert cd.unit_of("eps_kdist_valley_nm") == "nm" and cd.unit_of("eps_kdist_unclustered_fraction") == ""
-        assert TABLE_VERSION == "axon tables v6"
+        assert TABLE_VERSION == "axon tables v8"
         return f"{len(EPS_CHOICE_COLUMNS)} columns described; {TABLE_VERSION}"
 
     def labels() -> str:
