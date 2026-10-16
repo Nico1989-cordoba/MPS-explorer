@@ -141,14 +141,18 @@ MAIN_WINDOW: Dict[str, str] = {
         "DBSCAN's epsilon for channel 2, in nanometres.\n\n"
         "'auto' means nobody has chosen one: the cluster button will "
         "estimate it from channel 2's own points, and the Two channels "
-        "panel will ask before it compares. It is never filled in from "
-        "channel 1's.",
+        "panel opens a box that derives it from channel 2's precision: "
+        "eps_1 x NeNA_2 / NeNA_1, each NeNA measured on the channel's "
+        "whole-field file. It is never copied from channel 1's.\n\n"
+        "How it is derived: docs/channel2_parameters.md",
     "lineEdit_minsamples_2":
         "DBSCAN's Min Pts for channel 2.\n\n"
-        "This one counts LOCALIZATIONS, and the two channels are rarely "
-        "sampled alike: channel 2 can carry many times more of them per "
-        "20 nm cell than channel 1. That "
-        "is why the Two channels panel will not borrow channel 1's.",
+        "This one counts LOCALIZATIONS, and how many one molecule leaves "
+        "depends on the dye and the buffer, so the Two channels panel will "
+        "not borrow channel 1's. Its box derives it from channel 2's dye "
+        "(the switching cycles of Dempsey et al. 2011, a lower bound) and "
+        "precision: round(1 + (n - 1)(1 - exp(-eps^2 / 4 NeNA^2))).\n\n"
+        "How it is derived: docs/channel2_parameters.md",
     "pushButton_clusterch2":
         "Cluster the channel-2 selection, to look at.\n\n"
         "The Two channels panel clusters channel 2 again from whatever "

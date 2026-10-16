@@ -23,6 +23,7 @@ shows what was restored.
 from __future__ import annotations
 
 import json
+import math
 import logging
 import os
 import re
@@ -60,6 +61,31 @@ DEFAULT_DBCV_THRESHOLD = -1.0
 # shrinks the occupancy many-fold -- so it is stored, exported, and never
 # left to whatever a spin box happens to show.
 DEFAULT_MAHALANOBIS_THRESHOLD = 3.0
+
+
+# What a channel-2 entry may carry besides its pair (tools.mps_channel_params):
+# numbers are kept when finite (else dropped), texts as texts.
+_CHANNEL2_NUMBERS = ("derived_eps_nm", "derived_min_samples", "nena_a_nm",
+                     "eps_a_reference_nm", "nena_b_nm", "n_loc_mol_b")
+_CHANNEL2_TEXTS = ("eps_b_origin", "min_samples_b_origin", "nena_a_source_file",
+                   "nena_a_origin", "nena_b_source_file", "dye_b", "buffer_b",
+                   "n_loc_mol_b_origin")
+
+
+def _channel2_provenance(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """The provenance fields of a stored channel-2 entry, cleaned."""
+    out: Dict[str, Any] = {}
+    for key in _CHANNEL2_NUMBERS:
+        value = entry.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if math.isfinite(float(value)):
+            out[key] = float(value)
+    for key in _CHANNEL2_TEXTS:
+        value = entry.get(key)
+        if isinstance(value, str):
+            out[key] = value
+    return out
 
 
 @dataclass
@@ -103,14 +129,14 @@ class MPSSettings:
     z_calibration_by_folder: Dict[str, Dict[str, Any]] = field(
         default_factory=dict)
     # Channel 2's OWN eps and min samples, one entry per folder, keyed by
-    # tools.mps_pixel_size.folder_key on the channel-2 file.
+    # tools.mps_pixel_size.folder_key on the channel-2 file, with where they
+    # came from (tools.mps_channel_params.provenance): each value's origin
+    # ("derived" from channel 2's NeNA and dye, or "user"), the NeNA of
+    # each channel and the whole-field file it was measured on (name
+    # only), the dye, the buffer and n_loc,mol with its origin.
     #
-    # Per folder and not global, because the measurement that forces this
-    # is per file: across five real adducin files, localizations within
-    # one 20 nm cell ran 4, 62, 238, 485, 550 against 3 to 5 for
-    # spectrin. A min samples chosen for the 550 file is as wrong on the
-    # 4 file as channel 1's ever was, so one global answer would only
-    # move the assumption rather than remove it.
+    # Per folder and not global, because what the values are derived from
+    # -- the precision and the dye of channel 2 -- is per acquisition.
     #
     # The keys are new on purpose. The fields that stood here until
     # 2026-09-21 were written from the two boxes on screen, which were
@@ -118,7 +144,7 @@ class MPSSettings:
     # channel 1's 25 / 10 under channel 2's name, with nothing to
     # distinguish it from a deliberate 25 / 10. No rule on the VALUE can
     # tell those apart, so the name changes and the old one is ignored.
-    channel2_clustering_by_folder: Dict[str, Dict[str, float]] = field(
+    channel2_clustering_by_folder: Dict[str, Dict[str, Any]] = field(
         default_factory=dict)
     # Which inputs come from an acquisition outside the calibrated range of
     # the column analysis (a regular expression matched against the file
@@ -127,6 +153,28 @@ class MPSSettings:
     # nothing. The MPS_UNCALIBRATED_LABELS environment variable, when set,
     # takes precedence.
     uncalibrated_labels: str = ""
+    # The randomization control (SCI-3): "n_iterations" (B), "seed" and the
+    # fields of tools.mps_randomization.RandomizationParams, one store read
+    # by the MPS analysis window, the batch and the next session. Empty:
+    # every default. A value outside its documented range is kept (and
+    # flagged where it is shown), never clamped.
+    randomization_params: Dict[str, Any] = field(default_factory=dict)
+    # The cap of each cluster's ellipse (sigma <= this fraction of d_max):
+    # 1/3, the published rule; documented range 0.2-1.0.
+    occupancy_sigma_cap_fraction: float = 1.0 / 3.0
+    # The ring-pair viability's editable values (reference period, SiZer
+    # bandwidth and peak window, separation thresholds, copy tolerance,
+    # count-floor recall, ...): only the ones the user changed, by name
+    # (tools.mps_axial_precision.ViabilityParams.to_store). One store for
+    # Z quality, the viability explorer, the batch and the selection. A value
+    # outside its documented range is kept and flagged, never clamped; an
+    # entry that is not a value at all is dropped.
+    viability_params: Dict[str, Any] = field(default_factory=dict)
+    # The beginner tour (tools/mps_tour.py): {"enabled": bool, "seen":
+    # {window id: True}, "language": "es" | "en"}. Empty on a fresh install,
+    # which means the tour is on, no window's tour has been seen and the
+    # cards are in Spanish. Nothing in it touches an analysis.
+    beginner_tour: Dict[str, Any] = field(default_factory=dict)
     # How the channel-1 eps in use was chosen on the k-distance graph
     # (decision P-R58, tools.mps_kdistance.choice_record): the source
     # (published default, valley suggestion accepted, click on the graph),
@@ -197,7 +245,7 @@ class MPSSettings:
         if not isinstance(self.channel2_clustering_by_folder, dict):
             self.channel2_clustering_by_folder = {}
         else:
-            chosen: Dict[str, Dict[str, float]] = {}
+            chosen: Dict[str, Dict[str, Any]] = {}
             for folder, entry in self.channel2_clustering_by_folder.items():
                 if not isinstance(entry, dict):
                     continue
@@ -210,8 +258,10 @@ class MPSSettings:
                         "parameters; it will be asked for again", folder)
                     continue
                 if 0 < eps2 <= 1000 and 1 <= min2 <= 10000:
-                    chosen[str(folder)] = {"eps_nm": eps2,
-                                           "min_samples": float(min2)}
+                    pair: Dict[str, Any] = {"eps_nm": eps2,
+                                            "min_samples": float(min2)}
+                    pair.update(_channel2_provenance(entry))
+                    chosen[str(folder)] = pair
                 else:
                     logger.warning(
                         "Stored channel-2 clustering for %s is out of range "
@@ -256,6 +306,22 @@ class MPSSettings:
 
         self.z_calibration_by_folder = clean_store(
             self.z_calibration_by_folder)
+        self.randomization_params = clean_randomization_store(
+            self.randomization_params)
+        try:
+            cap = float(self.occupancy_sigma_cap_fraction)
+        except (TypeError, ValueError):
+            cap = float("nan")
+        if not (cap > 0 and cap < float("inf")):
+            logger.warning(
+                "Stored occupancy_sigma_cap_fraction=%r is not a fraction; "
+                "using 1/3", self.occupancy_sigma_cap_fraction)
+            cap = 1.0 / 3.0
+        self.occupancy_sigma_cap_fraction = cap
+        from tools.mps_axial_precision import ViabilityParams
+
+        self.viability_params = ViabilityParams.from_store(
+            self.viability_params).to_store()
         # A stored pattern that no longer compiles would raise at the next
         # export, in the middle of writing tables; drop it here instead and
         # fall back to the default for that field.
@@ -287,7 +353,67 @@ class MPSSettings:
         if record and abs(record["eps_nm"] - float(self.eps_nm)) > 1e-6:
             record = {}
         self.eps_choice = record
+        self.beginner_tour = clean_tour_state(self.beginner_tour)
         return self
+
+
+def clean_randomization_store(value: Any) -> Dict[str, Any]:
+    """The usable entries of a stored ``randomization_params``: known keys
+    with a value of the right kind (B >= 1 and the seed as integers, the
+    rest as RandomizationParams accepts them). Anything else is dropped,
+    never clamped; a value outside its documented range is kept."""
+    from tools.mps_randomization import RandomizationParams
+
+    if not isinstance(value, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for key in ("n_iterations", "seed"):
+        if key in value:
+            raw = value[key]
+            try:
+                number = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(raw, bool) or number != float(raw):
+                continue
+            if key == "n_iterations" and number < 1:
+                continue
+            out[key] = number
+    default = RandomizationParams().to_dict()
+    for key in default:
+        if key not in value:
+            continue
+        raw = value[key]
+        parsed = RandomizationParams.from_dict({key: raw}).to_dict()[key]
+        # from_dict leaves the default where a value is unusable: such a
+        # value is dropped, not replaced by the default.
+        if parsed == default[key] and raw != default[key]:
+            continue
+        out[key] = parsed
+    return out
+
+
+TOUR_LANGUAGES = ("es", "en")
+
+
+def clean_tour_state(value: Any) -> Dict[str, Any]:
+    """The beginner tour's state with anything malformed dropped: a flag
+    that is not a bool, a seen mark that is not True, a language the tour
+    does not have. Never raises; an unusable value is an empty state (the
+    tour on, nothing seen)."""
+    if not isinstance(value, dict):
+        return {}
+    kept: Dict[str, Any] = {}
+    enabled = value.get("enabled")
+    if isinstance(enabled, bool):
+        kept["enabled"] = enabled
+    seen = value.get("seen")
+    if isinstance(seen, dict):
+        kept["seen"] = {str(k): True for k, v in seen.items() if v is True}
+    language = value.get("language")
+    if language in TOUR_LANGUAGES:
+        kept["language"] = str(language)
+    return kept
 
 
 def settings_path(directory: Optional[str] = None) -> Path:

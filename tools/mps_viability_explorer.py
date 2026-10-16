@@ -57,7 +57,8 @@ OUTLINE_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 7
 COMBINATION_HEADERS: Dict[str, str] = {"v2": "v2\n(locs)", "v2c-A": "v2c-A\n(ring slabs)",
                                        "v2c-B": "v2c-B\n(3D clusters)", "v2c-C": "v2c-C\n(corrected)"}
 COMBINATION_HEADER_TIPS: Dict[str, str] = {
-    "v2": "Rule v2 (D-41): the criteria read on the LOCALIZATIONS; leak estimate of the switches' v2 row.",
+    "v2": "Rule v2 (the declared default): the criteria read on the LOCALIZATIONS; leak estimate of the switches' v2 "
+          "row.",
     "v2c-A": "Rule v2c, variant A: ring-slab cluster medians (cannot pass (2c) for similar rings: slab cut at the "
              "valley).",
     "v2c-B": "Rule v2c, variant B: slab-free 3D clusters (its selection depends on whether columns exist).",
@@ -65,7 +66,7 @@ COMBINATION_HEADER_TIPS: Dict[str, str] = {
              "rings)."}
 PAIR_HEADERS: Tuple[str, ...] = (
     "Axon", "Pair", "Selection", "Fails (checked)", "Would fail (not checked)", "v2 (1) peaks", "v2 (2) valley",
-    "v2 (3) % of central (min)", "(4) leak D-39", "(4c) leak tnfix", "v2c (1c) peaks", "v2c (2c) valley",
+    "v2 (3) % of reference (min)", "(4) leak ring level", "(4c) leak tnfix", "v2c (1c) peaks", "v2c (2c) valley",
     "v2c (3c) K / K central", "v2 verdict", "v2c verdict")
 GEOMETRY_NOTE = ("Geometry only: which ring pairs each selection would read. No column statistic is computed here "
                  "(no matching, no z_A, no p; R8), so real axons are allowed.")
@@ -523,7 +524,9 @@ class ViabilityExplorer(QtWidgets.QMainWindow):
                         (f"{_yes(s2.peak_a)} / {_yes(s2.peak_b)}", "", None),
                         (_yes(s2.valley), "", None),
                         (f"{_pct(s2.f_a)} / {_pct(s2.f_b)} (min {_pct(s2.f_min)})", "", None),
-                        (_pct(pc.d39), "D-39 expected leak copies (per ring)", None),
+                        (_pct(pc.d39), "ring-level expected leak copies" + (
+                            f" (tolerated {100 * pc.spur_viable:.2g} % / {100 * pc.spur_marginal:.2g} %)"
+                            if math.isfinite(pc.spur_viable) else ""), None),
                         (_pct(pc.tnfix), "cluster-level expected leak copies (tnfix)", None),
                         ("n/a" if sc is None else f"{_yes(sc.peak_a)} / {_yes(sc.peak_b)}", f"v2c-{letter}", None),
                         ("n/a" if sc is None else (_yes(sc.valley) + (

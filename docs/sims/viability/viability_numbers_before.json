@@ -1,0 +1,498 @@
+{
+ "sim_B.npz": {
+  "p_ref_nm": 170.8,
+  "p_nm": 170.8,
+  "h_nm": 17.08,
+  "group_z_scale": 0.5,
+  "x": 7.227273,
+  "f_min": 0.795438,
+  "zq_axon": "viable",
+  "v2_viable": [
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "v2_marginal": [],
+  "pairs": [
+   {
+    "pair": "0-1",
+    "d_sep": 3.280589,
+    "exp_spur": 0.0,
+    "zq_verdict": "viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "viable"
+   },
+   {
+    "pair": "1-2",
+    "d_sep": 3.241542,
+    "exp_spur": 0.0,
+    "zq_verdict": "viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "viable"
+   }
+  ],
+  "v2c": {
+   "ring_slab:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab:1-2": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:1-2": [
+    "viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:1-2": [
+    "not viable",
+    0.89,
+    true
+   ]
+  },
+  "v2c_tnfix": {
+   "0-1": 0.0,
+   "1-2": 4e-06
+  }
+ },
+ "sim_c21.npz": {
+  "p_ref_nm": 170.8,
+  "p_nm": 170.8,
+  "h_nm": 17.08,
+  "group_z_scale": 0.5,
+  "x": 7.430769,
+  "f_min": 0.786109,
+  "zq_axon": "viable",
+  "v2_viable": [
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "v2_marginal": [],
+  "pairs": [
+   {
+    "pair": "0-1",
+    "d_sep": 3.161284,
+    "exp_spur": 4e-06,
+    "zq_verdict": "viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "viable"
+   },
+   {
+    "pair": "1-2",
+    "d_sep": 2.552065,
+    "exp_spur": 0.000677,
+    "zq_verdict": "viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "viable"
+   }
+  ],
+  "v2c": {
+   "ring_slab:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab:1-2": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:1-2": [
+    "viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:1-2": [
+    "not viable",
+    0.89,
+    true
+   ]
+  },
+  "v2c_tnfix": {
+   "0-1": 2e-06,
+   "1-2": 0.019658
+  }
+ },
+ "sim_c5.npz": {
+  "p_ref_nm": 170.8,
+  "p_nm": 170.8,
+  "h_nm": 17.08,
+  "group_z_scale": 0.5,
+  "x": 8.31,
+  "f_min": 0.748534,
+  "zq_axon": "viable",
+  "v2_viable": [
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "v2_marginal": [],
+  "pairs": [
+   {
+    "pair": "0-1",
+    "d_sep": 2.39157,
+    "exp_spur": 0.002569,
+    "zq_verdict": "viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "viable"
+   },
+   {
+    "pair": "1-2",
+    "d_sep": 2.657331,
+    "exp_spur": 0.00046,
+    "zq_verdict": "viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "viable"
+   }
+  ],
+  "v2c": {
+   "ring_slab:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab:1-2": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:1-2": [
+    "viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:1-2": [
+    "not viable",
+    0.89,
+    true
+   ]
+  },
+  "v2c_tnfix": {
+   "0-1": 0.020746,
+   "1-2": 0.000619
+  }
+ },
+ "sim_marginal.npz": {
+  "p_ref_nm": 170.8,
+  "p_nm": 170.8,
+  "h_nm": 17.08,
+  "group_z_scale": 0.5,
+  "x": 8.228333,
+  "f_min": 0.751852,
+  "zq_axon": "viable",
+  "v2_viable": [
+   [
+    1,
+    2
+   ]
+  ],
+  "v2_marginal": [
+   [
+    0,
+    1
+   ]
+  ],
+  "pairs": [
+   {
+    "pair": "0-1",
+    "d_sep": 2.188812,
+    "exp_spur": 0.026909,
+    "zq_verdict": "marginal",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "marginal"
+   },
+   {
+    "pair": "1-2",
+    "d_sep": 2.281665,
+    "exp_spur": 0.005247,
+    "zq_verdict": "viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "viable"
+   }
+  ],
+  "v2c": {
+   "ring_slab:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab:1-2": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:1-2": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:1-2": [
+    "not viable",
+    0.89,
+    true
+   ]
+  },
+  "v2c_tnfix": {
+   "0-1": 0.061826,
+   "1-2": 0.03061
+  }
+ },
+ "sim_none.npz": {
+  "p_ref_nm": 170.8,
+  "p_nm": 170.8,
+  "h_nm": 17.08,
+  "group_z_scale": 0.5,
+  "x": 6.657471,
+  "f_min": 0.823031,
+  "zq_axon": "not viable",
+  "v2_viable": [],
+  "v2_marginal": [],
+  "pairs": [
+   {
+    "pair": "0-1",
+    "d_sep": 1.889809,
+    "exp_spur": 0.104931,
+    "zq_verdict": "not viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": false,
+    "peak_b": true,
+    "valley": false,
+    "count_ok": false,
+    "v2_verdict": "not viable"
+   },
+   {
+    "pair": "1-2",
+    "d_sep": 1.828308,
+    "exp_spur": 0.111377,
+    "zq_verdict": "not viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": false,
+    "valley": false,
+    "count_ok": false,
+    "v2_verdict": "not viable"
+   }
+  ],
+  "v2c": {
+   "ring_slab:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:0-1": [
+    "not viable",
+    0.89,
+    false
+   ],
+   "ring_slab_tn:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab:1-2": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:1-2": [
+    "not viable",
+    0.89,
+    false
+   ],
+   "ring_slab_tn:1-2": [
+    "not viable",
+    0.89,
+    true
+   ]
+  },
+  "v2c_tnfix": {
+   "0-1": 0.164518,
+   "1-2": 0.24173
+  }
+ },
+ "sim_viable.npz": {
+  "p_ref_nm": 170.8,
+  "p_nm": 170.8,
+  "h_nm": 17.08,
+  "group_z_scale": 0.5,
+  "x": 7.62807,
+  "f_min": 0.777303,
+  "zq_axon": "viable",
+  "v2_viable": [
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "v2_marginal": [],
+  "pairs": [
+   {
+    "pair": "0-1",
+    "d_sep": 3.101197,
+    "exp_spur": 0.0,
+    "zq_verdict": "viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "viable"
+   },
+   {
+    "pair": "1-2",
+    "d_sep": 3.163958,
+    "exp_spur": 0.0,
+    "zq_verdict": "viable",
+    "spur_viable": 0.02,
+    "spur_marginal": 0.05,
+    "peak_a": true,
+    "peak_b": true,
+    "valley": true,
+    "count_ok": true,
+    "v2_verdict": "viable"
+   }
+  ],
+  "v2c": {
+   "ring_slab:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:0-1": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "ring_slab:1-2": [
+    "not viable",
+    0.89,
+    true
+   ],
+   "groups_3d:1-2": [
+    "viable",
+    0.89,
+    true
+   ],
+   "ring_slab_tn:1-2": [
+    "not viable",
+    0.89,
+    true
+   ]
+  },
+  "v2c_tnfix": {
+   "0-1": 0.0,
+   "1-2": 1.5e-05
+  }
+ }
+}

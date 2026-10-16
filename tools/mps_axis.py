@@ -10,12 +10,14 @@ The ring analysis cuts an axon into axial slabs -- one ring per dominant
 component of the z distribution, membership by a hard mask on z. That is
 only right if the rings are stacked along z. In a transverse section the
 axon's own axis is a few degrees off the optical axis, and a tilt beta
-does two very different things to those slabs (03_plan section 3.1,
-02_investigacion section 2.2 B1):
+does two very different things to those slabs:
 
   * consecutive rings shift laterally by P * tan(delta_beta), with P the
-    period (~190 nm) and delta_beta the disagreement between ring
-    planes. Under 10 nm for any plausible delta_beta: irrelevant;
+    period (170-190 nm; Gazal et al. 2026, Xu et al. 2013) and delta_beta
+    the disagreement between ring planes: about 3 nm per degree, so below
+    10 nm whenever delta_beta < 3.0 deg (P = 190 nm) or 3.4 deg (P = 170
+    nm), i.e. whenever the 1 deg warning has not fired -- small against
+    the ~25 nm cluster radius;
   * within ONE ring, the far edge of the axon sits D * tan(beta) higher
     in z than the near edge, with D the diameter. For an 8 um axon at
     3 deg that is ~420 nm, more than two periods: a hard z mask then
@@ -30,13 +32,20 @@ How the axis is estimated
 -------------------------
 Each ring with enough localizations gets its own plane z = a x + b y + c.
 An ordinary least-squares plane comes first, then a robust refit
-(``scipy.optimize.least_squares`` with a soft-L1 loss by default).
-Background localizations in z do not know about the plane, so they are
-NOT symmetric about it at the edges of a tilted ring: they pull a plain
-least-squares slope towards zero. A robust loss bounds their influence.
-Its scale is the MAD of the least-squares residuals -- a noise-only
-estimate that the background barely moves -- floored at 10 nm so that
-an unusually clean ring does not make the loss go L1 on its own noise.
+(``scipy.optimize.least_squares`` with a soft-L1 loss by default, an
+M-estimator in the sense of Huber 1964 as implemented after Triggs et al.
+2000). Regressing z on (x, y) is right because the lateral localization
+error is negligible against the lateral extent of a ring. The slope error
+of a plane on n localizations is sigma_z / (sqrt(n) sd(x)) (Draper & Smith
+1998): about 0.2 deg for 200 localizations at sigma_z = 50 nm over a 1 um
+spread. On synthetic rings with up to 30 % uniform background inside the
+axial window the robust and the plain least-squares fits recover the tilt
+equally well and without bias, so the robust loss is a safeguard against
+heavy-tailed axial outliers (the edge of the calibration range), not a
+correction; soft-L1 among SciPy's losses is a convention. Its scale is the
+MAD of the least-squares residuals, floored at 10 nm so that an unusually
+clean ring does not make the loss go L1 on its own noise. The predicted
+slope error of every ring is reported (``AxonFrame.ring_slope_error_deg``).
 
 The common axis is the localization-count-weighted mean of the ring
 normals: the slope error of a plane fitted on n points falls as
@@ -87,8 +96,12 @@ __all__ = [
     "AxonFrame",
     "DEFAULT_LOSS",
     "DEFAULT_MIN_LOCS",
+    "DEFAULT_Z_USABLE_NM",
     "DELTA_BETA_WARNING_DEG",
     "TILT_WARNING_DEG",
+    "TiltChecks",
+    "search_max_tilt_deg",
+    "tilt_checks",
     "fit_axis_by_profile_sharpness",
     "fit_axon_frame",
     "from_axon_frame",
@@ -101,11 +114,16 @@ __all__ = [
 
 Z_HAT: NDArray[np.float64] = np.array([0.0, 0.0, 1.0])
 
-# A ring needs this many localizations to get a plane of its own. The
-# slope error of a plane on n points at lateral spread s and axial noise
-# sigma is ~ sigma / (sqrt(n) * s): for sigma = 50 nm and s = 900 nm,
-# n = 200 gives ~0.2 deg, about the smallest tilt worth correcting.
+# A ring needs this many localizations to get a plane of its own (a
+# convention, axis-min-locs-200). The slope error of a plane on n points at
+# lateral spread s and axial noise sigma is sigma / (sqrt(n) * s) (Draper &
+# Smith 1998): for sigma = 50 nm and s = 900 nm, n = 200 gives ~0.2 deg. A
+# fixed count is strict for wide rings and lax for narrow ones (0.7 deg at
+# s = 300 nm), so every ring's predicted error is reported and can gate the
+# ring instead (``max_slope_error_deg``, suggested 0.3 deg, off by default).
 DEFAULT_MIN_LOCS = 200
+# The suggested gate by predicted slope error, when it is switched on.
+SUGGESTED_MAX_SLOPE_ERROR_DEG = 0.3
 DEFAULT_LOSS = "soft_l1"
 # The losses scipy.optimize.least_squares understands.
 ROBUST_LOSSES: Tuple[str, ...] = ("linear", "soft_l1", "huber", "cauchy", "arctan")
@@ -114,11 +132,21 @@ ROBUST_LOSSES: Tuple[str, ...] = ("linear", "soft_l1", "huber", "cauchy", "arcta
 # with tiny axial noise is not treated as if every point were an outlier.
 MAD_TO_SIGMA = 1.4826
 MIN_F_SCALE_NM = 10.0
-# Warnings: a section cut more than 5 deg off the axon is unusual, and
-# rings disagreeing by more than 1 deg means "one common axis" is a
-# poor description of that axon.
+# Warnings. The 5 deg tilt warning is a convention (no published threshold:
+# the reference pipeline discards visibly oblique fields by eye, Gazal et al.
+# 2026); what a tilt does to one axon is said by the two derived checks of
+# ``tilt_checks``. Rings disagreeing with the common axis by more than
+# max(1 deg, 3 x the fit-noise floor of delta_beta) mean that one rigid axis
+# describes that axon poorly; at the MPS period 1 deg is only ~3 nm of
+# lateral shift, so the warning concerns the rigid-axis model, not pairing.
 TILT_WARNING_DEG = 5.0
 DELTA_BETA_WARNING_DEG = 1.0
+DELTA_BETA_FLOOR_MULTIPLE = 3.0
+# The usable depth of the z calibration a tilted ring and its neighbours must
+# fit in, when the measurement's calibration does not give it (Gazal et al.
+# 2026 report a bead stack over +/-1000 nm, of which ~800 nm is accessible;
+# Huang et al. 2008 worked within ~600 nm). Editable 300-1500 nm.
+DEFAULT_Z_USABLE_NM = 800.0
 # Rotation algebra tolerances.
 IDENTITY_TOLERANCE = 1e-9        # |a - b| below this: the rotation is the identity
 ANTIPARALLEL_TOLERANCE = 1e-3    # |a + b| below this: go through -a (see rodrigues_rotation)
@@ -134,22 +162,23 @@ METHOD_SHARPNESS = "profile_sharpness"
 
 # Axis from the sharpness of the axial profile (``fit_axis_by_profile_sharpness``).
 # The statistic is the collision probability of the z' histogram, sum of
-# p_i^2 over bins of SHARPNESS_BIN_NM: for a Gaussian ring of width sigma
-# it is bin / (2 sigma sqrt(pi)), so the frame that maximises it is the
-# one in which the rings are thinnest. Bins of 5 nm sit well below any
-# axial precision (the discretisation bias is (bin / sigma)^2 / 12 < 0.2 %
-# for sigma >= 35 nm) and still hold tens of localizations per bin for
-# the smallest axon the harness uses.
+# p_i^2 over bins of SHARPNESS_BIN_NM (Simpson's index, Simpson 1949; Renyi's
+# order-2 entropy, Renyi 1961): for a Gaussian ring of width sigma it is
+# bin / (2 sigma sqrt(pi)), so the frame that maximises it is the one in
+# which the rings are thinnest. Bins of 5 nm bias the Gaussian value by
+# about -(bin / sigma)^2 / 24 (below 0.3 % for sigma >= 20 nm) and still
+# hold tens of localizations per bin.
 SHARPNESS_BIN_NM = 5.0
 # A residual tilt delta smears each ring uniformly over D * tan(delta),
-# which halves the sharpness once D * tan(delta) ~ 3.5 sigma_z (210 nm
-# for sigma_z 35 nm): the peak is > 2 deg wide (FWHM) for a 12 um axon,
-# so a coarse step of 0.5 deg cannot straddle it; the fine step of 0.1 deg
-# then locates it to a few tenths of a degree, which is inside the basin
-# of the per-ring refinement (P / (2 D) = 0.45 deg at 12 um). Sections are
-# cut within a few degrees of transverse (5 deg already warns), so the
-# search stops at +-8 deg per lateral axis and warns when it ends there.
+# which halves the sharpness once D * tan(delta) ~ 5.7 sigma_z (a Gaussian
+# convolved with a uniform of that width): the peak is ~2 deg wide (FWHM)
+# for a 12 um axon at sigma_z = 35 nm, so a coarse step of 0.5 deg cannot
+# straddle it; the fine step of 0.1 deg lands inside the basin of the
+# per-ring refinement (atan(P / (2 D)) = 0.41-0.45 deg at 12 um). The
+# search must exceed the tilt warning by a margin (``search_max_tilt_deg``:
+# at least the warning + 3 deg) and warns when it ends on its border.
 SHARPNESS_MAX_TILT_DEG = 8.0
+SHARPNESS_MARGIN_OVER_WARNING_DEG = 3.0
 SHARPNESS_COARSE_STEP_DEG = 0.5
 SHARPNESS_FINE_STEP_DEG = 0.1
 SHARPNESS_FINE_HALF_WIDTH_DEG = 0.6
@@ -192,6 +221,22 @@ class AxonFrame:
     # the localizations used, in this frame; NaN unless the frame came
     # from ``fit_axis_by_profile_sharpness`` or a caller that computed it.
     profile_sharpness: float = float("nan")
+    # SCI-6. Per ring (rows by label): the predicted slope error of its own
+    # plane, sigma / (sqrt(n) s_min) in degrees, with sigma the ring's robust
+    # residual scale and s_min the sd of its localizations along their
+    # thinnest lateral direction (axis-min-locs-200); NaN for rings not
+    # fitted.
+    ring_slope_error_deg: NDArray[np.float64] = field(
+        default_factory=lambda: np.array([]))
+    # The fit-noise floor of the common axis, sqrt(2 sum_k n_k sigma_k^2 /
+    # s_k^2) / N in degrees (sqrt(2) sigma / (sqrt(N) s) for equal rings), and
+    # that of delta_beta, sqrt((k - 1) / k) x the weighted RMS of the rings'
+    # own sqrt(2) sigma_k / (sqrt(n_k) s_k) (axis-delta-beta; Draper & Smith
+    # 1998), with the noise-corrected sqrt(max(delta_beta^2 - floor^2, 0)).
+    # NaN when not computable (fewer than two rings for delta_beta).
+    tilt_noise_floor_deg: float = float("nan")
+    delta_beta_floor_deg: float = float("nan")
+    delta_beta_corrected_deg: float = float("nan")
 
     @property
     def n_rings_used(self) -> int:
@@ -315,6 +360,21 @@ class _PlaneFit:
     f_scale_nm: float
     status: int                     # scipy least_squares status; > 0 means converged
     converged: bool
+    s_min_nm: float = float("nan")  # sd along the thinnest lateral direction
+    s_rms_nm: float = float("nan")  # RMS of the two principal lateral sds
+    n: int = 0
+
+    def slope_error_deg(self) -> float:
+        """Predicted error of one slope: sigma / (sqrt(n) s_min) (Draper & Smith 1998)."""
+        if self.n < 1 or not (self.s_min_nm > 0):
+            return float("nan")
+        return math.degrees(self.f_scale_nm / (math.sqrt(self.n) * self.s_min_nm))
+
+    def tilt_error_sq_rad(self) -> float:
+        """Expected squared tilt error of the normal, 2 sigma^2 / (n s^2), radians^2."""
+        if self.n < 1 or not (self.s_rms_nm > 0):
+            return float("nan")
+        return 2.0 * self.f_scale_nm ** 2 / (self.n * self.s_rms_nm ** 2)
 
 
 def _fit_plane_robust(
@@ -368,8 +428,11 @@ def _fit_plane_robust(
     b = float(coef[1])
     normal = np.array([-a, -b, 1.0])
     normal /= np.linalg.norm(normal)
+    n_pts = int(xc.size)
+    sds = singular / math.sqrt(max(n_pts, 1))
     return _PlaneFit(normal=normal, a=a, b=b, c_nm=float(coef[2]) + float(z_nm.mean()),
-                     f_scale_nm=f_scale, status=status, converged=converged)
+                     f_scale_nm=f_scale, status=status, converged=converged,
+                     s_min_nm=float(sds[-1]), s_rms_nm=float(math.sqrt(float(np.mean(sds ** 2)))), n=n_pts)
 
 
 def _identity_frame(
@@ -443,6 +506,9 @@ def fit_axon_frame(
     *,
     min_locs: int = DEFAULT_MIN_LOCS,
     loss: str = DEFAULT_LOSS,
+    max_slope_error_deg: Optional[float] = None,
+    tilt_warning_deg: float = TILT_WARNING_DEG,
+    delta_beta_warning_deg: float = DELTA_BETA_WARNING_DEG,
 ) -> AxonFrame:
     """
     Common axis of an axon from its rings, and the rotation onto it.
@@ -461,6 +527,14 @@ def fit_axon_frame(
     loss : str
         Loss of the robust refit (``scipy.optimize.least_squares``);
         "linear" makes it plain least squares.
+    max_slope_error_deg : float or None
+        Optional gate by predicted precision: a ring whose own plane has a
+        predicted slope error above this (degrees) does not vote either
+        (suggested ``SUGGESTED_MAX_SLOPE_ERROR_DEG``). None (default): the
+        count ``min_locs`` alone decides.
+    tilt_warning_deg, delta_beta_warning_deg : float
+        The fixed warning levels (editable conventions); delta_beta is
+        compared with max(delta_beta_warning_deg, 3 x its noise floor).
 
     Returns
     -------
@@ -510,6 +584,8 @@ def fit_axon_frame(
     ring_normals = np.full((n_rings, 3), np.nan)
     ring_used = np.zeros(n_rings, dtype=bool)
     ring_f_scale = np.full(n_rings, np.nan)
+    ring_slope_error = np.full(n_rings, np.nan)
+    ring_tilt_err_sq = np.full(n_rings, np.nan)
 
     # One plane per ring that has enough localizations. Only the labels
     # present are visited (ascending), so the cost follows the number of
@@ -534,6 +610,15 @@ def fit_axon_frame(
                 f"ring {k}: robust refit (loss={loss!r}) stopped with status "
                 f"{fit.status}; least-squares plane kept"
             )
+        ring_slope_error[k] = fit.slope_error_deg()
+        ring_tilt_err_sq[k] = fit.tilt_error_sq_rad()
+        if (max_slope_error_deg is not None and np.isfinite(ring_slope_error[k])
+                and ring_slope_error[k] > float(max_slope_error_deg)):
+            warnings.append(
+                f"ring {k} skipped: predicted slope error {ring_slope_error[k]:.2f} deg > "
+                f"{float(max_slope_error_deg):g} deg"
+            )
+            continue
         ring_normals[k] = fit.normal
         ring_used[k] = True
         ring_f_scale[k] = fit.f_scale_nm
@@ -555,6 +640,16 @@ def fit_axon_frame(
             delta_beta = float("nan")
         method = METHOD_PER_RING
         n_used = int(np.count_nonzero(used_mask))
+        err_sq = ring_tilt_err_sq[used_labels]
+        if np.all(np.isfinite(err_sq)) and weights.sum() > 0:
+            # var(u) of the n-weighted mean of the normals: sum n_k^2 var_k / N^2.
+            tilt_floor = math.degrees(math.sqrt(float(np.sum(weights ** 2 * err_sq))) / float(weights.sum()))
+            k_used = int(used_labels.size)
+            db_floor = (math.degrees(math.sqrt((k_used - 1) / k_used
+                                               * float(np.sum(weights * err_sq) / weights.sum())))
+                        if k_used >= 2 else float("nan"))
+        else:
+            tilt_floor = db_floor = float("nan")
     else:
         n_labelled = int(np.count_nonzero(in_ring))
         origin = (np.array([x[in_ring].mean(), y[in_ring].mean(), z[in_ring].mean()])
@@ -577,7 +672,8 @@ def fit_axon_frame(
         warnings.append(
             f"no ring reaches min_locs={min_locs}: one plane fitted on all "
             f"{n_labelled} ring localizations (method '{METHOD_ALL}'); "
-            "delta_beta undefined"
+            "delta_beta undefined; frame less trusted (a pooled plane reads "
+            "rings with different lateral footprints as a tilt)"
         )
         if not fit.converged:
             warnings.append(
@@ -588,18 +684,29 @@ def fit_axon_frame(
         delta_beta = float("nan")
         method = METHOD_ALL
         n_used = n_labelled
+        e2 = fit.tilt_error_sq_rad()
+        tilt_floor = math.degrees(math.sqrt(e2)) if np.isfinite(e2) else float("nan")
+        db_floor = float("nan")
 
     beta = _angle_deg(u, Z_HAT)
     rotation = rodrigues_rotation(u, Z_HAT)
-    if beta > TILT_WARNING_DEG:
+    if beta > float(tilt_warning_deg):
         warnings.append(
-            f"axis tilt beta = {beta:.2f} deg exceeds {TILT_WARNING_DEG:g} deg: "
+            f"axis tilt beta = {beta:.2f} deg exceeds {float(tilt_warning_deg):g} deg: "
             "check the section and the ring labels before trusting the frame"
         )
-    if np.isfinite(delta_beta) and delta_beta > DELTA_BETA_WARNING_DEG:
+    db_corrected = (math.sqrt(max(delta_beta ** 2 - db_floor ** 2, 0.0))
+                    if np.isfinite(delta_beta) and np.isfinite(db_floor) else float("nan"))
+    db_level = float(delta_beta_warning_deg)
+    if np.isfinite(db_floor):
+        db_level = max(db_level, DELTA_BETA_FLOOR_MULTIPLE * db_floor)
+    if np.isfinite(delta_beta) and delta_beta > db_level:
         warnings.append(
             f"rings disagree on the axis: delta_beta = {delta_beta:.2f} deg exceeds "
-            f"{DELTA_BETA_WARNING_DEG:g} deg (one common axis describes this axon poorly)"
+            f"{db_level:.2f} deg (the larger of {float(delta_beta_warning_deg):g} deg and "
+            f"{DELTA_BETA_FLOOR_MULTIPLE:g} x its fit-noise floor "
+            f"{db_floor:.2f} deg; noise-corrected {db_corrected:.2f} deg): one common axis "
+            "describes this axon poorly"
         )
     return AxonFrame(
         u=u,
@@ -616,6 +723,10 @@ def fit_axon_frame(
         warnings=warnings,
         ring_f_scale_nm=ring_f_scale,
         n_locs_used=n_used,
+        ring_slope_error_deg=ring_slope_error,
+        tilt_noise_floor_deg=float(tilt_floor),
+        delta_beta_floor_deg=float(db_floor),
+        delta_beta_corrected_deg=float(db_corrected),
     )
 
 
@@ -681,6 +792,7 @@ def fit_axis_by_profile_sharpness(
     fine_half_width_deg: float = SHARPNESS_FINE_HALF_WIDTH_DEG,
     bin_nm: float = SHARPNESS_BIN_NM,
     max_locs: int = SHARPNESS_MAX_LOCS,
+    tilt_warning_deg: float = TILT_WARNING_DEG,
 ) -> AxonFrame:
     """
     The axis along which the axial profile is sharpest, without ring labels.
@@ -802,9 +914,9 @@ def fit_axis_by_profile_sharpness(
     beta = _angle_deg(u, Z_HAT)
     rotation = rodrigues_rotation(u, Z_HAT)
     z_p = ((np.column_stack([x, y, z]) - origin) @ rotation.T)[:, 2]
-    if beta > TILT_WARNING_DEG:
+    if beta > float(tilt_warning_deg):
         warnings.append(
-            f"axis tilt beta = {beta:.2f} deg exceeds {TILT_WARNING_DEG:g} deg: "
+            f"axis tilt beta = {beta:.2f} deg exceeds {float(tilt_warning_deg):g} deg: "
             "check the section and the ring labels before trusting the frame"
         )
     return AxonFrame(
@@ -903,10 +1015,15 @@ def lateral_shift_per_period_nm(frame: AxonFrame, period_nm: float) -> float:
     Lateral displacement between consecutive rings that the disagreement
     of their planes implies: period * tan(delta_beta).
 
-    This is the quantity whose smallness (under 10 nm) justifies pairing
-    clusters ring-to-ring without any per-ring lateral correction. NaN
-    when ``delta_beta_deg`` is NaN (fewer than two rings entered the
-    fit), because then nothing is known about the disagreement.
+    About 3 nm per degree at the MPS period (3.0 nm at P = 170 nm, 3.3 nm
+    at 190 nm): below 10 nm exactly when delta_beta < 3.4 deg (P = 170) or
+    3.0 deg (P = 190), i.e. whenever the 1 deg warning has not fired, and
+    small against the ~25 nm cluster radius (Gazal et al. 2026), which is
+    what justifies pairing clusters ring-to-ring without any per-ring
+    lateral correction. delta_beta includes fit noise, so the term
+    over-estimates the true offset. NaN when ``delta_beta_deg`` is NaN
+    (fewer than two rings entered the fit): the shift is then unknown, and
+    callers say so instead of using 0 silently.
 
     Parameters
     ----------
@@ -915,3 +1032,65 @@ def lateral_shift_per_period_nm(frame: AxonFrame, period_nm: float) -> float:
         Ring period along the axis, nm.
     """
     return float(period_nm) * math.tan(math.radians(float(frame.delta_beta_deg)))
+
+
+def search_max_tilt_deg(tilt_warning_deg: float = TILT_WARNING_DEG) -> float:
+    """The half-range of the sharpness search: at least the tilt warning plus
+    ``SHARPNESS_MARGIN_OVER_WARNING_DEG`` (8 deg at the default 5 deg warning)."""
+    return float(max(SHARPNESS_MAX_TILT_DEG, float(tilt_warning_deg) + SHARPNESS_MARGIN_OVER_WARNING_DEG))
+
+
+@dataclass
+class TiltChecks:
+    """What a tilt does to one axon (axis-tilt-warning-5deg): D tan(beta)
+    against the period (above it the uncorrected profile cannot show rings:
+    the frame correction is mandatory) and against Z_usable - P (above it a
+    ring and its neighbours leave the usable depth of the z calibration: no
+    rotation recovers them)."""
+
+    beta_deg: float
+    diameter_nm: float              # effective diameter D = perimeter / pi
+    period_nm: float
+    z_usable_nm: float
+    z_usable_source: str            # "calibration", "user" or "default"
+    spread_nm: float                # D tan(beta): one ring's extent in lab z
+    correction_mandatory: bool      # spread > P
+    beyond_usable_depth: bool       # spread > Z_usable - P
+    beta_p_deg: float               # atan(P / D)
+    beta_z_deg: float               # atan((Z_usable - P) / D)
+
+    def warnings(self) -> List[str]:
+        out: List[str] = []
+        if self.correction_mandatory:
+            out.append(
+                f"tilt check: D tan(beta) = {self.spread_nm:.0f} nm exceeds the period P = "
+                f"{self.period_nm:.0f} nm (D = {self.diameter_nm:,.0f} nm, beta = {self.beta_deg:.2f} deg > "
+                f"{self.beta_p_deg:.2f} deg): one ring spans a full period in laboratory z, so the frame "
+                "correction is mandatory")
+        if self.beyond_usable_depth:
+            out.append(
+                f"tilt check: D tan(beta) = {self.spread_nm:.0f} nm exceeds Z_usable - P = "
+                f"{self.z_usable_nm - self.period_nm:.0f} nm (Z_usable {self.z_usable_nm:.0f} nm, "
+                f"{self.z_usable_source}): a ring and its neighbours leave the usable depth of the z "
+                "calibration, which no rotation can recover")
+        return out
+
+
+def tilt_checks(beta_deg: float, perimeter_nm: float, period_nm: float,
+                z_usable_nm: Optional[float] = None, z_usable_source: str = "") -> Optional[TiltChecks]:
+    """The two derived tilt checks of one axon; None when the perimeter or
+    the period is not a positive finite number."""
+    if not (np.isfinite(perimeter_nm) and perimeter_nm > 0 and np.isfinite(period_nm) and period_nm > 0
+            and np.isfinite(beta_deg)):
+        return None
+    if z_usable_nm is None or not np.isfinite(z_usable_nm) or z_usable_nm <= 0:
+        zu, src = DEFAULT_Z_USABLE_NM, "default"
+    else:
+        zu, src = float(z_usable_nm), (z_usable_source or "user")
+    d = float(perimeter_nm) / math.pi
+    spread = d * math.tan(math.radians(float(beta_deg)))
+    p_ = float(period_nm)
+    return TiltChecks(
+        beta_deg=float(beta_deg), diameter_nm=d, period_nm=p_, z_usable_nm=zu, z_usable_source=src,
+        spread_nm=spread, correction_mandatory=spread > p_, beyond_usable_depth=spread > zu - p_,
+        beta_p_deg=math.degrees(math.atan(p_ / d)), beta_z_deg=math.degrees(math.atan(max(zu - p_, 0.0) / d)))
