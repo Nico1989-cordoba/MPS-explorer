@@ -11,7 +11,7 @@ folder, and the parent checks what it recorded:
   2  the typed Z range fields always show the current slab (component, automatic, half-width);
   3  text can be copied: tables (selected cells, tab-separated), the warnings, the labels;
   4  the MPS analysis window: the axon map has the larger share, every panel boundary is a splitter, sizes persist;
-  5  "Warnings (N)..." writes a .txt and never overwrites one;
+  5  "Analysis notes (N)..." (the warnings) writes a .txt and never overwrites one;
   6  one main-window button runs the analysis when none is current, otherwise shows the window;
   7  eps and min samples edited in the main window are the same stored value as the MPS window's strip;
   10 the "paper" badge reads "Gazal et al. (2026)", its tooltip keeps the full reference;
@@ -259,10 +259,23 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         w.resize(1920, 1040)
         w.show()
         pump(0.6)
+        def rows_in_sight() -> Dict[str, Any]:
+            t = w.table
+            vp = t.viewport().height()
+            out_of_sight = [t.item(r, 0).text() for r in range(t.rowCount())
+                            if t.visualRect(t.model().index(r, 0)).bottom() > vp]
+            return {"rows": t.rowCount(), "out_of_sight": out_of_sight,
+                    "scroll_max": t.verticalScrollBar().maximum(), "hint": w.lbl_more_rows.isVisible()}
+
         out["at_1920"] = {"results_plots": w.splitter.sizes(), "map_tabs": w.plot_splitter.sizes(),
-                          "window": [w.width(), w.height()]}
+                          "window": [w.width(), w.height()], "rows": rows_in_sight()}
+        # Below the default size: the rows that no longer fit are announced in words.
+        w.resize(1366, 560)
+        pump(0.6)
+        out["short"] = rows_in_sight()
         w.resize(1366, 728)
         pump(0.6)
+        out["rows_1366"] = rows_in_sight()
         sp = {"results_plots": w.splitter.sizes(), "map_tabs": w.plot_splitter.sizes(),
               "map_layers": w.axon_map.splitter.sizes()}
         out["first"] = {"sizes": sp, "window": [w.width(), w.height()],
@@ -285,7 +298,7 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         out["warnings"] = {"text": w.btn_warnings.text(), "tip": w.btn_warnings.toolTip(),
                            "count": w._warning_count, "first": w.warning_lines()[0],
                            "has_list": hasattr(w, "list_warnings")}
-        target = os.path.join(out_dir, "axonA_warnings.txt")
+        target = os.path.join(out_dir, "axonA_analysis_notes.txt")
         cell.save_queue = [target]
         w.btn_warnings.click()
         pump()
@@ -294,7 +307,7 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         n0 = len(cell.messages)
         w.btn_warnings.click()
         pump()
-        second = os.path.join(out_dir, "axonA_warnings_2.txt")
+        second = os.path.join(out_dir, "axonA_analysis_notes_2.txt")
         out["warnings_file"] = {"first": first, "unchanged": open(target, encoding="utf-8").read() == first,
                                 "second_exists": os.path.exists(second),
                                 "messages": [m["text"] for m in cell.messages[n0:]]}
@@ -749,16 +762,26 @@ def main() -> int:
     def t5() -> str:
         r = res("layout_warnings")
         w = r["warnings"]
-        assert w["count"] > 0 and w["text"] == f"Warnings ({w['count']})...", w
+        assert w["count"] > 0 and w["text"] == f"Analysis notes ({w['count']})...", w
         assert w["first"][:40] in w["tip"] and ".txt" in w["tip"] and not w["has_list"], w
         f = r["warnings_file"]
         assert w["first"] in f["first"] and f["unchanged"] and f["second_exists"], f
         assert "already existed" in f["messages"][0], f["messages"]
         return f"{w['text']}; the second save went to _2, the first file unchanged"
 
+    def t5b() -> str:
+        r = res("layout_warnings")
+        big, small, short = r["at_1920"]["rows"], r["rows_1366"], r["short"]
+        for at in (big, small):
+            assert at["rows"] >= 20 and not at["out_of_sight"] and at["scroll_max"] == 0 and not at["hint"], at
+        assert short["out_of_sight"] and short["scroll_max"] > 0 and short["hint"], short
+        return (f"{small['rows']} rows in sight at 1366x728 and 1920x1040; at 1366x560 "
+                f"{len(short['out_of_sight'])} below, announced")
+
     if "layout_warnings" in scenarios:
         check("4: the map has the larger share; the three dividers are splitters kept across sessions", t4)
-        check("5: Warnings (N)... previews them and writes a .txt, never over an existing file", t5)
+        check("SCI-3 manual test: every results row in sight at 1366x728 and 1920x1040; overflow announced", t5b)
+        check("5: Analysis notes (N)... previews them and writes a .txt, never over an existing file", t5)
 
     def t6() -> str:
         r = res("main_params")

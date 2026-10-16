@@ -398,7 +398,9 @@ def main() -> int:
         assert p.default_name().endswith("_discard_applied.csv")
         assert p.cdf_title().startswith("1NN CDF: observed vs randomized (discard applied")
         cd = [r[0] for r in p.details_cdf.rows()]
-        assert "KS statistic D" in cd and not any("p" in x.split() for x in cd), cd
+        # SCI-3: never the KS p; the Monte Carlo p-values (approximate) stand in its place
+        assert "KS statistic D" in cd and not any("KS p" in x or "p-value" in x for x in cd), cd
+        assert "Monte Carlo p (D)" in cd and "z_D" in cd, cd
         p.close()
         return "N cap, the old 1NN histogram, reference off / paper role, N > 1, range, legend, crossing, Save"
 

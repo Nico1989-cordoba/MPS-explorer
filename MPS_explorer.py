@@ -729,6 +729,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             s.mahalanobis_threshold = float(values["mahalanobis_threshold"])
         if "randomization" in values:
             self.mps_randomization = bool(values["randomization"])
+        # SCI-3: the randomization control's values and the occupancy's
+        # sigma cap (the strip's dialogs); validate() keeps a value outside
+        # its documented range and drops one that is not a value.
+        if "randomization_params" in values:
+            s.randomization_params = dict(values["randomization_params"])
+        if "occupancy_sigma_cap_fraction" in values:
+            s.occupancy_sigma_cap_fraction = float(
+                values["occupancy_sigma_cap_fraction"])
         slab = values.get("slab")
         if slab is not None and not self._z_range_user_edited:
             mode, centre = slab
@@ -2901,6 +2909,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             params["main_peak_override_nm"] = float(self.slab_choice.centre_nm)
         if "run_randomization" not in overrides and not self.mps_randomization:
             params["run_randomization"] = False
+        # SCI-3: the randomization's values and the sigma cap, from the one
+        # store, only where they depart from the defaults (rule K).
+        from tools.mps_randomization_ui import analyze_kwargs
+        for key, value in analyze_kwargs(
+                s.randomization_params,
+                s.occupancy_sigma_cap_fraction).items():
+            if key not in overrides:
+                params[key] = value
         if "contour_guide" not in overrides and self._guide is not None:
             if self._guide[1] == self._guide_key():
                 params["contour_guide"] = self._guide[0]

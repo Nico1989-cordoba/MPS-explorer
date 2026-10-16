@@ -307,6 +307,13 @@ pytest test_mps_explorer.py -v
   files, the per-measurement z calibration: no z correction is applied yet, so z is used as the localization software
   fitted it; whether the file carries its own calibration record is shown (only Data quality's coverage check reads
   its calibrated range), and the inputs to read one are present but disabled.
+- **Randomization control, KS and the 1NN** (parameter 8 of Gazal et al. 2026). The null (999 iterations, ±50 nm band
+  around the closed smoothed contour, the smallest observed 1NN as minimum separation, incomplete iterations re-drawn
+  and excluded) is editable from the strip (Randomization → More → Edit...). The KS distance D is reported with its
+  own null (z_D) and Monte Carlo p-values; the two-sample KS p-value is not reported (its assumptions fail here and it
+  over-rejects true nulls). The CDF crossing is read against the iterations' own band, and the regularity index
+  r = median 1NN × K / P separates regularity from detected cluster density. Every choice, its origin, the synthetic
+  calibrations and the decision record: [docs/randomization_and_ks.md](docs/randomization_and_ks.md).
 
 ---
 

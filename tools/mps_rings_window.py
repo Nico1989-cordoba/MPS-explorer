@@ -411,7 +411,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.table_pair.itemSelectionChanged.connect(self._draw_correlation)
         lay.addWidget(self.table_pair, stretch=2)
 
-        lay.addWidget(QtWidgets.QLabel("Warnings"))
+        lay.addWidget(QtWidgets.QLabel("Analysis notes"))
         self.list_warnings = QtWidgets.QListWidget()
         self.list_warnings.setWordWrap(True)
         lay.addWidget(self.list_warnings, stretch=2)
@@ -720,7 +720,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.list_warnings.clear()
         msgs: List[str] = list(self.ms.warnings) + list(self.rings.warnings)
         if not msgs:
-            item = QtWidgets.QListWidgetItem(marked("good", "No warnings."))
+            item = QtWidgets.QListWidgetItem(marked("good", "No analysis notes."))
             item.setForeground(QtGui.QColor(_C_GOOD))
             self.list_warnings.addItem(item)
             return

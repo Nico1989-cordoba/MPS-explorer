@@ -1139,11 +1139,11 @@ def test_schema_and_excel() -> None:
             path = os.path.join(folder, "axons.csv")
             append_rows(path, [row])
             from tools.results_table import TableMismatch
-            trimmed = {k: v for k, v in row.items() if k != "ks_pvalue"}
+            trimmed = {k: v for k, v in row.items() if k != "ks_z"}
             try:
                 append_rows(path, [trimmed])
             except TableMismatch as error:
-                assert "ks_pvalue" in str(error), error
+                assert "ks_z" in str(error), error
                 return str(error)[:58]
             raise AssertionError("a table took a row of other columns")
         finally:
