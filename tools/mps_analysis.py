@@ -81,12 +81,15 @@ from tools.mps_periodicity import (
 )
 from tools.mps_randomization import (
     DEFAULT_N_RANDOMIZATIONS,
+    NULL_R_LEVEL,
     PAPER_KS_D,
+    RandomizationParams,
     RandomizationResult,
     randomize_cluster_positions,
 )
 from tools.mps_occupancy import (
     PAPER_OCCUPANCY_PERCENT,
+    SIGMA_CAP_FRACTION,
     OccupancyResult,
     compute_occupancy,
 )
@@ -185,6 +188,12 @@ class AxonAnalysis:
     run_randomization: bool = True
     n_randomizations: int = DEFAULT_N_RANDOMIZATIONS
     random_seed: int = 0
+    # How the randomization ran besides B and the seed (band, smoothing,
+    # incomplete iterations, attempts, grid, CDF band, hard core), and the
+    # cap of the occupancy ellipses: both editable since SCI-3.
+    randomization_params: RandomizationParams = field(
+        default_factory=RandomizationParams)
+    sigma_cap_fraction: float = SIGMA_CAP_FRACTION
     # The warnings raised before the clusters were fixed (pixel size, axial
     # slab, curation): an analysis of a subset of the clusters shares them.
     upstream_warnings: List[str] = field(default_factory=list)
@@ -322,8 +331,41 @@ class AxonAnalysis:
         return self.randomization.ks_statistic if self.randomization else None
 
     @property
-    def ks_pvalue(self) -> Optional[float]:
-        return self.randomization.ks_pvalue if self.randomization else None
+    def nn_regularity_index(self) -> Optional[float]:
+        """r = median 1NN x K / P: the median spacing over the mean spacing
+        P / K (P the contour through the centres, ``perimeter_um``). The mean
+        1NN cannot exceed P / K and the median equals it for evenly spaced
+        centres (r = 1), so r separates the regularity of the arrangement
+        from the density of detected clusters. The value random placement
+        gives depends on the minimum separation and the band, so it is not a
+        fixed number: ``nn_regularity_null`` is this axon's own."""
+        med = self.median_1nn_nm
+        per = self.perimeter
+        if med is None or per is None or per.perimeter_um <= 0:
+            return None
+        return float(med * self.n_clusters_kept / (per.perimeter_um * 1000.0))
+
+    @property
+    def nn_regularity_null(self) -> Optional[Tuple[float, float, float]]:
+        """This axon's null regularity index: (mean, lo, hi) of r_i = median
+        1NN_i x K / P over the randomization's iterations, with the same K and
+        P as the observed r, the interval the central ``NULL_R_LEVEL`` of the
+        r_i. Its two-sided rank test is the Monte Carlo p of the median
+        (``ks_p_mc_median``): K / P is fixed, so the rank of r among the r_i
+        is the rank of the median among the medians. None without the
+        randomization or a contour."""
+        r = self.randomization
+        per = self.perimeter
+        if r is None or per is None or per.perimeter_um <= 0:
+            return None
+        return regularity_null(r.per_iteration_medians_nm,
+                               self.n_clusters_kept, per.perimeter_um)
+
+    @property
+    def nn_regularity_reading(self) -> Optional[str]:
+        """The observed r against this axon's null interval, in words."""
+        return regularity_reading(self.nn_regularity_index,
+                                  self.nn_regularity_null)
 
     def summary_rows(self) -> List[Tuple[str, str, str, str]]:
         """
@@ -433,13 +475,26 @@ class AxonAnalysis:
              "" if shift is None
              else "the most it moves, leaving each cluster of the contour "
                   "out in turn"),
-            ("Clusters per um", fmt(self.clusters_per_um, 2), "4.08", ""),
+            ("Clusters per um", fmt(self.clusters_per_um, 2), "4.08",
+             "the first thing to compare: the 1NN scales with it"),
             ("Cluster area (median)", fmt(self.median_area_nm2, 0) + " nm^2",
              "1,965 nm^2", "convex hull"),
             ("Effective radius (median)", fmt(self.median_r_eff_nm, 1) + " nm",
              "~25 nm", "sqrt(A/pi)"),
             ("1NN spacing (median)", fmt(self.median_1nn_nm, 1) + " nm",
              "260 nm", "euclidean, centre-to-centre"),
+            ("  regularity r",
+             fmt(self.nn_regularity_index, 2)
+             + ("" if self.nn_regularity_reading is None
+                else f", {self.nn_regularity_reading}"),
+             "-",
+             ("median 1NN x K / P (1 = evenly spaced); "
+              + ("null r (this axon): needs the randomization"
+                 if self.nn_regularity_null is None
+                 else "null r (this axon): "
+                      f"{self.nn_regularity_null[0]:.2f} "
+                      f"[{self.nn_regularity_null[1]:.2f}-"
+                      f"{self.nn_regularity_null[2]:.2f}]"))),
             ("Perimeter occupancy",
              "n/a" if self.occupancy is None
              else f"{self.occupancy.occupancy_percent:.1f} %",
@@ -450,16 +505,35 @@ class AxonAnalysis:
             ("Randomization KS test",
              "n/a" if self.randomization is None
              else f"D={self.randomization.ks_statistic:.3f}, "
-                  f"p={self.randomization.ks_pvalue:.1e}",
-             "D=0.054, p<1e-3",
+                  + ("z_D n/a" if self.randomization.ks_z is None
+                     else f"z_D={self.randomization.ks_z:+.1f}"),
+             "D=0.054 (pooled)",
              "" if self.randomization is None
-             else f"{self.randomization.n_iterations:,} randomizations, "
-                  f"min sep {self.randomization.min_distance_nm:.0f} nm"),
+             else (f"null mean D {self.randomization.ks_null_mean:.3f} "
+                   f"for K = {self.randomization.n_clusters}; "
+                   f"{self.randomization.n_iterations_used:,} "
+                   f"randomizations, min sep "
+                   f"{self.randomization.min_distance_nm:.0f} nm")),
+            ("  Monte Carlo p",
+             "n/a" if self.randomization is None
+             else "median " + _p_text(self.randomization.ks_p_mc_median)
+                  + ", D " + _p_text(self.randomization.ks_p_mc_d),
+             "-",
+             "" if self.randomization is None
+             else (f"approximate: the hard core is estimated from the "
+                   f"data; B = {self.randomization.n_iterations_used:,}")),
             ("  CDF crossing",
-             "no crossing" if (self.randomization is None
-                               or self.randomization.cdf_crossing is None)
-             else f"{self.randomization.cdf_crossing:.2f}",
-             "~0.80", "experimental vs randomized"),
+             "n/a" if self.randomization is None
+             else self.randomization.crossing_words(),
+             "~0.80", "only where the curves leave the null band"),
+            ("  centres outside the band",
+             "n/a" if self.randomization is None
+             else f"{self.randomization.n_outside_band}",
+             "-",
+             "" if self.randomization is None
+             else (f"observed centres farther than "
+                   f"{self.randomization.annulus_half_width_nm:g} nm from "
+                   f"the smoothed contour")),
         ]
         return rows
 
@@ -616,6 +690,21 @@ class AxonAnalysis:
                 None if self.occupancy is None else self.occupancy.n_points),
             "occupancy_n_capped_ellipses": (
                 None if self.occupancy is None else self.occupancy.n_capped),
+            "nn_regularity_index": (
+                None if self.nn_regularity_index is None
+                else round(self.nn_regularity_index, 4)),
+            # This axon's own null r (mean and central interval of the
+            # iterations' r_i): the random level depends on the minimum
+            # separation and the band, so it is not a fixed number.
+            "nn_regularity_null_mean": (
+                None if self.nn_regularity_null is None
+                else round(self.nn_regularity_null[0], 4)),
+            "nn_regularity_null_lo": (
+                None if self.nn_regularity_null is None
+                else round(self.nn_regularity_null[1], 4)),
+            "nn_regularity_null_hi": (
+                None if self.nn_regularity_null is None
+                else round(self.nn_regularity_null[2], 4)),
             "ks_statistic": self.ks_statistic,
             "ks_cdf_crossing": (
                 None if self.randomization is None
@@ -623,9 +712,24 @@ class AxonAnalysis:
             "randomization_requested": (
                 int(self.n_randomizations) if self.run_randomization else 0),
             "random_seed": self.random_seed,
+            # How the randomization and the occupancy ran (SCI-3): each
+            # changes the numbers, so each is in the row.
+            "randomization_band_half_width_nm": (
+                self.randomization_params.band_half_width_nm),
+            "randomization_smoothing_rms_nm": (
+                self.randomization_params.smoothing_rms_nm),
+            "randomization_exclude_incomplete": bool(
+                self.randomization_params.exclude_incomplete),
+            "randomization_max_attempts_factor": int(
+                self.randomization_params.max_attempts_factor),
+            "randomization_grid_spacing_nm": (
+                self.randomization_params.grid_spacing_nm),
+            "randomization_hard_core": self.randomization_params.hard_core,
+            "ks_band_alpha": self.randomization_params.cdf_band_alpha,
+            "occupancy_sigma_cap_fraction": float(self.sigma_cap_fraction),
             "randomization_n_iterations": (
                 None if self.randomization is None
-                else self.randomization.n_iterations),
+                else self.randomization.n_iterations_used),
             "randomization_min_sep_nm": (
                 None if self.randomization is None
                 else round(self.randomization.min_distance_nm, 1)),
@@ -635,7 +739,33 @@ class AxonAnalysis:
             "randomized_median_1nn_nm": (
                 None if self.randomization is None
                 else self.randomization.randomized_median_nm),
-            "ks_pvalue": self.ks_pvalue,
+            "ks_null_mean": (
+                None if self.randomization is None
+                or self.randomization.ks_null_mean is None
+                else round(self.randomization.ks_null_mean, 4)),
+            "ks_z": (
+                None if self.randomization is None
+                or self.randomization.ks_z is None
+                else round(self.randomization.ks_z, 3)),
+            "ks_p_mc_median": (
+                None if self.randomization is None
+                else self.randomization.ks_p_mc_median),
+            "ks_p_mc_d": (
+                None if self.randomization is None
+                else self.randomization.ks_p_mc_d),
+            "ks_cdf_crossing_significant": (
+                None if self.randomization is None
+                else bool(self.randomization.cdf_crossing_significant)),
+            "randomization_n_redrawn": (
+                None if self.randomization is None
+                else self.randomization.n_redrawn),
+            "randomization_packing_fraction": (
+                None if self.randomization is None
+                or self.randomization.packing_fraction is None
+                else round(self.randomization.packing_fraction, 4)),
+            "randomization_n_outside_band": (
+                None if self.randomization is None
+                else self.randomization.n_outside_band),
             "n_warnings": len(self.warnings),
             "warnings": " | ".join(cell_text(w) for w in self.warnings),
         }
@@ -651,6 +781,40 @@ class AxonAnalysis:
 # person typed for another file in the same folder. Both are inferences
 # about which acquisition a file belongs to, not records of it, so both
 # warn exactly like a typed value does.
+def regularity_null(
+    per_iteration_medians_nm: Any, n_clusters: int, perimeter_um: float,
+    level: float = NULL_R_LEVEL,
+) -> Optional[Tuple[float, float, float]]:
+    """(mean, lo, hi) of r_i = median 1NN_i x K / P over the iterations,
+    the interval the central ``level`` of the r_i; None without any."""
+    m = np.asarray(per_iteration_medians_nm, dtype=float)
+    m = m[np.isfinite(m)]
+    if m.size == 0 or perimeter_um <= 0:
+        return None
+    vals = m * int(n_clusters) / (float(perimeter_um) * 1000.0)
+    tail = 100.0 * (1.0 - float(level)) / 2.0
+    return (float(np.mean(vals)), float(np.percentile(vals, tail)),
+            float(np.percentile(vals, 100.0 - tail)))
+
+
+def regularity_reading(observed: Optional[float],
+                       null: Optional[Tuple[float, float, float]]
+                       ) -> Optional[str]:
+    """An observed r against a null interval, in words."""
+    if observed is None or null is None:
+        return None
+    if observed < null[1]:
+        return "below null (excess of short distances)"
+    if observed > null[2]:
+        return "above null (more regular than random)"
+    return "within null"
+
+
+def _p_text(p: Optional[float]) -> str:
+    """A Monte Carlo p as the results table writes it."""
+    return "n/a" if p is None else f"{p:.3f}"
+
+
 def format_guide(guide: Optional[NDArray[np.float64]]) -> Optional[str]:
     """A drawn path as one table cell: "x,y;x,y;..." in nm, to 0.1 nm.
 
@@ -702,6 +866,8 @@ def analyze_axon(
     random_seed: int = 0,
     all_starts: bool = True,
     contour_guide: Optional[NDArray[np.float64]] = None,
+    randomization_params: Optional[RandomizationParams] = None,
+    sigma_cap_fraction: float = SIGMA_CAP_FRACTION,
 ) -> AxonAnalysis:
     """
     Run the full per-axon pipeline on one ROI's localizations.
@@ -726,6 +892,12 @@ def analyze_axon(
         or the slab change the clusters, and it orders the clusters the
         axoplasm discard leaves as well. Exclusive with
         ``custom_contour_order``.
+
+    randomization_params : how the randomization control runs besides B
+        and the seed (``RandomizationParams``; None: the defaults).
+    sigma_cap_fraction : the cap of each cluster's ellipse, sigma <= this
+        fraction of d_max (1/3, the published rule; documented range
+        0.2-1.0).
 
     all_starts : build the contour with 2-opt from every start and keep
         the shortest tour (default). False refines it from one start, as
@@ -815,6 +987,10 @@ def analyze_axon(
         run_randomization=run_randomization,
         n_randomizations=n_randomizations,
         random_seed=random_seed,
+        randomization_params=(RandomizationParams()
+                              if randomization_params is None
+                              else randomization_params),
+        sigma_cap_fraction=float(sigma_cap_fraction),
     )
 
     if xs.size < min_samples:
@@ -907,6 +1083,8 @@ def _cluster_steps(
     run_randomization: bool,
     n_randomizations: int,
     random_seed: int,
+    randomization_params: Optional[RandomizationParams] = None,
+    sigma_cap_fraction: float = SIGMA_CAP_FRACTION,
     custom_contour_order: Optional[NDArray[np.intp]] = None,
     all_starts: bool = False,
     contour: Optional[PerimeterResult] = None,
@@ -958,6 +1136,7 @@ def _cluster_steps(
                 exclude_labels=excluded,
                 mahalanobis_threshold=mahalanobis_threshold,
                 ellipse_mode=ellipse_mode,
+                sigma_cap_fraction=sigma_cap_fraction,
             )
             warnings_.extend(occupancy.warnings)
         except Exception as exc:                      # noqa: BLE001
@@ -973,6 +1152,7 @@ def _cluster_steps(
                 experimental_1nn_nm=nn.first_nn_nm,
                 n_iterations=n_randomizations,
                 random_seed=random_seed,
+                params=randomization_params,
             )
             warnings_.extend(randomization.warnings)
         except Exception as exc:                      # noqa: BLE001
@@ -1090,6 +1270,8 @@ def _rerun(
         run_randomization=analysis.run_randomization,
         n_randomizations=analysis.n_randomizations,
         random_seed=analysis.random_seed,
+        randomization_params=analysis.randomization_params,
+        sigma_cap_fraction=analysis.sigma_cap_fraction,
         all_starts=True, contour=contour,
         # A contour drawn by hand is drawn for this axon, not for this set
         # of clusters: the ones the discard leaves are joined along the

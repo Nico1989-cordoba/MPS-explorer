@@ -207,7 +207,10 @@ def main() -> int:
         assert w.field_eps.badge.text() == "Gazal et al. (2026)" and w.field_half.hint.text() == "40-200"
         assert w.field_min.hint.text() == "2-50" and w.field_eps.hint.text() == ""
         assert "More" == w.more_randomization.button.text() and not w.more_randomization.is_expanded()
-        assert "1,000 iterations [paper; later: 999]" in w.more_randomization.label.text()
+        # SCI-3: B = 999 (derived), and the group's values are edited in a dialog opened from "Edit..."
+        assert "999 iterations [derived; 199 / 399 / 999 / 1999]" in w.more_randomization.label.text()
+        assert w.more_randomization.edit_button.text() == "Edit..." and w.more_randomization.edit_button.isEnabled()
+        assert w.more_occupancy.edit_button.isEnabled()
         return "4 editors with today's limits; mirrors read-only, rendered as '25' / '10'; badges paper; ranges"
 
     check("1. one editor per parameter, mirrors read-only", one_editor)
@@ -553,6 +556,30 @@ def main() -> int:
         return "eps 25, min 10, half 90, Mahalanobis 3 from the registry; saved; switch kept; badges back"
 
     check("12. Reset to defaults", reset)
+
+    def sci3_store() -> str:
+        # SCI-3: the randomization dialog and the sigma cap write the one store; the next run of the main window
+        # passes exactly the keywords that depart from the defaults (rule K), and none once they are back.
+        mw, w = need(st, "mw"), need(st, "w")
+        w.links.store({"randomization_params": {"band_half_width_nm": 80.0, "seed": 4},
+                       "occupancy_sigma_cap_fraction": 0.5})
+        s = mw.mps_settings
+        assert s.randomization_params == {"band_half_width_nm": 80.0, "seed": 4} and s.occupancy_sigma_cap_fraction \
+            == 0.5
+        n0 = len(calls["analyze_axon"])
+        w._rerun_with({})
+        kw = calls["analyze_axon"][n0]
+        assert kw["randomization_params"].band_half_width_nm == 80.0 and kw["random_seed"] == 4, kw
+        assert kw["sigma_cap_fraction"] == 0.5 and "n_randomizations" not in kw, kw
+        assert "band +/-80 nm [user; 20-150]" in w.more_randomization.label.text()
+        w.links.store({"randomization_params": {}, "occupancy_sigma_cap_fraction": 1.0 / 3.0})
+        n1 = len(calls["analyze_axon"])
+        w._rerun_with({})
+        kw = calls["analyze_axon"][n1]
+        assert not ({"randomization_params", "random_seed", "sigma_cap_fraction"} & set(kw)), kw
+        return "store -> the next run's keywords (only those that depart); back to the defaults -> none"
+
+    check("SCI-3: the randomization's store and the sigma cap reach the analysis", sci3_store)
 
     # ------------------------------------------------------------------ close
     print("\nClose: settings only in the temporary folder")

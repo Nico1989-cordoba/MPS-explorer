@@ -488,7 +488,7 @@ def test_comparison() -> None:
     def the_chance_threshold_is_for_the_real_sizes():
         ragged = (2, 3, 12, 20)
         balanced = mb.icc_null_threshold(4, np.mean(ragged))
-        real = mb.icc_null_for_sizes(ragged)
+        real = mb.icc_chance_level(ragged)
         diag = mb.intraclass_correlation(
             [list(np.arange(s, dtype=float)) for s in ragged])
         assert diag.null_p95 == real
@@ -496,8 +496,10 @@ def test_comparison() -> None:
         return f"{real:.3f} for sizes {ragged}, {balanced:.3f} if balanced"
 
     def the_p_value_is_not_offered():
-        assert "ks_pvalue" not in mb.COMPARABLE_COLUMNS
-        return "ks_statistic is; ks_pvalue is not"
+        # SCI-3: no p-value of any kind, and not the raw KS D (it shrinks with K); z_D is comparable
+        assert not any("pvalue" in c or "p_mc" in c for c in mb.COMPARABLE_COLUMNS)
+        assert "ks_z" in mb.COMPARABLE_COLUMNS and "ks_statistic" not in mb.COMPARABLE_COLUMNS
+        return "ks_z is; no p-value, not the raw D"
 
     check("a nesting field that does not exist is raised",
           a_field_that_does_not_exist_is_raised)

@@ -26,7 +26,7 @@ translate them.
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from PyQt5 import QtCore, QtWidgets
 
@@ -181,9 +181,11 @@ class MoreLine(QtWidgets.QWidget):
     ranges, each item's registry tooltip on the line."""
 
     def __init__(self, group: str, parent: Optional[QtWidgets.QWidget] = None, *, dark: bool = False,
-                 expanded: bool = False) -> None:
+                 expanded: bool = False, editable: bool = False) -> None:
         super().__init__(parent)
         self.group = group
+        # The values in use where they depart from the defaults (registry keys); none: the defaults.
+        self._values: Dict[str, Any] = {}
         self.setObjectName(f"more_{group}")
         lay = QtWidgets.QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -201,19 +203,34 @@ class MoreLine(QtWidgets.QWidget):
         self.label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         self.label.setStyleSheet(f"color: {_dim(dark)};")
         lay.addWidget(self.label, 1)
+        # SCI-3: the group's values are edited in a dialog the window opens from this button, shown with the
+        # values (expanded), so the collapsed strip keeps its width at 1366 px.
+        self._editable = bool(editable)
+        self.edit_button = QtWidgets.QToolButton()
+        self.edit_button.setObjectName(f"more_edit_{group}")
+        self.edit_button.setText("Edit...")
+        self.edit_button.setAutoRaise(True)
+        self.edit_button.setVisible(False)
+        lay.addWidget(self.edit_button, 0, QtCore.Qt.AlignmentFlag.AlignTop)
         self.button.toggled.connect(self._fold)
         self.refresh()
         self.button.setChecked(bool(expanded))
         self._fold(bool(expanded))
 
+    def set_values(self, values: Optional[Dict[str, Any]]) -> None:
+        """The values in use (registry key -> value); their badges say "user" where they depart."""
+        self._values = dict(values or {})
+        self.refresh()
+
     def refresh(self) -> None:
-        self.label.setText(reg.more_line(self.group))
-        tips = [reg.tooltip(key) for key, *_rest in reg.more_items(self.group)]
+        self.label.setText(reg.more_line(self.group, self._values))
+        tips = [reg.tooltip(key, self._values.get(key, reg.UNSET)) for key, *_rest in reg.more_items(self.group)]
         self.setToolTip("\n\n".join(tips))
         self.label.setToolTip(self.toolTip())
 
     def _fold(self, expanded: bool) -> None:
         self.label.setVisible(bool(expanded))
+        self.edit_button.setVisible(self._editable and bool(expanded))
         self.button.setArrowType(QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow)
 
     def is_expanded(self) -> bool:

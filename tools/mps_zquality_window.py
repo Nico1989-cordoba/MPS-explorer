@@ -676,7 +676,7 @@ def plain_summary(report: ZQualityReport) -> List[str]:
     lines.append(NOT_CALIBRATED_LINE)
     if report.warnings:
         lines.append("")
-        lines.append("Warnings: " + " | ".join(dict.fromkeys(report.warnings)))
+        lines.append("Notes: " + " | ".join(dict.fromkeys(report.warnings)))
     return lines
 
 

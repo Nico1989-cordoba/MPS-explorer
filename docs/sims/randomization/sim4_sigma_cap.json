@@ -1,0 +1,68 @@
+{
+ "5": {
+  "gauss_sd20_fraction_capped": 1.0,
+  "gauss_claimed_halfwidth_nm": 35.89211321161752,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 35.145284710199235
+ },
+ "8": {
+  "gauss_sd20_fraction_capped": 1.0,
+  "gauss_claimed_halfwidth_nm": 42.3959511967558,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 38.48381152932953
+ },
+ "10": {
+  "gauss_sd20_fraction_capped": 1.0,
+  "gauss_claimed_halfwidth_nm": 44.2843595521492,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 39.660710305956776
+ },
+ "15": {
+  "gauss_sd20_fraction_capped": 0.996,
+  "gauss_claimed_halfwidth_nm": 48.91931531447,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 40.7460880571237
+ },
+ "20": {
+  "gauss_sd20_fraction_capped": 0.9765,
+  "gauss_claimed_halfwidth_nm": 51.33689498352808,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 41.225460084007565
+ },
+ "30": {
+  "gauss_sd20_fraction_capped": 0.935,
+  "gauss_claimed_halfwidth_nm": 54.32748327928527,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 41.58469018178364
+ },
+ "50": {
+  "gauss_sd20_fraction_capped": 0.8185,
+  "gauss_claimed_halfwidth_nm": 57.59664304366426,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 41.677746987915555
+ },
+ "80": {
+  "gauss_sd20_fraction_capped": 0.6195,
+  "gauss_claimed_halfwidth_nm": 60.27622665103273,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 41.56599680735981
+ },
+ "100": {
+  "gauss_sd20_fraction_capped": 0.5375,
+  "gauss_claimed_halfwidth_nm": 61.00579559510264,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 41.48221510593008
+ },
+ "200": {
+  "gauss_sd20_fraction_capped": 0.231,
+  "gauss_claimed_halfwidth_nm": 61.82638209444915,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 41.23562746077824
+ },
+ "500": {
+  "gauss_sd20_fraction_capped": 0.0115,
+  "gauss_claimed_halfwidth_nm": 61.617384444457684,
+  "uniform_disc_r40_fraction_capped": 1.0,
+  "uniform_claimed_halfwidth_nm": 40.86996860169592
+ }
+}

@@ -34,16 +34,16 @@ def _base(path: str) -> str:
 
 
 # --------------------------------------------------------------------------- A
-SR_A = "30.4.26/26.04.30_bIIspt_50ms_90mW_TIRF_3con5_1"
-STEM = "26.04.30_bIIspt_50ms_90mW_TIRF_3con5_1_MMStack_Pos0.ome_locs"
+SR_A = "17.3.25/25.03.17_bIIspt_50ms_TIRF_1"
+STEM = "25.03.17_bIIspt_50ms_TIRF_1_MMStack_Pos0.ome_locs"
 
 
 def _tree_a(root: str) -> str:
     files = [f"{SR_A}/{STEM}.hdf5", f"{SR_A}/{STEM}_undrift.hdf5", f"{SR_A}/{STEM}_undrift_filter.hdf5",
              f"{SR_A}/{STEM}_undrift_filter_render.hdf5", f"{SR_A}/{STEM}_undrift_filter_picked_axon3.hdf5",
              f"{SR_A}/{STEM}_undrift_filter_linked_picked2_1.hdf5",
-             "30.4.26/WF_spec_1/WF_spec_1_MMStack.ome.tif", "30.4.26/WF_tub_1/WF_tub_1_MMStack.ome.tif",
-             "30.4.26/WF_spec_2/WF_spec_2_MMStack.ome.tif", "30.4.26/WF_tub_2/WF_tub_2_MMStack.ome.tif"]
+             "17.3.25/WF_spec_1/WF_spec_1_MMStack.ome.tif", "17.3.25/WF_tub_1/WF_tub_1_MMStack.ome.tif",
+             "17.3.25/WF_spec_2/WF_spec_2_MMStack.ome.tif", "17.3.25/WF_tub_2/WF_tub_2_MMStack.ome.tif"]
     sizes = {f"{SR_A}/{STEM}.hdf5": 10, f"{SR_A}/{STEM}_undrift.hdf5": 20,
              f"{SR_A}/{STEM}_undrift_filter.hdf5": 30, f"{SR_A}/{STEM}_undrift_filter_render.hdf5": 30}
     _tree(root, files, sizes)
@@ -78,9 +78,9 @@ def test_a_longest_common_chain() -> None:
 
 def test_a_no_index_is_ambiguous() -> None:
     with tempfile.TemporaryDirectory(prefix="mt2_match_") as root:
-        sr_rel = "30.4.26/26.04.30_bIIspt_50ms_TIRF"
+        sr_rel = "17.3.25/25.03.17_bIIspt_50ms_TIRF"
         _tree(root, [f"{sr_rel}/{STEM}.hdf5", f"{sr_rel}/{STEM}_picked.hdf5",
-                     "30.4.26/WF_spec_1/a.tif", "30.4.26/WF_spec_2/b.tif"])
+                     "17.3.25/WF_spec_1/a.tif", "17.3.25/WF_spec_2/b.tif"])
         r = match_files(os.path.join(root, *sr_rel.split("/"), f"{STEM}_picked.hdf5"))
         assert r.best(SPECTRIN) is None and r.is_ambiguous(SPECTRIN) and len(r.of(SPECTRIN)) == 2
         assert any("equally good" in n for n in r.notes), r.notes
@@ -89,9 +89,9 @@ def test_a_no_index_is_ambiguous() -> None:
 
 def test_a_roi2_not_preferred() -> None:
     with tempfile.TemporaryDirectory(prefix="mt2_match_") as root:
-        sr_rel = "30.4.26/26.04.30_bIIspt_TIRF_1"
+        sr_rel = "17.3.25/25.03.17_bIIspt_TIRF_1"
         _tree(root, [f"{sr_rel}/{STEM}.hdf5", f"{sr_rel}/{STEM}_picked.hdf5",
-                     "30.4.26/WF_tub_1/a_roi2.tif", "30.4.26/WF_tub_1/a.tif"])
+                     "17.3.25/WF_tub_1/a_roi2.tif", "17.3.25/WF_tub_1/a.tif"])
         r = match_files(os.path.join(root, *sr_rel.split("/"), f"{STEM}_picked.hdf5"))
         best = r.best(TUBULIN)
         assert best is not None and _base(best.path) == "a.tif", r.of(TUBULIN)
@@ -101,7 +101,7 @@ def test_a_roi2_not_preferred() -> None:
 # --------------------------------------------------------------------------- B
 def test_b_tokens_and_crops() -> None:
     with tempfile.TemporaryDirectory(prefix="mt2_match_") as root:
-        sr_rel = "KO/20260609-3DSTORM_addKO_b2spec_41_ROI2_1"
+        sr_rel = "KO/20250611-3DSTORM_addKO_b2spec_41_ROI2_1"
         _tree(root, [f"{sr_rel}/whole.hdf5", f"{sr_rel}/axon1_picked.hdf5",
                      "KO/ROI2_WF/ROI2_WF_MMStack.ome.tif", "KO/ROI2_t/ROI2_t_MMStack.ome.tif",
                      "KO/ROI1_WF/ROI1_WF_MMStack.ome.tif", "KO/cropped/ROI2_crop_ch0.tif", "KO/cropped/ROI2_crop_ch1.tif",
@@ -118,7 +118,7 @@ def test_b_tokens_and_crops() -> None:
 
 def test_b_two_spectrin_folders_listed() -> None:
     with tempfile.TemporaryDirectory(prefix="mt2_match_") as root:
-        sr_rel = "WT/20260609-3DSTORM_addWT_b2spec_41_ROI1_1"
+        sr_rel = "WT/20250611-3DSTORM_addWT_b2spec_41_ROI1_1"
         _tree(root, [f"{sr_rel}/axon_picked.hdf5", "WT/ROI1 wf/a.tif", "WT/ROI1_WF_1/b.tif"])
         r = match_files(os.path.join(root, *sr_rel.split("/"), "axon_picked.hdf5"))
         assert r.best(SPECTRIN) is None and len(r.of(SPECTRIN)) == 2
@@ -152,8 +152,8 @@ def test_no_convention_proposes_nothing() -> None:
 
 
 def test_dates() -> None:
-    assert date_key("26.04.30_x") == date_key("26.4.30") == date_key("26_4_30") == date_key("30.4.26") \
-        == date_key("20260430-3DSTORM") == (4, 26, 30)
+    assert date_key("25.03.17_x") == date_key("25.3.17") == date_key("25_3_17") == date_key("17.3.25") \
+        == date_key("20250317-3DSTORM") == (3, 17, 25)
     assert date_key("no date here") is None
 
 
