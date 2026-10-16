@@ -3402,7 +3402,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
     def _show_rings_window(self, ms: Any, guard_nm: float = 0.0) -> None:
         """Open, or refresh in place, the rings panel."""
-        from tools.mps_gaps import analyze_rings
         from tools.mps_rings_window import MPSRingsWindow
 
         def rerun(mode: str = "valley", guard_nm: float = 0.0):
@@ -3430,7 +3429,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 z_calibration_callback=self._z_calibration_words)
         else:
             self.rings_window.ms = ms
-            self.rings_window.rings = analyze_rings(ms)
+            self.rings_window.rings = self.rings_window.analyze(ms)
             # Before the refresh, which shows it (B5).
             self.rings_window._guard_nm = guard_nm
             self.rings_window.refresh()

@@ -653,6 +653,26 @@ def load_fingerprint() -> Dict[str, Any]:
     return h1_reference_fingerprint()
 
 
+# SCI-6 rewrote three of the pre-H2 warnings on purpose (no number changed):
+# the test on near-equal weights is replaced by the slab's foreign fraction
+# (it is not a rings warning any more), the 1 nm valley-shift warning is
+# retired (the shift is reported, never judged), and the main-peak
+# disagreement keeps its first sentence and says the half-width it is judged
+# at. A pre-H2 warning is present when it is, or when its SCI-6 form is.
+SCI6_RETIRED_WARNINGS = ("Ambiguous main peak:", "Valley boundaries sit up to")
+
+
+def warning_present(old: str, now: List[str]) -> bool:
+    if old in now:
+        return True
+    if old.startswith(SCI6_RETIRED_WARNINGS):
+        return True
+    if old.startswith("Main-peak estimates disagree by"):
+        head = old.split("):", 1)[0] + ")"
+        return any(w.startswith(head) and "half-width" in w for w in now)
+    return False
+
+
 # ============================================================ 0. truth
 def test_truth() -> None:
     print("\n0. SYNTHETIC TRUTH (SMALL of validate_rings_h1, seed 0) and the H2 API")
@@ -935,7 +955,7 @@ def test_small_baseline() -> Dict[str, Any]:
         diff_json({k: v for k, v in fp.items() if k != "warnings"},
                   {k: v for k, v in now.items() if k != "warnings"}, "fp", out)
         assert not out, out
-        missing = [w for w in fp["warnings"] if w not in now["warnings"]]
+        missing = [w for w in fp["warnings"] if not warning_present(w, now["warnings"])]
         assert not missing, missing
         n_cl = sum(len(r["clusters"]) for r in fp["rings"])
         return (f"{len(fp['rings'])} rings, {n_cl} clusters, frame, events identical to the "

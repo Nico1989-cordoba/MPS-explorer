@@ -3,21 +3,35 @@
 Three controls on the correlation between the gap/patch patterns of
 consecutive MPS segments.
 
-validate_gaps.py measures that correlation (on unpublished pilot data a
-weak positive mean r(0), with a minority of segment pairs significant
-against the rotation null). This script asks whether that is a
-relationship between rings, or an artefact.
+validate_gaps.py measures that correlation. This script asks whether a
+correlation is a relationship between rings, or an artefact.
 
-The suspicion is axial bleed-through. Axial localization precision in
-3D dSTORM (~50-80 nm) is comparable to the 180 nm slab thickness, and the
-fitted component sigmas are consistent with being dominated by
-it. One physical ring then deposits localizations on both sides of a
-boundary, so two slabs that share no localization still share clusters --
-which by itself puts the same patches at the same angles in both.
+The suspicion is axial bleed-through. The effective axial width of a ring,
+s_eff (its thickness and the axial localization precision of the dataset in
+quadrature; here the fitted width of the mixture's components), is
+comparable to the slab, so one physical ring deposits localizations on both
+sides of a boundary: two slabs that share no localization still share
+clusters -- which by itself puts the same patches at the same places in
+both.
 
-Control 1 -- guard band.
-    Widen a dead zone around each boundary. Bleed-through falls off with
-    the guard; a real relationship between rings does not.
+Control 1 -- guard band (C5).
+    A dead zone of TOTAL width g centred on each boundary (half on each
+    side). A ring's localizations cross a boundary at distance h from its
+    centre with probability 1 - Phi(h / s_eff); the dead zone raises that
+    distance to h + g/2 but also removes the ring's own localizations
+    beyond h - g/2. The guards are therefore taken in units of each axon's
+    s_eff, {0, 0.5, 1, 1.5} x s_eff, plus g* = 2 (h - 0.67 s_eff), the
+    widest guard that keeps at least half of a ring guarded at both
+    boundaries (every guard is capped at g*). The computed leak and the
+    measured fraction of localizations removed are printed with each guard;
+    where the cap leaves a leak of 1 % or more the control can only partly
+    separate leak from biology and is reported as PARTIAL. Without an
+    s_eff the fixed total widths 0 / 30 / 60 / 90 nm are used. Bleed-through
+    falls off with the guard; a real relationship between rings does not --
+    but a guard also removes genuine thin-ring structure, so a drop is
+    ambiguous and the removed fraction must be read with it. This control
+    is specific to this software (no published guard-band control for
+    axial slabs was found).
 
 Control 2 -- axial distance.
     Correlate every pair of segments in an axon, not only neighbours, and
@@ -26,9 +40,10 @@ Control 2 -- axial distance.
     care how many rings apart they are.
 
 Control 3 -- different axons.
-    Correlate segments belonging to DIFFERENT axons. Angles are measured in
-    the lab frame, so an illumination or labelling gradient across the
-    field of view would correlate any two axons. This pair set shares no
+    Correlate segments belonging to DIFFERENT axons. Each profile starts at
+    its own axon's s = 0 (or, in the exploratory angle frame, is measured in
+    the lab frame, where an illumination or labelling gradient across the
+    field of view would correlate any two axons). This pair set shares no
     biology at all, so whatever it shows is the floor of the method.
 
 Run:  python validate_gap_controls.py
@@ -46,31 +61,63 @@ from scipy import stats
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from tools.mps_gaps import coverage_profile, profile_correlation  # noqa: E402
+from tools.mps_gaps import (  # noqa: E402
+    analyze_rings,
+    arc_reference,
+    coverage_profile,
+    profile_correlation,
+)
 from tools.mps_multisegment import analyze_all_segments  # noqa: E402
-from validate_gaps import find_axons, label, load  # noqa: E402
+from tools.mps_periodicity import (  # noqa: E402
+    effective_width_nm,
+    guard_retention_cap_nm,
+    guard_tradeoff,
+)
+from validate_gaps import find_axons, label, load, pcorr  # noqa: E402
 
+# The fallback grid, total widths in nm, when an axon has no s_eff.
 GUARDS_NM = (0.0, 30.0, 60.0, 90.0)
+# The grid in units of the axon's s_eff (C5), plus g*.
+GUARD_GRID_S_EFF = (0.0, 0.5, 1.0, 1.5)
+GUARD_LABELS = ("0", "0.5 s_eff", "1 s_eff", "1.5 s_eff", "g*")
+# A capped guard leaving at least this leak makes the control partial.
+PARTIAL_LEAK = 0.01
+
+
+def guards_for(ms) -> Tuple[List[float], Optional[float], Optional[float]]:
+    """The total guard widths (nm) of one axon in the order of GUARD_LABELS,
+    its s_eff and h (half the mean Delta-Z); the nm fallback without s_eff."""
+    s_eff = effective_width_nm(ms.z_result)
+    dz = ms.z_result.mean_delta_z_nm
+    if s_eff is None or dz is None:
+        return list(GUARDS_NM), None, None
+    h = 0.5 * float(dz)
+    cap = guard_retention_cap_nm(s_eff, h)
+    return [min(k * s_eff, cap) for k in GUARD_GRID_S_EFF] + [cap], s_eff, h
+
+
+def safe_reference(ms):
+    """The common curve of the arc-length frame, or None (the angle frame)
+    when it cannot be fitted -- the frame analyze_rings used."""
+    try:
+        return arc_reference(ms)
+    except ValueError:
+        return None
 
 
 def build_profiles(x, y, z, px, source, mode="valley", guard_nm=0.0):
-    """Coverage profile and axial centre of every analysable segment."""
+    """Coverage profile and axial centre of every analysable segment, in the
+    program's frame (arc length along the common membrane curve)."""
     ms = analyze_all_segments(
         x, y, z, source_name=source, mode=mode, guard_nm=guard_nm,
         pixel_size_nm=px, pixel_size_source="yaml")
     if ms.axon_center is None:
         return [], ms
-
+    rings = analyze_rings(ms)
     out = []
-    for seg, an in zip(ms.segments, ms.analyses):
-        if an is None or an.occupancy is None or an.perimeter is None:
-            continue
-        try:
-            prof = coverage_profile(
-                an.occupancy, an.perimeter.contour, ms.axon_center)
-        except ValueError:
-            continue
-        out.append((seg, prof))
+    for seg, prof in zip(ms.segments, rings.profiles):
+        if prof is not None:
+            out.append((seg, prof))
     return out, ms
 
 
@@ -110,43 +157,81 @@ def main() -> int:
     print("CONTROL 1 -- GUARD BAND: does the similarity survive separating "
           "the slabs?")
     print("=" * 92)
-    print(f"{'guard nm':>9} {'pairs':>6} {'segments':>9} {'mean r(0)':>10} "
-          f"{'median':>8} {'p<0.05':>8} {'expected':>9}")
+    print(f"{'guard':>10} {'pairs':>6} {'segments':>9} {'mean r(0)':>10} "
+          f"{'median':>8} {'g nm (med)':>11} {'leak':>7} {'removed':>8}")
     print("-" * 92)
 
-    guard_r0: Dict[float, np.ndarray] = {}
-    for guard in GUARDS_NM:
+    # Each axon's own grid (in its s_eff) and its localizations at guard 0.
+    grids: Dict[str, List[float]] = {}
+    base_locs: Dict[str, int] = {}
+    partial: List[str] = []
+    for f in files:
+        x, y, z, px = data[f]
+        _profs, ms0 = build_profiles(x, y, z, px, f, guard_nm=0.0)
+        grid, s_eff, h = guards_for(ms0)
+        grids[f] = grid
+        base_locs[f] = sum(s.n_locs for s in ms0.segments)
+        if s_eff is not None and h is not None:
+            capped = guard_tradeoff(s_eff, h, grid[-1])
+            if capped.leak_fraction >= PARTIAL_LEAK:
+                partial.append(f"{label(f)} (s_eff {s_eff:.0f} nm, leak {capped.leak_fraction:.1%} at g*)")
+    n_levels = len(GUARD_LABELS) if any(len(g) == len(GUARD_LABELS) for g in grids.values()) else len(GUARDS_NM)
+    names = GUARD_LABELS if n_levels == len(GUARD_LABELS) else tuple(f"{g:g} nm" for g in GUARDS_NM)
+
+    guard_r0: Dict[int, np.ndarray] = {}
+    for level in range(n_levels):
         r0s: List[float] = []
+        widths: List[float] = []
+        leaks: List[float] = []
+        removed: List[float] = []
         n_seg = 0
         for f in files:
+            grid = grids[f]
+            if level >= len(grid):
+                continue
+            guard = float(grid[level])
             x, y, z, px = data[f]
             profs, ms = build_profiles(x, y, z, px, f, guard_nm=guard)
             n_seg += len(profs)
+            widths.append(guard)
+            s_eff = effective_width_nm(ms.z_result)
+            dz = ms.z_result.mean_delta_z_nm
+            if s_eff is not None and dz is not None:
+                leaks.append(guard_tradeoff(s_eff, 0.5 * float(dz), guard).leak_fraction)
+            if base_locs.get(f):
+                removed.append(1.0 - sum(s.n_locs for s in ms.segments) / float(base_locs[f]))
             for (sa, pa), (sb, pb) in zip(profs[:-1], profs[1:]):
                 if sb.index != sa.index + 1:
                     continue
-                c = profile_correlation(pa.coverage, pb.coverage)
+                c = pcorr(pa, pb)
                 if np.isfinite(c.r_at_zero):
                     r0s.append(c.r_at_zero)
         arr = np.asarray(r0s, float)
-        guard_r0[guard] = arr
+        guard_r0[level] = arr
+        g_med = f"{np.median(widths):.0f}" if widths else "--"
+        leak = f"{np.median(leaks):.1%}" if leaks else "--"
+        rem = f"{np.median(removed):.1%}" if removed else "--"
         if arr.size:
             # Significance re-derived per pair would need the full curve; the
             # mean is what the control is about, so only r(0) is kept here.
-            print(f"{guard:>9.0f} {arr.size:>6} {n_seg:>9} {arr.mean():>+10.3f} "
-                  f"{np.median(arr):>+8.3f} {'--':>8} {'--':>9}")
+            print(f"{names[level]:>10} {arr.size:>6} {n_seg:>9} {arr.mean():>+10.3f} "
+                  f"{np.median(arr):>+8.3f} {g_med:>11} {leak:>7} {rem:>8}")
         else:
-            print(f"{guard:>9.0f} {0:>6} {n_seg:>9}   (no pairs survived)")
+            print(f"{names[level]:>10} {0:>6} {n_seg:>9}   (no pairs survived)")
 
-    base = guard_r0[0.0]
-    wide = guard_r0[max(GUARDS_NM)]
+    base = guard_r0.get(0, np.array([]))
+    wide = guard_r0.get(n_levels - 1, np.array([]))
     if base.size and wide.size:
-        print(f"\n  r(0) at guard 0 : {base.mean():+.3f} (n={base.size})")
-        print(f"  r(0) at guard {max(GUARDS_NM):.0f}: {wide.mean():+.3f} "
+        print(f"\n  r(0) at guard 0     : {base.mean():+.3f} (n={base.size})")
+        print(f"  r(0) at guard {names[n_levels - 1]:<6}: {wide.mean():+.3f} "
               f"(n={wide.size})")
-        print(f"  change          : {wide.mean() - base.mean():+.3f}")
-        print("  Reading: a large drop means the similarity was axial "
-              "bleed-through.")
+        print(f"  change              : {wide.mean() - base.mean():+.3f}")
+        print("  Reading: a drop means the similarity was at least partly axial "
+              "bleed-through; read it with the fraction of localizations removed, "
+              "since a guard removes genuine ring structure too.")
+    if partial:
+        print(f"  PARTIAL control (the retention cap leaves a leak >= {PARTIAL_LEAK:.0%}): "
+              + "; ".join(partial))
 
     # ======================================= control 2: axial separation
     print("\n" + "=" * 92)
@@ -161,7 +246,7 @@ def main() -> int:
         x, y, z, px = data[f]
         profs, ms = build_profiles(x, y, z, px, f, guard_nm=0.0)
         for (sa, pa), (sb, pb) in itertools.combinations(profs, 2):
-            c = profile_correlation(pa.coverage, pb.coverage)
+            c = pcorr(pa, pb)
             if not np.isfinite(c.r_at_zero):
                 continue
             sep.append(abs(sb.center_nm - sa.center_nm))
@@ -197,7 +282,7 @@ def main() -> int:
     for f in files:
         x, y, z, px = data[f]
         profs, ms = build_profiles(x, y, z, px, f, guard_nm=0.0)
-        by_axon[f] = [(seg.index, p.coverage) for seg, p in profs]
+        by_axon[f] = [(seg.index, p) for seg, p in profs]
 
     cross: List[float] = []
     for fa, fb in itertools.combinations(files, 2):
@@ -205,7 +290,7 @@ def main() -> int:
             for (ib, cb) in by_axon.get(fb, []):
                 if ia != ib:
                     continue          # same segment rank, different axons
-                c = profile_correlation(ca, cb)
+                c = pcorr(ca, cb)
                 if np.isfinite(c.r_at_zero):
                     cross.append(c.r_at_zero)
 
@@ -290,7 +375,7 @@ def main() -> int:
             chance = float(np.mean(hits))
 
             pa, pb = by_index[sa.index][1], sb[1]
-            c_before = profile_correlation(pa.coverage, pb.coverage)
+            c_before = pcorr(pa, pb)
 
             # Drop the shared clusters from BOTH profiles and re-measure.
             drop_a: set = set()
@@ -307,13 +392,14 @@ def main() -> int:
             r_aft: Optional[float] = None
             if drop_b or drop_a:
                 try:
+                    ref = safe_reference(ms)
                     pa2 = coverage_profile(
                         an_a.occupancy, an_a.perimeter.contour, ctr,
-                        exclude_labels=drop_a)
+                        exclude_labels=drop_a, reference=ref)
                     pb2 = coverage_profile(
                         an_b.occupancy, an_b.perimeter.contour, ctr,
-                        exclude_labels=drop_b)
-                    c_after = profile_correlation(pa2.coverage, pb2.coverage)
+                        exclude_labels=drop_b, reference=ref)
+                    c_after = pcorr(pa2, pb2)
                     if np.isfinite(c_after.r_at_zero):
                         r_aft = float(c_after.r_at_zero)
                 except ValueError:
@@ -383,7 +469,7 @@ def main() -> int:
             a, b = by_index.get(pair.index_a), by_index.get(pair.index_b)
             if a is None or b is None or pair.boundary_relative_depth is None:
                 continue
-            c = profile_correlation(a[1].coverage, b[1].coverage)
+            c = pcorr(a[1], b[1])
             if not np.isfinite(c.r_at_zero):
                 continue
             depth_l.append(pair.boundary_relative_depth)

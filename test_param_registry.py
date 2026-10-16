@@ -315,13 +315,14 @@ def main() -> int:
     def no_new_editable() -> str:
         # Rule E (12.4): no value becomes newly editable in stage 2; SCI-1 enables the three measurement inputs
         # of the z calibration (a chosen record, a typed m, a bead stack); SCI-3 the randomization's values and the
-        # sigma cap (the strip's dialogs); nothing else.
+        # sigma cap (the strip's dialogs); SCI-5 the viability's values (Z quality's Criteria dialog); SCI-6 the rings
+        # window's correlation frame and its handling of unmeasured bins; nothing else.
         editable = sorted(e.key for e in reg.entries() if e.editable)
         assert editable == sorted(["slab.centre", "slab.half_width_nm", "slab.typed_range", "dbscan.eps_nm",
                                    "dbscan.min_samples", "occupancy.mahalanobis", "rings.mode", "rings.guard_nm",
                                    "axoplasm.threshold", "axoplasm.smoothing_px", "axoplasm.margin_nm",
                                    "measurement.z_calibration", "measurement.z_magnification",
-                                   "measurement.bead_stack"] + SCI3_EDITABLE
+                                   "measurement.bead_stack", "rings.frame", "rings.empty_bins"] + SCI3_EDITABLE
                                   # SCI-5: the viability's values, edited in the Z quality window's Criteria dialog
                                   + [e.key for e in reg.by_home("zquality")]), editable
         rule_e = ("curation.edge_criterion", "curation.dbcv_threshold", "contour.two_opt_starts",

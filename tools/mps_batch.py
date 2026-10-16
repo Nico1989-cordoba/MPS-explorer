@@ -1223,7 +1223,9 @@ class RingRecord:
             if run is not None:
                 merged.update(run.export_dict())
             merged["error"] = ""
-            out.append(merged)
+            # SCI-6's columns after every column of before (no earlier column moves).
+            from tools.mps_multisegment import SCI6_SEGMENT_COLUMNS, columns_last
+            out.append(columns_last(merged, SCI6_SEGMENT_COLUMNS))
         return out
 
     def pair_rows(self) -> List[Dict[str, Any]]:
@@ -1232,10 +1234,11 @@ class RingRecord:
         if self.rings is None:
             return []
         out: List[Dict[str, Any]] = []
+        from tools.mps_multisegment import SCI6_PAIR_COLUMNS, columns_last
         for pair in self.rings.pairs:
             row = self._meta_row()
             row.update(pair.export_dict())
-            out.append(row)
+            out.append(columns_last(row, SCI6_PAIR_COLUMNS))
         return out
 
 

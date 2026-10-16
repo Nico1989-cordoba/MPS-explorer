@@ -1096,6 +1096,12 @@ class ZQualityThresholds:
     info_ratio_min: float = ZQ_INFO_RATIO_MIN
     merged_sigma_over_p: float = ZQ_MERGED_SIGMA_OVER_P
     merged_gap_over_p: float = ZQ_MERGED_GAP_OVER_P
+    # SCI-6 (zq-valley-required): the valley the verdict requires has a
+    # relative depth above this. 0 = any interior dip, as before; a dip of
+    # any size is deterministic on the fitted parameters and ignores sampling
+    # noise, which is why rule v2 tests the valley's significance with SiZer
+    # instead and this verdict is a diagnostic beside it. Editable 0-0.3.
+    min_valley_depth: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -1248,9 +1254,10 @@ def boundary_verdict(*, d_sep: float, exp_spur_frac: float, info_ratio: float, v
     sv = float(t.spur_viable if spur_viable is None else spur_viable)
     sm = float(t.spur_marginal if spur_marginal is None else spur_marginal)
     reasons: List[str] = []
-    valley = math.isfinite(valley_depth) and valley_depth > 0
+    valley = math.isfinite(valley_depth) and valley_depth > float(t.min_valley_depth)
     if not valley:
-        reasons.append("no interior valley")
+        reasons.append("no interior valley" if float(t.min_valley_depth) <= 0.0
+                       else f"no valley deeper than {float(t.min_valley_depth):g}")
     gap_block = gap_nm > t.merged_gap_over_p * p_ref_nm
     if gap_block:
         reasons.append(f"gap {gap_nm:.0f} nm > {t.merged_gap_over_p:g} P_ref (lost ring?)")

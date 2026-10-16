@@ -163,6 +163,17 @@ _MC_ROW = "  Monte Carlo p"
 # The other rows the randomization methods page documents.
 _RAND_ROWS = ("  centres outside the band",)
 _REGULARITY_ROW = "  regularity r"
+# The slab's expected foreign fraction (SCI-6) and the Delta-Z row: what they are, and where it is documented.
+_FOREIGN_ROW = "  foreign fraction of the slab"
+_DELTA_Z_ROW = "Delta-Z (axial periodicity)"
+FOREIGN_TIP = ("The share of the slab's localizations the fitted axial mixture expects from components other than "
+               "the slab's own ring (the normal tails of the neighbours inside the slab). This program warns above "
+               "5 %, where a neighbouring ring's clusters start to reach min samples inside the slab.\n\n"
+               "Methods: docs/axial_mixture_and_rings.md, section 1.")
+DELTA_Z_TIP = ("Mean spacing between consecutive axial components, with its standard error and its signed distance "
+               "from the published axial period in units of the published spread: a description, never a verdict. "
+               "Every reference is in the Axial tab's details.\n\nMethods: docs/axial_mixture_and_rings.md, "
+               "section 2.")
 _CROSSING_ROW = "  CDF crossing"
 
 # How much of the plot column the map takes when the window opens (the rest
@@ -1526,6 +1537,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 item.setToolTip(REGULARITY_TIP + (f"\n\n{own}" if own else ""))
             elif name in _RAND_ROWS:
                 item.setToolTip(METHODS_TIP + (f"\n\n{own}" if own else ""))
+            elif name == _FOREIGN_ROW:
+                item.setToolTip(FOREIGN_TIP + (f"\n\n{own}" if own else ""))
+            elif name == _DELTA_Z_ROW:
+                item.setToolTip(DELTA_Z_TIP + (f"\n\n{own}" if own else ""))
             elif name == _CROSSING_ROW:
                 item.setToolTip(CROSSING_TIP + "\n" + reg.tooltip("randomization.cdf_band_alpha")
                                 + (f"\n\n{own}" if own else ""))

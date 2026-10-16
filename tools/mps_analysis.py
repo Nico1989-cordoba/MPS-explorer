@@ -74,9 +74,16 @@ from tools.mps_geometry import (
     reconstruct_perimeter,
 )
 from tools.mps_periodicity import (
+    DEFAULT_COMPONENT_RANGE,
+    DEFAULT_N_INIT,
+    DEFAULT_RANDOM_STATE,
     DEFAULT_SLAB_HALF_WIDTH_NM,
+    FOREIGN_FRACTION_WARN,
+    ForeignFraction,
     ZPeriodicityResult,
+    delta_z_summary,
     fit_z_periodicity,
+    foreign_fraction,
     select_mps_slab,
 )
 from tools.mps_randomization import (
@@ -233,7 +240,16 @@ class AxonAnalysis:
     # can see it; the panel's own table carries the same column.
     discard_registration: str = ""
 
+    # --- SCI-6: the single-ring window's expected foreign fraction --------
+    # F, the share of the slab's localizations the fitted mixture expects
+    # from components other than the slab's own ring (None: not computed).
+    slab_foreign: Optional[ForeignFraction] = None
+
     # ---------------- convenience accessors for the panel ----------------
+
+    @property
+    def slab_foreign_fraction(self) -> Optional[float]:
+        return None if self.slab_foreign is None else self.slab_foreign.fraction
 
     @property
     def discard_applied(self) -> bool:
@@ -414,8 +430,10 @@ class AxonAnalysis:
             ("Axial slab z-range",
              f"{self.slab_zmin_nm:,.0f} .. {self.slab_zmax_nm:,.0f} nm", "-",
              "auto from GMM main peak"),
+            ("  foreign fraction of the slab", _percent(self.slab_foreign_fraction), "-",
+             _foreign_note(self.slab_foreign)),
             ("Delta-Z (axial periodicity)", fmt(self.mean_delta_z_nm, 1),
-             "170 +/- 15 nm", f"{len(self.z_result.delta_z_nm)} interval(s)"),
+             "170 +/- 15 nm", _delta_z_note(self.z_result)),
             ("Clusters detected (raw)", f"{self.n_clusters_raw}", "-", ""),
             ("Clusters kept (auto-curated)", kept, "-",
              f"{len(self.bad_report.bad_labels)} removed"
@@ -768,7 +786,50 @@ class AxonAnalysis:
                 else self.randomization.n_outside_band),
             "n_warnings": len(self.warnings),
             "warnings": " | ".join(cell_text(w) for w in self.warnings),
+            # SCI-6 (after every column of before): which reading of "the
+            # main peak" centred the slab and both readings, the slab's
+            # expected foreign fraction F, and the SE of the mean Delta-Z.
+            "main_peak_mode": self.z_result.main_peak_mode,
+            "z_peak_density_nm": _round_or_none(self.z_result.peak_by_density_nm, 2),
+            "z_peak_weight_nm": _round_or_none(self.z_result.peak_by_weight_nm, 2),
+            "slab_foreign_fraction": _round_or_none(self.slab_foreign_fraction, 4),
+            "delta_z_se_nm": _round_or_none(self.z_result.delta_z_se_nm, 2),
         }
+
+
+def _round_or_none(value: Optional[float], digits: int) -> Optional[float]:
+    if value is None or not np.isfinite(value):
+        return None
+    return round(float(value), digits)
+
+
+def _percent(value: Optional[float]) -> str:
+    return "n/a" if value is None else f"{100.0 * value:.1f} %"
+
+
+def _foreign_note(ff: Optional[ForeignFraction]) -> str:
+    """The note of the foreign-fraction row: what F is, the level it warns at
+    and how many dominant components the ROI has (no threshold on those)."""
+    if ff is None:
+        return ""
+    return (f"expected share from other components of the fitted mixture; this program warns above "
+            f"{FOREIGN_FRACTION_WARN:.0%}; {ff.n_dominant} dominant component(s) in the ROI")
+
+
+def _delta_z_note(zr: ZPeriodicityResult) -> str:
+    """The Delta-Z row's note: the intervals, the SE of the mean, and the
+    distance from the published axial period in its spread units (a
+    description, never a verdict; every reference is in the axial details)."""
+    n = len(zr.delta_z_nm)
+    words = f"{n} interval(s)"
+    summary = delta_z_summary(zr.delta_z_nm)
+    if summary.se_nm is not None:
+        words += f"; SE {summary.se_nm:.1f} nm"
+    if summary.distances:
+        d = summary.distances[0]
+        if d.spread_units is not None:
+            words += f"; {d.spread_units:+.2f} published spreads from {d.reference.label}"
+    return words
 
 
 # Where a pixel size came from, as tools.mps_io records it: the Picasso
@@ -868,6 +929,11 @@ def analyze_axon(
     contour_guide: Optional[NDArray[np.float64]] = None,
     randomization_params: Optional[RandomizationParams] = None,
     sigma_cap_fraction: float = SIGMA_CAP_FRACTION,
+    main_peak_mode: str = "density",
+    gmm_components: Tuple[int, ...] = DEFAULT_COMPONENT_RANGE,
+    gmm_n_init: int = DEFAULT_N_INIT,
+    gmm_random_state: int = DEFAULT_RANDOM_STATE,
+    foreign_fraction_warn: float = FOREIGN_FRACTION_WARN,
 ) -> AxonAnalysis:
     """
     Run the full per-axon pipeline on one ROI's localizations.
@@ -904,6 +970,13 @@ def analyze_axon(
         this program did before 2026-09-19; on unpublished pilot axons
         that tour often came out longer, by a few percent.
 
+    main_peak_mode, gmm_components, gmm_n_init, gmm_random_state : the
+        axial mixture (``tools.mps_periodicity.fit_z_periodicity``): the
+        reading of the main peak ("density" or "weight"), the candidate
+        component counts, the EM restarts and the seed.
+    foreign_fraction_warn : the slab's expected foreign fraction F above
+        which a warning is raised (5 % by default; a suggestion).
+
     Returns
     -------
     AxonAnalysis -- always returned, even when the axon is too sparse to
@@ -928,7 +1001,9 @@ def analyze_axon(
         )
 
     # ---------------- step 2: axial periodicity and slab ----------------
-    z_result = fit_z_periodicity(z_nm)
+    z_result = fit_z_periodicity(
+        z_nm, component_range=tuple(int(k) for k in gmm_components), main_peak_mode=main_peak_mode,
+        half_width_nm=slab_half_width_nm, n_init=int(gmm_n_init), random_state=int(gmm_random_state))
     warnings_.extend(z_result.warnings)
 
     if slab_override is not None:
@@ -962,6 +1037,19 @@ def analyze_axon(
 
     xs, ys, zs = x_nm[slab_mask], y_nm[slab_mask], z_nm[slab_mask]
 
+    # The slab's expected foreign fraction (SCI-6): what share of its
+    # localizations the fitted mixture expects from components other than
+    # the slab's own ring. It replaces the test on near-equal weights.
+    slab_foreign = foreign_fraction(z_result, zmin, zmax)
+    if (slab_foreign.fraction is not None
+            and slab_foreign.fraction > float(foreign_fraction_warn)):
+        warnings_.append(
+            f"The axial slab {zmin:.0f} .. {zmax:.0f} nm is expected to hold "
+            f"{slab_foreign.fraction:.1%} localizations of neighbouring components "
+            f"(above {float(foreign_fraction_warn):.0%}): the single-ring window "
+            f"mixes rings, and a neighbouring ring's clusters can enter the analysis."
+        )
+
     base: Dict[str, Any] = dict(
         source_name=source_name,
         pixel_size_nm=pixel_size_nm,
@@ -979,6 +1067,7 @@ def analyze_axon(
         slab_index=np.flatnonzero(slab_mask).astype(np.intp),
         roi=roi,
         slab_source=slab_source,
+        slab_foreign=slab_foreign,
     )
 
     settings: Dict[str, Any] = dict(

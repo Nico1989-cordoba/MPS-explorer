@@ -22,6 +22,15 @@ as a number measured between two rings.
 The correlation is reported with the p-value of its rotation null, never
 with a textbook Pearson p-value, for the reason given in ``mps_gaps``.
 
+SCI-6: the profiles are registered by arc length along the common membrane
+curve (the angle about the pooled centre is an exploratory option); bins no
+perimeter sample reaches can be interpolated or masked; the p-value is
+one-sided over 1999 rotations; the pairs table shows each boundary's valley,
+Bayes and midpoint positions and the separation d; the guard band is also
+given in units of the rings' effective axial width s_eff, with its leak;
+and one depth level (0.10) colours the boundaries and drives the analysis
+warning.
+
 UI stage 2 (design 3.1, 4): the segments superimposed in x, y and their z
 (the slabs, the boundaries, each segment's own localizations) are drawn on
 the MPS analysis window's axon map (Segments view) and axial view (Every
@@ -49,7 +58,10 @@ from tools import export_ui
 from tools.copyable import copyable_list, copyable_table, selectable_labels
 from tools import mps_param_registry as reg
 from tools.mps_origin_ui import ParamField
-from tools.mps_gaps import RingAnalysis, analyze_rings
+from tools.mps_gaps import (
+    DEFAULT_EMPTY_BINS, DEFAULT_FRAME, DEFAULT_N_ROTATIONS, METHODS_DOC, RingAnalysis, analyze_rings)
+from tools.mps_periodicity import (
+    VALLEY_DEPTH_LEVEL, effective_width_nm, guard_retention_cap_nm, guard_tradeoff)
 from tools.mps_identity import AxonIdentity, axon_id
 from tools.mps_plot_style import (
     PLOT_BG, marked, neutral, role, segment_colour,
@@ -214,17 +226,24 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.combo_mode.addItem("valley - cut at the density minimum", "valley")
         self.combo_mode.addItem("paper - 180 nm around each peak", "paper")
         self.combo_mode.addItem("partition - cut at the midpoint", "partition")
+        self.combo_mode.addItem("bayes - cut where both rings are equally probable", "bayes")
         self.combo_mode.setMinimumWidth(270)
         self.combo_mode.setToolTip(
             "How each segment's axial slab is bounded.\n\n"
-            "valley: clip where the fitted axial density is lowest, so no\n"
-            "  localization belongs to two segments. Preferred for\n"
-            "  comparing neighbours.\n"
+            "valley: clip at the minimum of the fitted axial density between\n"
+            "  the two peaks (the recorded primary choice), so no\n"
+            "  localization belongs to two segments.\n"
             "paper: the paper's 180 nm window around every peak. Slabs\n"
             "  OVERLAP when the periodicity is shorter than 180 nm, and\n"
             "  shared localizations inflate any similarity between them.\n"
             "partition: cut at the midpoint between peaks, which assumes a\n"
-            "  symmetry the two rings do not have. Kept for comparison."
+            "  symmetry the two rings do not have. Kept for comparison.\n"
+            "bayes: cut where the two neighbouring components are equally\n"
+            "  probable - the fewest wrong assignments; it equals the\n"
+            "  valley for equal rings, and exists even where the two\n"
+            "  components are not two peaks.\n\n"
+            "The pairs table shows all three cut positions of every boundary.\n\n"
+            f"Methods: {METHODS_DOC}, section 3."
         )
         # Its origin badge after it (design 12.3); the combo keeps its name,
         # items and signals.
@@ -238,15 +257,60 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.spin_guard.setDecimals(0)
         self.spin_guard.setSingleStep(10.0)
         self.spin_guard.setToolTip(
-            "A dead zone centred on each boundary, excluded from both\n"
-            "neighbouring slabs. A control, not a better segmentation:\n"
-            "axial precision (~50-80 nm) is comparable to the slab, so one\n"
-            "ring can be detected in both. If the correlation survives a\n"
-            "wide guard band, it is not axial bleed-through.\n"
-            "Ignored in 'paper' mode, which has no boundary."
+            "The TOTAL width of a dead zone centred on each boundary (half on\n"
+            "each side), excluded from both neighbouring slabs. A control, not a\n"
+            "better segmentation: the rings' effective axial width s_eff (their\n"
+            "thickness and the axial precision, as the fitted components\n"
+            "measure it) is comparable to the slab, so one ring can be detected\n"
+            "in both. If the correlation survives a wide guard band, it is not\n"
+            "axial bleed-through - but a guard also removes ring structure.\n"
+            "0 in the primary analysis; 60 nm is the recorded sensitivity.\n"
+            "Ignored in 'paper' mode, which has no boundary.\n\n"
+            f"Methods: {METHODS_DOC}, section 3."
         )
         self.field_guard = ParamField("rings.guard_nm", self.spin_guard)
         lay.addWidget(self.field_guard)
+        # The guard in units of s_eff, with the leak it leaves (C5).
+        self.lbl_guard_seff = QtWidgets.QLabel("")
+        self.lbl_guard_seff.setObjectName("lbl_guard_seff")
+        self.lbl_guard_seff.setStyleSheet(f"color: {_C_DIM};")
+        lay.addWidget(self.lbl_guard_seff)
+
+        lay.addSpacing(12)
+        lay.addWidget(QtWidgets.QLabel("Correlation along:"))
+        self.combo_frame = QtWidgets.QComboBox()
+        self.combo_frame.setObjectName("combo_rings_frame")
+        self.combo_frame.addItem("the membrane (arc length)", "arc")
+        self.combo_frame.addItem("angle about the centre (exploratory)", "angle")
+        self.combo_frame.setToolTip(
+            "How the profiles of two segments are registered before they are\n"
+            "correlated.\n\n"
+            "the membrane: arc length along one common curve fitted through\n"
+            "  every segment's cluster centres (the curve of the column\n"
+            "  analysis); valid for folded and notched contours.\n"
+            "angle: the polar angle about the pooled centre. One-to-one only\n"
+            "  on contours star-shaped about it; the pairs CSV reports how\n"
+            "  much of each contour runs backwards in angle.\n\n"
+            f"Methods: {METHODS_DOC}, section 5.")
+        self.combo_frame.setCurrentIndex(max(self.combo_frame.findData(DEFAULT_FRAME), 0))
+        self.field_frame = ParamField("rings.frame", self.combo_frame, show_range=False)
+        lay.addWidget(self.field_frame)
+        self.combo_empty = QtWidgets.QComboBox()
+        self.combo_empty.setObjectName("combo_rings_empty_bins")
+        self.combo_empty.addItem("unmeasured bins interpolated", "interpolate")
+        self.combo_empty.addItem("unmeasured bins masked", "mask")
+        self.combo_empty.setToolTip(
+            "Bins no perimeter sample reaches: left out of the correlation\n"
+            "(masked, the default) or interpolated from their neighbours.\n"
+            "A stretch interpolated in both profiles is structure the rotation\n"
+            "null cannot remove: with 10 % of the bins so filled, independent\n"
+            "synthetic profiles came out significant at a nominal 5 % about\n"
+            "45 % of the time (masked: 6 %; validate_ring_correlation_null.py).\n"
+            "Their number is in the pairs CSV either way.\n\n"
+            f"Methods: {METHODS_DOC}, section 5.")
+        self.combo_empty.setCurrentIndex(max(self.combo_empty.findData(DEFAULT_EMPTY_BINS), 0))
+        self.field_empty = ParamField("rings.empty_bins", self.combo_empty, show_range=False)
+        lay.addWidget(self.field_empty)
 
         lay.addStretch(1)
 
@@ -314,7 +378,31 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             w.setEnabled(enabled)
         self.combo_mode.currentIndexChanged.connect(self._on_param_changed)
         self.spin_guard.valueChanged.connect(self._on_param_changed)
+        # The frame and the empty bins re-run only the correlation, never the
+        # segmentation: they work in a read-only panel too.
+        self.combo_frame.currentIndexChanged.connect(self._on_correlation_option_changed)
+        self.combo_empty.currentIndexChanged.connect(self._on_correlation_option_changed)
         return box
+
+    def analyze(self, ms: Any) -> RingAnalysis:
+        """The gap/patch analysis of ``ms`` with this window's frame and
+        empty-bin handling (the main window calls it on a refresh)."""
+        frame = DEFAULT_FRAME
+        empty = DEFAULT_EMPTY_BINS
+        if getattr(self, "combo_frame", None) is not None:
+            frame = str(self.combo_frame.currentData() or DEFAULT_FRAME)
+            empty = str(self.combo_empty.currentData() or DEFAULT_EMPTY_BINS)
+        return analyze_rings(ms, frame=frame, empty_bins=empty)
+
+    def _on_correlation_option_changed(self) -> None:
+        if self.ms is None:
+            return
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            self.rings = self.analyze(self.ms)
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self.refresh()
 
     def _draw_axial(self) -> None:
         """The segments' z: the MPS analysis window's axial view on Every segment (display only)."""
@@ -398,16 +486,39 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
 
         lay.addWidget(QtWidgets.QLabel(
             "Consecutive segment pairs (r at zero rotation, p from the "
-            "rotation null)"))
-        self.table_pair = QtWidgets.QTableWidget(0, 6)
+            "rotation null, one-sided)"))
+        self.table_pair = QtWidgets.QTableWidget(0, 8)
         self.table_pair.setHorizontalHeaderLabels([
-            "Pair", "dz", "boundary", "r(0)", "p", "z vs null"])
+            "Pair", "dz", "boundary", "cut z: valley | Bayes | mid", "d", "r(0)",
+            "p (one-sided)", "z vs null"])
         self._prepare_table(self.table_pair)
         self.table_pair.horizontalHeaderItem(2).setToolTip(
-            "Whether the axial density has a minimum between the two "
-            "segments, and how deep it is. Green from a depth of "
+            "Whether the axial density has a dip between the two "
+            "segments, and how deep it is, referred to the two peaks "
+            "beside it. Green from a depth of "
             + reg.format_value("rings.valley_depth_colour") + ":\n"
             + reg.tooltip("rings.valley_depth_colour"))
+        self.table_pair.horizontalHeaderItem(3).setToolTip(
+            "Where the boundary between the two components lies: at the\n"
+            "density valley, where the two are equally probable (Bayes) and\n"
+            "at the midpoint between their means. The valley moves away\n"
+            "from the midpoint toward the lighter ring whenever the rings\n"
+            "differ in weight or width; '-' where there is no valley (or no\n"
+            "Bayes boundary between the means). In valley mode the cut is the\n"
+            "valley, except where the dip lies above the density at one of the\n"
+            "means: there the valley is ill-determined and the cut stays at the\n"
+            "midpoint (a warning says so).")
+        self.table_pair.horizontalHeaderItem(4).setToolTip(
+            "Separation d = |mu_b - mu_a| / sqrt(sigma_a^2 + sigma_b^2): two\n"
+            "equal components are two peaks only above d = 1.41.\n\n"
+            f"Methods: {METHODS_DOC}, section 3.")
+        self.table_pair.horizontalHeaderItem(6).setToolTip(
+            "One-sided p of r(0) against the rotation null: the fraction of\n"
+            f"{DEFAULT_N_ROTATIONS:,} rotations of one profile (drawn without replacement, the\n"
+            "unrotated one counted) whose correlation is at least r(0).\n"
+            + reg.tooltip("rings.n_rotations"))
+        self.table_pair.horizontalHeaderItem(3).setToolTip(
+            self.table_pair.horizontalHeaderItem(3).toolTip() + f"\n\nMethods: {METHODS_DOC}, section 3.")
         self.table_pair.itemSelectionChanged.connect(self._draw_correlation)
         lay.addWidget(self.table_pair, stretch=2)
 
@@ -625,9 +736,38 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.spin_guard.setValue(float(getattr(self, "_guard_nm", 0.0)))
         for w in (self.combo_mode, self.spin_guard):
             w.blockSignals(False)
-        for field in (getattr(self, "field_mode", None), getattr(self, "field_guard", None)):
+        for field in (getattr(self, "field_mode", None), getattr(self, "field_guard", None),
+                      getattr(self, "field_frame", None), getattr(self, "field_empty", None)):
             if field is not None:
                 field.refresh()
+        self._fill_guard_seff()
+
+    def _fill_guard_seff(self) -> None:
+        """The guard in units of the rings' effective axial width s_eff (the
+        median width of the fitted components), the leak it leaves at a
+        boundary half a period from a ring's centre, and the retention cap."""
+        label = getattr(self, "lbl_guard_seff", None)
+        if label is None:
+            return
+        zr = getattr(self.ms, "z_result", None)
+        s_eff = None if zr is None else effective_width_nm(zr)
+        dz = None if zr is None else zr.mean_delta_z_nm
+        if s_eff is None or dz is None:
+            label.setText("s_eff: - (fewer than two rings)")
+            label.setToolTip("")
+            return
+        g = float(getattr(self, "_guard_nm", 0.0))
+        h = 0.5 * float(dz)
+        t = guard_tradeoff(s_eff, h, g)
+        cap = guard_retention_cap_nm(s_eff, h)
+        label.setText(f"= {g / s_eff:.2f} s_eff (s_eff {s_eff:.0f} nm); leak {t.leak_fraction:.1%}")
+        label.setToolTip(
+            f"s_eff = {s_eff:.0f} nm, the median width of the fitted components; h = {h:.0f} nm, half the mean "
+            f"Delta-Z.\nA guard of total width g leaves a leak of 1 - Phi((h + g/2) / s_eff) "
+            f"({t.leak_fraction:.2%} here) and removes Phi((h + g/2) / s_eff) - Phi((h - g/2) / s_eff) of each "
+            f"ring at one boundary ({t.lost_fraction:.1%}).\nA ring guarded at both boundaries keeps at least "
+            f"half of itself up to g = {cap:.0f} nm (g/2 <= h - 0.67 s_eff)"
+            + ("." if t.within_retention_bound else "; this guard is beyond it."))
 
     def _fill_header(self) -> None:
         ms = self.ms
@@ -636,11 +776,21 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             n_res = int(np.count_nonzero(ms.valleys.is_true_valley))
         n_bounds = 0 if ms.valleys is None else ms.valleys.n_boundaries
         dz = ms.z_result.mean_delta_z_nm
+        m = None
+        if self.z_calibration_callback is not None:
+            try:
+                m = self.z_calibration_callback()[1]
+            except Exception:  # noqa: BLE001 - a display: no scale is today's text
+                m = None
+        scale = "" if m is None else f" (per z calibration, m = {float(m):g})"
+        frame = getattr(self.rings, "frame", "angle")
+        frame_words = ("along the membrane (arc length)" if frame == "arc"
+                       else "by angle about the pooled centre (exploratory)")
         self.lbl_header.setText(
             f"<b>{os.path.basename(str(ms.source_name)) or 'axon'}</b> &mdash; "
             f"{ms.n_segments} segment(s), {ms.n_analyzed} analysed, "
-            f"{len(self.rings.pairs)} pair(s) compared. "
-            f"Mean &Delta;Z = {'n/a' if dz is None else f'{dz:.0f} nm'}. "
+            f"{len(self.rings.pairs)} pair(s) compared {frame_words}. "
+            f"Mean &Delta;Z = {'n/a' if dz is None else f'{dz:.0f} nm'}{scale}. "
             f"Axially resolved boundaries: <b>{n_res} of {n_bounds}</b> "
             f"(a boundary with no density minimum means the two segments "
             f"are two halves of one axial distribution, not two rings)."
@@ -702,19 +852,35 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
                 boundary, colour, italic = "unresolved", _C_WARN, True
             else:
                 boundary = f"valley, depth {depth:.2f}"
-                colour = _C_GOOD if depth >= 0.10 else _C_WARN
-                italic = depth < 0.10
+                colour = _C_GOOD if depth >= VALLEY_DEPTH_LEVEL else _C_WARN
+                italic = depth < VALLEY_DEPTH_LEVEL
+            cuts, sep = self._boundary_words(pair.index_a, pair.index_b)
 
             put(0, f"{pair.index_a}-{pair.index_b}")
             put(1, f"{pair.delta_z_nm:,.0f} nm")
             put(2, boundary, colour, italic)
-            put(3, f"{c.r_at_zero:+.3f}")
-            put(4, f"{c.p_rotation:.4f}",
+            put(3, cuts)
+            put(4, sep)
+            put(5, f"{c.r_at_zero:+.3f}")
+            put(6, f"{c.p_rotation:.4f}",
                 _C_GOOD if c.p_rotation < 0.05 else None)
-            put(5, "n/a" if c.z_vs_null is None else f"{c.z_vs_null:+.2f}")
+            put(7, "n/a" if c.z_vs_null is None else f"{c.z_vs_null:+.2f}")
 
         if t.rowCount():
             t.selectRow(0)
+
+    def _boundary_words(self, a: int, b: int) -> Tuple[str, str]:
+        """The pairs table's cut positions (valley | Bayes | midpoint) and the
+        separation d of the boundary between segments a and b."""
+        for p in getattr(self.ms, "pairs", []):
+            if p.index_a == a and p.index_b == b:
+                def z(v: Optional[float]) -> str:
+                    return "-" if v is None else f"{v:,.0f}"
+                cuts = (f"{z(p.boundary_valley_nm)} | {z(p.boundary_bayes_nm)} | "
+                        f"{z(p.boundary_midpoint_nm)}")
+                d = "-" if p.boundary_separation_d is None else f"{p.boundary_separation_d:.2f}"
+                return cuts, d
+        return "-", "-"
 
     def _fill_warnings(self) -> None:
         self.list_warnings.clear()
@@ -744,6 +910,16 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         making it a matter of reading down a column.
         """
         self.plot_profiles.clear()
+        arc = getattr(self.rings, "frame", "angle") == "arc"
+        if arc:
+            self.plot_profiles.setLabels(
+                bottom="position along the common membrane curve [% of its length]", left="segment")
+            self.plot_profiles.setXRange(0, 100)
+        else:
+            self.plot_profiles.setLabels(
+                bottom="angle about the pooled centre of every segment's clusters [deg] (exploratory)",
+                left="segment")
+            self.plot_profiles.setXRange(0, 360)
         ticks: List[Any] = []
         drawn = 0
         for k, prof in enumerate(self.rings.profiles):
@@ -755,7 +931,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             # 0.82 leaves a gap between tracks so a full patch in one
             # segment cannot be mistaken for part of the next track.
             self.plot_profiles.plot(
-                prof.theta_deg, prof.coverage * 0.82 + k,
+                prof.theta_deg / 3.6 if arc else prof.theta_deg, prof.coverage * 0.82 + k,
                 pen=pg.mkPen(colour, width=1),
                 fillLevel=float(k), brush=pg.mkBrush(fill))
             ticks.append((k + 0.41, str(self.ms.segments[k].index)))
@@ -784,7 +960,11 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         # a randomized control, and r(0) -- the one rotation that is the
         # data -- is the blue of an observed value, exactly as in the
         # randomization plot of the MPS window.
-        self.plot_corr.plot(c.offsets_deg, c.correlation,
+        arc = getattr(pair, "frame", "angle") == "arc"
+        x = c.offsets_deg / 3.6 if arc else c.offsets_deg
+        self.plot_corr.setLabels(bottom="shift along the membrane [% of its length]" if arc
+                                 else "rotation [deg]", left="r")
+        self.plot_corr.plot(x, c.correlation,
                             pen=pg.mkPen(role("randomized"), width=1))
         # The rotation null IS this whole curve, so showing its spread next
         # to r(0) is what makes the p-value legible. Its mean and its
@@ -804,12 +984,12 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
         self.plot_corr.addItem(pg.InfiniteLine(
             pos=0.0, angle=90,
             pen=pg.mkPen(observed, width=2),
-            label=(f"r(0) = {c.r_at_zero:+.3f},  p = {c.p_rotation:.4f}"),
+            label=(f"r(0) = {c.r_at_zero:+.3f},  p = {c.p_rotation:.4f} (one-sided)"),
             labelOpts={"position": 0.92, "color": observed}))
         set_title(
             self.plot_corr,
-            f"Segments {pair.index_a}-{pair.index_b}: cross-correlation over "
-            f"all {c.n_rotations:,} rotations (dotted: null mean, dashed: "
+            f"Segments {pair.index_a}-{pair.index_b}: cross-correlation at every one of "
+            f"{c.correlation.size:,} shifts; p over {c.n_rotations:,} rotations (dotted: null mean, dashed: "
             f"+/- 2 SD)")
 
     def _segments_with_locs(self, field: str) -> List[Any]:
@@ -914,7 +1094,7 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             return
         self.ms = ms
         self._guard_nm = guard
-        self.rings = analyze_rings(ms)
+        self.rings = self.analyze(ms)
         self.refresh()
 
     def _on_columns(self) -> None:
@@ -991,6 +1171,10 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             row.update(coverage.get((row["segment_a"], row["segment_b"]), {}))
             row["ring_analysis_warnings"] = notes
             row["n_ring_analysis_warnings"] = len(shown)
+        # SCI-6's columns after every column of before (no earlier column moves).
+        from tools.mps_multisegment import SCI6_PAIR_COLUMNS, SCI6_SEGMENT_COLUMNS, columns_last
+        seg_rows = [columns_last(r, SCI6_SEGMENT_COLUMNS) for r in seg_rows]
+        pair_rows = [columns_last(r, SCI6_PAIR_COLUMNS) for r in pair_rows]
 
         # Two shapes of row go to two files rather than one ragged table: a
         # per-segment row and a per-pair row are different observations, and

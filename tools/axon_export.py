@@ -83,8 +83,13 @@ from tools.results_table import cell_text
 # (nn_regularity_null_mean, nn_regularity_null_lo, nn_regularity_null_hi);
 # written once: the randomization's settings and the occupancy's sigma cap.
 # ks_cdf_crossing now holds the level read against the null band.
+# v7 (2026-10-14): the axial mixture of SCI-6
+# (docs/axial_mixture_and_rings.md), written once at the end of the row,
+# after the z calibration, so that no earlier column moves
+# (AXIAL_MIXTURE_COLUMNS): main_peak_mode, z_peak_density_nm,
+# z_peak_weight_nm, slab_foreign_fraction, delta_z_se_nm.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v6"
+TABLE_VERSION = "axon tables v7"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
@@ -169,6 +174,14 @@ DISCARD_SUFFIX = "_discard"
 # once, last: what the z axis of this file is in, never a correction of it.
 Z_CALIBRATION_COLUMNS: Tuple[str, ...] = _zcal.Z_CALIBRATION_COLUMNS
 
+# SCI-6, the axial mixture (written once, after the z calibration, so that
+# no earlier column moves): which reading of the main peak centred the slab
+# and both readings, the slab's expected foreign fraction F, and the SE of
+# the mean Delta-Z. The discard cannot change them.
+AXIAL_MIXTURE_COLUMNS: Tuple[str, ...] = (
+    "main_peak_mode", "z_peak_density_nm", "z_peak_weight_nm",
+    "slab_foreign_fraction", "delta_z_se_nm")
+
 # Columns of the axoplasm panel's row that the axon row already holds, and
 # that must not be written a second time under another name.
 _AXOPLASM_DROPPED: Tuple[str, ...] = (
@@ -232,7 +245,7 @@ def _unknown_columns(record: Dict[str, Any]) -> List[str]:
     A column added to AxonAnalysis.export_dict and to no list here would
     vanish from the axon table without a word; it is raised instead.
     """
-    placed = set(SHARED_COLUMNS) | set(MEASURED_COLUMNS) | {
+    placed = set(SHARED_COLUMNS) | set(MEASURED_COLUMNS) | set(AXIAL_MIXTURE_COLUMNS) | {
         "source", "roi", "cluster_set", "discard_margin_nm",
         "discard_registration", "n_clusters_discarded"}
     return sorted(set(record) - placed)
@@ -438,6 +451,10 @@ def axon_row(
             f"{', '.join(unplaced_z)}.")
     for name in Z_CALIBRATION_COLUMNS:
         row[name] = _rounded(name, zc.get(name))
+
+    # --- the axial mixture (SCI-6), after everything else ----------------
+    for name in AXIAL_MIXTURE_COLUMNS:
+        row[name] = _rounded(name, record.get(name))
     return row
 
 

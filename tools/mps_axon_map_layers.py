@@ -1063,25 +1063,65 @@ def axial_details(inp: AxialInputs) -> List[DetailRow]:
     rows: List[DetailRow] = []
     if zr is None:
         return [_row("Gaussian mixture", "- (not fitted)", inp.fit_reason)]
-    rows.append(_row("components chosen by BIC", str(int(zr.n_components)), "the number with the lowest BIC"))
+    candidates = tuple(int(k) for k in getattr(zr, "candidate_counts", ()) or ())
+    rows.append(_row("components chosen by BIC", str(int(zr.n_components)),
+                     "the number with the lowest BIC among the candidates "
+                     + (", ".join(str(k) for k in candidates) if candidates else "")
+                     + " (1 to 4 can be offered: BIC approximates the density, it does not count rings)",
+                     reg.info("axial.components").origin))
     for n_comp, bic in sorted((int(k), float(v)) for k, v in dict(zr.bic_by_n).items()):
         rows.append(_row(f"BIC with {n_comp} component{'s' if n_comp != 1 else ''}", f"{bic:,.1f}",
-                         "lower is better; only the differences between these rows matter"))
+                         "lower is better; only the differences between these rows matter"
+                         + ("" if not candidates or n_comp in candidates else "; reported only, not a candidate")))
     for i, (m, s, w) in enumerate(zip(zr.means_nm, zr.sigmas_nm, zr.weights), 1):
         rows.append(_row(f"component {i}", f"mean {float(m):,.1f} nm, sigma {float(s):,.1f} nm, weight {float(w):.2f}"))
     rows.append(_row("components left out (weight <= 5 %)", str(int(zr.n_discarded_components))))
-    rows.append(_row("density peak", f"{float(zr.main_peak_nm):,.1f} nm", "the automatic slab centre: the mode of "
-                     "the fitted mixture", reg.info("slab.centre").origin))
-    dz = zr.mean_delta_z_nm
-    if inp.z_magnification is None:
-        rows.append(_row("mean Delta-Z", "- (one component)" if dz is None else f"{dz:,.1f} nm"))
+    mode = str(getattr(zr, "main_peak_mode", "density"))
+    by_density = float(getattr(zr, "peak_by_density_nm", float("nan")))
+    by_weight = float(getattr(zr, "peak_by_weight_nm", float("nan")))
+    if np.isfinite(by_density):
+        rows.append(_row("density peak", f"{by_density:,.1f} nm",
+                         ("the automatic slab centre: " if mode == "density" else "")
+                         + "the mode of the fitted mixture", reg.info("slab.centre").origin))
     else:
-        rows.append(_row("mean Delta-Z", "- (one component)" if dz is None else f"{dz:,.1f} nm",
-                         f"per z calibration (m = {inp.z_magnification:g}): every axial length scales with m"))
+        rows.append(_row("density peak", f"{float(zr.main_peak_nm):,.1f} nm", "the automatic slab centre: the mode "
+                         "of the fitted mixture", reg.info("slab.centre").origin))
+    if np.isfinite(by_weight):
+        rows.append(_row("heaviest component's mean", f"{by_weight:,.1f} nm",
+                         ("the automatic slab centre: " if mode == "weight" else "the alternative reading: ")
+                         + "the centre of the ring with the most localizations; the two coincide when the rings "
+                         "are resolved", reg.info("slab.main_peak_mode").origin))
+    dz = zr.mean_delta_z_nm
+    scale = ("" if inp.z_magnification is None
+             else f"; per z calibration (m = {inp.z_magnification:g}): every axial length scales with m")
+    se = getattr(zr, "delta_z_se_nm", None)
+    rows.append(_row("mean Delta-Z", "- (one component)" if dz is None else f"{dz:,.1f} nm"
+                     + ("" if se is None else f" +/- {float(se):.1f} nm (SE)"),
+                     (f"{len(zr.delta_z_nm)} interval(s)" + scale) if dz is not None else scale.lstrip("; ")))
+    if dz is not None:
+        from tools.mps_periodicity import delta_z_summary
+        for d in delta_z_summary(zr.delta_z_nm).distances:
+            r = d.reference
+            value = (f"{d.difference_nm:+.1f} nm" if d.spread_units is None
+                     else f"{d.spread_units:+.2f} spreads ({d.difference_nm:+.1f} nm)")
+            rows.append(_row(f"  vs {r.label}", value,
+                             f"{r.period_nm:g}" + ("" if r.spread_nm is None else f" +/- {r.spread_nm:g}")
+                             + f" nm, {r.tissue}, {r.axis}"
+                             + (f"; +/- {r.spread_kind}" if r.spread_kind in ("SD", "SEM")
+                                else "; nature of the +/- not stated" if r.spread_kind == "unstated" else "")
+                             + "; a distance, not a verdict", reg.info("reference.delta_z_periods").origin))
+        rows.append(_row("half the ring period", f"{0.5 * dz:,.1f} nm",
+                         "the alternative slab half-width: half the mean Delta-Z"))
     a = inp.analysis
     if a is not None:
         half = float(a.slab_half_width_nm)
         rows.append(_row("MPS analysis slab", f"{a.slab_zmin_nm:,.1f} to {a.slab_zmax_nm:,.1f} nm", a.slab_source))
+        ff = getattr(a, "slab_foreign_fraction", None)
+        if ff is not None:
+            rows.append(_row("foreign fraction of the slab", f"{100.0 * float(ff):.1f} %",
+                             "the share of the slab's localizations the fitted mixture expects from other "
+                             "components; warned above " + reg.format_value("slab.foreign_fraction_warn"),
+                             reg.info("slab.foreign_fraction_warn").origin))
         rows.append(_row("slab half-width", f"{half:g} nm", reg.range_hint("slab.half_width_nm", half),
                          reg.badge("slab.half_width_nm", half)))
     if inp.cut is not None:
