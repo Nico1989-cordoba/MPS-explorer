@@ -15,8 +15,14 @@ a continuous spectrin ring:
    any of its points. [...] Points within a Mahalanobis distance of 3 sigma_max
    were considered to be 'occupied' by that cluster."
 
-Reference result: ~20 % of the perimeter occupied, essentially constant
-across axon calibres. The remaining ~80 % carries no betaII-spectrin.
+Reference result: ~20 % of the perimeter occupied. The paper states that
+occupancy is roughly constant across axon calibres, a conclusion drawn
+from the linear scaling of cluster number with perimeter; the preprint
+shows no plot or test of occupancy against calibre and its public review
+questions the claim. This program makes no claim about it: the exported
+rows carry occupancy, perimeter and the nesting fields, and
+``tools.mps_constancy`` examines the relation with animals as the unit of
+replication, on data with several animals (Lazic 2010).
 
 Why the constraint is what it is
 --------------------------------
@@ -35,10 +41,25 @@ cluster of eleven or more localizations passes through untouched, and
 the claimed half-width peaks at 271 nm for a 300 nm outlier exactly
 where the cap stops biting. The constraint keeps the headline ~20 % from
 being an artefact of the SPARSEST clusters; what it does not do is
-police a badly clustered large one. In unpublished pilot data, one
-cluster of thousands of localizations spanning several hundred nm claims
-a sizeable share of its axon's perimeter on its own -- a clustering
-problem, which no setting of this module fixes.
+police a badly clustered large one: a single cluster of thousands of
+localizations spanning several hundred nm claims a large stretch of
+perimeter on its own -- a clustering problem, which no setting of this
+module fixes.
+
+When the cap binds (derived here; the paper gives no derivation)
+-----------------------------------------------------------------
+For an isotropic Gaussian cluster of n localizations r^2 / sigma^2 is
+chi-square with 2 degrees of freedom, so the cap binds when the farthest
+localization lies within 3 sigma, with probability (1 - exp(-4.5))^n for
+the population sigma. On synthetic Gaussian clusters (this project's
+simulation) it binds in nearly every cluster below ~20 localizations and
+in about half at 100, and then reduces the claimed footprint by up to
+40 %; for uniform discs of more than about 15 localizations it returns
+approximately the true radius. Perimeter occupancy therefore depends on
+the number of localizations per cluster -- on labelling and acquisition
+length -- which must be stated when datasets are compared. The fraction
+is editable (documented range 0.2-1.0; at 1.0 the cap never binds for
+Gaussian clusters) and the number of capped ellipses is exported.
 
 @author: Nicolas (ngomez) + Claude
 """
@@ -121,7 +142,8 @@ def fit_constrained_gaussian(
     ----------
     points : (n, 2) localizations of one cluster, in nm.
     label : cluster label, carried through for reporting.
-    sigma_cap_fraction : 1/3 per the paper.
+    sigma_cap_fraction : 1/3 per the paper; editable, documented range
+        0.2-1.0.
     mode : how to apply the cap when the empirical sigma exceeds it.
         - "clip" (default): clamp each standard deviation to the cap
           individually. This is the literal reading of "whose maximum
@@ -130,12 +152,10 @@ def fit_constrained_gaussian(
         - "scale": divide both axes by the same factor, preserving the
           cluster's measured anisotropy (elongation and orientation).
 
-        The paper does not disambiguate, and the choice is not small:
-        measured on unpublished pilot axons, occupancy differs by several
-        percentage points, many times the measurement's own bootstrap
-        noise. It changes nothing else -- areas, r_eff, 1NN, perimeter and
-        cluster counts are bit-identical -- and it barely changes the
-        ranking of axons.
+        The paper does not disambiguate. The choice changes the
+        occupancy and nothing else -- areas, r_eff, 1NN, perimeter and
+        cluster counts are bit-identical -- and it is recorded in every
+        exported row.
 
         "clip" stays the default on evidence, not on wording alone. Both
         modes set the major axis to exactly the cap; they differ only in
@@ -147,14 +167,13 @@ def fit_constrained_gaussian(
         bind. "clip" is the constrained maximum-likelihood fit; "scale"
         is an ad-hoc shrink.
 
-        The two are nearly degenerate with ``mahalanobis_threshold``:
-        calibrated on pilot data so each mode's claimed arc matches the
-        arc its own localizations span, they land at slightly different
-        thresholds and then agree closely. So this is a
-        second knob on one degree of freedom, which is why it is a
-        keyword argument with a justified default and not a control --
-        the threshold is the one to turn, and it is persisted, exported
-        and documented.
+        Both the ellipse mode and the Mahalanobis threshold change the
+        size of each cluster's ellipse, so this is a second knob on one
+        degree of freedom: it stays a keyword argument with a justified
+        default, and the threshold is the one to turn (persisted,
+        exported and documented). For an isotropic Gaussian cluster the
+        T-sigma ellipse contains a fraction 1 - exp(-T^2 / 2) of the
+        molecules (98.9 % at T = 3).
 
     Returns
     -------

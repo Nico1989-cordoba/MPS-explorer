@@ -56,38 +56,45 @@ RULE_ENTRIES: Tuple[Tuple[str, Tuple[str, Optional[str]]], ...] = (
     ("v2 OR v2c (one is enough)", ("either", None)),
 )
 VARIANT_TEXT: Dict[str, str] = {"A": "v2c-A", "B": "v2c-B", "C": "v2c-C"}
-LEAK_SHORT: Dict[str, str] = {"D-39": "D-39 (per ring)", "tnfix": "tnfix (per cluster)", "max": "max of both"}
+LEAK_SHORT: Dict[str, str] = {"D-39": "ring level", "tnfix": "cluster level (upper bound)", "max": "max of both"}
 _LEVEL_KIND = {ms.BAD: "bad", ms.WARN: "warn", ms.INFO: "dim"}
 
 SELECTION_UI_TOOLTIPS: Dict[str, str] = {
     "selection_rule_combo":
         "Which rule chooses the ring pairs the column tests read.\n\n"
-        "v2 (localizations) is the PRE-SPECIFIED rule (D-41): SiZer on every localization's z'. v2c reads the same "
-        "four criteria on the CLUSTERS, one point per cluster (D-42), with three cluster sets: A ring-slab medians, "
+        "v2 (localizations) is the DECLARED DEFAULT, fixed before any column statistic was computed on real data, "
+        "after inspection of pilot z profiles: SiZer on every localization's z'. v2c reads the same "
+        "four criteria on the CLUSTERS, one point per cluster, with three cluster sets: A ring-slab medians, "
         "B slab-free 3D clusters, C ring slabs with the centre corrected for the slab cut. 'AND' needs a pair to "
         "pass both rules (the worse tier), 'OR' one of them (the better tier).\n\n"
-        "Anything but v2 with its four criteria and the D-39 leak is an EXPLORATORY selection: every result says so, "
-        "and every p computed under it is logged.",
+        "Anything but v2 with its four criteria and the ring-level leak is an EXPLORATORY selection: every result "
+        "says so, and every p computed under it is logged (switching criteria is a multiverse / specification-curve "
+        "reading, Steegen et al. 2016; the p values are not adjusted for the selections tried, which are counted).",
     "selection_variant_combo":
         "Which cluster set the v2c side of 'AND' / 'OR' reads: A ring-slab medians, B slab-free 3D clusters, C ring "
         "slabs with the centre corrected for the slab cut.",
     "selection_v2_peak":
-        "(1) Each ring of the pair has its own significant SiZer peak in the localization profile (D-41).\n\n"
+        "(1) Each ring of the pair has its own significant SiZer peak in the localization profile.\n\n"
         "Unchecked: the pair may be selected without it (exploratory); the table still says when it would fail.",
     "selection_v2_valley":
-        "(2) A significant SiZer valley separates the two rings in the localization profile (D-41).\n\n"
+        "(2) A significant SiZer valley separates the two rings in the localization profile.\n\n"
         "Unchecked: rings that blur into each other may be selected (exploratory).",
     "selection_v2_count":
-        "(3) Each ring holds at least f_min(x) of the central ring's localizations (D-41).\n\n"
+        "(3) Each ring holds at least f_min of the reference ring's localizations (calibrated on the axon, or a "
+        "simulation line until then).\n\n"
         "Unchecked: a thin edge ring may be compared with a full one (exploratory).",
     "selection_v2_leak":
-        "(4) The expected axial-leak copies <= 2 % (VIABLE) or <= 5 % (MARGINAL, sensitivity only).\n\n"
+        "(4) The expected axial-leak copies within the pair's own tolerance: the copy fraction that biases the "
+        "column excess by 0.25 null sd (VIABLE) or 0.5 (MARGINAL, sensitivity only); the fixed 2 % / 5 % only when "
+        "the pair's counts are unknown.\n\n"
         "Unchecked: there is no MARGINAL tier; a pair that meets the other checked criteria is VIABLE. Leak copies sit "
         "in register with their source cluster and inflate column matches: false columns.",
     "selection_v2_leak_combo":
-        "Which estimate of the leak copies criterion (4) reads (Q-39 is still open):\n"
-        "D-39 (per ring, rule v2's own; assumes flat rings and can under-estimate copies when they are not), "
-        "per cluster (tnfix; never under-estimated in simulation, over-estimates about 3x), or the larger of the two.",
+        "Which estimate of the leak copies criterion (4) reads (which one is THE criterion stays your choice until a "
+        "synthetic calibration settles it):\n"
+        "ring level (rule v2's own; assumes flat rings and can under-estimate copies when they are not), "
+        "cluster level (tnfix; never under-estimated in simulation, over-estimates about three-fold: an upper "
+        "bound), or the larger of the two (a conservative envelope).",
     "selection_v2c_peak":
         "(1c) A significant SiZer peak of the cluster points (one per cluster, iid) within P/3 of each ring centre.",
     "selection_v2c_valley":
@@ -95,14 +102,16 @@ SELECTION_UI_TOOLTIPS: Dict[str, str] = {
         "For A and C a valley in the slab gap never counts (the slab cut builds it), so for two similar rings A and C "
         "can never pass (2c): uncheck it to use them.",
     "selection_v2c_count":
-        "(3c) Each ring holds >= 89 % of the central ring's clusters (K / K central).",
+        "(3c) Each ring holds at least the recall tolerance (90 %) of the reference ring's clusters: under random "
+        "localization loss the count ratio is the cluster recall.",
     "selection_v2c_leak":
-        "(4c) The expected leak copies <= 2 % VIABLE, <= 5 % MARGINAL; unchecked: no MARGINAL tier.",
+        "(4c) The expected leak copies within the pair's own tolerance (VIABLE / MARGINAL); unchecked: no MARGINAL "
+        "tier.",
     "selection_v2c_leak_combo":
-        "Which estimate of the leak copies criterion (4c) reads: per cluster (tnfix, rule v2c's own), D-39 (per ring), "
-        "or the larger of the two (Q-39 open).",
+        "Which estimate of the leak copies criterion (4c) reads: cluster level (tnfix, rule v2c's own, an upper "
+        "bound), ring level, or the larger of the two.",
     "selection_reset_button":
-        "Back to the pre-specified rule: v2 (localizations) with its four criteria and the D-39 leak (D-41).",
+        "Back to the declared default: v2 (localizations) with its four criteria and the ring-level leak.",
     "selection_label":
         "The selection every window shows now, its label and short hash (the hash also covers the thresholds). "
         "Every output written under an exploratory selection carries both.",
@@ -221,7 +230,7 @@ def exploratory_banner(spec: ms.SelectionSpec) -> str:
     """The first line of a result under an exploratory selection ("" under the pre-specified rule)."""
     if spec.is_default:
         return ""
-    return (f"EXPLORATORY SELECTION {spec.label} #{spec.hash}: not the pre-specified rule "
+    return (f"EXPLORATORY SELECTION {spec.label} #{spec.hash}: not the declared default "
             f"{ms.DEFAULT_SELECTION.label}; "
             "p values are not corrected for trying several selections")
 
@@ -241,7 +250,7 @@ def _esc(text: str) -> str:
 def label_html(spec: ms.SelectionSpec, summary: str = "") -> str:
     """The widget's label line: the selection (with an EXPLORATORY badge) and what it selects here."""
     if spec.is_default:
-        head = f"<b>Selection:</b> pre-specified rule <tt>{_esc(spec.label)}</tt> (D-41)"
+        head = f"<b>Selection:</b> declared default <tt>{_esc(spec.label)}</tt>"
     else:
         head = (f'<span style="color:{verdict("bad", dark=False)}; font-weight:bold">EXPLORATORY</span> '
                 f"<b>selection</b> <tt>{_esc(spec.label)}</tt> #{spec.hash}")
@@ -416,7 +425,7 @@ class SelectionWidget(QtWidgets.QWidget):
         for row in (self.v2_row, self.v2c_row):
             row.edited.connect(self._on_edit)
             top.addWidget(row)
-        self.reset_button = QtWidgets.QPushButton("Reset to the pre-specified rule")
+        self.reset_button = QtWidgets.QPushButton("Reset to the declared default")
         self.reset_button.setObjectName("selection_reset_button")
         self.reset_button.clicked.connect(self._on_reset)
         top.addWidget(self.reset_button)

@@ -705,10 +705,30 @@ def shared_occupancy(
             min_separation = float(np.min(d[:, 1]))
         else:
             min_separation = 0.0
+        # The guard of the single-channel control (SCI-3): coincident
+        # centres would switch the hard core off. The smallest non-zero
+        # separation stands in, with a warning; with every separation zero
+        # no null is built.
+        no_null = False
+        if len(centres_b) >= 2 and min_separation <= 0:
+            nonzero = d[:, 1][d[:, 1] > 0]
+            if nonzero.size:
+                min_separation = float(nonzero.min())
+                warnings_.append(
+                    f"Two channel-B cluster centres coincide (0 nm apart), which would disable the minimum "
+                    f"separation of the null; the smallest non-zero separation ({min_separation:.1f} nm) is "
+                    f"used instead.")
+            else:
+                no_null = True
+                warnings_.append(
+                    "Every channel-B cluster centre coincides with another (0 nm apart): a hard-core null has "
+                    "no coincident points, so no null was built. Check the clustering of channel B.")
         candidates = build_annulus_candidates(
             smooth_contour_bspline(analysis_a.perimeter.contour),
             annulus_half_width_nm, grid_spacing_nm)
-        if len(candidates) < len(ellipses_b):
+        if no_null:
+            pass
+        elif len(candidates) < len(ellipses_b):
             warnings_.append(
                 "The annulus around channel A's contour holds fewer "
                 "positions than channel B has clusters, so no null could be "

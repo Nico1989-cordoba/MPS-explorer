@@ -48,7 +48,8 @@ WORK = tempfile.mkdtemp(prefix="test_zquality_v2c_gui_")
 PAIRS_CSV_COLUMNS = ["axon_id", "source", "roi", "p_ref_nm", "computed_at", "program", "rule", "variant",
                      "variant_label", "ring_a", "ring_b", "h_over_p", "peak_a", "peak_b", "valley", "valley_at_cut",
                      "k_a", "k_b", "k_ratio_a", "k_ratio_b", "k_min", "count_ok", "exp_spur_frac_clusters",
-                     "exp_spur_frac_d39", "n_points", "n_outside", "verdict", "reasons"]
+                     "exp_spur_frac_d39", "exp_spur_frac_own", "spur_viable", "n_points", "n_outside", "verdict",
+                     "reasons"]   # SCI-5: the own-width estimate and the pair's tolerance beside tnfix
 
 
 def check(name: str, fn: Callable[[], Optional[str]]) -> None:
@@ -130,7 +131,9 @@ def main() -> int:
             assert w.v2c_panel.isVisible() and w.v2c_table.isVisible() and w.v2c_title.isVisible()
             res, _p, _l, _w = build_review_rings(inp)
             xyz = (inp.x_nm, inp.y_nm, inp.z_nm)
-            v2 = viability_v2(res, z_quality(res), xyz_lab_nm=xyz)
+            from tools.mps_axial_precision import file_precision_nm     # SCI-5: the groups' z scale of the file
+            v2 = viability_v2(res, z_quality(res), xyz_lab_nm=xyz,
+                              precision_nm=file_precision_nm(inp.lp_lateral_nm, inp.lpz_nm))
             direct = mac.viability_v2c(res, v2, xyz_lab_nm=xyz)
             n_pairs = len(rep.v2.pairs)
             assert w.v2c_table.rowCount() == 3 * n_pairs == len(rep.v2c.pairs)
@@ -152,8 +155,8 @@ def main() -> int:
             assert [r[1][0] for r in texts] == ["A", "B", "C"] * n_pairs
             assert not w.missing_tooltips, w.missing_tooltips
             tip = w.v2c_table.toolTip()
-            assert "EXPLORATORY" in tip and "Q-38" in tip and "never" in tip.lower()
-            assert "never selects pairs" in w.v2c_title.text()
+            assert "EXPLORATORY" in tip and "Q-38" not in tip and "selects nothing" in tip   # SCI-5: plain words
+            assert "selects no pair" in w.v2c_title.text()
             summary = w.summary_view.toPlainText()
             base = "\n".join(zw.plain_summary(rep))
             assert summary.startswith(base + "\n"), "rule v2's summary text is no longer first and whole"

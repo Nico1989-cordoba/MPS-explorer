@@ -1029,7 +1029,8 @@ def main() -> int:
                 nb = [it for it in nn.items_of("nn_bars") if isinstance(it, pg.BarGraphItem)][0]
                 assert same(nb.opts["height"], ob.opts["height"]) and same(nb.opts["x"], ob.opts["x"]), name
                 old_c = {it.opts["name"]: xy(it) for it in rc.getPlotItem().items if isinstance(it, pg.PlotDataItem)}
-                new_c = {it.opts["name"]: xy(it) for it in nn.plot_cdf.getPlotItem().items
+                # (SCI-3: the null band's two curves carry no name)
+                new_c = {it.opts.get("name"): xy(it) for it in nn.plot_cdf.getPlotItem().items
                          if isinstance(it, pg.PlotDataItem)}
                 for nm_ in ("observed", "randomized"):
                     key = [k for k in new_c if k and nm_ in k.lower()]
@@ -1160,14 +1161,16 @@ def main() -> int:
             ref = [x for x in nl if x.key == "nn_reference"][0]
             assert lines == med.data["positions"] + ref.data["positions"], (name, lines)
             cdf_items = plot_cdf.getPlotItem().items
-            curves = {it.opts["name"]: xy(it) for it in cdf_items if isinstance(it, pg.PlotDataItem)}
+            curves = {it.opts.get("name"): xy(it) for it in cdf_items if isinstance(it, pg.PlotDataItem)}
             cl = {x.key: x for x in L.cdf_layers(a)}
             for key, nm in (("cdf_observed", "observed"), ("cdf_randomized", "randomized")):
                 assert same(cl[key].data["x"], curves[nm][0]) and same(cl[key].data["y"], curves[nm][1]), (name, key)
             cross = [float(it.value()) for it in cdf_items if isinstance(it, pg.InfiniteLine)]
             if "cdf_crossing" in cl:
                 assert cross == [cl["cdf_crossing"].data["y"]], name
-                assert L.style_of("cdf_crossing").role == "neutral" and "(heuristic)" in cl["cdf_crossing"].label
+                # SCI-3: the line is where the band-exceeding excess of short distances ends (no longer the
+                # heuristic crossing); neutral, never the paper colour
+                assert L.style_of("cdf_crossing").role == "neutral" and "excess up to F" in cl["cdf_crossing"].label
         w.radio_measured.setChecked(True)
         return "bars, median and reference value equal Rn; the two CDFs and the crossing equal Rc, for each radio"
 

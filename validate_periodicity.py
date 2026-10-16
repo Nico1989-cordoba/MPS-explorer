@@ -2,9 +2,20 @@
 """
 Validation harness for tools/mps_periodicity.py against real axon data.
 
-Checks parameter 7 (axial periodicity Delta-Z) against the paper's
-reported 170 +/- 15 nm, and reports the automatically selected 180 nm
-slab that replaces the manual zmin/zmax fields.
+A consistency check of parameter 7 (axial periodicity Delta-Z) on the five
+example regions shipped with the repository, not a calibration: each
+region's mean Delta-Z is printed with its own standard error and its signed
+distance, in spread units, from every published period of the reference
+table (``tools.mps_periodicity.REFERENCE_PERIODS``; Gazal et al. 2026, 170
++/- 15 nm along z in mouse sciatic nerve, the nature of the +/- not
+stated). A spread of pooled spacings is not a tolerance -- about a third of
+healthy spacings lie outside one SD -- so no WITHIN / OUTSIDE label is
+attached. It also reports the automatically selected 180 nm slab that
+replaces the manual zmin/zmax fields.
+
+z does not depend on the pixel size in Picasso files (z is in nm), so the
+pixel size affects nothing here; it is read from the file's metadata and
+the assumption is printed when there is none.
 
 Run:  python validate_periodicity.py
 """
@@ -19,14 +30,15 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from tools.mps_io import read_pixel_size  # noqa: E402
 from tools.mps_periodicity import (  # noqa: E402
+    delta_z_summary,
     fit_z_periodicity,
     select_mps_slab,
     slab_bounds,
 )
 
-PXSIZE_NM = 133.0  # confirmed by the user for this example data
-PAPER_DELTA_Z = (170.0, 15.0)
+PXSIZE_NM = 133.0  # assumed for this example data when the file carries none
 
 EXAMPLE_DIR = "example data"
 SPECTRIN_FILES = [
@@ -47,8 +59,15 @@ def run_one(filename: str) -> list:
     path = os.path.join(EXAMPLE_DIR, filename)
     z = load_z(path)
     res = fit_z_periodicity(z)
+    try:
+        px = read_pixel_size(path)
+    except Exception:  # noqa: BLE001 - a missing sidecar is the case printed
+        px = None
 
     print(f"\n{'=' * 78}\n{filename}\n{'=' * 78}")
+    print(f"  pixel size           : "
+          + (f"{px:g} nm (from the file's metadata)" if px else f"assumed {PXSIZE_NM:g} nm (no metadata)")
+          + "; z is in nm and does not depend on it")
     print(f"  localizations        : {len(z):,}")
     print(f"  Z range              : {z.min():8.1f} .. {z.max():8.1f} nm "
           f"({z.max() - z.min():.0f} nm span)")
@@ -66,11 +85,11 @@ def run_one(filename: str) -> list:
     if res.delta_z_nm.size:
         print(f"  Delta-Z              : "
               + ", ".join(f"{d:.1f}" for d in res.delta_z_nm) + " nm")
-        mean_dz = res.mean_delta_z_nm
-        lo, hi = PAPER_DELTA_Z[0] - PAPER_DELTA_Z[1], PAPER_DELTA_Z[0] + PAPER_DELTA_Z[1]
-        verdict = "WITHIN" if lo <= mean_dz <= hi else "OUTSIDE"
-        print(f"  mean Delta-Z         : {mean_dz:.1f} nm   "
-              f"[{verdict} paper's 170 +/- 15 nm]")
+        summary = delta_z_summary(res.delta_z_nm)
+        se = "" if summary.se_nm is None else f" +/- {summary.se_nm:.1f} nm (SE)"
+        print(f"  mean Delta-Z         : {summary.mean_nm:.1f} nm{se}")
+        for line in summary.lines():
+            print(f"      {line}")
     else:
         print(f"  Delta-Z              : (none - single dominant component)")
 
@@ -104,4 +123,8 @@ if __name__ == "__main__":
         print(f"  median   : {np.median(a):.1f} nm")
         print(f"  std      : {a.std(ddof=1) if a.size > 1 else 0:.1f} nm")
         print(f"  range    : {a.min():.1f} .. {a.max():.1f} nm")
-        print(f"  paper    : 170 +/- 15 nm")
+        pooled = delta_z_summary(a)
+        print(f"  SE       : {pooled.se_nm:.1f} nm" if pooled.se_nm is not None else "  SE       : -")
+        for line in pooled.lines():
+            print(f"  {line}")
+        print("  (a consistency check on the shipped example regions, not a calibration)")
