@@ -186,7 +186,7 @@ def main() -> int:
         assert w.axon_map.lbl_line2.text().endswith("z as fitted, no z correction applied")
         assert w.axial.title().endswith("z as fitted; no z correction applied"), w.axial.title()
         row = export_row()
-        assert row["table_version"] == "axon tables v6"
+        assert row["table_version"] == "axon tables v9"   # v6: SCI-3; v7: SCI-6; v8: P-R58; v9: P-R59
         assert row["z_magnification_origin"] == "blank"
         for name in ("z_calibration_source", "z_calibration_file", "z_magnification", "z_calibrated_range_nm",
                      "z_bead_stack_file", "z_zero_nm"):

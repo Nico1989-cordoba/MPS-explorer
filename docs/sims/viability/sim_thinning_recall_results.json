@@ -1,0 +1,42 @@
+{
+ "eps": 25.0,
+ "min_samples": 10,
+ "K": 60,
+ "results": [
+  {
+   "mean_locs_per_cluster": 40,
+   "x": 4.0,
+   "f90_true_mean": 0.7870247619047619,
+   "f90_true_sd": 0.05574306358117546,
+   "f90_insilico_mean": 0.7967595238095239,
+   "f90_insilico_sd": 0.06339664093335433,
+   "reps": 25,
+   "f_min_formula_of_code": 0.9942050946637166,
+   "recall_at_f_0p7_mean": 0.832838098355206
+  },
+  {
+   "mean_locs_per_cluster": 80,
+   "x": 8.0,
+   "f90_true_mean": 0.5301951515151515,
+   "f90_true_sd": 0.061999055699435195,
+   "f90_insilico_mean": 0.5464347619047619,
+   "f90_insilico_sd": 0.07147677826603908,
+   "reps": 25,
+   "f_min_formula_of_code": 0.7613076419955751,
+   "recall_at_f_0p7_mean": 0.9591074061541933
+  },
+  {
+   "mean_locs_per_cluster": 160,
+   "x": 16.0,
+   "f90_true_mean": 0.33730952380952384,
+   "f90_true_sd": 0.030702572517358778,
+   "f90_insilico_mean": 0.3372878787878788,
+   "f90_insilico_sd": 0.03592150340362283,
+   "reps": 25,
+   "f_min_formula_of_code": 0.5284101893274334,
+   "recall_at_f_0p7_mean": 0.9996780249336585
+  }
+ ],
+ "seconds": 31.756963999992877,
+ "note": "generic generator (lognormal sizes cv 0.7, sd_xy 20 nm, spacing 200 nm); not the project's simulator"
+}

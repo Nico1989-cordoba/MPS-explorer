@@ -1,14 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 Axial-leak diagnostics of the column analysis, the axial profile of the
-columns and the guard sensitivity: milestone H4, module A, of
-the research plan 03_plan.md (S3.1 ``AxialProfileFit``,
-``LeakDiagnostics``; S3.2 ``leak_diagnostics``, ``axial_profile_test``;
-S3.4 the diagnostics as validity checks without correction) on the rings
-of ``tools.mps_columns.build_rings`` and the matches of
-``tools.mps_matching.analyze_columns`` (DECISIONES D-10 the five
-diagnostics, D-17 link radius, D-19 lpz, D-22 the seed, D-27 this
-module's conventions).
+columns and the guard sensitivity (the validity checks of the column
+test, without correction) on the rings of
+``tools.mps_columns.build_rings`` and the matches of
+``tools.mps_matching.analyze_columns``.
 
 Why this exists
 ---------------
@@ -16,19 +12,27 @@ Every ring boundary is a cut in z' and every cut leaks: a localization
 of ring k measured with axial error beyond its distance to the boundary
 lands in ring k +- 1, where DBSCAN can promote the leaked localizations
 of one cluster to a cluster of their own -- a spurious CHILD sitting at
-the parent's x', y', matched to it within tau_0 and counted as a column
-(01_formalizacion E6 (a)). With P / 2 = 85 nm and sigma_z = 77 nm the
-tail beyond a boundary is 1 - Phi(85 / 77) = 13.5 % of a cluster: 27 of
-200 localizations, enough for min_samples = 10. The module puts the
-five pre-specified diagnostics (01 S1.6 point 4) on every matched pair
-and every ring pair, adds the principled per-pair form of (ii) (D-27:
-the tail-versus-centred likelihood ratio of the child's z'), fits the
-axial profile of every column (the mixture at the period against one
-Gaussian, with a parametric bootstrap and the two sample-size bounds),
-and rebuilds the rings at the guards of ``LeakParams.guards_nm`` so the
-excess can be read against the dead zone alone. Nothing is corrected:
-``leak_explained`` marks pairs, ``zeta_clean`` says what the excess is
-without them, and the rules dict reports each diagnostic's verdict.
+the parent's x', y', matched to it within tau_0 and counted as a column.
+With a ring width s and the boundary at P / 2 from the ring centre, the
+tail beyond the boundary is 1 - Phi(P / (2 s)) of a cluster: 7.8 % at
+P = 170 nm and s = 60 nm, enough for a 200-localization cluster to reach
+min_samples = 10. The module puts the diagnostics on every matched pair
+and every ring pair, adds the per-pair tail-versus-centred likelihood
+ratio of the child's z', fits the axial profile of every column (the
+mixture at the period against one Gaussian, with a parametric bootstrap
+and the two sample-size bounds), and rebuilds the rings at the guards of
+the sensitivity grid (in units of the effective axial width s_eff) so
+the excess can be read against the dead zone alone. Nothing is
+corrected: ``leak_explained`` marks pairs, ``match_clean`` says what the
+excess is without them (``zeta_clean`` is only a lower bound), and the
+rules dict keeps the diagnostics that have a valid reading: (ii) per
+pair with a Bonferroni level, and (v) as a permutation p
+(``size_ratio_p``). The pre-registered rules (i), (iii) and (iv) are not
+evaluated: (i) rejects whenever any matched pair shares an event, under
+leak and under genuine columns alike; (iii)'s positive excess at a
+guard narrower than g* is as likely under leak as under columns; (iv)
+needs a simulated-leak reference that does not exist. Their descriptive
+fields stay.
 
 What is here
 ------------
@@ -60,6 +64,8 @@ from numpy.typing import NDArray
 from scipy.stats import binom, norm, rankdata, spearmanr
 
 from tools.mps_axial_precision import (
+    axon_period_nm,
+    guard_star_nm,
     leak_fraction,
     spurious_cluster_probability,
     structural_width_nm,
@@ -106,6 +112,11 @@ __all__ = [
     "pair_leak",
     "ring_pair_leak",
     "shared_events",
+    "axon_s_eff_nm",
+    "guard_grid_nm",
+    "size_ratio_permutation",
+    "BOUNDARY_BANDS",
+    "GUARDS_SEFF",
 ]
 
 # Spawn keys of the seed sequences of this module, distinct from every
@@ -120,6 +131,11 @@ __all__ = [
 SHARED_SPAWN_KEY = int.from_bytes(b"shar", "big")
 LPZ_SPAWN_KEY = int.from_bytes(b"lpzp", "big")
 PROFILE_SPAWN_KEY = int.from_bytes(b"prof", "big")
+SIZE_SPAWN_KEY = int.from_bytes(b"size", "big")
+# The guard sensitivity grid in units of the axon's effective axial width s_eff (total width of the dead zone).
+GUARDS_SEFF: Tuple[float, ...] = (0.0, 0.5, 1.0, 1.5)
+# The band widths of the descriptive boundary diagnostic shown side by side (in sigma_z of the child ring).
+BOUNDARY_BANDS: Tuple[float, ...] = (0.5, 1.0, 2.0)
 
 # Floor of a truncated-normal mass before its log (the specification's
 # guard against -inf): 1e-300 is above the smallest normal double and
@@ -130,7 +146,7 @@ _MASS_FLOOR = 1e-300
 _MIN_SIGMA_NM = 1e-3
 # Quadrature of the Fisher information in pi (``_fisher_information_pi``):
 # 40 001 trapezoid points over the mixture's +-8 sigma range put the
-# spacing at ~0.04 nm for sigma = 77 nm, where the trapezoid error on a
+# spacing at ~0.04 nm for sigma ~ 80 nm, where the trapezoid error on a
 # smooth integrand is far below the 1e-3 relative the harness compares
 # against its own 400 001-point rule.
 _INFO_POINTS = 40001
@@ -180,36 +196,57 @@ class LeakParams:
     ``guards_nm`` are the ``RingsParams.guard_nm`` values the guard
     sensitivity rebuilds the rings with (the TOTAL width of a dead zone
     centred on each boundary, half per side; ``tools.mps_multisegment``);
-    rule (iii) reads the entry at ``guard_rule_nm``. ``shared_threshold``
-    marks a child whose shared-event fraction reaches it as
-    ``shared_high`` (informative; H5 calibrates). ``n_null_shared`` is
-    the number of replicates of the reassignment null of (i) and of the
-    permutation p of (ii). ``boundary_band_sigma`` is the pre-specified
-    band of (ii): within that many sigma_z of the boundary.
-    ``lpz_scale`` multiplies every lpz before the leak fraction (D-19:
-    the reported axial precision can be optimistic away from focus;
-    the calibration is H5's, the factor is recorded).
+    None (the default) builds them from ``guards_seff`` x the axon's
+    effective axial width s_eff (median over the rings of sqrt(sigma_struct^2
+    + median lpz^2)) plus the derived guard g* = 2 (1.91 s_eff - P/2), the
+    width beyond which the residual leak of a 200-localization cluster no
+    longer makes a copy with 5 % probability. The grid is a sensitivity
+    table, not a criterion. ``shared_threshold``: the user's highlight
+    level of the shared-event fraction (None, the default: no highlight;
+    the fraction is always reported; no level is derivable, it depends on
+    the linking radius and dark time, Annibale et al. 2011).
+    ``n_null_shared`` is the number of replicates of the reassignment null
+    and of the permutation p of (ii). ``boundary_band_sigma`` is the band
+    of the descriptive boundary diagnostic (a convention; the fractions at
+    0.5, 1 and 2 sigma_z are reported side by side, the likelihood ratio
+    being the decision statistic). ``lpz_scale`` multiplies every lpz
+    before the leak fraction: a sensitivity knob (0.5-3) once the
+    calibrated lpz enters, which applies the axial NeNA ratio once.
     ``size_alpha``: ``p_size_leak >= size_alpha`` says the child's size
-    is consistent with pure leak. ``profile_n_bootstrap`` replicates of
-    the parametric bootstrap of the axial profile; a column enters rule
-    (iv) when every cluster has ``profile_min_locs_per_cluster``
-    localizations; ``profile_alpha`` its level. ``n_min_z`` is the z of
-    the pre-specified n_min (two-sided 5 %) and ``n_min_power`` the
-    target power of the Fisher-information sample size.
+    is consistent with pure leak (a smaller alpha attributes more children
+    to leak: the conservative direction for the column hypothesis; Cowles
+    & Davis 1982). ``log_prior_odds``: the cut of the tail likelihood
+    ratio, log(pi_leak / pi_column) (0: equal odds, the Bayes decision;
+    Neyman & Pearson 1933). ``rule_ii_alpha``: the level of (ii), divided
+    by the number of defined pairs (Bonferroni, Dunn 1961).
+    ``size_ratio_n_perm``: the within-ring permutation replicates of the
+    size-ratio diagnostic (v). ``profile_n_bootstrap`` replicates of the
+    parametric bootstrap of the axial profile (exact at any B, Hope 1968;
+    p grid 1 / (B + 1)); a column profile is eligible when its events
+    reach n_80(``profile_pi_min``), the Wald sample size for 80 % power
+    to detect a period-offset component of that weight (an information
+    bound with the nuisance parameters known); the localization count
+    ``profile_min_locs_per_cluster`` is only a displayed suggestion;
+    ``profile_alpha`` its level. ``n_min_z`` is the z of the two-sided
+    5 % level and ``n_min_power`` the target power (Cohen 1992).
 
     The random seed is NOT a field: it is ``AxonColumnsResult.random_seed``
     (``ColumnsParams.random_seed``, D-22).
     """
 
-    guards_nm: Tuple[float, ...] = (0.0, 30.0, 60.0, 90.0)
-    guard_rule_nm: float = 60.0
-    shared_threshold: float = 0.25
+    guards_nm: Optional[Tuple[float, ...]] = None
+    guards_seff: Tuple[float, ...] = GUARDS_SEFF
+    shared_threshold: Optional[float] = None
     n_null_shared: int = 1999
     boundary_band_sigma: float = 1.0
     lpz_scale: float = 1.0
     size_alpha: float = 0.01
+    log_prior_odds: float = 0.0
+    rule_ii_alpha: float = 0.05
+    size_ratio_n_perm: int = 999
     profile_n_bootstrap: int = 199
     profile_min_locs_per_cluster: int = 100
+    profile_pi_min: float = 0.15
     profile_alpha: float = 0.05
     n_min_z: float = 1.959964
     n_min_power: float = 0.8
@@ -217,23 +254,31 @@ class LeakParams:
     def __post_init__(self) -> None:
         """Ranges: guards >= 0 and strictly increasing, fractions in
         [0, 1] (the power strictly inside), counts >= 1, scales > 0."""
-        guards = tuple(float(g) for g in self.guards_nm)
-        if not guards:
-            raise ValueError("guards_nm must hold at least one guard")
-        if any(not math.isfinite(g) or g < 0.0 for g in guards):
-            raise ValueError(f"guards_nm must be finite and >= 0, got {self.guards_nm!r}")
-        if any(b <= a for a, b in zip(guards[:-1], guards[1:])):
-            raise ValueError(f"guards_nm must be strictly increasing, got {self.guards_nm!r}")
-        self.guards_nm = guards
-        if not (math.isfinite(self.guard_rule_nm) and self.guard_rule_nm >= 0.0):
-            raise ValueError(f"guard_rule_nm must be >= 0, got {self.guard_rule_nm!r}")
-        for name in ("shared_threshold", "size_alpha", "profile_alpha"):
+        for name in ("guards_nm", "guards_seff"):
+            raw = getattr(self, name)
+            if raw is None and name == "guards_nm":
+                continue
+            guards = tuple(float(g) for g in raw)
+            if not guards:
+                raise ValueError(f"{name} must hold at least one guard")
+            if any(not math.isfinite(g) or g < 0.0 for g in guards):
+                raise ValueError(f"{name} must be finite and >= 0, got {raw!r}")
+            if any(b <= a for a, b in zip(guards[:-1], guards[1:])):
+                raise ValueError(f"{name} must be strictly increasing, got {raw!r}")
+            setattr(self, name, guards)
+        if self.shared_threshold is not None and not (0.0 <= float(self.shared_threshold) <= 1.0):
+            raise ValueError(f"shared_threshold must lie in [0, 1] or be None, got {self.shared_threshold!r}")
+        for name in ("size_alpha", "profile_alpha", "rule_ii_alpha"):
             value = float(getattr(self, name))
             if not (0.0 <= value <= 1.0):
                 raise ValueError(f"{name} must lie in [0, 1], got {value!r}")
+        if not (0.0 < float(self.profile_pi_min) < 1.0):
+            raise ValueError(f"profile_pi_min must lie in (0, 1), got {self.profile_pi_min!r}")
+        if not math.isfinite(float(self.log_prior_odds)):
+            raise ValueError(f"log_prior_odds must be finite, got {self.log_prior_odds!r}")
         if not (0.0 < float(self.n_min_power) < 1.0):
             raise ValueError(f"n_min_power must lie in (0, 1), got {self.n_min_power!r}")
-        for name in ("n_null_shared", "profile_n_bootstrap"):
+        for name in ("n_null_shared", "profile_n_bootstrap", "size_ratio_n_perm"):
             if int(getattr(self, name)) < 1:
                 raise ValueError(f"{name} must be >= 1, got {getattr(self, name)!r}")
         if int(self.profile_min_locs_per_cluster) < 0:
@@ -261,7 +306,9 @@ class PairLeak:
     localizations within ``boundary_band_sigma`` x sigma_z of the child
     ring of that boundary; ``boundary_fraction_expected`` the same for
     N(centre, sigma_z) of the child ring truncated to the window and
-    ``z_asymmetry`` their difference (> 0: loaded toward the boundary).
+    ``z_asymmetry`` their difference (> 0: loaded toward the boundary);
+    ``boundary_fractions`` the same pair (observed, expected) at every band of
+    ``BOUNDARY_BANDS`` (0.5, 1 and 2 sigma_z), descriptive.
     ``llr_tail_child`` is the principled form (D-27): the log-likelihood
     ratio, summed over the child's localizations, of the TAIL model (the
     parent's Gaussian, per-localization width, truncated to the child's
@@ -327,29 +374,20 @@ class PairLeak:
     The two-parent fields are filled by ``analyze_leak`` (which sees both
     pairs), not by ``pair_leak``; the same values are written into the
     child's ``PairLeak`` of both pairs. What the model can separate: the
-    mixture of two tails and the centred Gaussian differ by ~0.15 nats
-    per localization (sd 0.55) at P = 170, sigma_z = 77, so the sign
-    of llr is right in ~89 % of children of 20 localizations and ~98 %
-    at 60 (validate_simulate_axon section 6); a bilateral child that
-    is also a real cluster's absorbed leak is still not that model.
+    mixture of two tails and the centred Gaussian differ by a fraction of
+    a nat per localization when the ring width is a large fraction of the
+    period, so the sign of llr becomes reliable only for children of a
+    few tens of localizations (validate_simulate_axon section 6); a
+    bilateral child that is also a real cluster's absorbed leak is still
+    not that model.
 
-    What the detection figure means (re-review of 2026-09-24): the
-    >= 95 % of 03 S3.6 is met on the HARNESS regime -- flat clusters of
-    ~200 localizations, lpz 77 nm honest, no depth factor -- and on its
-    unilateral population (113 of 116 in ``validate_leak.py``, 68 of 70
-    on fresh seeds); counting the bilateral children the overall
-    detection is 86-87 %. On a realistic
-    generator (cluster sizes as dispersed as a real ring's, a range of
-    reported lpz, depth factors on the true axial sd as in D-19) the
-    same rule flags well under the harness figure of the matched
-    children, more with a larger ``lpz_scale`` and more of the
-    unilateral ones, with few true pairs flagged:
-    the misses are children of purity 0.5-0.79 (bilateral, or merged
-    with a real cluster: llr -19 to +54 but p_size 0) and a few pure
-    children whose size exceeds Bin(n0, F) at the reported lpz. The
-    acceptance is therefore regime-specific, not a property of the
-    diagnostic: on data the size rule is limited by the lpz calibration
-    (H5) and by the single-parent model, and the report says so.
+    What a detection rate means: the rates at which ``leak_explained``
+    flags synthetic copies and spares synthetic true partners belong to
+    the simulated regime (cluster sizes, the honesty of the reported lpz,
+    depth factors) and to the axial precision calibration, not to the
+    rule; they are reported as harness figures labelled "synthetic", and
+    on data the size rule is limited by the lpz calibration and by the
+    single-parent model.
     """
 
     ring_a: int
@@ -392,6 +430,7 @@ class PairLeak:
     p_size_leak_two_parents: float = float("nan")
     weight_below_two_parents: float = float("nan")
     leak_explained_any: bool = False
+    boundary_fractions: Dict[float, Tuple[float, float]] = field(default_factory=dict)
 
 
 @dataclass
@@ -472,6 +511,9 @@ class RingPairLeak:
     warnings: List[str] = field(default_factory=list)
     n_leak_explained_any: int = 0
     fraction_leak_explained_any: float = float("nan")
+    # (v) the median matched size ratio against its within-ring permutation null (filled by analyze_leak)
+    size_ratio_null_median: float = float("nan")
+    size_ratio_p: float = float("nan")
 
 
 @dataclass
@@ -487,11 +529,11 @@ class AxialProfileFit:
     parametric bootstrap under the one-Gaussian fit, ``pi_hat`` = 1 -
     max(weights): the mass outside the dominant component.
 
-    ``n_min_events`` is the PRE-SPECIFIED form (03 S3.2): z^2 / (pi_hat^2
-    (exp((period / sigma)^2) - 1)), the Cramer-Rao bound at pi -> 0 with
-    mu, sigma and the period known -- a lower bound the fitted mixture
-    (three free parameters more) cannot reach, and NOT the sample size
-    of the bootstrap test. ``n_min_80_events`` is the Fisher-information
+    ``n_min_events`` is the pre-registered closed form, an INFORMATION
+    LOWER BOUND, not a sample size: z^2 / (pi_hat^2 (exp((period /
+    sigma)^2) - 1)), the Cramer-Rao bound at pi -> 0 with mu, sigma and
+    the period known -- a bound the fitted mixture (three free parameters
+    more) cannot reach. ``n_min_80_events`` is the Fisher-information
     sample size for power ``n_min_power`` of a Wald test of pi = 0 at
     two-sided 5 % with the numerical information I(pi) (mu, sigma
     known; ``_fisher_information_pi``). Both are inf when pi_hat = 0.
@@ -526,6 +568,11 @@ class AxialProfileFit:
     warnings: List[str] = field(default_factory=list)
     n_min_z: float = 1.959964
     n_min_power: float = 0.8
+    # eligibility in events: n_events >= n_80(pi_min), the Wald size for 80 % power at the smallest weight of
+    # interest (an information bound: the nuisance parameters treated as known)
+    pi_min: float = 0.15
+    n_80_pi_min: float = float("nan")
+    eligible: bool = False
 
 
 @dataclass
@@ -549,56 +596,33 @@ class GuardRun:
 @dataclass
 class LeakDiagnostics:
     """
-    Everything H4-A says about one axon. ``pairs`` holds one
-    ``RingPairLeak`` per adjacent ``RingPairMatch`` of the columns
-    result, ``k2`` the (k, k+2) matches of H3 (the persistence control,
-    02 P7; referenced, not recomputed), ``guard`` the guard runs by
-    guard (empty without the rebuild or its inputs, with a warning),
-    ``profiles`` one ``AxialProfileFit`` per column of length >= 2 in
-    ``cols.columns`` order. ``rules`` holds the verdict of each
-    pre-specified diagnostic: "i_shared" (every p_shared > 0.05; None
-    without events), "ii_lpz" (every pair has rho <= 0 or p > 0.05; None
-    without lpz OR when rho is undefined on every pair, e.g. a constant
-    lpz over the clusters -- an undefined correlation cannot vote, D-27),
-    "iii_guard" (every zeta > 0 at ``guard_rule_nm``; None without that
-    guard run), "iv_profile" (None: it needs H5's simulated-leak null;
-    ``fraction_profiles_bimodal`` reports the fraction), "v_size_ratio"
-    (the median size ratio over every matched pair >= 0.5). These are
-    validity checks, not a correction (03 S3.4).
+    Everything the leak diagnostics say about one axon. ``pairs`` holds
+    one ``RingPairLeak`` per adjacent ``RingPairMatch`` of the columns
+    result, ``k2`` the (k, k+2) matches (the persistence control;
+    referenced, not recomputed), ``guard`` the guard runs by guard in nm
+    (the sensitivity table: ``guards_seff`` x ``s_eff_nm`` plus
+    ``guard_star_nm``; empty without the rebuild or its inputs, with a
+    warning), ``profiles`` one ``AxialProfileFit`` per column of length
+    >= 2 in ``cols.columns`` order. ``rules`` holds the diagnostics with a
+    valid reading: "ii_lpz" (every defined pair has rho <= 0 or p >
+    rule_ii_alpha / n_defined, the Bonferroni level, Dunn 1961; None
+    without lpz OR when rho is undefined on every pair). The size-ratio
+    diagnostic (v) is a p-value, ``size_ratio_p`` (the median of the
+    matched pairs' smaller-to-larger size ratios against its within-ring
+    permutation null, B = ``size_ratio_n_perm``; exact with a scalar
+    eclipse tolerance, ``size_ratio_exact``), and per pair in
+    ``RingPairLeak.size_ratio_p``. ``fraction_profiles_bimodal`` is
+    descriptive (it tests Gaussianity: leak tails and genuine second
+    clusters both reject one Gaussian), over the eligible profiles.
+    These are validity checks, not a correction.
 
-    What the rules can and cannot say (measured on synthetic axons
-    with known truth, D-27 and the re-review of 2026-09-24):
-
-    * (i) is small whenever ANY matched pair shares an event, and a
-      true partner absorbs the leaked events of its neighbour, so with
-      any leak at all (i) is False for real columns as much as for
-      leak.
-    * (ii) is a conjunction over the adjacent pairs of a per-pair
-      one-sided test at the 5 % level, so its false-alarm rate on a
-      leak-free axon is 1 - 0.95^n_pairs (9.8 % with two pairs;
-      measured: a perfect-column axon read False on rho 0.189, p
-      0.027). A pair whose rho is undefined does not vote: an
-      indicator constant over the usable clusters (every cluster
-      matched, or none) or a constant lpz leaves NaN, warned per pair,
-      and the rule then rests on the remaining pairs (None when none
-      is defined).
-    * (iii) does NOT separate leak from columns at these sigma_z /
-      period values: beyond the pre-specified dead zone the tail is
-      still 1 - Phi((85 + 30) / 77) = 6.8 % of a cluster, 13.5 of 200
-      localizations, above min_samples 10 in ~85 % of the clusters, so
-      most children persist at g = 60 (measured 44 -> 32 on the
-      harness axon) and the excess they carry stays positive: zeta at
-      g = 60 was 1.6 / 1.2, 2.5 / 2.3 and 2.4 / 1.2 on three
-      independent-ring axons with leak (2.3-3.3 / 0.5-2.0 at g = 90),
-      and ``rules["iii_guard"]`` read True on every one of them. It
-      holds for real columns (M5) and is reported because it is
-      pre-specified; a True is not evidence against leak.
-    * (v) assumes clusters of comparable size and reads False whenever
-      the sizes are as dispersed as a real ring's (median size ratio
-      0.33-0.43 on perfect columns of distinct molecules).
-
-    On data none of them is a verdict; the per-pair ``leak_explained``
-    and the cleaned matches are what the report reads.
+    Removed from the rules (each kept as a descriptive field): (i)
+    ``p_shared`` is small whenever ANY matched pair shares an event,
+    under leak and under genuine columns alike; (iii) a positive excess
+    at a guard narrower than g* is as likely under leak as under columns;
+    (iv) needs a simulated-leak reference that does not exist. The
+    per-pair ``leak_explained`` and the cleaned matches are what the
+    report reads.
     ``n_leak_explained_any`` / ``fraction_leak_explained_any`` are the
     axon-wide counts of ``PairLeak.leak_explained_any`` (single-parent
     OR two-parent tail model, H5), summed over the adjacent pairs like
@@ -625,6 +649,12 @@ class LeakDiagnostics:
     warnings: List[str] = field(default_factory=list)
     n_leak_explained_any: int = 0
     fraction_leak_explained_any: float = float("nan")
+    size_ratio_median: float = float("nan")
+    size_ratio_null_median: float = float("nan")
+    size_ratio_p: float = float("nan")
+    size_ratio_exact: bool = True
+    s_eff_nm: float = float("nan")
+    guard_star_nm: float = float("nan")
 
 
 # ============================================================================
@@ -1008,7 +1038,8 @@ def pair_leak(
     if res.event_id is not None:
         shared, n_ev_parent, n_ev_child = shared_events(res.event_id, parent.loc_index, child.loc_index)
         shared_frac = shared / n_ev_child if n_ev_child > 0 else float("nan")
-        shared_high = bool(shared_frac >= float(params.shared_threshold)) if math.isfinite(shared_frac) else None
+        if params.shared_threshold is not None and math.isfinite(shared_frac):
+            shared_high = bool(shared_frac >= float(params.shared_threshold))
         if n_ev_child == 0:
             warnings_.append("child cluster with no event (every id -1): shared_fraction NaN")
 
@@ -1019,6 +1050,12 @@ def pair_leak(
     frac_child = boundary_fraction(z_child, boundary, band)
     frac_expected = boundary_fraction_expected(win_lo_nm=win_lo, win_hi_nm=win_hi, mu_nm=float(child_ring.centre_z_nm),
                                                sigma_nm=sigma_c, boundary_z_nm=boundary, band_nm=band)
+    by_band: Dict[float, Tuple[float, float]] = {}
+    for k in BOUNDARY_BANDS:
+        w = float(k) * sigma_c
+        by_band[float(k)] = (float(boundary_fraction(z_child, boundary, w)), float(boundary_fraction_expected(
+            win_lo_nm=win_lo, win_hi_nm=win_hi, mu_nm=float(child_ring.centre_z_nm), sigma_nm=sigma_c,
+            boundary_z_nm=boundary, band_nm=w)))
     s_struct, lpz_child, lpz_parent, width_warnings = _tail_width_inputs(parent_ring, parent, child, int(z_child.size),
                                                                           lpz_nm, scale)
     warnings_.extend(width_warnings)
@@ -1059,7 +1096,8 @@ def pair_leak(
         expected = p_size = p_spur = float("nan")
         warnings_.append("F_parent NaN (no lpz and no finite parent ring width): p_size_leak and p_spurious NaN, "
                          "size_ok False")
-    z_tail = bool(math.isfinite(llr) and llr > 0.0)
+    # leak when the tail model wins at the prior odds: llr > log(pi_column / pi_leak) = -log_prior_odds
+    z_tail = bool(math.isfinite(llr) and llr > -float(params.log_prior_odds))
     size_ok = bool(math.isfinite(p_size) and p_size >= float(params.size_alpha))
     return PairLeak(
         ring_a=int(match.ring_a), ring_b=int(match.ring_b), i_a=ia, j_b=jb, d_nm=d_nm,
@@ -1075,7 +1113,7 @@ def pair_leak(
         n_locs_parent_original=int(n0), size_ratio=n_child / n_parent if n_parent else float("nan"),
         lpz_pair_median_nm=_median_of_two(a.lpz_median_nm, b.lpz_median_nm),
         shared_high=shared_high, z_tail=z_tail, size_ok=size_ok, leak_explained=bool(z_tail and size_ok),
-        warnings=warnings_, leak_explained_any=bool(z_tail and size_ok),
+        warnings=warnings_, leak_explained_any=bool(z_tail and size_ok), boundary_fractions=by_band,
     )
 
 
@@ -1328,22 +1366,26 @@ def ring_pair_leak(
     left out of the mean), p = (#{null mean >= observed mean} + 1) /
     (B + 1). The linking is local (radius 5 x lp ~ 50 nm), so random
     pairings almost never share an event and this p is small whenever
-    ANY matched pair shares one; it is reported because it is
-    pre-specified (D-10), the decision-relevant quantity is the
-    per-pair level (``leak_explained``), and H5 calibrates.
+    ANY matched pair shares one, under leak and under genuine columns
+    alike: it has no valid reading as a leak diagnostic and is not a
+    rule; the shared fractions are the descriptive fields.
 
     (ii) Spearman between the indicator "has a partner" and
     ``lpz_median_nm`` over the usable clusters of BOTH rings pooled
     (ring a's clusters in order, then ring b's), with a one-sided
     permutation p of ``params.n_null_shared`` permutations
     (``_spearman_with_permutation``). Rule (ii) reads this pair at the
-    5 % level and conjoins the pairs (``LeakDiagnostics``); when rho is
+    Bonferroni level ``rule_ii_alpha`` / n_defined_pairs (implemented per
+    ring pair across clusters, a change of unit from the pre-registered
+    across-pair form, recorded as a deviation); when rho is
     undefined (every usable cluster matched, none matched, a constant
     lpz, or fewer than 3 clusters with lpz) the pair is warned and
     does not vote.
 
     ``zeta_clean`` = (n_matched_clean - E* min K) / (sd* min K) with E*
-    and sd* of ``match`` (the null count is not cleaned: conservative).
+    and sd* of ``match`` (the null count is not cleaned: biased low by
+    about the removed children over the null's scale, a lower bound of
+    unknown depth, never used for inference; ``match_clean`` is).
     The generators are ``SeedSequence(random_seed, spawn_key=(ring_a,
     ring_b, SHARED_SPAWN_KEY))`` and ``(..., LPZ_SPAWN_KEY)``.
     """
@@ -1489,18 +1531,6 @@ def ring_pair_leak(
 # ============================================================================
 # Axial profile: fixed-offset mixture, bootstrap, sample sizes
 # ============================================================================
-
-def axon_period_nm(rings: Sequence[Ring]) -> float:
-    """The axon's period: the median over consecutive listed rings
-    (sorted by index) of centre spacing / index step, the rule of
-    ``tau_components`` (D-20); NaN with fewer than 2 rings."""
-    ordered = sorted(rings, key=lambda r: int(r.index))
-    if len(ordered) < 2:
-        return float("nan")
-    centres = np.array([float(r.centre_z_nm) for r in ordered])
-    idx = np.array([float(r.index) for r in ordered])
-    return float(np.median(np.diff(centres) / np.diff(idx)))
-
 
 def _gaussian_mle_rows(z: NDArray[np.float64]) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """Per row of ``z`` (R, N): the one-Gaussian MLE (mean, sd with
@@ -1916,9 +1946,12 @@ def column_axial_profile(
     is honoured per localization without changing the unit of the rest
     of the column (D-27; a first version left them out, which shrank
     the sample silently on files with many unlinked localizations).
-    The seed is ``_column_seed``; ``meets_min_locs`` says whether every
-    cluster has ``params.profile_min_locs_per_cluster`` localizations
-    (rule (iv)).
+    The seed is ``_column_seed``. ``eligible`` says whether the column's
+    events reach n_80(``params.profile_pi_min``), the Wald sample size for
+    80 % power to detect a period-offset component of that weight with the
+    information of the fitted mixture (Wald 1943; Lachin 1981);
+    ``meets_min_locs`` (every cluster has ``profile_min_locs_per_cluster``
+    localizations) is kept only as the displayed suggestion.
     """
     warnings_: List[str] = []
     clusters = [_ring_by_index(res, k).clusters[int(i)] for k, i in column.members]
@@ -1953,10 +1986,18 @@ def column_axial_profile(
     fit = axial_profile_fit(values, float(period_nm), int(column.length), n_bootstrap=int(params.profile_n_bootstrap),
                             random_seed=seed, params=params)
     meets = all(int(cl.n_locs) >= int(params.profile_min_locs_per_cluster) for cl in clusters)
+    pi_min = float(params.profile_pi_min)
+    n80 = float("nan")
+    if math.isfinite(fit.sigma_nm) and fit.sigma_nm > 0.0 and np.asarray(fit.weights).size >= 2:
+        info = _fisher_information_pi(pi_min, float(fit.mu_nm), float(fit.sigma_nm), float(period_nm),
+                                      np.asarray(fit.weights, dtype=np.float64))
+        n80 = _n_min_wald(pi_min, info, float(params.n_min_power), float(params.n_min_z))
+    n_units = n_events if n_events is not None else int(values.size)
+    eligible = bool(math.isfinite(n80) and n_units >= n80)
     return dataclasses.replace(
         fit, members=[(int(k), int(i)) for k, i in column.members], length=int(column.length), n_locs=n_locs,
         n_events=n_events, unit_is_events=unit_events, meets_min_locs=bool(meets),
-        warnings=warnings_ + list(fit.warnings))
+        warnings=warnings_ + list(fit.warnings), pi_min=pi_min, n_80_pi_min=float(n80), eligible=eligible)
 
 
 # ============================================================================
@@ -1977,8 +2018,10 @@ def guard_sensitivity(
     pixel_size_source: str = "unknown",
 ) -> Dict[float, GuardRun]:
     """
-    The rings rebuilt at every guard of ``params.guards_nm`` and the
-    adjacent eclipse tests on each rebuild (rule (iii), 02 P3).
+    The rings rebuilt at every guard of ``params.guards_nm`` (in nm;
+    ``analyze_leak`` fills it from the s_eff grid when it is None) and the
+    adjacent eclipse tests on each rebuild: a sensitivity table, not a
+    rule.
 
     Each rebuild is ``build_rings(res.x_p, res.y_p, res.z_p, ...)`` with
     ``rings_params_from(cols.params)`` at ``guard_nm = g`` and
@@ -1996,8 +2039,8 @@ def guard_sensitivity(
     ``rings_params_from(cols.params)`` in any field other than
     ``correct_tilt`` and ``n_bootstrap`` (e.g. a run at ``guard_nm`` 40,
     or another eps),
-    the g = 0 row is another segmentation than the run's and rule
-    (iii) is read on it: every ``GuardRun`` then carries a warning
+    the g = 0 row is another segmentation than the run's: every
+    ``GuardRun`` then carries a warning
     naming the fields that differ (measured: a base run at guard 40
     gave K [36, 39, 28] against [39, 40, 29] at g = 0). Without
     ``frame`` the events and the suspect marks of the rebuilt rings are
@@ -2021,6 +2064,8 @@ def guard_sensitivity(
                 differing.append(f"{f.name} ({getattr(run_params, f.name, None)!r} in the run, "
                                  f"{getattr(base, f.name)!r} here)")
     out: Dict[float, GuardRun] = {}
+    if params.guards_nm is None:
+        raise ValueError("guard_sensitivity needs guards in nm (analyze_leak builds them from the s_eff grid)")
     for g in params.guards_nm:
         t0 = time.perf_counter()
         warnings_: List[str] = []
@@ -2068,12 +2113,95 @@ def guard_sensitivity(
 # Drivers
 # ============================================================================
 
-def _all_or_none(values: Sequence[float], predicate: Any) -> Optional[bool]:
-    """``all(predicate(v))`` over the finite values; None with none finite."""
-    finite = [float(v) for v in values if math.isfinite(float(v))]
-    if not finite:
-        return None
-    return bool(all(predicate(v) for v in finite))
+def axon_s_eff_nm(rings: Sequence[Ring], lpz_scale: float = 1.0) -> float:
+    """The axon's effective axial width s_eff: the median over its rings of sqrt(sigma_struct^2 + (median lpz x
+    lpz_scale)^2), sigma_struct the ring's structural width; a ring without lpz contributes its fitted width. NaN
+    without rings."""
+    vals: List[float] = []
+    for r in rings:
+        sig = float(r.sigma_z_nm)
+        lpz = float(r.lpz_median_nm) * float(lpz_scale)
+        if not math.isfinite(sig):
+            continue
+        if math.isfinite(lpz):
+            st = structural_width_nm(sig, lpz)
+            vals.append(math.sqrt(st * st + lpz * lpz))
+        else:
+            vals.append(sig)
+    return float(np.median(vals)) if vals else float("nan")
+
+
+def guard_grid_nm(params: LeakParams, s_eff_nm: float, g_star_nm: float, period_nm: float) -> Tuple[float, ...]:
+    """The guards (total dead-zone widths, nm) of the sensitivity table: ``params.guards_nm`` when given, else
+    ``params.guards_seff`` x s_eff (0.1 nm) plus g* when it lies in (0, P/2); empty when s_eff is undefined."""
+    if params.guards_nm is not None:
+        return tuple(float(g) for g in params.guards_nm)
+    if not (math.isfinite(s_eff_nm) and s_eff_nm > 0.0):
+        return ()
+    grid = {round(float(k) * s_eff_nm, 1) for k in params.guards_seff}
+    if math.isfinite(g_star_nm) and 0.0 < g_star_nm < (period_nm / 2.0 if math.isfinite(period_nm) else math.inf):
+        grid.add(round(g_star_nm, 1))
+    return tuple(sorted(grid))
+
+
+def size_ratio_permutation(res: RingsResult, matches: Sequence[RingPairMatch], n_perm: int,
+                           random_seed: int) -> Tuple[float, float, float, Dict[Tuple[int, int], Tuple[float, float]]]:
+    """
+    The size-ratio diagnostic (v): the median over the matched pairs of min(n_a, n_b) / max(n_a, n_b) (cluster
+    localizations) against its within-ring permutation null: the cluster sizes are permuted among the usable
+    clusters of each ring with the matching held fixed (equivalently, as many disjoint cross pairs as there are
+    matches are redrawn at random), ``n_perm`` times; p = (b + 1) / (B + 1), b the null medians at or below the
+    observed one (one-sided: leak copies make matched pairs more lopsided; Besag & Diggle 1977; Phipson & Smyth
+    2010). Per ring pair and for the axon, where each ring is permuted once per replicate. Returns (axon observed
+    median, axon null median, axon p, {(ring_a, ring_b): (null median, p)}); NaN without matches.
+    """
+    rings = {int(r.index): r for r in res.rings}
+    sizes: Dict[int, NDArray[np.float64]] = {k: np.array([float(cl.n_locs) for cl in r.clusters], dtype=np.float64)
+                                             for k, r in rings.items()}
+    usable: Dict[int, NDArray[np.intp]] = {}
+    pair_idx: List[Tuple[int, int, NDArray[np.intp], NDArray[np.intp]]] = []
+    for m in matches:
+        a, b = int(m.ring_a), int(m.ring_b)
+        if a not in rings or b not in rings:
+            continue
+        for k, mask in ((a, m.usable_a), (b, m.usable_b)):
+            if k not in usable:
+                usable[k] = np.flatnonzero(_usable_mask(mask, sizes[k].size)).astype(np.intp)
+        pair_idx.append((a, b, np.asarray(m.i_a, dtype=np.intp).ravel(), np.asarray(m.j_b, dtype=np.intp).ravel()))
+    pair_idx = [t for t in pair_idx if t[2].size]
+    if not pair_idx:
+        return float("nan"), float("nan"), float("nan"), {}
+
+    def ratios(sz: Dict[int, NDArray[np.float64]], a: int, b: int, i: NDArray[np.intp],
+               j: NDArray[np.intp]) -> NDArray[np.float64]:
+        x, y = sz[a][i], sz[b][j]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.asarray(np.minimum(x, y) / np.maximum(x, y), dtype=np.float64)
+
+    obs_pair = {(a, b): float(np.median(ratios(sizes, a, b, i, j))) for a, b, i, j in pair_idx}
+    obs_axon = float(np.median(np.concatenate([ratios(sizes, a, b, i, j) for a, b, i, j in pair_idx])))
+    rng = np.random.default_rng(np.random.SeedSequence(int(random_seed), spawn_key=(SIZE_SPAWN_KEY,)))
+    n_perm = int(n_perm)
+    null_pair: Dict[Tuple[int, int], NDArray[np.float64]] = {k: np.empty(n_perm) for k in obs_pair}
+    null_axon = np.empty(n_perm)
+    for rep_ in range(n_perm):
+        perm: Dict[int, NDArray[np.float64]] = {}
+        for k, sz in sizes.items():
+            new = sz.copy()
+            u = usable.get(k)
+            if u is not None and u.size:
+                new[u] = sz[u][rng.permutation(u.size)]
+            perm[k] = new
+        all_r: List[NDArray[np.float64]] = []
+        for a, b, i, j in pair_idx:
+            r = ratios(perm, a, b, i, j)
+            null_pair[(a, b)][rep_] = float(np.median(r))
+            all_r.append(r)
+        null_axon[rep_] = float(np.median(np.concatenate(all_r)))
+    per = {k: (float(np.median(v)), float((np.count_nonzero(v <= obs_pair[k]) + 1) / (n_perm + 1)))
+           for k, v in null_pair.items()}
+    p_axon = float((np.count_nonzero(null_axon <= obs_axon) + 1) / (n_perm + 1))
+    return obs_axon, float(np.median(null_axon)), p_axon, per
 
 
 def _empty_diagnostics(cols: AxonColumnsResult, params: LeakParams, period: float, lpz: bool, events: bool,
@@ -2081,8 +2209,7 @@ def _empty_diagnostics(cols: AxonColumnsResult, params: LeakParams, period: floa
     """The result of an axon with nothing to diagnose."""
     return LeakDiagnostics(
         source_name=str(cols.source_name), tau0_nm=float(cols.tau0_nm), period_nm=period, pairs=[], k2=cols.k2,
-        guard={}, profiles=[], rules={"i_shared": None, "ii_lpz": None, "iii_guard": None, "iv_profile": None,
-                                       "v_size_ratio": None},
+        guard={}, profiles=[], rules={"ii_lpz": None},
         fraction_profiles_bimodal=float("nan"), n_leak_explained=0, n_matched=0,
         fraction_leak_explained=float("nan"), params=params, lpz_per_localization=lpz, events_available=events,
         seconds=time.perf_counter() - t0, warnings=warnings_)
@@ -2127,10 +2254,11 @@ def analyze_leak(
     events = res.event_id is not None
     if not events:
         warnings_.append("no events (res.event_id None; build_rings without frame numbers): shared-event "
-                         "quantities are NaN/None, rule (i) is None and the profiles are per localization")
+                         "quantities are NaN/None and the profiles are per localization")
     if not lpz_given:
-        warnings_.append("no per-localization lpz: leak fractions and tail widths use cluster medians "
-                         "(Jensen lower bound)")
+        warnings_.append("no per-localization lpz: leak fractions and tail widths use cluster medians (the "
+                         "mean-width shortcut: a lower bound where the boundary is more than sqrt 2 widths away, an "
+                         "upper bound nearer)")
     if not cols.adjacent:
         warnings_.append("no adjacent match in the columns result: nothing to diagnose")
         return _empty_diagnostics(cols, params, period, lpz_given, events, t0, warnings_)
@@ -2143,15 +2271,22 @@ def analyze_leak(
     for rp in pairs:
         warnings_.extend(f"rings {rp.ring_a}-{rp.ring_b}: {w}" for w in rp.warnings)
 
+    s_eff = axon_s_eff_nm(res.rings, float(params.lpz_scale))
+    g_star = guard_star_nm(s_eff, period) if math.isfinite(period) else float("nan")
+    guards = guard_grid_nm(params, s_eff, g_star, period)
     guard_runs: Dict[float, GuardRun] = {}
     if guard:
-        guard_runs = guard_sensitivity(res, cols, params=params, frame=frame, lp_lateral_nm=lp_lateral_nm,
-                                       lpz_nm=lpz_nm, n_frames=n_frames, roi=roi, pixel_size_nm=pixel_size_nm,
-                                       pixel_size_source=pixel_size_source)
+        if guards:
+            guard_runs = guard_sensitivity(res, cols, params=dataclasses.replace(params, guards_nm=guards),
+                                           frame=frame, lp_lateral_nm=lp_lateral_nm, lpz_nm=lpz_nm,
+                                           n_frames=n_frames, roi=roi, pixel_size_nm=pixel_size_nm,
+                                           pixel_size_source=pixel_size_source)
+        else:
+            warnings_.append("no guard grid (the effective axial width is undefined)")
         for g, run in guard_runs.items():
             warnings_.extend(f"guard {g:g} nm: {w}" for w in run.warnings)
     else:
-        warnings_.append("guard sensitivity not run (guard=False): rule (iii) is None")
+        warnings_.append("guard sensitivity not run (guard=False)")
 
     profiles: List[AxialProfileFit] = []
     if not math.isfinite(period):
@@ -2166,25 +2301,24 @@ def analyze_leak(
 
     # --- rules -------------------------------------------------------------
     rules: Dict[str, Optional[bool]] = {}
-    rules["i_shared"] = _all_or_none([rp.p_shared for rp in pairs], lambda p: p > 0.05) if events else None
-    rho_ok: List[float] = []
-    for rp in pairs:
-        if math.isfinite(rp.spearman_matched_vs_lpz_rho):
-            rho_ok.append(1.0 if (rp.spearman_matched_vs_lpz_rho <= 0.0 or rp.spearman_matched_vs_lpz_p > 0.05) else 0.0)
-    rules["ii_lpz"] = bool(all(v > 0.5 for v in rho_ok)) if rho_ok else None
-    run_rule = guard_runs.get(float(params.guard_rule_nm))
-    if run_rule is None:
-        rules["iii_guard"] = None
-        if guard_runs:
-            warnings_.append(f"guard_rule_nm {params.guard_rule_nm:g} nm is not among the guards run "
-                             f"{list(guard_runs)}: rule (iii) is None")
+    defined = [rp for rp in pairs if math.isfinite(rp.spearman_matched_vs_lpz_rho)]
+    if defined:
+        level = float(params.rule_ii_alpha) / len(defined)
+        rules["ii_lpz"] = bool(all(rp.spearman_matched_vs_lpz_rho <= 0.0 or rp.spearman_matched_vs_lpz_p > level
+                                   for rp in defined))
     else:
-        rules["iii_guard"] = _all_or_none([m.zeta for m in run_rule.matches], lambda z: z > 0.0)
-    rules["iv_profile"] = None
-    ratios = [p.size_ratio for rp in pairs for p in rp.pairs]
-    rules["v_size_ratio"] = bool(float(np.median(ratios)) >= 0.5) if ratios else None
+        rules["ii_lpz"] = None
+    size_obs, size_null, size_p, per_pair = size_ratio_permutation(res, cols.adjacent, int(params.size_ratio_n_perm),
+                                                                   int(cols.random_seed))
+    pairs = [dataclasses.replace(rp, size_ratio_null_median=per_pair.get((rp.ring_a, rp.ring_b), (math.nan,
+                                                                                                    math.nan))[0],
+                                 size_ratio_p=per_pair.get((rp.ring_a, rp.ring_b), (math.nan, math.nan))[1])
+             for rp in pairs]
+    size_exact = not (float(getattr(cols.params, "sigma_d_nm", 0.0) or 0.0) > 0.0)
+    if not size_exact:
+        warnings_.append("size-ratio p approximate: with a per-pair tolerance the matching depends on cluster size")
 
-    eligible = [p.p_bootstrap for p in profiles if p.meets_min_locs and math.isfinite(p.p_bootstrap)]
+    eligible = [p.p_bootstrap for p in profiles if p.eligible and math.isfinite(p.p_bootstrap)]
     frac_bimodal = (float(np.mean([p <= float(params.profile_alpha) for p in eligible])) if eligible
                     else float("nan"))
     n_matched = int(sum(int(m.n_matched) for m in cols.adjacent))
@@ -2208,7 +2342,9 @@ def analyze_leak(
         n_leak_explained=n_expl, n_matched=n_matched,
         fraction_leak_explained=frac_expl, params=params,
         lpz_per_localization=lpz_given, events_available=events, seconds=time.perf_counter() - t0,
-        warnings=warnings_, n_leak_explained_any=n_any, fraction_leak_explained_any=frac_any)
+        warnings=warnings_, n_leak_explained_any=n_any, fraction_leak_explained_any=frac_any,
+        size_ratio_median=size_obs, size_ratio_null_median=size_null, size_ratio_p=size_p,
+        size_ratio_exact=size_exact, s_eff_nm=s_eff, guard_star_nm=g_star)
 
 
 def analyze_columns_and_leak(

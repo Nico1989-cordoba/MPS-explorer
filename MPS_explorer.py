@@ -164,6 +164,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
             logger=self.logger
         )
         self.logger.debug("Parameter cache initialized (Phase 4)")
+        # How the next eps comes to be chosen on the k-distance graph
+        # (P-R58): set just before that value is stored, consumed by
+        # _store_params, which keeps it only if it describes the eps stored.
+        self._pending_eps_choice: Optional[Dict[str, Any]] = None
 
         self.ui = data_explorer.Ui_MainWindow()
         self.ui.setupUi(self)
@@ -191,11 +195,30 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Algorithm Selection (Manual control over DBSCAN vs HDBSCAN)
         self.algorithm_selector = self.ui.comboBox_algorithm
         self.algorithm_selector.currentTextChanged.connect(self.on_algorithm_changed)
+        # The entry that switches between DBSCAN and HDBSCAN by size used to
+        # read "Auto"; it is named for what it does (decision P-R58), and
+        # "Auto" is still understood wherever a label is read back
+        # (tools.clustering_strategies.strategy_for_label).
+        from tools.clustering_strategies import (
+            ADAPTIVE_LABEL, LEGACY_ADAPTIVE_LABELS)
+        from tools.mps_tooltips import ALGORITHM_ITEMS
+
+        for legacy in LEGACY_ADAPTIVE_LABELS:
+            index = self.algorithm_selector.findText(legacy)
+            if index >= 0:
+                self.algorithm_selector.setItemText(index, ADAPTIVE_LABEL)
+        for index in range(self.algorithm_selector.count()):
+            text = ALGORITHM_ITEMS.get(self.algorithm_selector.itemText(index))
+            if text:
+                self.algorithm_selector.setItemData(
+                    index, text, QtCore.Qt.ItemDataRole.ToolTipRole)
         # DBSCAN by default (manual test 2, item 11): it is what the MPS
-        # analysis uses, and what "Auto" chose below 100,000 localizations
-        # anyway. Auto and HDBSCAN stay in the list.
+        # analysis uses, and what the adaptive entry chose below 100,000
+        # localizations anyway. The adaptive entry and HDBSCAN stay in the
+        # list.
         self.algorithm_selector.setCurrentText("DBSCAN")
-        self.logger.debug("Algorithm selector initialized (Auto/DBSCAN/HDBSCAN)")
+        self.logger.debug(
+            f"Algorithm selector initialized ({ADAPTIVE_LABEL}/DBSCAN/HDBSCAN)")
 
         # Connect Buttons to Methods
         self.ui.pushButton_browsefile.clicked.connect(lambda:self.select_file(1))
@@ -489,6 +512,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self._build_param_mirrors()
         self._build_measurement_panel()
         self._relayout_main_window()
+        self._build_beginner_tour()
 
         # Connect the close event to your method
         self.closeEvent = self.onCloseEvent
@@ -720,7 +744,18 @@ class MPS_explorer(QtWidgets.QMainWindow):
         s = self.mps_settings
         before = (float(s.slab_half_width_nm), self.slab_choice)
         if "eps_nm" in values:
-            s.eps_nm = float(values["eps_nm"])
+            new_eps = float(values["eps_nm"])
+            pending, self._pending_eps_choice = self._pending_eps_choice, None
+            if new_eps != float(s.eps_nm) or pending is not None:
+                # How eps was chosen follows eps (P-R58): the record of a
+                # choice on the k-distance graph when this is that value,
+                # otherwise none -- typed, or the published default.
+                from tools.mps_kdistance import clean_record
+
+                record = clean_record(pending)
+                s.eps_choice = (record if record and abs(
+                    record["eps_nm"] - new_eps) <= 1e-6 else {})
+            s.eps_nm = new_eps
         if "min_samples" in values:
             s.min_samples = int(values["min_samples"])
         if "slab_half_width_nm" in values:
@@ -729,6 +764,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             s.mahalanobis_threshold = float(values["mahalanobis_threshold"])
         if "randomization" in values:
             self.mps_randomization = bool(values["randomization"])
+        # SCI-3: the randomization control's values and the occupancy's
+        # sigma cap (the strip's dialogs); validate() keeps a value outside
+        # its documented range and drops one that is not a value.
+        if "randomization_params" in values:
+            s.randomization_params = dict(values["randomization_params"])
+        if "occupancy_sigma_cap_fraction" in values:
+            s.occupancy_sigma_cap_fraction = float(
+                values["occupancy_sigma_cap_fraction"])
         slab = values.get("slab")
         if slab is not None and not self._z_range_user_edited:
             mode, centre = slab
@@ -978,6 +1021,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
         ch1.addWidget(ui.pushButton_clusterch1, 2, 4)
         ch1.addWidget(self.badge_minsamples, 3, 0)
         ch1.addWidget(self.badge_eps, 3, 1)
+        # The k-distance graph (P-R58): the same as typing "auto" in eps.
+        from tools.mps_tooltips import KDIST_BUTTON_CH1, KDIST_BUTTON_CH2
+
+        self.button_kdist1 = QtWidgets.QPushButton("k-distance...", ui.groupBox)
+        self.button_kdist1.setObjectName("button_kdist1")
+        self.button_kdist1.setToolTip(KDIST_BUTTON_CH1)
+        self.button_kdist1.clicked.connect(self._kdistance_channel1)
+        ch1.addWidget(self.button_kdist1, 3, 4)
         ch1.setColumnStretch(5, 1)
         ch2 = QtWidgets.QGridLayout()
         ch2.setHorizontalSpacing(6)
@@ -988,6 +1039,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         ch2.addWidget(ui.lineEdit_minsamples_2, 2, 0)
         ch2.addWidget(ui.lineEdit_eps_2, 2, 1)
         ch2.addWidget(ui.pushButton_clusterch2, 2, 2)
+        self.button_kdist2 = QtWidgets.QPushButton("k-distance... (exploratory)", ui.groupBox)
+        self.button_kdist2.setObjectName("button_kdist2")
+        self.button_kdist2.setToolTip(KDIST_BUTTON_CH2)
+        self.button_kdist2.clicked.connect(self._kdistance_channel2)
+        ch2.addWidget(self.button_kdist2, 3, 2)
         ch2.setColumnStretch(3, 1)
         for edit in (ui.lineEdit_minsamples, ui.lineEdit_eps, ui.lineEdit_minsamples_2, ui.lineEdit_eps_2,
                      ui.lineEdit_minclustersize):
@@ -1177,6 +1233,165 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.action_excel.triggered.connect(self._on_copy_for_excel)
         toolbar.addAction(self.action_excel)
         self.analysis_toolbar = toolbar
+
+    # ========================================================================
+    # Beginner mode (tools/mps_tour.py): the guided tour, "Explain this", the
+    # simulated example axon
+    # ========================================================================
+
+    # The toolbar's buttons, named so that a tour step (and "Explain this")
+    # can find them: a QAction has no widget of its own until the toolbar
+    # makes one.
+    _TOOLBAR_NAMES = (
+        ("action_quality", "toolButton_quality"),
+        ("action_paint", "toolButton_paint"),
+        ("action_two_channels", "toolButton_two_channels"),
+        ("action_axoplasm", "toolButton_axoplasm"),
+        ("action_export_axon", "toolButton_export_axon"),
+        ("action_batch", "toolButton_batch"),
+        ("action_identity", "toolButton_identity"),
+        ("action_excel", "toolButton_excel"),
+    )
+
+    def _build_beginner_tour(self) -> None:
+        """
+        The Help button at the end of the toolbar (the menu bar is hidden:
+        see _build_analysis_toolbar), the "?" of each panel, and the tour
+        controller. Its state lives in the settings file
+        (MPSSettings.beginner_tour). The tour opens by itself the first time
+        the window is shown while beginner mode is on - never offscreen (the
+        golden harness and the tests), see tools.mps_tour.autostart_allowed.
+        """
+        from tools import mps_tour
+        from tools import mps_tour_steps as tour_steps
+
+        self.tour = mps_tour.TourController(
+            lambda: self.mps_settings.beginner_tour, self._save_tour_state, self)
+        toolbar = self.analysis_toolbar
+        for action_name, widget_name in self._TOOLBAR_NAMES:
+            button = toolbar.widgetForAction(getattr(self, action_name))
+            if button is not None:
+                button.setObjectName(widget_name)
+
+        menu = QtWidgets.QMenu(self)
+        menu.setObjectName("menu_help")
+        self.action_beginner_mode = QtWidgets.QAction(self)
+        self.action_beginner_mode.setObjectName("action_beginner_mode")
+        self.action_beginner_mode.setCheckable(True)
+        self.action_beginner_mode.setChecked(self.tour.enabled())
+        self.action_beginner_mode.toggled.connect(self._on_beginner_mode)
+        self.action_tour_window = QtWidgets.QAction(self)
+        self.action_tour_window.setObjectName("action_tour_window")
+        self.action_tour_window.triggered.connect(
+            lambda _checked=False: self.tour.start(self, "main"))
+        self.action_explain = QtWidgets.QAction(self)
+        self.action_explain.setObjectName("action_explain_this")
+        self.action_explain.setShortcut(QtGui.QKeySequence("Shift+F1"))
+        self.action_explain.setShortcutContext(QtCore.Qt.ApplicationShortcut)
+        self.action_explain.triggered.connect(
+            lambda _checked=False: self.tour.set_explain(True))
+        # Added to the window too, so that Shift+F1 works with the menu closed.
+        self.addAction(self.action_explain)
+        self.action_demo = QtWidgets.QAction(self)
+        self.action_demo.setObjectName("action_open_demo_axon")
+        self.action_demo.triggered.connect(lambda _checked=False: self.open_demo_axon())
+        menu.addAction(self.action_beginner_mode)
+        menu.addAction(self.action_tour_window)
+        menu.addAction(self.action_explain)
+        menu.addSeparator()
+        menu.addAction(self.action_demo)
+        menu.addSeparator()
+        self.menu_tour_language = menu.addMenu("")
+        group = QtWidgets.QActionGroup(self)
+        group.setExclusive(True)
+        self.action_tour_languages: Dict[str, Any] = {}
+        for lang in tour_steps.LANGUAGES:
+            action = self.menu_tour_language.addAction(tour_steps.LANGUAGE_NAMES[lang])
+            action.setObjectName(f"action_tour_language_{lang}")
+            action.setCheckable(True)
+            group.addAction(action)
+            action.triggered.connect(
+                lambda _checked=False, code=lang: self.tour.set_language(code))
+            self.action_tour_languages[lang] = action
+        self.menu_help = menu
+        button = QtWidgets.QToolButton(toolbar)
+        button.setObjectName("toolButton_help")
+        button.setMenu(menu)
+        button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        toolbar.addWidget(button)
+        self.button_help = button
+
+        self.tour_help_buttons: Dict[str, Any] = {}
+        for panel_id, panel_name in tour_steps.MAIN_PANELS:
+            panel = self.findChild(QtWidgets.QWidget, panel_name)
+            if panel is None:
+                self.logger.warning(f"Beginner tour: no panel {panel_name}")
+                continue
+            self.tour_help_buttons[panel_id] = mps_tour.attach_help_button(
+                panel, f"tourHelp_{panel_id}", "", self._panel_tour(panel_id))
+        self.tour.language_changed.connect(lambda _lang: self._retranslate_help())
+        self.tour.enabled_changed.connect(self._show_beginner_mode)
+        self._retranslate_help()
+        self.tour.register_window(self, "main")
+
+    def _panel_tour(self, panel_id: str) -> Callable[[], Any]:
+        """What a panel's "?" calls: that panel's steps of the tour."""
+        def replay() -> Any:
+            return self.tour.start(self, "main", panel=panel_id)
+        return replay
+
+    def _save_tour_state(self) -> None:
+        # The whole settings object, as on close: the tour's state is one
+        # field of it (and the other fields are what is on screen anyway).
+        try:
+            self._persist_mps_settings()
+        except Exception as exc:                          # noqa: BLE001
+            self.logger.warning(f"Could not save the beginner-mode state: {exc}")
+
+    def _retranslate_help(self) -> None:
+        tour = self.tour
+        self.button_help.setText(tour.ui("help"))
+        self.button_help.setToolTip(
+            f"{tour.ui('beginner')}, {tour.ui('explain')} (Shift+F1), {tour.ui('demo')}")
+        self.action_beginner_mode.setText(tour.ui("beginner"))
+        self.action_tour_window.setText(tour.ui("tour_window"))
+        self.action_explain.setText(tour.ui("explain"))
+        self.action_demo.setText(tour.ui("demo"))
+        self.menu_tour_language.setTitle(tour.ui("language"))
+        for lang, action in self.action_tour_languages.items():
+            action.setChecked(lang == tour.language())
+        for button in self.tour_help_buttons.values():
+            button.setToolTip(tour.ui("panel_help"))
+
+    def _show_beginner_mode(self, on: bool) -> None:
+        """The menu's check follows the state when the card's box changes it."""
+        self.action_beginner_mode.blockSignals(True)
+        self.action_beginner_mode.setChecked(on)
+        self.action_beginner_mode.blockSignals(False)
+
+    def _on_beginner_mode(self, on: bool) -> None:
+        """Beginner mode switched in the menu. On: every window's tour is
+        shown again, starting with this one now."""
+        self.tour.set_enabled(on, forget_seen=on)
+        if on:
+            self.tour.start(self, "main", auto=True)
+        else:
+            self.tour.close()
+
+    def open_demo_axon(self) -> bool:
+        """Load the SIMULATED example axon (examples/demo_axon, written by
+        tools/make_demo_axon.py) into channel 1, as a file chosen by hand
+        would be. Its folder is not remembered as the last one opened."""
+        from tools.make_demo_axon import demo_path
+
+        path = demo_path()
+        if not os.path.exists(path):
+            QtWidgets.QMessageBox.warning(
+                self, self.tour.ui("demo_title"),
+                self.tour.ui("demo_missing").format(path=path))
+            return False
+        self.logger.info(f"Opening the simulated example axon: {path}")
+        return self.load_channel1(path, 0)
 
     def _on_copy_for_excel(self) -> None:
         # Not the method itself: a triggered slot returns nothing, and it
@@ -1466,6 +1681,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 with_localizations=dialog.wants_localizations(),
                 x_nm=x_in, y_nm=y_in, z_nm=z_in,
                 z_calibration=zcal.export_columns(self._z_state(1)),
+                eps_choice=self.mps_settings.eps_choice,
                 **panel)
         except axon_export.ExportConflict as error:
             QtWidgets.QMessageBox.warning(self, "Export refused", str(error))
@@ -1711,7 +1927,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         path = self.ui.lineEdit_filename_2.text().strip()
         return folder_key(path) if path else ""
 
-    def _remembered_channel2(self) -> Optional[Dict[str, float]]:
+    def _remembered_channel2(self) -> Optional[Dict[str, Any]]:
         """What was chosen for channel 2 in this acquisition, if anything."""
         key = self._channel2_folder()
         if not key:
@@ -1723,59 +1939,86 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return dict(entry)
 
-    def _remember_channel2(self, values: Dict[str, float]) -> None:
+    def _remember_channel2(self, values: Dict[str, Any]) -> None:
         """Keep channel 2's parameters for the rest of this acquisition.
 
-        Per folder, like the pixel size, and for the same reason: the
-        measurement that forces the question is per file. Across five
-        real adducin files the localizations per resolution cell ran 4,
-        62, 238, 485 and 550, so one global answer would only move the
-        assumption instead of removing it.
+        Per folder, like the pixel size, and for the same reason: what
+        they are derived from -- channel 2's precision and dye -- belongs
+        to the acquisition. The record keeps where they came from
+        (tools.mps_channel_params.provenance): each value's origin, both
+        channels' NeNA and whole-field files (by name), dye, buffer and
+        n_loc,mol.
         """
         key = self._channel2_folder()
         if not key:
             return
-        self.mps_settings.channel2_clustering_by_folder[key] = {
-            "eps_nm": float(values["eps_nm"]),
-            "min_samples": float(values["min_samples"]),
-        }
+        entry = dict(values)
+        entry["eps_nm"] = float(values["eps_nm"])
+        entry["min_samples"] = float(values["min_samples"])
+        self.mps_settings.channel2_clustering_by_folder[key] = entry
         save_settings(self.mps_settings)
 
-    def _ask_channel2_parameters(self) -> Optional[Dict[str, float]]:
+    def _channel2_provenance(self, params_b: Dict[str, Any]
+                             ) -> Tuple[str, Dict[str, Any]]:
+        """Where the channel-2 pair in use comes from: (source word, record).
+
+        The record remembered for this folder when the pair is still the
+        one it describes (its origins re-checked against the values in
+        use); otherwise the values were typed, and the record says "user".
+        """
+        from tools.mps_channel_params import ORIGIN_DERIVED, reconcile
+
+        if not params_b:
+            return "", {}
+        remembered = self._remembered_channel2() or {}
+        record = reconcile(remembered, float(params_b["eps_nm"]),
+                           int(params_b["min_samples"]))
+        derived = (record.get("eps_b_origin") == ORIGIN_DERIVED
+                   and record.get("min_samples_b_origin") == ORIGIN_DERIVED)
+        return ("derived" if derived else "typed"), record
+
+    def _ask_channel2_parameters(self) -> Optional[Dict[str, Any]]:
         """Ask for channel 2's own clustering, once per acquisition.
 
         Returns the pair and remembers it for this folder, or None when
         the person declined -- in which case the comparison is refused
         and the panel still opens for the registration.
 
-        The box is given the ROI selection of both channels so it can
-        show what it is asking about: the measured density of each
-        channel, in the unit Min Pts counts, and what the program's own
-        estimator makes of channel 2's points. Without those a person
-        asked for a number they do not have will type anything.
+        The box measures each channel's precision (NeNA) on its
+        whole-field file, found by name from the two loaded files, and
+        pre-fills channel 2's eps and Min Pts derived from it and the dye
+        chosen (docs/channel2_parameters.md); both stay editable. It is
+        also given the ROI selection of both channels, to show how densely
+        each is sampled in the unit Min Pts counts.
         """
         from tools.channel2_ui import ask_channel2_parameters
 
+        remembered = None
+        key = self._channel2_folder()
+        if key:
+            remembered = self.mps_settings.channel2_clustering_by_folder.get(
+                key)
         answer = ask_channel2_parameters(
             self,
             x_a=self.xroi, y_a=self.yroi,
             x_b=self.xroi2, y_b=self.yroi2,
-            channel1={"eps_nm": float(self.mps_settings.eps_nm),
-                      "min_samples": int(self.mps_settings.min_samples)},
-            file_name=os.path.basename(
-                self.ui.lineEdit_filename_2.text().strip()))
+            path_a=self.ui.lineEdit_filename.text().strip(),
+            path_b=self.ui.lineEdit_filename_2.text().strip(),
+            eps1_nm=float(self.mps_settings.eps_nm),
+            remembered=remembered if isinstance(remembered, dict) else None)
         if answer is None:
             return None
         self._remember_channel2(answer)
         self._show_channel2_parameters(answer)
         self.logger.info(
-            f"Channel 2's clustering set by hand: eps "
-            f"{answer['eps_nm']:g} nm, min samples "
-            f"{int(answer['min_samples'])}; remembered for "
-            f"{self._channel2_folder() or 'this folder'}")
+            f"Channel 2's clustering: eps {answer['eps_nm']:g} nm "
+            f"({answer.get('eps_b_origin', 'user')}), min samples "
+            f"{int(answer['min_samples'])} "
+            f"({answer.get('min_samples_b_origin', 'user')}); remembered "
+            f"for {self._channel2_folder() or 'this folder'}")
         return answer
 
-    def _show_channel2_parameters(self, values: Optional[Dict[str, float]]
+    def _show_channel2_parameters(self, values: Optional[Dict[str, Any]]
                                   ) -> None:
         """Put a chosen pair in the boxes, or put them back on auto."""
         if values is None:
@@ -1844,7 +2087,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
         slab = self._applied_slab
         shared = dict(dbcv_threshold=float(s.dbcv_threshold), roi=roi)
         params_a, params_b = self._clustering_parameters()
-        source = "typed" if params_b else ""
         # Ask only when a comparison is actually going to run. With no
         # ROI this panel measures the registration and nothing else --
         # it is offered from the menu as exactly that -- and demanding
@@ -1855,14 +2097,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if remembered is not None:
                 params_b = {"eps_nm": float(remembered["eps_nm"]),
                             "min_samples": int(remembered["min_samples"])}
-                source = "typed"
                 self._show_channel2_parameters(remembered)
             else:
                 answer = self._ask_channel2_parameters()
                 if answer is not None:
                     params_b = {"eps_nm": float(answer["eps_nm"]),
                                 "min_samples": int(answer["min_samples"])}
-                    source = "typed"
+        source, provenance = self._channel2_provenance(params_b)
         kwargs_a = dict(
             shared, **params_a,
             pixel_size_nm=self.locs1.pixel_size_nm,
@@ -1896,6 +2137,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     slab_half_width_nm=float(s.slab_half_width_nm),
                     kwargs_a=kwargs_a, kwargs_b=kwargs_b,
                     channel_b_parameter_source=source,
+                    channel_b_provenance=provenance,
                     slab_source=self._slab_source_word()),
                 parent=self, parameters=self._clustering_parameters,
                 identity_callback=self.current_identity)
@@ -2262,6 +2504,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             EPS_DECIMALS, EPS_RANGE_NM, MIN_SAMPLES_RANGE)
 
         s = self.mps_settings
+        if self.ui.lineEdit_eps.text().strip().lower() == "auto":
+            # "auto" never picks a number (P-R58): it opens the k-distance
+            # graph. The box shows the value in use first, so the second
+            # editingFinished the dialog's focus change sends finds nothing
+            # to do.
+            self._render_mirrors()
+            self.eps_from_kdistance()
+            return
         try:
             eps = round(float(self.ui.lineEdit_eps.text().strip().replace(",", ".")), EPS_DECIMALS)
             minimum_f = float(self.ui.lineEdit_minsamples.text().strip())
@@ -2296,6 +2546,130 @@ class MPS_explorer(QtWidgets.QMainWindow):
         window.spin_eps.setValue(eps)
         window.spin_min.setValue(minimum)
         window._on_param_changed()
+
+    def _open_kdistance(self, channel: int,
+                        min_samples: Optional[int] = None,
+                        ) -> Optional[Dict[str, Any]]:
+        """The k-distance graph of one channel's selection (P-R58).
+
+        Channel 1 is drawn for the analysis' own Min Pts (read-only in the
+        dialog). Channel 2 for its box's, or, when that says 'auto', for one
+        typed in the dialog: never channel 1's. Returns the record of the
+        choice (tools.mps_kdistance.choice_record), or None.
+        """
+        from tools.mps_kdist_dialog import choose_eps
+
+        x, y = ((self.xroi, self.yroi) if channel == 1
+                else (self.xroi2, self.yroi2))
+        if x is None or y is None or len(x) == 0:
+            QtWidgets.QMessageBox.information(
+                self, "k-distance graph",
+                f"Select an ROI with channel-{channel} localizations first: "
+                f"the graph is drawn on the localizations the clustering "
+                f"runs on.")
+            return None
+        if channel == 1:
+            minimum: Optional[int] = int(self.mps_settings.min_samples)
+            editable = False
+            path = self.ui.lineEdit_filename.text().strip()
+            note = ""
+            current: Optional[float] = float(self.mps_settings.eps_nm)
+        else:
+            minimum = min_samples
+            if minimum is None:
+                typed = self._usable_field(
+                    self.ui.lineEdit_minsamples_2, 2, 10000)
+                minimum = (int(typed) if typed is not None
+                           and float(typed).is_integer() else None)
+            editable = True
+            path = self.ui.lineEdit_filename_2.text().strip()
+            note = ("Channel 2: an exploratory check only. Channel 2's "
+                    "parameters are the ones derived from its precision "
+                    "(NeNA) in the Two channels box; the value chosen here "
+                    "clusters channel 2 in this window and is never written "
+                    "to its boxes.")
+            current = self._usable_field(self.ui.lineEdit_eps_2, 1e-9, 1000.0)
+        try:
+            record = choose_eps(
+                self, x, y, minimum, channel=channel,
+                file_name=os.path.basename(path), current_eps_nm=current,
+                min_samples_editable=editable, exploratory_note=note)
+        except Exception as error:      # noqa: BLE001 - surfaced to the user
+            self.logger.error(f"k-distance graph failed: {error}",
+                              exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "k-distance graph", f"Could not draw it:\n{error}")
+            return None
+        if record is not None:
+            from tools.mps_kdistance import EPS_SOURCE_WORDS
+
+            self.logger.info(
+                f"Channel {channel}: eps {record['eps_nm']:g} nm "
+                f"({EPS_SOURCE_WORDS.get(record['source'], record['source'])}"
+                f"; k = {record['k']}, valley "
+                f"{record.get('valley_nm', 'none')}, unclustered "
+                f"{record.get('unclustered_fraction', float('nan')):.3f}) "
+                f"on {record.get('file') or 'the selection'}")
+        return record
+
+    def eps_from_kdistance(self) -> Optional[Dict[str, Any]]:
+        """Channel 1's eps chosen on the k-distance graph ("auto", P-R58).
+
+        The value goes the way a typed one does -- into the strip and its
+        re-run when an analysis is on screen, stored otherwise -- with the
+        record of how it was chosen, which the export writes beside it.
+        """
+        from tools.mps_kdistance import clean_record
+        from tools.mps_results_window import EPS_DECIMALS
+
+        record = self._open_kdistance(1)
+        if record is None:
+            self._render_mirrors()
+            return None
+        record = dict(record)
+        record["eps_nm"] = round(float(record["eps_nm"]), EPS_DECIMALS)
+        s = self.mps_settings
+        eps = float(record["eps_nm"])
+        if abs(eps - float(s.eps_nm)) <= 1e-6:
+            # Same value: nothing to re-run, only where it comes from.
+            s.eps_choice = clean_record(record)
+            save_settings(s)
+            self._render_mirrors()
+            return record
+        self._pending_eps_choice = record
+        window = self.mps_window
+        if window is None and self.mps_analysis is not None:
+            self.mps_window = window = self._make_mps_window(self.mps_analysis)
+        if window is None:
+            self._store_params({"eps_nm": eps,
+                                "min_samples": int(s.min_samples)})
+            save_settings(s)
+            return record
+        window.spin_eps.setValue(eps)
+        window._on_param_changed()
+        save_settings(s)
+        return record
+
+    def _kdistance_channel1(self) -> None:
+        """The 'k-distance...' button of channel 1: the same as typing 'auto' in eps."""
+        self.eps_from_kdistance()
+
+    def _kdistance_channel2(self) -> None:
+        """Channel 2's k-distance graph, as an exploratory check only.
+
+        P-R57 governs channel 2 (user, 2026-10-14): its eps and Min Pts come
+        from the Two channels box (derived from each channel's NeNA, then
+        editable), and its 'auto' is not this graph. This button is the one
+        way to it. The pair chosen clusters channel 2 in this window; the
+        boxes, and so the Two channels panel and its NeNA-derived values,
+        are never written.
+        """
+        typed = self._usable_field(self.ui.lineEdit_minsamples_2, 2, 10000)
+        record = self._open_kdistance(2, None if typed is None else int(typed))
+        if record is None:
+            return
+        self.cluster(2, pair=(float(record["eps_nm"]),
+                              int(record["min_samples"])))
 
     def mps_analysis_button(self) -> Optional[Any]:
         """
@@ -2913,6 +3287,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             params["main_peak_override_nm"] = float(self.slab_choice.centre_nm)
         if "run_randomization" not in overrides and not self.mps_randomization:
             params["run_randomization"] = False
+        # SCI-3: the randomization's values and the sigma cap, from the one
+        # store, only where they depart from the defaults (rule K).
+        from tools.mps_randomization_ui import analyze_kwargs
+        for key, value in analyze_kwargs(
+                s.randomization_params,
+                s.occupancy_sigma_cap_fraction).items():
+            if key not in overrides:
+                params[key] = value
         # The clusters cut by the Picasso pick (P-R59): passed only when a
         # pick file was found or chosen for this file (rule K); without one
         # the analysis records "boundary unknown: not evaluated" itself.
@@ -3181,6 +3563,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         window.axon_map.image_changed.connect(self._map_image_changed)
         # a new map starts on its own choice: the panel's selector shows it
         self._map_image_changed(window.axon_map.inputs().image)
+        # The hook of its tour (tools/mps_tour_steps.py, STEPS["mps_analysis"]):
+        # empty until the pending science changes settle its rows, so nothing
+        # opens by itself and "Explain this" offers the tooltips.
+        tour = getattr(self, "tour", None)
+        if tour is not None:
+            tour.register_window(window, "mps_analysis")
         return window
 
     def _show_mps_window(self, analysis: Any) -> None:
@@ -3548,7 +3936,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
     def _show_rings_window(self, ms: Any, guard_nm: float = 0.0) -> None:
         """Open, or refresh in place, the rings panel."""
-        from tools.mps_gaps import analyze_rings
         from tools.mps_rings_window import MPSRingsWindow
 
         def rerun(mode: str = "valley", guard_nm: float = 0.0):
@@ -3576,7 +3963,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 z_calibration_callback=self._z_calibration_words)
         else:
             self.rings_window.ms = ms
-            self.rings_window.rings = analyze_rings(ms)
+            self.rings_window.rings = self.rings_window.analyze(ms)
             # Before the refresh, which shows it (B5).
             self.rings_window._guard_nm = guard_nm
             self.rings_window.refresh()
@@ -4099,11 +4486,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.xroi2 = self.yroi2 = self.zroi2 = None
         self.cluster_labels2 = self.cluster_centroids2 = None
         self._clustered_x[2] = None
-        # A new acquisition is a new question. Across five real adducin
-        # files the localizations per resolution cell ran 4, 62, 238,
-        # 485 and 550, so a choice made for one folder is not an answer
-        # for the next; the boxes go back to auto unless this folder
-        # already has one.
+        # A new acquisition is a new question: channel 2's parameters are
+        # derived from that acquisition's precision and dye, so a choice
+        # made for one folder is not an answer for the next; the boxes go
+        # back to auto unless this folder already has one.
         self._show_channel2_parameters(self._remembered_channel2())
         if self.two_channel_window is not None:
             self.two_channel_window.close()
@@ -4940,8 +5326,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
         algorithm : str
             Selected algorithm: "Auto", "DBSCAN", or "HDBSCAN"
         """
-        # Show/hide parameters based on algorithm selection
-        if algorithm == "DBSCAN":
+        # Show/hide parameters based on algorithm selection ("Auto" is the
+        # adaptive entry's old name and reads as it).
+        from tools.clustering_strategies import strategy_for_label
+
+        kind = strategy_for_label(algorithm)
+        if kind == "dbscan":
             # DBSCAN requires epsilon; HDBSCAN doesn't use it
             self.ui.label_eps.show()
             self.ui.lineEdit_eps.show()
@@ -4954,7 +5344,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
             self.logger.debug("Algorithm changed to DBSCAN - showing epsilon, hiding min_cluster_size")
 
-        elif algorithm == "HDBSCAN":
+        elif kind == "hdbscan":
             # HDBSCAN doesn't use epsilon but uses min_cluster_size
             self.ui.label_eps.hide()
             self.ui.lineEdit_eps.hide()
@@ -4967,8 +5357,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
             self.logger.debug("Algorithm changed to HDBSCAN - hiding epsilon, showing min_cluster_size")
 
-        elif algorithm == "Auto":
-            # Auto mode uses all parameters (user can set any of them)
+        elif kind == "auto":
+            # The adaptive mode uses all parameters (user can set any of them)
             self.ui.label_eps.show()
             self.ui.lineEdit_eps.show()
             self.ui.label_eps_2.show()
@@ -4976,16 +5366,23 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.ui.label_minclustersize.show()
             self.ui.lineEdit_minclustersize.show()
 
-            self.logger.debug("Algorithm changed to Auto - showing all parameters")
+            self.logger.debug("Algorithm changed to the adaptive mode - showing all parameters")
 
 
-    def cluster(self, channel: int) -> None:
+    def cluster(self, channel: int,
+                pair: Optional[Tuple[float, int]] = None) -> None:
         """Perform DBSCAN clustering on the selected ROI data and visualize results.
 
         Parameters
         ----------
         channel : int
             1 for primary channel, 2 for secondary channel.
+        pair : (eps_nm, min_samples), optional
+            Channel 2 only: a pair chosen on its k-distance graph (the
+            exploratory button) for this window clustering, instead of the
+            boxes, which keep theirs. Channel 2's own parameters are governed
+            by P-R57 (derived from NeNA in the Two channels box); its 'auto'
+            here is the estimate of before, untouched by P-R58.
         """
         self.logger.info(f"Clustering: Starting DBSCAN on channel {channel}")
 
@@ -5054,19 +5451,23 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # "auto" triggers adaptive parameter estimation (with Phase 4 caching)
         # Algorithm-specific parameter validation
         try:
-            # Determine strategy type based on algorithm selection
-            if algorithm_selection == "Auto":
-                strategy_type = "auto"
-            elif algorithm_selection == "DBSCAN":
-                strategy_type = "dbscan"
-            elif algorithm_selection == "HDBSCAN":
-                strategy_type = "hdbscan"
-            else:
-                strategy_type = "auto"
+            # Determine strategy type based on algorithm selection ("Auto",
+            # the adaptive entry's old name, reads as it).
+            from tools.clustering_strategies import strategy_for_label
 
-            # DBSCAN and Auto modes require epsilon
+            strategy_type = strategy_for_label(algorithm_selection)
+
+            # DBSCAN and the adaptive mode require epsilon
             if strategy_type in ["dbscan", "auto"]:
-                if eps_input.lower().strip() == "auto":
+                if pair is not None:
+                    # Channel 2's exploratory k-distance graph (its button):
+                    # the pair chosen there, for this window only.
+                    self.eps = float(pair[0])
+                    self.minsamples = int(pair[1])
+                    use_auto_eps = False
+                    use_auto_ms = False
+                    source = "k-distance graph"
+                elif eps_input.lower().strip() == "auto":
                     # Phase 4: Check cache first for similar dataset
                     cached_params = self.param_cache.get_cached_parameters(roi_points)
 
@@ -5109,7 +5510,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 source = "manual"
 
             # Min samples handling (common to DBSCAN and HDBSCAN)
-            if minsamples_input.lower().strip() == "auto":
+            if source == "k-distance graph":
+                pass  # the pair chosen on the graph, both values
+            elif minsamples_input.lower().strip() == "auto":
                 # If eps was auto and came from cache, min_samples already set
                 if source != "cache":
                     self.minsamples = clustering.estimate_min_samples(n_roi_points, dimensionality=2)
@@ -5155,7 +5558,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 self.logger.info(
                     f"Clustering Ch{channel}: Algorithm={algorithm_selection}, "
                     f"eps={self.eps:.3f} "
-                    f"({'cache' if source == 'cache' else 'auto-detected' if use_auto_eps else 'manual'}), "
+                    f"({'cache' if source == 'cache' else source if source == 'k-distance graph' else 'auto-detected' if use_auto_eps else 'manual'}), "
                     f"min_samples={int(self.minsamples)} "
                     f"({'auto-detected' if use_auto_ms else 'manual'})"
                 )
@@ -5172,8 +5575,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         # Perform clustering using strategy pattern (with manual algorithm control)
         try:
-            # Create clustering strategy: uses user-selected algorithm or auto-selection
-            # strategy_type can be "auto" (adaptive), "dbscan", or "hdbscan"
+            # Create clustering strategy: uses the user-selected algorithm
+            # strategy_type can be "auto" (the adaptive entry), "dbscan", or "hdbscan"
             # HDBSCAN-specific parameters are passed if needed
             if strategy_type == "hdbscan":
                 strategy = create_clustering_strategy(
@@ -5184,7 +5587,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     logger=self.logger
                 )
             else:
-                # DBSCAN or Auto modes use epsilon
+                # DBSCAN or the adaptive mode use epsilon
                 strategy = create_clustering_strategy(
                     strategy_type=strategy_type,
                     eps=self.eps,
@@ -5260,19 +5663,24 @@ class MPS_explorer(QtWidgets.QMainWindow):
             logger=self.logger
         )
 
-        # If suggestions are available and clustering quality is poor, show user
+        # No clusters: say so, and point at the graph rather than at a fixed
+        # factor of eps (P-R58: no number is proposed without the graph).
         if suggested_eps is not None and quality_stats["n_clusters"] == 0:
             self.logger.warning(
-                f"Clustering Ch{channel}: No clusters found. Consider adjusting parameters. "
-                f"Current eps={self.eps:.2f}, suggested eps={suggested_eps:.2f}"
+                f"Clustering Ch{channel}: No clusters found with "
+                f"eps={self.eps:.2f}, min_samples={int(self.minsamples)}"
             )
-            # Show suggestion as a message to the user
+            where = ("Type 'auto' in eps to open the k-distance graph of these "
+                     "localizations, where eps can be read and set by eye."
+                     if channel == 1 else
+                     "Channel 2's parameters come from its own precision "
+                     "(the Two channels box); its 'k-distance... "
+                     "(exploratory)' button shows the graph of these "
+                     "localizations.")
             QtWidgets.QMessageBox.information(
-                self, "Parameter Adjustment Suggestion",
-                f"No clusters were found with current parameters.\n\n"
-                f"Current: eps={self.eps:.2f}, min_samples={int(self.minsamples)}\n"
-                f"Suggested: eps={suggested_eps:.2f}\n\n"
-                f"Try adjusting parameters or enter 'auto' for automatic detection."
+                self, "No clusters",
+                f"No clusters were found with eps={self.eps:.2f} nm and "
+                f"min samples={int(self.minsamples)}.\n\n{where}"
             )
 
         # Create cluster visualization

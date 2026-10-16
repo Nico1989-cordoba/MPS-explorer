@@ -74,19 +74,29 @@ from tools.mps_geometry import (
     reconstruct_perimeter,
 )
 from tools.mps_periodicity import (
+    DEFAULT_COMPONENT_RANGE,
+    DEFAULT_N_INIT,
+    DEFAULT_RANDOM_STATE,
     DEFAULT_SLAB_HALF_WIDTH_NM,
+    FOREIGN_FRACTION_WARN,
+    ForeignFraction,
     ZPeriodicityResult,
+    delta_z_summary,
     fit_z_periodicity,
+    foreign_fraction,
     select_mps_slab,
 )
 from tools.mps_randomization import (
     DEFAULT_N_RANDOMIZATIONS,
+    NULL_R_LEVEL,
     PAPER_KS_D,
+    RandomizationParams,
     RandomizationResult,
     randomize_cluster_positions,
 )
 from tools.mps_occupancy import (
     PAPER_OCCUPANCY_PERCENT,
+    SIGMA_CAP_FRACTION,
     OccupancyResult,
     compute_occupancy,
 )
@@ -186,6 +196,12 @@ class AxonAnalysis:
     run_randomization: bool = True
     n_randomizations: int = DEFAULT_N_RANDOMIZATIONS
     random_seed: int = 0
+    # How the randomization ran besides B and the seed (band, smoothing,
+    # incomplete iterations, attempts, grid, CDF band, hard core), and the
+    # cap of the occupancy ellipses: both editable since SCI-3.
+    randomization_params: RandomizationParams = field(
+        default_factory=RandomizationParams)
+    sigma_cap_fraction: float = SIGMA_CAP_FRACTION
     # The warnings raised before the clusters were fixed (pixel size, axial
     # slab, curation): an analysis of a subset of the clusters shares them.
     upstream_warnings: List[str] = field(default_factory=list)
@@ -225,6 +241,10 @@ class AxonAnalysis:
     # can see it; the panel's own table carries the same column.
     discard_registration: str = ""
 
+    # --- SCI-6: the single-ring window's expected foreign fraction --------
+    # F, the share of the slab's localizations the fitted mixture expects
+    # from components other than the slab's own ring (None: not computed).
+    slab_foreign: Optional[ForeignFraction] = None
     # --- clusters cut by the pick boundary (P-R59) ------------------------
     # tools.mps_cut_clusters.CutReport: which kept clusters the pick's edge
     # cut, and whether they were left out. None: no boundary was given to
@@ -232,6 +252,10 @@ class AxonAnalysis:
     cut: Optional[cut_rule.CutReport] = None
 
     # ---------------- convenience accessors for the panel ----------------
+
+    @property
+    def slab_foreign_fraction(self) -> Optional[float]:
+        return None if self.slab_foreign is None else self.slab_foreign.fraction
 
     @property
     def discard_applied(self) -> bool:
@@ -329,8 +353,41 @@ class AxonAnalysis:
         return self.randomization.ks_statistic if self.randomization else None
 
     @property
-    def ks_pvalue(self) -> Optional[float]:
-        return self.randomization.ks_pvalue if self.randomization else None
+    def nn_regularity_index(self) -> Optional[float]:
+        """r = median 1NN x K / P: the median spacing over the mean spacing
+        P / K (P the contour through the centres, ``perimeter_um``). The mean
+        1NN cannot exceed P / K and the median equals it for evenly spaced
+        centres (r = 1), so r separates the regularity of the arrangement
+        from the density of detected clusters. The value random placement
+        gives depends on the minimum separation and the band, so it is not a
+        fixed number: ``nn_regularity_null`` is this axon's own."""
+        med = self.median_1nn_nm
+        per = self.perimeter
+        if med is None or per is None or per.perimeter_um <= 0:
+            return None
+        return float(med * self.n_clusters_kept / (per.perimeter_um * 1000.0))
+
+    @property
+    def nn_regularity_null(self) -> Optional[Tuple[float, float, float]]:
+        """This axon's null regularity index: (mean, lo, hi) of r_i = median
+        1NN_i x K / P over the randomization's iterations, with the same K and
+        P as the observed r, the interval the central ``NULL_R_LEVEL`` of the
+        r_i. Its two-sided rank test is the Monte Carlo p of the median
+        (``ks_p_mc_median``): K / P is fixed, so the rank of r among the r_i
+        is the rank of the median among the medians. None without the
+        randomization or a contour."""
+        r = self.randomization
+        per = self.perimeter
+        if r is None or per is None or per.perimeter_um <= 0:
+            return None
+        return regularity_null(r.per_iteration_medians_nm,
+                               self.n_clusters_kept, per.perimeter_um)
+
+    @property
+    def nn_regularity_reading(self) -> Optional[str]:
+        """The observed r against this axon's null interval, in words."""
+        return regularity_reading(self.nn_regularity_index,
+                                  self.nn_regularity_null)
 
     def summary_rows(self) -> List[Tuple[str, str, str, str]]:
         """
@@ -379,8 +436,10 @@ class AxonAnalysis:
             ("Axial slab z-range",
              f"{self.slab_zmin_nm:,.0f} .. {self.slab_zmax_nm:,.0f} nm", "-",
              "auto from GMM main peak"),
+            ("  foreign fraction of the slab", _percent(self.slab_foreign_fraction), "-",
+             _foreign_note(self.slab_foreign)),
             ("Delta-Z (axial periodicity)", fmt(self.mean_delta_z_nm, 1),
-             "170 +/- 15 nm", f"{len(self.z_result.delta_z_nm)} interval(s)"),
+             "170 +/- 15 nm", _delta_z_note(self.z_result)),
             ("Clusters detected (raw)", f"{self.n_clusters_raw}", "-", ""),
             ("Clusters kept (auto-curated)", kept, "-",
              f"{len(self.bad_report.bad_labels)} removed"
@@ -447,13 +506,26 @@ class AxonAnalysis:
              "" if shift is None
              else "the most it moves, leaving each cluster of the contour "
                   "out in turn"),
-            ("Clusters per um", fmt(self.clusters_per_um, 2), "4.08", ""),
+            ("Clusters per um", fmt(self.clusters_per_um, 2), "4.08",
+             "the first thing to compare: the 1NN scales with it"),
             ("Cluster area (median)", fmt(self.median_area_nm2, 0) + " nm^2",
              "1,965 nm^2", "convex hull"),
             ("Effective radius (median)", fmt(self.median_r_eff_nm, 1) + " nm",
              "~25 nm", "sqrt(A/pi)"),
             ("1NN spacing (median)", fmt(self.median_1nn_nm, 1) + " nm",
              "260 nm", "euclidean, centre-to-centre"),
+            ("  regularity r",
+             fmt(self.nn_regularity_index, 2)
+             + ("" if self.nn_regularity_reading is None
+                else f", {self.nn_regularity_reading}"),
+             "-",
+             ("median 1NN x K / P (1 = evenly spaced); "
+              + ("null r (this axon): needs the randomization"
+                 if self.nn_regularity_null is None
+                 else "null r (this axon): "
+                      f"{self.nn_regularity_null[0]:.2f} "
+                      f"[{self.nn_regularity_null[1]:.2f}-"
+                      f"{self.nn_regularity_null[2]:.2f}]"))),
             ("Perimeter occupancy",
              "n/a" if self.occupancy is None
              else f"{self.occupancy.occupancy_percent:.1f} %",
@@ -464,16 +536,35 @@ class AxonAnalysis:
             ("Randomization KS test",
              "n/a" if self.randomization is None
              else f"D={self.randomization.ks_statistic:.3f}, "
-                  f"p={self.randomization.ks_pvalue:.1e}",
-             "D=0.054, p<1e-3",
+                  + ("z_D n/a" if self.randomization.ks_z is None
+                     else f"z_D={self.randomization.ks_z:+.1f}"),
+             "D=0.054 (pooled)",
              "" if self.randomization is None
-             else f"{self.randomization.n_iterations:,} randomizations, "
-                  f"min sep {self.randomization.min_distance_nm:.0f} nm"),
+             else (f"null mean D {self.randomization.ks_null_mean:.3f} "
+                   f"for K = {self.randomization.n_clusters}; "
+                   f"{self.randomization.n_iterations_used:,} "
+                   f"randomizations, min sep "
+                   f"{self.randomization.min_distance_nm:.0f} nm")),
+            ("  Monte Carlo p",
+             "n/a" if self.randomization is None
+             else "median " + _p_text(self.randomization.ks_p_mc_median)
+                  + ", D " + _p_text(self.randomization.ks_p_mc_d),
+             "-",
+             "" if self.randomization is None
+             else (f"approximate: the hard core is estimated from the "
+                   f"data; B = {self.randomization.n_iterations_used:,}")),
             ("  CDF crossing",
-             "no crossing" if (self.randomization is None
-                               or self.randomization.cdf_crossing is None)
-             else f"{self.randomization.cdf_crossing:.2f}",
-             "~0.80", "experimental vs randomized"),
+             "n/a" if self.randomization is None
+             else self.randomization.crossing_words(),
+             "~0.80", "only where the curves leave the null band"),
+            ("  centres outside the band",
+             "n/a" if self.randomization is None
+             else f"{self.randomization.n_outside_band}",
+             "-",
+             "" if self.randomization is None
+             else (f"observed centres farther than "
+                   f"{self.randomization.annulus_half_width_nm:g} nm from "
+                   f"the smoothed contour")),
         ]
         return rows
 
@@ -630,6 +721,21 @@ class AxonAnalysis:
                 None if self.occupancy is None else self.occupancy.n_points),
             "occupancy_n_capped_ellipses": (
                 None if self.occupancy is None else self.occupancy.n_capped),
+            "nn_regularity_index": (
+                None if self.nn_regularity_index is None
+                else round(self.nn_regularity_index, 4)),
+            # This axon's own null r (mean and central interval of the
+            # iterations' r_i): the random level depends on the minimum
+            # separation and the band, so it is not a fixed number.
+            "nn_regularity_null_mean": (
+                None if self.nn_regularity_null is None
+                else round(self.nn_regularity_null[0], 4)),
+            "nn_regularity_null_lo": (
+                None if self.nn_regularity_null is None
+                else round(self.nn_regularity_null[1], 4)),
+            "nn_regularity_null_hi": (
+                None if self.nn_regularity_null is None
+                else round(self.nn_regularity_null[2], 4)),
             "ks_statistic": self.ks_statistic,
             "ks_cdf_crossing": (
                 None if self.randomization is None
@@ -637,9 +743,24 @@ class AxonAnalysis:
             "randomization_requested": (
                 int(self.n_randomizations) if self.run_randomization else 0),
             "random_seed": self.random_seed,
+            # How the randomization and the occupancy ran (SCI-3): each
+            # changes the numbers, so each is in the row.
+            "randomization_band_half_width_nm": (
+                self.randomization_params.band_half_width_nm),
+            "randomization_smoothing_rms_nm": (
+                self.randomization_params.smoothing_rms_nm),
+            "randomization_exclude_incomplete": bool(
+                self.randomization_params.exclude_incomplete),
+            "randomization_max_attempts_factor": int(
+                self.randomization_params.max_attempts_factor),
+            "randomization_grid_spacing_nm": (
+                self.randomization_params.grid_spacing_nm),
+            "randomization_hard_core": self.randomization_params.hard_core,
+            "ks_band_alpha": self.randomization_params.cdf_band_alpha,
+            "occupancy_sigma_cap_fraction": float(self.sigma_cap_fraction),
             "randomization_n_iterations": (
                 None if self.randomization is None
-                else self.randomization.n_iterations),
+                else self.randomization.n_iterations_used),
             "randomization_min_sep_nm": (
                 None if self.randomization is None
                 else round(self.randomization.min_distance_nm, 1)),
@@ -649,10 +770,79 @@ class AxonAnalysis:
             "randomized_median_1nn_nm": (
                 None if self.randomization is None
                 else self.randomization.randomized_median_nm),
-            "ks_pvalue": self.ks_pvalue,
+            "ks_null_mean": (
+                None if self.randomization is None
+                or self.randomization.ks_null_mean is None
+                else round(self.randomization.ks_null_mean, 4)),
+            "ks_z": (
+                None if self.randomization is None
+                or self.randomization.ks_z is None
+                else round(self.randomization.ks_z, 3)),
+            "ks_p_mc_median": (
+                None if self.randomization is None
+                else self.randomization.ks_p_mc_median),
+            "ks_p_mc_d": (
+                None if self.randomization is None
+                else self.randomization.ks_p_mc_d),
+            "ks_cdf_crossing_significant": (
+                None if self.randomization is None
+                else bool(self.randomization.cdf_crossing_significant)),
+            "randomization_n_redrawn": (
+                None if self.randomization is None
+                else self.randomization.n_redrawn),
+            "randomization_packing_fraction": (
+                None if self.randomization is None
+                or self.randomization.packing_fraction is None
+                else round(self.randomization.packing_fraction, 4)),
+            "randomization_n_outside_band": (
+                None if self.randomization is None
+                else self.randomization.n_outside_band),
             "n_warnings": len(self.warnings),
             "warnings": " | ".join(cell_text(w) for w in self.warnings),
+            # SCI-6 (after every column of before): which reading of "the
+            # main peak" centred the slab and both readings, the slab's
+            # expected foreign fraction F, and the SE of the mean Delta-Z.
+            "main_peak_mode": self.z_result.main_peak_mode,
+            "z_peak_density_nm": _round_or_none(self.z_result.peak_by_density_nm, 2),
+            "z_peak_weight_nm": _round_or_none(self.z_result.peak_by_weight_nm, 2),
+            "slab_foreign_fraction": _round_or_none(self.slab_foreign_fraction, 4),
+            "delta_z_se_nm": _round_or_none(self.z_result.delta_z_se_nm, 2),
         }
+
+
+def _round_or_none(value: Optional[float], digits: int) -> Optional[float]:
+    if value is None or not np.isfinite(value):
+        return None
+    return round(float(value), digits)
+
+
+def _percent(value: Optional[float]) -> str:
+    return "n/a" if value is None else f"{100.0 * value:.1f} %"
+
+
+def _foreign_note(ff: Optional[ForeignFraction]) -> str:
+    """The note of the foreign-fraction row: what F is, the level it warns at
+    and how many dominant components the ROI has (no threshold on those)."""
+    if ff is None:
+        return ""
+    return (f"expected share from other components of the fitted mixture; this program warns above "
+            f"{FOREIGN_FRACTION_WARN:.0%}; {ff.n_dominant} dominant component(s) in the ROI")
+
+
+def _delta_z_note(zr: ZPeriodicityResult) -> str:
+    """The Delta-Z row's note: the intervals, the SE of the mean, and the
+    distance from the published axial period in its spread units (a
+    description, never a verdict; every reference is in the axial details)."""
+    n = len(zr.delta_z_nm)
+    words = f"{n} interval(s)"
+    summary = delta_z_summary(zr.delta_z_nm)
+    if summary.se_nm is not None:
+        words += f"; SE {summary.se_nm:.1f} nm"
+    if summary.distances:
+        d = summary.distances[0]
+        if d.spread_units is not None:
+            words += f"; {d.spread_units:+.2f} published spreads from {d.reference.label}"
+    return words
 
 
 # Where a pixel size came from, as tools.mps_io records it: the Picasso
@@ -665,6 +855,40 @@ class AxonAnalysis:
 # person typed for another file in the same folder. Both are inferences
 # about which acquisition a file belongs to, not records of it, so both
 # warn exactly like a typed value does.
+def regularity_null(
+    per_iteration_medians_nm: Any, n_clusters: int, perimeter_um: float,
+    level: float = NULL_R_LEVEL,
+) -> Optional[Tuple[float, float, float]]:
+    """(mean, lo, hi) of r_i = median 1NN_i x K / P over the iterations,
+    the interval the central ``level`` of the r_i; None without any."""
+    m = np.asarray(per_iteration_medians_nm, dtype=float)
+    m = m[np.isfinite(m)]
+    if m.size == 0 or perimeter_um <= 0:
+        return None
+    vals = m * int(n_clusters) / (float(perimeter_um) * 1000.0)
+    tail = 100.0 * (1.0 - float(level)) / 2.0
+    return (float(np.mean(vals)), float(np.percentile(vals, tail)),
+            float(np.percentile(vals, 100.0 - tail)))
+
+
+def regularity_reading(observed: Optional[float],
+                       null: Optional[Tuple[float, float, float]]
+                       ) -> Optional[str]:
+    """An observed r against a null interval, in words."""
+    if observed is None or null is None:
+        return None
+    if observed < null[1]:
+        return "below null (excess of short distances)"
+    if observed > null[2]:
+        return "above null (more regular than random)"
+    return "within null"
+
+
+def _p_text(p: Optional[float]) -> str:
+    """A Monte Carlo p as the results table writes it."""
+    return "n/a" if p is None else f"{p:.3f}"
+
+
 def format_guide(guide: Optional[NDArray[np.float64]]) -> Optional[str]:
     """A drawn path as one table cell: "x,y;x,y;..." in nm, to 0.1 nm.
 
@@ -716,6 +940,13 @@ def analyze_axon(
     random_seed: int = 0,
     all_starts: bool = True,
     contour_guide: Optional[NDArray[np.float64]] = None,
+    randomization_params: Optional[RandomizationParams] = None,
+    sigma_cap_fraction: float = SIGMA_CAP_FRACTION,
+    main_peak_mode: str = "density",
+    gmm_components: Tuple[int, ...] = DEFAULT_COMPONENT_RANGE,
+    gmm_n_init: int = DEFAULT_N_INIT,
+    gmm_random_state: int = DEFAULT_RANDOM_STATE,
+    foreign_fraction_warn: float = FOREIGN_FRACTION_WARN,
     cut_context: Optional[cut_rule.CutContext] = None,
     exclude_cut_clusters: bool = False,
 ) -> AxonAnalysis:
@@ -743,6 +974,11 @@ def analyze_axon(
         axoplasm discard leaves as well. Exclusive with
         ``custom_contour_order``.
 
+    randomization_params : how the randomization control runs besides B
+        and the seed (``RandomizationParams``; None: the defaults).
+    sigma_cap_fraction : the cap of each cluster's ellipse, sigma <= this
+        fraction of d_max (1/3, the published rule; documented range
+        0.2-1.0).
     cut_context : the pick boundary the file was cut with and the
         channel's NeNA (tools.mps_cut_clusters.CutContext). The clusters
         the curation kept that have a localization within 1 NeNA of the
@@ -756,6 +992,13 @@ def analyze_axon(
         the shortest tour (default). False refines it from one start, as
         this program did before 2026-09-19; on unpublished pilot axons
         that tour often came out longer, by a few percent.
+
+    main_peak_mode, gmm_components, gmm_n_init, gmm_random_state : the
+        axial mixture (``tools.mps_periodicity.fit_z_periodicity``): the
+        reading of the main peak ("density" or "weight"), the candidate
+        component counts, the EM restarts and the seed.
+    foreign_fraction_warn : the slab's expected foreign fraction F above
+        which a warning is raised (5 % by default; a suggestion).
 
     Returns
     -------
@@ -781,7 +1024,9 @@ def analyze_axon(
         )
 
     # ---------------- step 2: axial periodicity and slab ----------------
-    z_result = fit_z_periodicity(z_nm)
+    z_result = fit_z_periodicity(
+        z_nm, component_range=tuple(int(k) for k in gmm_components), main_peak_mode=main_peak_mode,
+        half_width_nm=slab_half_width_nm, n_init=int(gmm_n_init), random_state=int(gmm_random_state))
     warnings_.extend(z_result.warnings)
 
     if slab_override is not None:
@@ -815,6 +1060,19 @@ def analyze_axon(
 
     xs, ys, zs = x_nm[slab_mask], y_nm[slab_mask], z_nm[slab_mask]
 
+    # The slab's expected foreign fraction (SCI-6): what share of its
+    # localizations the fitted mixture expects from components other than
+    # the slab's own ring. It replaces the test on near-equal weights.
+    slab_foreign = foreign_fraction(z_result, zmin, zmax)
+    if (slab_foreign.fraction is not None
+            and slab_foreign.fraction > float(foreign_fraction_warn)):
+        warnings_.append(
+            f"The axial slab {zmin:.0f} .. {zmax:.0f} nm is expected to hold "
+            f"{slab_foreign.fraction:.1%} localizations of neighbouring components "
+            f"(above {float(foreign_fraction_warn):.0%}): the single-ring window "
+            f"mixes rings, and a neighbouring ring's clusters can enter the analysis."
+        )
+
     base: Dict[str, Any] = dict(
         source_name=source_name,
         pixel_size_nm=pixel_size_nm,
@@ -832,6 +1090,7 @@ def analyze_axon(
         slab_index=np.flatnonzero(slab_mask).astype(np.intp),
         roi=roi,
         slab_source=slab_source,
+        slab_foreign=slab_foreign,
     )
 
     settings: Dict[str, Any] = dict(
@@ -840,6 +1099,10 @@ def analyze_axon(
         run_randomization=run_randomization,
         n_randomizations=n_randomizations,
         random_seed=random_seed,
+        randomization_params=(RandomizationParams()
+                              if randomization_params is None
+                              else randomization_params),
+        sigma_cap_fraction=float(sigma_cap_fraction),
     )
 
     if xs.size < min_samples:
@@ -958,6 +1221,8 @@ def _cluster_steps(
     run_randomization: bool,
     n_randomizations: int,
     random_seed: int,
+    randomization_params: Optional[RandomizationParams] = None,
+    sigma_cap_fraction: float = SIGMA_CAP_FRACTION,
     custom_contour_order: Optional[NDArray[np.intp]] = None,
     all_starts: bool = False,
     contour: Optional[PerimeterResult] = None,
@@ -1009,6 +1274,7 @@ def _cluster_steps(
                 exclude_labels=excluded,
                 mahalanobis_threshold=mahalanobis_threshold,
                 ellipse_mode=ellipse_mode,
+                sigma_cap_fraction=sigma_cap_fraction,
             )
             warnings_.extend(occupancy.warnings)
         except Exception as exc:                      # noqa: BLE001
@@ -1024,6 +1290,7 @@ def _cluster_steps(
                 experimental_1nn_nm=nn.first_nn_nm,
                 n_iterations=n_randomizations,
                 random_seed=random_seed,
+                params=randomization_params,
             )
             warnings_.extend(randomization.warnings)
         except Exception as exc:                      # noqa: BLE001
@@ -1141,6 +1408,8 @@ def _rerun(
         run_randomization=analysis.run_randomization,
         n_randomizations=analysis.n_randomizations,
         random_seed=analysis.random_seed,
+        randomization_params=analysis.randomization_params,
+        sigma_cap_fraction=analysis.sigma_cap_fraction,
         all_starts=True, contour=contour,
         # A contour drawn by hand is drawn for this axon, not for this set
         # of clusters: the ones the discard leaves are joined along the

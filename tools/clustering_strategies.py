@@ -449,3 +449,38 @@ def create_clustering_strategy(
             f"Unknown strategy type: {strategy_type}. "
             "Use 'dbscan', 'hdbscan', or 'auto'."
         )
+
+
+# ---------------------------------------------------------------------------
+# The algorithm selector's labels (decision P-R58)
+# ---------------------------------------------------------------------------
+# The entry that runs AutoClusteringStrategy used to read "Auto", which said
+# nothing of what it does: DBSCAN below HDBSCAN_THRESHOLD localizations and
+# HDBSCAN above, a switch made for speed and not justified by the data, and
+# used by the main window's own clustering preview only. Its honest name says
+# that it adapts, and that it is exploratory. "Auto" stays readable: a stored
+# setting, a script or a test that names it still selects the same strategy.
+ADAPTIVE_LABEL = "Adaptive (exploratory)"
+LEGACY_ADAPTIVE_LABELS: Tuple[str, ...] = ("Auto",)
+ALGORITHM_LABELS: Tuple[str, ...] = (ADAPTIVE_LABEL, "DBSCAN", "HDBSCAN")
+
+
+def strategy_for_label(label: str) -> str:
+    """The ``create_clustering_strategy`` type an algorithm label stands for.
+
+    "DBSCAN" -> "dbscan", "HDBSCAN" -> "hdbscan", the adaptive entry (and its
+    old name "Auto") -> "auto". Anything else is DBSCAN, the analysis' own
+    algorithm, rather than a switch nobody chose.
+    """
+    text = str(label).strip()
+    if text == ADAPTIVE_LABEL or text in LEGACY_ADAPTIVE_LABELS or text.lower() == "auto":
+        return "auto"
+    if text.upper() == "HDBSCAN":
+        return "hdbscan"
+    return "dbscan"
+
+
+def label_for(label: str) -> str:
+    """The label shown today for a stored one ("Auto" -> the adaptive entry's name)."""
+    kind = strategy_for_label(label)
+    return {"auto": ADAPTIVE_LABEL, "hdbscan": "HDBSCAN"}.get(kind, "DBSCAN")

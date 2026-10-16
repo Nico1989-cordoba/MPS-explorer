@@ -11,8 +11,7 @@ in the neighbouring slab whenever its axial error exceeds its distance
 to the boundary. How often that happens is governed by the axial
 precision -- and the only axial precision the file reports, Picasso's
 ``lpz``, propagates the fit uncertainty of the PSF widths sx and sy
-through the astigmatism calibration and nothing else (02_investigacion
-section 2.2 B2). It knows nothing of calibration error, of focal drift
+through the astigmatism calibration and nothing else. It knows nothing of calibration error, of focal drift
 between calibration and acquisition, or of a z assigned to the wrong
 branch of the calibration curve. Fitted ring components can come out
 much wider than lpz, and nothing in a table of lpz values says which of
@@ -37,18 +36,19 @@ What is here
 ``spurious_cluster_probability``  P[leaked localizations reach min_samples]
 ``structural_width_nm``           sqrt(sigma_component^2 - lpz^2), floored
                                   at zero
-``z_quality``                     D-39 first filter: per ring pair the
+``z_quality``                     the first filter: per ring pair the
                                   separation d, valley, analytic leak,
                                   expected leak copies, events vs the
                                   Delta BIC requirement, and the verdict
                                   viable / marginal / not viable
-``viability_v2``                  D-41 ring-pair viability rule v2: SiZer
+``viability_v2``                  ring-pair viability rule v2: SiZer
                                   peak + valley (tools.mps_sizer), the
-                                  localization minimum vs the central
-                                  ring, the D-39 leak tiers, and the
-                                  limiting factors of the axon
+                                  localization minimum vs the reference
+                                  ring, the pair's leak-copy tolerance,
+                                  and the limiting factors of the axon
+``ViabilityParams``               every editable value of the above
 ``calibrated_lpz_nm``             lpz x the NeNA ratio of the stratum of
-                                  each localization's lab z (D-19, H5)
+                                  each localization's lab z
 
 Design decisions
 ----------------
@@ -69,10 +69,11 @@ Design decisions
   is optimistic and the leak estimates must use sigma_z; that is the
   number this module exists to put on the table.
 * The leak fraction averages 1 - Phi over the cluster's own lpz values
-  instead of plugging in their mean: the tail is convex in the width,
-  so the mean lpz underestimates the leak (Jensen) whenever the
-  precisions are heterogeneous, which in an astigmatic z they always
-  are.
+  instead of plugging in their mean. The tail 1 - Phi(Delta / s) is
+  convex in the width s only where the boundary is more than sqrt(2)
+  widths away (Delta / s > sqrt 2): there the mean-lpz shortcut
+  underestimates the leak (Jensen 1906); closer to the boundary the
+  tail is concave and the shortcut overestimates it.
 
 Nothing here draws random numbers; two runs on the same input are
 bit-identical.
@@ -82,6 +83,7 @@ bit-identical.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import os
 import re
@@ -127,6 +129,36 @@ __all__ = [
     "leak_fraction",
     "spurious_cluster_probability",
     "structural_width_nm",
+    "AGGREGATIONS",
+    "CopyTolerance",
+    "DELTA_MARGINAL_SD",
+    "DELTA_VIABLE_SD",
+    "FMinCalibration",
+    "P_REF_DEFAULT_NM",
+    "P_REF_PRESETS",
+    "P_REF_RANGE_NM",
+    "P_REF_SOURCE",
+    "REFERENCE_RINGS",
+    "SIZER_MAP_H_OVER_P",
+    "SizerMapRow",
+    "VIABILITY_RANGES",
+    "ViabilityParams",
+    "X_STATISTICS",
+    "axon_period_nm",
+    "axon_verdict",
+    "calibrate_count_floor",
+    "column_test_tau_nm",
+    "copy_tolerance",
+    "d_equivalents",
+    "group_z_scale_of",
+    "file_precision_nm",
+    "guard_star_nm",
+    "guard_z_star",
+    "peak_location_sd_nm",
+    "reference_ring_position",
+    "scale_period_nm",
+    "silverman_reading",
+    "valley_depth_equal",
 ]
 
 # Stratum width. The astigmatic precision changes over hundreds of nm,
@@ -482,9 +514,11 @@ def leak_fraction(
     being measured on the far side of the boundary is
     1 - Phi(|boundary - centre| / sqrt(sigma_struct^2 + lpz_i^2)). The
     cluster's leak is the mean of those chances. Averaging AFTER
-    evaluating the tail matters: the tail is convex in the width, so
-    the value at the mean lpz is a lower bound (Jensen), and the gap
-    grows with the spread of the precisions.
+    evaluating the tail matters where the spread of the precisions is
+    large: the tail is convex in the width where |boundary - centre| /
+    width > sqrt 2, and there the value at the mean lpz is a lower bound
+    (Jensen 1906); nearer the boundary the tail is concave and the
+    mean-lpz value is an upper bound.
 
     Parameters
     ----------
@@ -678,18 +712,17 @@ def calibrated_lpz_nm(
 # ===================================================================
 #  z-information quality of every ring pair (D-39, the first filter)
 # ===================================================================
-# D-39(b) thresholds: pilot-derived suggestions, editable. They were derived
-# in a simulation study of this program (2026-09-29), but the simulator was
-# configured from one exploratory axon of unpublished pilot data (its
-# contour, period, cluster sizes and precisions), the study also looked at
-# the z geometry of pilot axons, and the pilot data had already been
-# analysed in other ways when they were adopted: they are NOT a
-# data-independent pre-specification. They hold for a single contour and
-# period and min_samples = 10. The separation index d = |mu2 - mu1| / sqrt(s1^2 + s2^2)
-# guards against unresolved boundaries (sigma/P <= 0.32 / 0.35 at equal
-# widths); the expected leak-copy fraction is the analytic D-27c count;
-# the information ratio asks for twice the events that give an expected
-# Delta BIC of 10 (strong evidence of two components, ~95 % power).
+# The thresholds of the first z-quality filter (separation, leak copies,
+# information ratio) were chosen from a simulation study whose generator was
+# parameterised on a pilot acquisition (one contour, its period, cluster
+# sizes and precisions); no column statistic of a real axon entered their
+# choice. They are suggested defaults, labelled with that origin and
+# editable (``ViabilityParams``). The separation index
+# d = |mu2 - mu1| / sqrt(s1^2 + s2^2) is the ring gap over the combined
+# axial width: two equal rings are bimodal only above d = sqrt 2 (Schilling
+# et al. 2002); 2.2 / 2.0 are sigma/P = 0.32 / 0.35 at equal widths, valley
+# depth 41 % / 28 % (``d_equivalents``). The information ratio asks for twice
+# the events that give an expected Delta BIC of 10 (Kass & Raftery 1995).
 ZQ_D_VIABLE = 2.2
 ZQ_D_MARGINAL = 2.0
 ZQ_SPUR_VIABLE = 0.02
@@ -704,12 +737,28 @@ ZQ_MERGED_GAP_OVER_P = 1.3
 # A localization is "ambiguous" when its two-component posterior is
 # below this.
 ZQ_POSTERIOR_MIN = 0.85
-# The default reference period P when the caller has no better reference
-# for P: the median axial spacing measured on the betaII-spectrin example
-# regions distributed with the program (example data/), consistent with the
-# 170 +/- 15 nm of Gazal et al. (2026). It is not the period of the axon
-# being analysed; callers can pass another value.
-P_REF_DEFAULT_NM = 170.8
+# The reference period P_ref: the external yardstick of the merge flags
+# (a component wider than 0.5 P_ref cannot be one ring of a bimodal pair; a
+# gap over 1.3 P_ref suggests a lost ring), which must not depend on the axon
+# they check. Default: 170 nm, the mean inter-peak distance along z reported
+# for mouse sciatic nerve axons (Gazal et al. 2026, 170 +/- 15 nm); presets for
+# other preparations (``P_REF_PRESETS``) and a free value in 150-210 nm. The
+# scale-type quantities (SiZer bandwidth, peak window, width over period) use
+# the axon's own measured period (``axon_period_nm``) and fall back to P_ref.
+P_REF_DEFAULT_NM = 170.0
+P_REF_SOURCE = "literature: Gazal et al. 2026, sciatic nerve axial period 170 nm"
+P_REF_RANGE_NM = (150.0, 210.0)
+# (label, value nm, source words); the first is the default.
+P_REF_PRESETS: Tuple[Tuple[str, float, str], ...] = (
+    ("sciatic nerve, axial (170 nm, Gazal et al. 2026)", 170.0,
+     "literature: Gazal et al. 2026, sciatic nerve axial period 170 nm"),
+    ("sciatic nerve, lateral STED, mean (186 nm, D'Este et al. 2016)", 186.0,
+     "literature: D'Este et al. 2016, sciatic nerve lateral STED period 186 nm (mean)"),
+    ("cultured neurons (182 nm, Xu et al. 2013)", 182.0,
+     "literature: Xu et al. 2013, cultured hippocampal neurons 182 nm"),
+    ("cultured neurons (190 nm, Zhong et al. 2014)", 190.0,
+     "literature: Zhong et al. 2014, cultured neurons ~190 nm"),
+)
 VERDICT_VIABLE = "viable"
 VERDICT_MARGINAL = "marginal"
 VERDICT_NOT_VIABLE = "not viable"
@@ -725,7 +774,7 @@ Z_SELECTION_MODES = ("viable", "viable+marginal")
 # (tools.mps_settings); none of them (the default): no flag.
 UNCALIBRATED_LABELS_ENV = "MPS_UNCALIBRATED_LABELS"
 ROI2_PATTERN: Optional["re.Pattern[str]"] = None
-ROI2_FLAG = "fuera del rango calibrado (adquisicion marcada)"
+ROI2_FLAG = "outside the calibrated range (flagged acquisition)"
 # The (d_sep, exp_spur_frac) range of the accepted S4 originals, filled
 # in H5-E S5 as {"d_sep_min": ..., "exp_spur_frac_max": ...}; None until
 # then (no envelope flag is raised).
@@ -753,12 +802,292 @@ def uncalibrated_label_pattern() -> Optional["re.Pattern[str]"]:
         raise ValueError(f"{UNCALIBRATED_LABELS_ENV} is not a valid regular expression: {exc}") from exc
 
 _MIN_SIGMA_NM = 1e-6
+# The keep floor of the expected-copies count: n0 = n / keep is capped at 20 n,
+# a numerical safeguard that does not act on realistic data (editable,
+# ``ViabilityParams.keep_floor``).
 _MIN_KEEP = 0.05
+# The tolerated bias of the column excess, in null standard deviations, of the
+# per-pair leak-copy tolerance c = delta sd* / (2 (1 - p0)) (viable / marginal).
+DELTA_VIABLE_SD = 0.25
+DELTA_MARGINAL_SD = 0.5
+# The axial-profile SiZer bandwidths of the map shown beside the verdict.
+SIZER_MAP_H_OVER_P: Tuple[float, ...] = (0.05, 0.10, 0.15, 0.20, 0.25)
+# Silverman's critical-bandwidth reading: smoothed-bootstrap replicates and the
+# largest sample read (deterministic subsample).
+SILVERMAN_N_BOOT = 199
+SILVERMAN_MAX_N = 4000
+REFERENCE_RINGS: Tuple[str, ...] = ("central", "most populated", "pick")
+X_STATISTICS: Tuple[str, ...] = ("mean", "median")
+AGGREGATIONS: Tuple[str, ...] = ("any", "all")
+# The documented range of every editable value (SR-8: outside it a value is
+# flagged, never clamped). Keys are ``ViabilityParams`` fields.
+VIABILITY_RANGES: Dict[str, Tuple[float, float]] = {
+    "p_ref_nm": P_REF_RANGE_NM,
+    "h_over_p": (0.05, 0.25),
+    "peak_window_over_p": (0.2, 0.5),
+    "d_viable": (1.41, 3.0),
+    "d_marginal": (1.41, 3.0),
+    "delta_viable_sd": (0.1, 0.5),
+    "delta_marginal_sd": (0.25, 1.0),
+    "recall_tolerance": (0.80, 0.95),
+    "group_z_scale": (0.25, 1.0),
+    "keep_floor": (0.01, 0.2),
+    "v2c_h_over_p": (0.10, 0.30),
+    "v2c_cut_flag_over_h": (0.5, 2.0),
+    "v2c_sigma_floor_nm": (1.0, 20.0),
+}
+
+
+@dataclass(frozen=True)
+class ViabilityParams:
+    """Every editable value of the ring-pair viability (rule v2, the first z-quality filter, rule v2-clusters), one
+    object read from one store (``tools.mps_settings.MPSSettings.viability_params``). The defaults are the declared
+    ones; a value outside ``VIABILITY_RANGES`` is kept and flagged (``out_of_range``), never clamped; an impossible one
+    (a non-positive period, a fraction outside [0, 1]) raises ValueError.
+
+    p_ref_nm / p_ref_source: the reference period and its source words. h_over_p, peak_window_over_p: SiZer
+    bandwidth and peak window as fractions of the axon's period. d_viable / d_marginal: separation thresholds.
+    delta_viable_sd / delta_marginal_sd: the tolerated column-excess bias, in null sd, of the per-pair copy
+    tolerance. tau_nm: the eclipse tolerance of the column test that tolerance refers to (None: the column test's
+    tau_0, ``column_test_tau_nm``). recall_tolerance: the count floor's cluster recall (and v2c's k_min).
+    reference_ring / reference_ring_index: the denominator of the count criterion. x_statistic: mean or median
+    localizations per cluster. group_z_scale: the axial scale of the 3D variance groups (None: sigma_xy / sigma_z of
+    the file, 0.5 without precisions). small_sample_correction: G / (G - 1) on the cluster-robust variance.
+    keep_floor: the slab-retention floor of the copy count. v2c_*: rule v2-clusters' bandwidth, cut-flag width (in
+    bandwidths) and sigma floor. aggregation: the axon verdict from 'any' pair or 'all' pairs."""
+
+    p_ref_nm: float = P_REF_DEFAULT_NM
+    p_ref_source: str = P_REF_SOURCE
+    h_over_p: float = 0.10
+    peak_window_over_p: float = 1.0 / 3.0
+    d_viable: float = 2.2
+    d_marginal: float = 2.0
+    delta_viable_sd: float = DELTA_VIABLE_SD
+    delta_marginal_sd: float = DELTA_MARGINAL_SD
+    tau_nm: Optional[float] = None
+    recall_tolerance: float = 0.90
+    reference_ring: str = "central"
+    reference_ring_index: Optional[int] = None
+    x_statistic: str = "mean"
+    group_z_scale: Optional[float] = None
+    small_sample_correction: bool = False
+    keep_floor: float = _MIN_KEEP
+    v2c_h_over_p: float = 0.10
+    v2c_cut_flag_over_h: float = 1.0
+    v2c_sigma_floor_nm: float = 5.0
+    aggregation: str = "any"
+
+    def __post_init__(self) -> None:
+        for name in ("p_ref_nm", "h_over_p", "peak_window_over_p", "d_viable", "d_marginal", "delta_viable_sd",
+                     "delta_marginal_sd", "v2c_h_over_p", "v2c_cut_flag_over_h", "v2c_sigma_floor_nm"):
+            v = float(getattr(self, name))
+            if not (math.isfinite(v) and v > 0.0):
+                raise ValueError(f"{name} must be a positive number, got {getattr(self, name)!r}")
+        for name in ("recall_tolerance", "keep_floor"):
+            v = float(getattr(self, name))
+            if not (0.0 < v <= 1.0):
+                raise ValueError(f"{name} must lie in (0, 1], got {v!r}")
+        if self.tau_nm is not None and not (math.isfinite(float(self.tau_nm)) and float(self.tau_nm) > 0.0):
+            raise ValueError(f"tau_nm must be positive or None, got {self.tau_nm!r}")
+        if self.group_z_scale is not None and not (math.isfinite(float(self.group_z_scale))
+                                                   and float(self.group_z_scale) > 0.0):
+            raise ValueError(f"group_z_scale must be positive or None, got {self.group_z_scale!r}")
+        if self.reference_ring not in REFERENCE_RINGS:
+            raise ValueError(f"reference_ring must be one of {REFERENCE_RINGS}, got {self.reference_ring!r}")
+        if self.reference_ring == "pick" and self.reference_ring_index is None:
+            raise ValueError("reference_ring 'pick' needs reference_ring_index")
+        if self.x_statistic not in X_STATISTICS:
+            raise ValueError(f"x_statistic must be one of {X_STATISTICS}, got {self.x_statistic!r}")
+        if self.aggregation not in AGGREGATIONS:
+            raise ValueError(f"aggregation must be one of {AGGREGATIONS}, got {self.aggregation!r}")
+
+    def thresholds(self) -> "ZQualityThresholds":
+        """The first filter's thresholds (the fixed copy tiers stay the suggestion used without counts)."""
+        return ZQualityThresholds(d_viable=float(self.d_viable), d_marginal=float(self.d_marginal))
+
+    def out_of_range(self) -> Tuple[str, ...]:
+        """The fields whose value lies outside its documented range (flagged, never clamped; SR-8), plus
+        'd_marginal' when it exceeds d_viable."""
+        out: List[str] = []
+        for name, (lo, hi) in VIABILITY_RANGES.items():
+            v = getattr(self, name)
+            if v is None:
+                continue
+            if not (lo - 1e-12 <= float(v) <= hi + 1e-12):
+                out.append(name)
+        if float(self.d_marginal) > float(self.d_viable) and "d_marginal" not in out:
+            out.append("d_marginal")
+        return tuple(out)
+
+    def to_store(self) -> Dict[str, Any]:
+        """The fields that differ from the defaults (what the settings file keeps)."""
+        base = ViabilityParams()
+        return {f.name: getattr(self, f.name) for f in dataclasses.fields(self)
+                if getattr(self, f.name) != getattr(base, f.name)}
+
+    @classmethod
+    def from_store(cls, data: Any) -> "ViabilityParams":
+        """The parameters a settings entry describes: unknown keys and values of the wrong kind are dropped (one at a
+        time, so one bad entry never loses the others); out-of-range values are KEPT (flagged by ``out_of_range``)."""
+        if not isinstance(data, dict):
+            return cls()
+        names = {f.name for f in dataclasses.fields(cls)}
+        kept: Dict[str, Any] = {}
+        for k, v in data.items():
+            if k not in names:
+                continue
+            try:
+                cls(**dict(kept, **{k: v}))
+            except (TypeError, ValueError):
+                continue
+            kept[k] = v
+        return cls(**kept)
+
+    def with_(self, **changes: Any) -> "ViabilityParams":
+        return dataclasses.replace(self, **changes)
+
+
+def axon_period_nm(rings: Sequence[Any]) -> float:
+    """The axon's period: the median over consecutive listed rings (sorted by index) of centre spacing / index step,
+    so a missing ring (index step 2) counts as one period, not two; NaN with fewer than 2 rings. ``rings``: objects
+    with ``index`` and ``centre_z_nm``."""
+    ordered = sorted(rings, key=lambda r: int(r.index))
+    if len(ordered) < 2:
+        return float("nan")
+    centres = np.array([float(r.centre_z_nm) for r in ordered])
+    idx = np.array([float(r.index) for r in ordered])
+    return float(np.median(np.diff(centres) / np.diff(idx)))
+
+
+def scale_period_nm(rings: Sequence[Any], p_ref_nm: float) -> Tuple[float, str]:
+    """(P, source) of the period-scaled quantities: the axon's measured period when it has two rings or more (and it
+    is positive), else the reference period (fallback)."""
+    p = axon_period_nm(rings)
+    if math.isfinite(p) and p > 0.0:
+        return float(p), "measured on this axon"
+    return float(p_ref_nm), "fallback: the reference period (fewer than two rings)"
+
+
+def valley_depth_equal(sigma_over_p: float) -> float:
+    """Valley depth of an equal-weight pair of Gaussian rings one period apart, relative to the density at a ring
+    centre: 1 - phi(P / (2 s)) / (0.5 [phi(0) + phi(P / s)]); 0 when there is no valley (s / P >= 0.5)."""
+    s = float(sigma_over_p)
+    if not (math.isfinite(s) and s > 0.0):
+        return float("nan")
+    centre = 0.5 * (norm.pdf(0.0) + norm.pdf(1.0 / s))
+    mid = norm.pdf(0.5 / s)
+    return float(max(0.0, 1.0 - mid / centre))
+
+
+def d_equivalents(d_sep: float) -> Tuple[float, float]:
+    """(sigma / P, valley depth) of an equal-width pair one period apart at separation index d: sigma / P =
+    1 / (d sqrt 2)."""
+    d = float(d_sep)
+    if not (math.isfinite(d) and d > 0.0):
+        return float("nan"), float("nan")
+    sp = 1.0 / (d * math.sqrt(2.0))
+    return sp, valley_depth_equal(sp)
+
+
+def guard_z_star(n0: int = 200, m: int = 10, prob: float = 0.05) -> float:
+    """z* such that a cluster of n0 localizations leaking a fraction 1 - Phi(z*) makes a copy (>= m leaked) with
+    probability ``prob``: F* solves P[Bin(n0, F*) >= m] = prob (bisection), z* = Phi^-1(1 - F*)."""
+    lo, hi = 0.0, 1.0
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        if float(binom.sf(m - 1, n0, mid)) > prob:
+            hi = mid
+        else:
+            lo = mid
+    return float(norm.isf(0.5 * (lo + hi)))
+
+
+def guard_star_nm(s_eff_nm: float, period_nm: float, n0: int = 200, m: int = 10) -> float:
+    """The guard g* = 2 (z* s_eff - P/2) (total width of the dead zone centred on a boundary) beyond which the
+    residual leak of an n0-localization cluster no longer makes a copy with 5 % probability; <= 0: no guard needed."""
+    s, p = float(s_eff_nm), float(period_nm)
+    if not (math.isfinite(s) and math.isfinite(p)):
+        return float("nan")
+    return float(2.0 * (guard_z_star(n0, m) * s - 0.5 * p))
+
+
+def column_test_tau_nm(path: Optional[str] = None) -> Optional[float]:
+    """The eclipse tolerance the column test runs at: tau_0 of the column parameters file
+    (``config/columns_params.yaml``), or None when it cannot be read."""
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config",
+                            "columns_params.yaml")
+    try:
+        stamp = os.path.getmtime(path)
+    except OSError:
+        return None
+    hit = _TAU_CACHE.get(path)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    try:
+        from tools.mps_columns import load_columns_params
+        tau = float(load_columns_params(path).tau0_nm)
+    except Exception:  # noqa: BLE001 - an unreadable file means "tau unknown": the fixed suggestions are used
+        tau = float("nan")
+    value = tau if math.isfinite(tau) and tau > 0.0 else None
+    _TAU_CACHE[path] = (stamp, value)
+    return value
+
+
+_TAU_CACHE: Dict[str, Tuple[float, Optional[float]]] = {}
+
+
+@dataclass(frozen=True)
+class CopyTolerance:
+    """The tolerated leak-copy fraction of one ring pair: c = delta sd* / (2 (1 - p0)) at the viable and the marginal
+    delta, with the null match rate p0 = 1 - exp(-2 tau K_other / L_other) (mean of the two directions) and sd* =
+    sqrt(p0 (1 - p0) / min K) (binomial approximation before the null is run); ``source`` in words. When the counts,
+    the ring lengths or tau are unknown, the fixed suggestions (2 % / 5 %) with ``per_pair`` False."""
+
+    viable: float
+    marginal: float
+    p0: float
+    sd_star: float
+    per_pair: bool
+    source: str
+
+
+def copy_tolerance(k_a: int, k_b: int, length_a_nm: float, length_b_nm: float, tau_nm: Optional[float], *,
+                   delta_viable_sd: float = DELTA_VIABLE_SD,
+                   delta_marginal_sd: float = DELTA_MARGINAL_SD) -> CopyTolerance:
+    """The per-pair copy tolerance (see ``CopyTolerance``). A leak copy sits at its parent's lateral position and
+    adds one match unless the parent was already matched by chance (p0): copies = c (K_a + K_b) shift the
+    standardised excess by about 2 c (1 - p0) / sd*, so tolerating delta null sd gives c = delta sd* / (2 (1 - p0))
+    (toroidal-shift null, Lotwick & Silverman 1982)."""
+    ka, kb = int(k_a), int(k_b)
+    la, lb = float(length_a_nm), float(length_b_nm)
+    if (tau_nm is None or not (math.isfinite(float(tau_nm)) and float(tau_nm) > 0.0) or min(ka, kb) < 1
+            or not (math.isfinite(la) and math.isfinite(lb) and la > 0.0 and lb > 0.0)):
+        why = ("tau unknown" if tau_nm is None or not math.isfinite(float(tau_nm)) else
+               "a ring without clusters" if min(ka, kb) < 1 else "ring length unknown")
+        return CopyTolerance(ZQ_SPUR_VIABLE, ZQ_SPUR_MARGINAL, float("nan"), float("nan"), False,
+                             f"fixed suggestion {100 * ZQ_SPUR_VIABLE:g} % / {100 * ZQ_SPUR_MARGINAL:g} % ({why})")
+    tau = float(tau_nm)
+    p_ab = 1.0 - math.exp(-2.0 * tau * kb / lb)
+    p_ba = 1.0 - math.exp(-2.0 * tau * ka / la)
+    p0 = 0.5 * (p_ab + p_ba)
+    min_k = min(ka, kb)
+    sd = math.sqrt(max(p0 * (1.0 - p0), 0.0) / min_k)
+    if 1.0 - p0 <= 1e-12:
+        cv = cm = float("inf")
+    else:
+        cv = float(delta_viable_sd) * sd / (2.0 * (1.0 - p0))
+        cm = float(delta_marginal_sd) * sd / (2.0 * (1.0 - p0))
+    return CopyTolerance(cv, cm, p0, sd, True,
+                         f"per pair: {float(delta_viable_sd):g} / {float(delta_marginal_sd):g} null sd at tau "
+                         f"{tau:.1f} nm (p0 {p0:.2f}, min K {min_k})")
 
 
 @dataclass(frozen=True)
 class ZQualityThresholds:
-    """The D-39(b) verdict thresholds; the defaults are the frozen ones."""
+    """The first filter's verdict thresholds (suggestions from a pilot-parameterised simulation, editable through
+    ``ViabilityParams``). ``spur_viable`` / ``spur_marginal`` are the fixed copy tiers, used only when a pair's own
+    tolerance cannot be computed (``copy_tolerance``)."""
 
     d_viable: float = ZQ_D_VIABLE
     d_marginal: float = ZQ_D_MARGINAL
@@ -767,6 +1096,12 @@ class ZQualityThresholds:
     info_ratio_min: float = ZQ_INFO_RATIO_MIN
     merged_sigma_over_p: float = ZQ_MERGED_SIGMA_OVER_P
     merged_gap_over_p: float = ZQ_MERGED_GAP_OVER_P
+    # SCI-6 (zq-valley-required): the valley the verdict requires has a
+    # relative depth above this. 0 = any interior dip, as before; a dip of
+    # any size is deterministic on the fitted parameters and ignores sampling
+    # noise, which is why rule v2 tests the valley's significance with SiZer
+    # instead and this verdict is a diagnostic beside it. Editable 0-0.3.
+    min_valley_depth: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -822,6 +1157,12 @@ class BoundaryQuality:
     info_ratio: float
     verdict: str
     reasons: Tuple[str, ...]
+    # the pair's tolerated copy fraction (viable / marginal), the null match rate and sd behind it, and its source
+    spur_viable: float = ZQ_SPUR_VIABLE
+    spur_marginal: float = ZQ_SPUR_MARGINAL
+    tolerance_p0: float = float("nan")
+    tolerance_sd: float = float("nan")
+    tolerance_source: str = ""
 
 
 @dataclass(frozen=True)
@@ -841,6 +1182,8 @@ class ZQuality:
     min_samples: int
     thresholds: ZQualityThresholds
     warnings: Tuple[str, ...]
+    params: Optional["ViabilityParams"] = None
+    tau_nm: Optional[float] = None
 
 
 def kl_mixture_vs_gauss(mu: NDArray[np.float64], sd: NDArray[np.float64], w: NDArray[np.float64],
@@ -893,24 +1236,28 @@ def n_required(kl: float, delta_bic: float = ZQ_DELTA_BIC, extra_params: int = Z
 
 def boundary_verdict(*, d_sep: float, exp_spur_frac: float, info_ratio: float, valley_depth: float, gap_nm: float,
                      ring_flags: Sequence[Sequence[str]], rings: Tuple[int, int], p_ref_nm: float,
-                     thresholds: ZQualityThresholds = ZQualityThresholds()) -> Tuple[str, Tuple[str, ...]]:
+                     thresholds: ZQualityThresholds = ZQualityThresholds(), spur_viable: Optional[float] = None,
+                     spur_marginal: Optional[float] = None) -> Tuple[str, Tuple[str, ...]]:
     """
-    The D-39(b) verdict of one pair, with its reasons.
+    The first filter's verdict of one pair, with its reasons.
 
     VIABLE: an interior valley, no merge block, d >= d_viable, expected
-    copies <= spur_viable and (without events, not applied) info ratio
-    >= info_ratio_min. MARGINAL: valley, no block, d >= d_marginal and
-    copies <= spur_marginal. Otherwise NOT VIABLE. A block is a spacing
-    over merged_gap_over_p x P_ref (a lost ring) or a ring of the pair
-    wider than merged_sigma_over_p x P_ref (``ring_flags``, one tuple per
-    ring). Same rule and reason texts as the research prototype
-    (zq_core.verdict), plus one reason for too few events.
+    copies <= the viable tolerance and (without events, not applied) info
+    ratio >= info_ratio_min. MARGINAL: valley, no block, d >= d_marginal
+    and copies <= the marginal tolerance. Otherwise NOT VIABLE. A block is
+    a spacing over merged_gap_over_p x P_ref (a lost ring) or a ring of the
+    pair wider than merged_sigma_over_p x P_ref (``ring_flags``, one tuple
+    per ring). ``spur_viable`` / ``spur_marginal``: the pair's own copy
+    tolerance (``copy_tolerance``); None -> the fixed tiers of ``thresholds``.
     """
     t = thresholds
+    sv = float(t.spur_viable if spur_viable is None else spur_viable)
+    sm = float(t.spur_marginal if spur_marginal is None else spur_marginal)
     reasons: List[str] = []
-    valley = math.isfinite(valley_depth) and valley_depth > 0
+    valley = math.isfinite(valley_depth) and valley_depth > float(t.min_valley_depth)
     if not valley:
-        reasons.append("no interior valley")
+        reasons.append("no interior valley" if float(t.min_valley_depth) <= 0.0
+                       else f"no valley deeper than {float(t.min_valley_depth):g}")
     gap_block = gap_nm > t.merged_gap_over_p * p_ref_nm
     if gap_block:
         reasons.append(f"gap {gap_nm:.0f} nm > {t.merged_gap_over_p:g} P_ref (lost ring?)")
@@ -918,9 +1265,9 @@ def boundary_verdict(*, d_sep: float, exp_spur_frac: float, info_ratio: float, v
         reasons += [f"ring {k}: {m}" for m in flags]
     blocked = gap_block or any(len(f) > 0 for f in ring_flags)
     info_ok = not math.isfinite(info_ratio) or info_ratio >= t.info_ratio_min
-    if valley and not blocked and d_sep >= t.d_viable and exp_spur_frac <= t.spur_viable and info_ok:
+    if valley and not blocked and d_sep >= t.d_viable and exp_spur_frac <= sv and info_ok:
         verdict = VERDICT_VIABLE
-    elif valley and not blocked and d_sep >= t.d_marginal and exp_spur_frac <= t.spur_marginal:
+    elif valley and not blocked and d_sep >= t.d_marginal and exp_spur_frac <= sm:
         verdict = VERDICT_MARGINAL
     else:
         verdict = VERDICT_NOT_VIABLE
@@ -928,33 +1275,43 @@ def boundary_verdict(*, d_sep: float, exp_spur_frac: float, info_ratio: float, v
         reasons.append(f"d_sep {d_sep:.2f} < {t.d_marginal:g}")
     elif d_sep < t.d_viable:
         reasons.append(f"d_sep {d_sep:.2f} < {t.d_viable:g}")
-    if exp_spur_frac > t.spur_marginal:
-        reasons.append(f"expected leak copies {100 * exp_spur_frac:.1f} % > {100 * t.spur_marginal:g} %")
-    elif exp_spur_frac > t.spur_viable:
-        reasons.append(f"expected leak copies {100 * exp_spur_frac:.1f} % > {100 * t.spur_viable:g} %")
+    if exp_spur_frac > sm:
+        reasons.append(f"expected leak copies {100 * exp_spur_frac:.1f} % > {_tol_text(sm)}")
+    elif exp_spur_frac > sv:
+        reasons.append(f"expected leak copies {100 * exp_spur_frac:.1f} % > {_tol_text(sv)}")
     if verdict != VERDICT_VIABLE and math.isfinite(info_ratio) and info_ratio < t.info_ratio_min:
         reasons.append(f"events {info_ratio:.2f} x n_req < {t.info_ratio_min:g}")
     return verdict, tuple(reasons)
 
 
+def _tol_text(c: float) -> str:
+    """A tolerance in percent, three significant digits ("2 %", "1.37 %")."""
+    if not math.isfinite(c):
+        return "any"
+    return f"{100 * c:.3g} %"
+
+
 def _expected_copies(ring: Any, f_to: float, mu_all: NDArray[np.float64], sd_all: NDArray[np.float64],
-                     min_samples: int) -> float:
-    """D-27c: sum over the ring's clusters of P[Bin(n0, F) >= min_samples],
-    n0 = n_locs / kept fraction of the ring's component inside its own
-    slab (floored at 5 %)."""
+                     min_samples: int, keep_floor: float = _MIN_KEEP) -> float:
+    """The expected leak copies of one ring: sum over its clusters of P[Bin(n0, F) >= min_samples] (Ester et al.
+    1996: the DBSCAN core count), n0 = n_locs / kept fraction of the ring's component inside its own slab (an
+    inclusion-probability correction, Horvitz & Thompson 1952), the kept fraction floored at ``keep_floor``. Every
+    cluster is evaluated at its ring's centre (flat-ring assumption): off-centre clusters can make it
+    under-estimate."""
     c = int(ring.component_index)
     m, s = float(mu_all[c]), max(float(sd_all[c]), _MIN_SIGMA_NM)
     keep = float(norm.cdf((float(ring.z_hi_nm) - m) / s) - norm.cdf((float(ring.z_lo_nm) - m) / s))
-    keep = min(max(keep, _MIN_KEEP), 1.0)
+    keep = min(max(keep, float(keep_floor)), 1.0)
     return float(sum(float(binom.sf(min_samples - 1, int(round(int(cl.n_locs) / keep)), f_to)) for cl in ring.clusters))
 
 
 def z_quality(res: Any, *, p_ref_nm: Optional[float] = None, min_samples: Optional[int] = None,
               posterior_min: float = ZQ_POSTERIOR_MIN,
-              thresholds: ZQualityThresholds = ZQualityThresholds()) -> ZQuality:
+              thresholds: Optional[ZQualityThresholds] = None,
+              params: Optional[ViabilityParams] = None) -> ZQuality:
     """
     How much axial information separates every consecutive ring pair of
-    a ``build_rings`` result, and the D-39 verdict of each pair.
+    a ``build_rings`` result, and the first filter's verdict of each pair.
 
     Reads only what ``build_rings`` returns: the axial mixture
     (``res.ms.z_result``), each ring's component, slab and valley depth,
@@ -967,13 +1324,17 @@ def z_quality(res: Any, *, p_ref_nm: Optional[float] = None, min_samples: Option
     ----------
     res : a ``RingsResult`` (duck-typed; nothing is imported from
         mps_columns).
-    p_ref_nm : the axial period the merge rules compare with; None ->
-        ``P_REF_DEFAULT_NM`` (the source is recorded).
+    p_ref_nm : the reference period the merge rules compare with; None ->
+        ``params.p_ref_nm`` (170 nm, Gazal et al. 2026, by default); the
+        source is recorded.
     min_samples : DBSCAN min_samples of the copy count; None ->
         ``res.params.min_samples``.
     posterior_min : a localization with a two-component posterior below
         this counts as ambiguous.
-    thresholds : the D-39(b) thresholds.
+    thresholds : the verdict thresholds; None -> ``params.thresholds()``.
+    params : the viability parameters (``ViabilityParams``; None ->
+        defaults): the copy tolerance's delta and tau (None -> the column
+        test's tau_0, ``column_test_tau_nm``), the keep floor.
 
     Returns
     -------
@@ -982,12 +1343,14 @@ def z_quality(res: Any, *, p_ref_nm: Optional[float] = None, min_samples: Option
         and the axon verdict (the best pair's; ``AXON_FEWER_THAN_TWO_RINGS``
         with fewer than two rings).
     """
+    vp = params if params is not None else ViabilityParams()
     if p_ref_nm is None:
-        p_ref, p_src = P_REF_DEFAULT_NM, "default (exploratory-dataset median P, D-15)"
+        p_ref, p_src = float(vp.p_ref_nm), str(vp.p_ref_source)
     else:
         p_ref, p_src = float(p_ref_nm), "argument"
     ms_min = int(res.params.min_samples) if min_samples is None else int(min_samples)
-    t = thresholds
+    t = thresholds if thresholds is not None else vp.thresholds()
+    tau = float(vp.tau_nm) if vp.tau_nm is not None else column_test_tau_nm()
     warnings: List[str] = []
     rings = sorted(res.rings, key=lambda r: int(r.index))
     zr = res.ms.z_result
@@ -1042,8 +1405,8 @@ def z_quality(res: Any, *, p_ref_nm: Optional[float] = None, min_samples: Option
             amb = float(np.mean(post.max(axis=1) < posterior_min))
         else:
             amb = float("nan")
-        e_ab = _expected_copies(ra, f_lo, mu_all, sd_all, ms_min)
-        e_ba = _expected_copies(rb, f_hi, mu_all, sd_all, ms_min)
+        e_ab = _expected_copies(ra, f_lo, mu_all, sd_all, ms_min, vp.keep_floor)
+        e_ba = _expected_copies(rb, f_hi, mu_all, sd_all, ms_min, vp.keep_floor)
         spur = float((e_ab + e_ba) / (k_a + k_b)) if (k_a + k_b) else float("nan")
         kl = kl_mixture_vs_gauss(mu, sd, w)
         n_req = n_required(kl)
@@ -1053,26 +1416,39 @@ def z_quality(res: Any, *, p_ref_nm: Optional[float] = None, min_samples: Option
             n_ev = int(np.unique(e[e >= 0]).size) + int(np.count_nonzero(e < 0))
         info = float(n_ev / n_req) if (n_ev and math.isfinite(n_req)) else float("nan")
         gap = float(mu[1] - mu[0])
+        tol = copy_tolerance(k_a, k_b, float(getattr(ra, "length_nm", float("nan"))),
+                             float(getattr(rb, "length_nm", float("nan"))), tau,
+                             delta_viable_sd=vp.delta_viable_sd, delta_marginal_sd=vp.delta_marginal_sd)
+        sv, sm = ((tol.viable, tol.marginal) if tol.per_pair else (t.spur_viable, t.spur_marginal))
         verdict, reasons = boundary_verdict(d_sep=d_sep, exp_spur_frac=spur, info_ratio=info, valley_depth=valley,
                                             gap_nm=gap, ring_flags=(flags_of[ia], flags_of[ib]), rings=(ia, ib),
-                                            p_ref_nm=p_ref, thresholds=t)
+                                            p_ref_nm=p_ref, thresholds=t, spur_viable=sv, spur_marginal=sm)
         bounds.append(BoundaryQuality(
             ring_a=ia, ring_b=ib, d_sep=d_sep, ashman_d=d_sep * math.sqrt(2.0), valley_depth=valley, gap_nm=gap,
             cut_nm=cut, f_lo=f_lo, f_hi=f_hi, misassign=float(w[0] * f_lo + w[1] * f_hi), ambiguous_frac=amb,
             k_a=k_a, k_b=k_b, exp_spur_frac=spur, kl_nats=kl, n_req_events=n_req, n_events=n_ev, info_ratio=info,
-            verdict=verdict, reasons=reasons))
+            verdict=verdict, reasons=reasons, spur_viable=float(sv), spur_marginal=float(sm), tolerance_p0=tol.p0,
+            tolerance_sd=tol.sd_star, tolerance_source=tol.source))
 
-    order = {VERDICT_VIABLE: 2, VERDICT_MARGINAL: 1, VERDICT_NOT_VIABLE: 0}
-    if bounds:
-        best = max(order[b.verdict] for b in bounds)
-        axon = {2: VERDICT_VIABLE, 1: VERDICT_MARGINAL, 0: VERDICT_NOT_VIABLE}[best]
-    else:
-        axon = AXON_FEWER_THAN_TWO_RINGS
+    axon = axon_verdict([b.verdict for b in bounds], vp.aggregation)
     return ZQuality(
         rings=tuple(ring_q), boundaries=tuple(bounds), axon_verdict=axon,
         viable_pairs=tuple((b.ring_a, b.ring_b) for b in bounds if b.verdict == VERDICT_VIABLE),
         marginal_pairs=tuple((b.ring_a, b.ring_b) for b in bounds if b.verdict == VERDICT_MARGINAL),
-        p_ref_nm=p_ref, p_ref_source=p_src, min_samples=ms_min, thresholds=t, warnings=tuple(warnings))
+        p_ref_nm=p_ref, p_ref_source=p_src, min_samples=ms_min, thresholds=t, warnings=tuple(warnings),
+        params=vp, tau_nm=tau)
+
+
+def axon_verdict(verdicts: Sequence[str], aggregation: str = "any") -> str:
+    """The axon's verdict from its pairs': 'any' (default) is the best pair's (viable when at least one pair is, since
+    the column comparison is made pair by pair); 'all' the worst pair's. ``AXON_FEWER_THAN_TWO_RINGS`` without
+    pairs."""
+    order = {VERDICT_VIABLE: 2, VERDICT_MARGINAL: 1, VERDICT_NOT_VIABLE: 0}
+    if not verdicts:
+        return AXON_FEWER_THAN_TWO_RINGS
+    ranks = [order[v] for v in verdicts]
+    best = max(ranks) if aggregation == "any" else min(ranks)
+    return {2: VERDICT_VIABLE, 1: VERDICT_MARGINAL, 0: VERDICT_NOT_VIABLE}[best]
 
 
 def z_selection_key(zq: ZQuality, mode: str) -> Tuple[int, Tuple[Tuple[int, int], ...]]:
@@ -1109,51 +1485,56 @@ def calibration_range_flags(label: str, zq: Optional[ZQuality]) -> Tuple[str, ..
         bad = [f"{b.ring_a}-{b.ring_b}" for b in zq.boundaries if (b.ring_a, b.ring_b) in sel
                and (b.d_sep < env["d_sep_min"] or b.exp_spur_frac > env["exp_spur_frac_max"])]
         if bad:
-            out.append("pares " + ", ".join(bad) + ": fuera del rango calibrado (d_sep / copias esperadas fuera de lo "
-                       "calibrado en S4)")
+            out.append("pairs " + ", ".join(bad) + ": outside the calibrated range (d_sep / expected copies outside the "
+                       "range the synthetic calibration accepted)")
     return tuple(out)
 
 
 # ===================================================================
-#  Ring-pair viability rule v2 (D-41): SiZer peak + valley,
-#  localization minimum vs the central ring, D-39 leak tiers
+#  Ring-pair viability rule v2: SiZer peak + valley, localization
+#  minimum vs the reference ring, the pair's leak-copy tolerance
 # ===================================================================
-# The rule the user adopted on 2026-10-02 (Q-34, Q-35), from the zmin
-# research (its report is with the private research notes):
+# The rule the user adopted on 2026-10-02 (the declared default):
 #   (1) every ring of the pair has a significant SiZer PEAK within P/3 of
 #       its centre and (2) there is a significant VALLEY between the two
 #       ring centres (cluster-robust SiZer, h = 0.10 P, alpha 0.05,
-#       simultaneous quantile; groups = 3D DBSCAN clusters);
-#   (3) both rings hold f = n_locs(ring) / n_locs(central) >= f_min(x),
-#       f_min(x) = 1.46 - 0.336 ln x, x = localizations per cluster of the
-#       central ring / min_samples (fitted on x in [5.8, 13.3]; above the
-#       range f_min(13.3), below it the formula capped at 100 %, both
-#       flagged);
-#   (4) the D-39 expected leak-copy fraction exp_spur_frac <= 2 % ->
-#       VIABLE; <= 5 % with (1)-(3) -> MARGINAL (sensitivity only);
-#       anything else NOT VIABLE.
-VIABILITY_RULE_V2 = ("viability rule v2 (D-41): cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), "
-                     "localizations >= f_min(x) of the central ring, D-39 leak copies <= 2 % / 5 %")
+#       simultaneous quantile; groups = 3D DBSCAN clusters), P the axon's
+#       own period (the reference period with fewer than two rings);
+#   (3) both rings hold f = n_locs(ring) / n_locs(reference ring) >= f_min:
+#       the fraction at which a thinned ring keeps the recall tolerance (90 %)
+#       of its clusters, calibrated on the axon by Bernoulli thinning
+#       (``calibrate_count_floor``) or, until that is run, read from a line
+#       fitted to a simulation study, f_min(x) = 1.46 - 0.336 ln x, x =
+#       localizations per cluster of the reference ring / min_samples (fitted
+#       on x in [5.8, 13.3]; above the range f_min(13.3), below it the line
+#       capped at 100 %, both flagged);
+#   (4) the expected leak copies <= the pair's viable tolerance -> VIABLE;
+#       <= its marginal tolerance with (1)-(3) -> MARGINAL (sensitivity
+#       only); anything else NOT VIABLE.
+# Every threshold is an editable suggestion (``ViabilityParams``); the
+# composition is a conjunction of necessary conditions built from published
+# components (SiZer, Chaudhuri & Marron 1999; DBSCAN, Ester et al. 1996;
+# Gaussian tails).
+VIABILITY_RULE_V2 = ("viability rule v2: cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), localizations "
+                     ">= f_min of the reference ring, expected leak copies within the pair's tolerance")
 V2_PEAK_WINDOW_OVER_P = 1.0 / 3.0
 FMIN_INTERCEPT = 1.46
 FMIN_SLOPE_PER_LN_X = -0.336
 FMIN_X_RANGE = (5.8, 13.3)
 FMIN_CAP = 1.0
+# The fixed copy tiers, shown as the suggestion when a pair's tolerance cannot be computed (``copy_tolerance``).
 V2_SPUR_VIABLE = ZQ_SPUR_VIABLE
 V2_SPUR_MARGINAL = ZQ_SPUR_MARGINAL
-# Reference numbers of the limiting-factor summary (descriptive; never a
-# criterion). zmin report section 2: with sigma_z/P = 0.30 the SiZer
-# valley is detected 80 % of the time when the weak ring has ~81 % of the
-# central ring (4000 central localizations); at 0.36 not even with equal
-# rings; D-39(b): d >= 2.2 is sigma_z/P <= 0.32 at equal widths.
+# Reference marks of the ring width / period summary (descriptive; never a criterion), each with its meaning: at
+# sigma_z / P = 0.30 the valley of an equal pair is 50 % deep, at 0.36 25 % deep, and d = 2.2 is 0.32 (41 %).
 LF_SIGMA_OVER_P_VALLEY = 0.30
 LF_SIGMA_OVER_P_NONE = 0.36
 LF_SIGMA_OVER_P_D39 = 0.32
 # z-filter truncation flag (descriptive): an edge of the lab z range is
 # "cut" when the TRUNC_BIN_NM next to it still hold >= TRUNC_EDGE_FRAC of
 # the fullest bin and >= TRUNC_MIN_COUNT localizations (a natural tail
-# ends at ~0). zmin report section 4: a z filter can cut the profile
-# where the density is still a sizeable fraction of the maximum.
+# ends at ~0): a z filter can cut the profile where the density is still a
+# sizeable fraction of the maximum.
 TRUNC_BIN_NM = 20.0
 TRUNC_EDGE_FRAC = 0.05
 TRUNC_MIN_COUNT = 10
@@ -1162,17 +1543,43 @@ LF_OK = "ok"
 LF_INFO = "info"
 LF_WARNING = "warning"
 LF_OUTSIDE = "outside calibrated range"
+# The count-floor calibration by thinning: the retained fractions and the replicates per fraction.
+THINNING_F_GRID: Tuple[float, ...] = tuple(round(1.0 - 0.05 * i, 2) for i in range(15))   # 1.00 ... 0.30
+THINNING_REPLICATES = 20
+FMIN_SOURCE_FORMULA = "suggestion (simulation): the fitted line f_min(x)"
+FMIN_SOURCE_THINNING = "calibrated on this axon by thinning"
 
 
 @dataclass(frozen=True)
 class FMin:
-    """f_min(x) of criterion 3: the minimum fraction of the central
-    ring's localizations, the x it came from, whether x is inside the
-    fitted range and, when not, what was done ("" inside)."""
+    """f_min of criterion 3: the minimum fraction of the reference ring's
+    localizations, the x it came from, whether x is inside the fitted
+    range and, when not, what was done ("" inside)."""
 
     f_min: float
     x: float
     in_range: bool
+    note: str
+
+
+@dataclass(frozen=True)
+class FMinCalibration:
+    """The count floor calibrated on one axon by Bernoulli thinning of its reference ring's detected clusters: the
+    retained fractions, the mean (and sd) cluster recall at each over the replicates, f_min (the fraction at which
+    the mean recall falls to the tolerance, linearly interpolated; 1.0 when even the full ring is below it; NaN
+    without clusters), the tolerance, the replicates, the clusters thinned and the DBSCAN parameters."""
+
+    f_grid: Tuple[float, ...]
+    recall_mean: Tuple[float, ...]
+    recall_sd: Tuple[float, ...]
+    f_min: float
+    tolerance: float
+    replicates: int
+    k_clusters: int
+    ring_index: int
+    eps_nm: float
+    min_samples: int
+    seed: int
     note: str
 
 
@@ -1192,8 +1599,10 @@ class EdgeTruncation:
 @dataclass(frozen=True)
 class RingViabilityV2:
     """One ring under rule v2 (bottom to top): size, fraction of the
-    central ring, clusters, localizations per cluster, axial width and
-    precision, the SiZer peak (and where), and its roles."""
+    reference ring, clusters, localizations per cluster, axial width and
+    precision, the SiZer peak (and where), and its roles (``is_central``:
+    the reference ring of the count criterion; ``is_in_focus``: the ring
+    with the best axial precision)."""
 
     index: int
     centre_z_nm: float
@@ -1214,8 +1623,10 @@ class RingViabilityV2:
 @dataclass(frozen=True)
 class PairViabilityV2:
     """One consecutive ring pair under rule v2: the four criteria with
-    their numbers, the D-39 verdict next to it, the verdict and the plain
-    reasons it is not better."""
+    their numbers, the first filter's verdict next to it, the verdict and
+    the plain reasons it is not better; the pair's copy tolerance and, as
+    reference readings, Silverman's critical bandwidth and its bootstrap p
+    and the valley at every bandwidth of the SiZer map."""
 
     ring_a: int
     ring_b: int
@@ -1233,6 +1644,25 @@ class PairViabilityV2:
     d39_verdict: str
     verdict: str
     reasons: Tuple[str, ...]
+    spur_viable: float = V2_SPUR_VIABLE
+    spur_marginal: float = V2_SPUR_MARGINAL
+    tolerance_source: str = ""
+    silverman_h_crit_nm: float = float("nan")
+    silverman_p: float = float("nan")
+    valley_by_h: Tuple[bool, ...] = ()
+
+
+@dataclass(frozen=True)
+class SizerMapRow:
+    """The axial-profile SiZer at one bandwidth of the map: h as a fraction of P and in nm, the significant peaks and
+    valleys, which ring has a peak within the window and which consecutive pair a valley."""
+
+    h_over_p: float
+    h_nm: float
+    peaks: Tuple[float, ...]
+    valleys: Tuple[float, ...]
+    ring_peak: Tuple[bool, ...]
+    pair_valley: Tuple[bool, ...]
 
 
 @dataclass(frozen=True)
@@ -1250,10 +1680,11 @@ class LimitingFactor:
 
 @dataclass(frozen=True)
 class AxonViabilityV2:
-    """``viability_v2``'s answer for one axon: the rule (with version),
-    the rings and pairs, the central and in-focus rings (ring indices),
-    criterion 3's x and f_min, the SiZer profile, the z-edge flags, the
-    limiting factors and warnings."""
+    """``viability_v2``'s answer for one axon: the rule, the reference period (``p_ref_nm``, with its source) and the
+    period that scales h and the peak window (``p_nm``: the axon's own, or the reference as a fallback), the rings
+    and pairs, the reference (``central_index``) and best-precision (``in_focus_index``) rings, criterion 3's x and
+    f_min (with its source), the SiZer profile and map, the variance groups (with their z scale), the z-edge flags,
+    the limiting factors and warnings."""
 
     rule: str
     p_ref_nm: float
@@ -1277,13 +1708,30 @@ class AxonViabilityV2:
     viable_pairs: Tuple[Tuple[int, int], ...]
     marginal_pairs: Tuple[Tuple[int, int], ...]
     warnings: Tuple[str, ...]
+    p_nm: float = float("nan")
+    p_source: str = ""
+    p_ref_source: str = P_REF_SOURCE
+    params: Optional[ViabilityParams] = None
+    sizer_map: Tuple[SizerMapRow, ...] = ()
+    group_z_scale: float = float("nan")
+    group_z_scale_source: str = ""
+    peak_sd_nm: float = float("nan")
+    fmin_source: str = FMIN_SOURCE_FORMULA
+    fmin_calibration: Optional[FMinCalibration] = None
+    reference_ring: str = "central"
+
+    @property
+    def p_scale_nm(self) -> float:
+        """The period of the scale-type quantities (the reference period for a result without ``p_nm``)."""
+        return float(self.p_nm) if math.isfinite(float(self.p_nm)) else float(self.p_ref_nm)
 
 
 def f_min_of_x(x: float) -> FMin:
     """
-    Criterion 3's threshold, f_min(x) = 1.46 - 0.336 ln x (zmin part B,
-    max residual 0.016 on x in [5.8, 13.3]; 77 % [74.5; 79.2] at x ~ 8.1,
-    the fraction that keeps >= 90 % of the central ring's cluster recall).
+    Criterion 3's suggested threshold from a simulation study (shown until
+    the per-axon calibration is run), f_min(x) = 1.46 - 0.336 ln x, the
+    fraction that kept >= 90 % of the central ring's cluster recall on the
+    simulated design points x in [5.8, 13.3].
 
     Outside the fitted range it stays conservative and says so: x above
     13.3 takes f_min(13.3) (the formula keeps falling there), x below 5.8
@@ -1292,7 +1740,7 @@ def f_min_of_x(x: float) -> FMin:
     """
     lo, hi = FMIN_X_RANGE
     if not (isinstance(x, (int, float, np.floating)) and math.isfinite(float(x)) and float(x) > 0):
-        return FMin(float("nan"), float("nan"), False, "x not computable (central ring without clusters)")
+        return FMin(float("nan"), float("nan"), False, "x not computable (reference ring without clusters)")
     x = float(x)
     if x > hi:
         f = FMIN_INTERCEPT + FMIN_SLOPE_PER_LN_X * math.log(hi)
@@ -1308,7 +1756,7 @@ def f_min_of_x(x: float) -> FMin:
 
 def central_ring_position(n_locs: Sequence[int]) -> Optional[int]:
     """
-    Q-35: the central ring of a stack (rings bottom to top, given by
+    The central ring of a stack (rings bottom to top, given by
     their localization counts): the middle ring of an odd stack; with 2
     rings the more populated; with an even count >= 4 the more populated
     of the two middle rings (ties: the lower). One ring is its own centre
@@ -1327,23 +1775,47 @@ def central_ring_position(n_locs: Sequence[int]) -> Optional[int]:
     return a if int(n_locs[a]) >= int(n_locs[b]) else b
 
 
+def reference_ring_position(n_locs: Sequence[int], ring_indices: Sequence[int], mode: str = "central",
+                            pick: Optional[int] = None) -> Optional[int]:
+    """The position (bottom to top) of the count criterion's reference ring: 'central' (``central_ring_position``,
+    the ring expected nearest focus), 'most populated' (ties: the lower) or 'pick' (the ring whose index is ``pick``;
+    the central ring when that ring does not exist). None without rings."""
+    if not n_locs:
+        return None
+    if mode == "most populated":
+        best = max(int(v) for v in n_locs)
+        return next(i for i, v in enumerate(n_locs) if int(v) == best)
+    if mode == "pick" and pick is not None:
+        for i, k in enumerate(ring_indices):
+            if int(k) == int(pick):
+                return i
+    return central_ring_position(n_locs)
+
+
 def _pct(f: float) -> str:
     return f"{100.0 * f:.0f} %"
 
 
 def verdict_v2(*, rings: Tuple[int, int], peak_a: bool, peak_b: bool, valley: bool, f_a: float, f_b: float,
                f_min: float, exp_spur_frac: float, x: float = float("nan"), x_note: str = "",
-               p_ref_nm: float = P_REF_DEFAULT_NM) -> Tuple[str, Tuple[str, ...]]:
+               p_ref_nm: float = P_REF_DEFAULT_NM, spur_viable: Optional[float] = None,
+               spur_marginal: Optional[float] = None, window_over_p: float = V2_PEAK_WINDOW_OVER_P,
+               reference_word: str = "central") -> Tuple[str, Tuple[str, ...]]:
     """
     The rule-v2 verdict of one pair with its plain-language reasons.
 
-    Criteria (1)-(3) must all hold; then the D-39 leak tier decides:
-    exp_spur_frac <= 2 % VIABLE, <= 5 % MARGINAL (sensitivity only), else
-    (or not finite) NOT VIABLE.
+    Criteria (1)-(3) must all hold; then the leak decides: expected copies
+    <= the viable tolerance VIABLE, <= the marginal tolerance MARGINAL
+    (sensitivity only), else (or not finite) NOT VIABLE. ``p_ref_nm`` is
+    the period of the peak window (the axon's own when known);
+    ``spur_viable`` / ``spur_marginal`` the pair's tolerance (None: the
+    fixed 2 % / 5 % suggestion).
     """
     a, b = rings
+    sv = float(V2_SPUR_VIABLE if spur_viable is None else spur_viable)
+    sm = float(V2_SPUR_MARGINAL if spur_marginal is None else spur_marginal)
     reasons: List[str] = []
-    win = V2_PEAK_WINDOW_OVER_P * p_ref_nm
+    win = float(window_over_p) * p_ref_nm
     for k, pk in ((a, peak_a), (b, peak_b)):
         if not pk:
             reasons.append(f"ring {k}: no significant peak within {win:.0f} nm of its centre (SiZer)")
@@ -1351,27 +1823,26 @@ def verdict_v2(*, rings: Tuple[int, int], peak_a: bool, peak_b: bool, valley: bo
         reasons.append(f"no significant valley between rings {a} and {b} (the profile between them is flat or one-sided)")
     count_ok = math.isfinite(f_min) and all(math.isfinite(f) and f >= f_min for f in (f_a, f_b))
     if not math.isfinite(f_min):
-        reasons.append("localization minimum not computable (central ring without clusters)")
+        reasons.append(f"localization minimum not computable ({reference_word} ring without clusters)")
     else:
         for k, f in ((a, f_a), (b, f_b)):
             if not (math.isfinite(f) and f >= f_min):
-                reasons.append(f"ring {k} has {_pct(f) if math.isfinite(f) else 'an unknown fraction'} of the central "
-                               f"ring's localizations; the minimum is {_pct(f_min)}"
+                reasons.append(f"ring {k} has {_pct(f) if math.isfinite(f) else 'an unknown fraction'} of the "
+                               f"{reference_word} ring's localizations; the minimum is {_pct(f_min)}"
                                + (f" (x = {x:.1f})" if math.isfinite(x) else "") + (f"; {x_note}" if x_note else ""))
     crit = peak_a and peak_b and valley and count_ok
     spur = float(exp_spur_frac)
     if not math.isfinite(spur):
         reasons.append("expected leak copies unknown (no axial mixture component)")
-    elif spur > V2_SPUR_MARGINAL:
-        reasons.append(f"expected leak copies {100 * spur:.1f} % > {100 * V2_SPUR_MARGINAL:g} %")
-    elif spur > V2_SPUR_VIABLE:
+    elif spur > sm:
+        reasons.append(f"expected leak copies {100 * spur:.1f} % > {_tol_text(sm)}")
+    elif spur > sv:
         # "marginal" only when it is the verdict: a pair failing (1)-(3) is NOT VIABLE whatever its leak
-        reasons.append(f"expected leak copies {100 * spur:.1f} % > {100 * V2_SPUR_VIABLE:g} % "
-                       + ("(marginal: sensitivity only, D-39 d)" if crit else
-                          f"(VIABLE needs <= {100 * V2_SPUR_VIABLE:g} %)"))
-    if crit and math.isfinite(spur) and spur <= V2_SPUR_VIABLE:
+        reasons.append(f"expected leak copies {100 * spur:.1f} % > {_tol_text(sv)} "
+                       + ("(marginal: sensitivity only)" if crit else f"(VIABLE needs <= {_tol_text(sv)})"))
+    if crit and math.isfinite(spur) and spur <= sv:
         return VERDICT_VIABLE, tuple(reasons)
-    if crit and math.isfinite(spur) and spur <= V2_SPUR_MARGINAL:
+    if crit and math.isfinite(spur) and spur <= sm:
         return VERDICT_MARGINAL, tuple(reasons)
     return VERDICT_NOT_VIABLE, tuple(reasons)
 
@@ -1402,10 +1873,199 @@ def z_edge_truncation(z: NDArray[np.float64], *, bin_nm: float = TRUNC_BIN_NM, e
     return out[0], out[1]
 
 
-def viability_v2(res: Any, zq: Optional[ZQuality] = None, *, xyz_lab_nm: Optional[Sequence[NDArray[np.float64]]] = None,
-                 groups: Optional[NDArray[np.int64]] = None, p_ref_nm: Optional[float] = None) -> AxonViabilityV2:
+# ------------------------------------------------------------------- reference multimodality readings
+_SILVERMAN_BINS = 1024
+
+
+def _n_modes(z: NDArray[np.float64], h: float, lo: float, hi: float) -> int:
+    """Modes of the Gaussian kernel density of ``z`` at bandwidth ``h`` on a binned grid over [lo, hi] (the counts
+    smoothed by a Gaussian filter; a mode is a strict rise followed by a fall, ripples below 1e-9 of the maximum
+    ignored)."""
+    from scipy.ndimage import gaussian_filter1d
+    counts, edges = np.histogram(z, bins=_SILVERMAN_BINS, range=(lo, hi))
+    dx = float(edges[1] - edges[0])
+    f = gaussian_filter1d(counts.astype(np.float64), sigma=max(h / dx, 1e-6), mode="constant", truncate=5.0)
+    tol = 1e-9 * float(f.max()) if f.size else 0.0
+    d = np.diff(f)
+    s = np.where(d > tol, 1, np.where(d < -tol, -1, 0))
+    s = s[s != 0]
+    if s.size == 0:
+        return 1
+    return int(np.count_nonzero((s[:-1] > 0) & (s[1:] < 0))) + int(s[-1] > 0)
+
+
+def silverman_reading(z: NDArray[np.float64], *, n_boot: int = SILVERMAN_N_BOOT, max_n: int = SILVERMAN_MAX_N,
+                      seed: int = 0) -> Tuple[float, float]:
     """
-    The ring-pair viability rule v2 (D-41) of a ``build_rings`` result.
+    Silverman's (1981) test of unimodality as a reference reading: the critical bandwidth h_crit (the smallest
+    Gaussian bandwidth at which the kernel density of ``z`` has one mode, by bisection) and the smoothed-bootstrap p
+    (variance-corrected resampling at h_crit; p = (b + 1) / (B + 1) with b the replicates that show more than one
+    mode). The localizations are treated as independent, which they are not (one fluorophore gives many): the p is
+    a reading, never a criterion. Deterministic given ``seed``; a sample above ``max_n`` is subsampled. (NaN, NaN)
+    with fewer than 10 values or no spread.
+    """
+    z = np.asarray(z, dtype=np.float64)
+    z = z[np.isfinite(z)]
+    if z.size < 10 or float(np.ptp(z)) <= 0.0:
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(np.random.SeedSequence(int(seed), spawn_key=(int.from_bytes(b"silv", "big"),)))
+    if z.size > max_n:
+        z = np.sort(rng.choice(z, size=int(max_n), replace=False))
+    sd = float(np.std(z))
+    lo, hi = float(z.min()) - 4.0 * sd, float(z.max()) + 4.0 * sd
+    a, b = (hi - lo) / _SILVERMAN_BINS, 4.0 * sd
+    if _n_modes(z, b, lo, hi) > 1:
+        return float("nan"), float("nan")
+    if _n_modes(z, a, lo, hi) <= 1:
+        h_crit = a
+    else:
+        for _ in range(40):
+            m = math.sqrt(a * b)
+            if _n_modes(z, m, lo, hi) > 1:
+                a = m
+            else:
+                b = m
+        h_crit = b
+    mean, var = float(np.mean(z)), float(np.var(z))
+    shrink = 1.0 / math.sqrt(1.0 + h_crit * h_crit / var) if var > 0 else 1.0
+    exceed = 0
+    for _ in range(int(n_boot)):
+        x = rng.choice(z, size=z.size, replace=True)
+        y = mean + (x - mean + h_crit * rng.standard_normal(z.size)) * shrink
+        if _n_modes(y, h_crit, lo, hi) > 1:
+            exceed += 1
+    return float(h_crit), float((exceed + 1) / (int(n_boot) + 1))
+
+
+def peak_location_sd_nm(sigma_nm: float, h_nm: float, n: float) -> float:
+    """The sd of the position of a kernel-density mode (Parzen 1962): sqrt((sqrt 2 / 4) (s^2 + h^2)^(5/2) /
+    (n h^3)) for a Gaussian ring of width s read at bandwidth h with n independent points."""
+    s, h, n_ = float(sigma_nm), float(h_nm), float(n)
+    if not (math.isfinite(s) and math.isfinite(h) and h > 0 and math.isfinite(n_) and n_ > 0):
+        return float("nan")
+    return float(math.sqrt((math.sqrt(2.0) / 4.0) * (s * s + h * h) ** 2.5 / (n_ * h ** 3)))
+
+
+# ------------------------------------------------------------------- the count floor by thinning
+def calibrate_count_floor(res: Any, *, ring_index: Optional[int] = None, tolerance: float = 0.90,
+                          f_grid: Sequence[float] = THINNING_F_GRID, replicates: int = THINNING_REPLICATES,
+                          seed: int = 0, eps_nm: Optional[float] = None,
+                          min_samples: Optional[int] = None) -> FMinCalibration:
+    """
+    The count floor of criterion 3 calibrated on one axon: every localization of the reference ring's detected
+    clusters is kept with probability f (Bernoulli thinning), and a cluster survives while some kept localization
+    still has >= min_samples kept neighbours within eps in the axon-frame plane (the DBSCAN core condition, Ester et
+    al. 1996; the run's eps and min_samples). The recall at f is the share of clusters that survive, averaged over
+    ``replicates``; f_min is the fraction at which the mean recall falls to ``tolerance`` (linear interpolation
+    between grid points). ``ring_index`` None -> the central ring. Deterministic given ``seed``.
+    """
+    from scipy.spatial import cKDTree
+
+    rings = sorted(res.rings, key=lambda r: int(r.index))
+    eps = float(getattr(res.params, "eps_nm", 25.0) if eps_nm is None else eps_nm)
+    ms = int(res.params.min_samples if min_samples is None else min_samples)
+    grid = tuple(sorted({float(f) for f in f_grid}, reverse=True))
+    if not rings:
+        return FMinCalibration(grid, (), (), float("nan"), float(tolerance), int(replicates), 0, -1, eps, ms,
+                               int(seed), "no ring")
+    if ring_index is None:
+        pos = central_ring_position([int(np.asarray(r.loc_index).size) for r in rings])
+        ring = rings[int(pos or 0)]
+    else:
+        found = [r for r in rings if int(r.index) == int(ring_index)]
+        if not found:
+            raise ValueError(f"calibrate_count_floor: no ring {ring_index}")
+        ring = found[0]
+    x = np.asarray(res.x_p, dtype=np.float64)
+    y = np.asarray(res.y_p, dtype=np.float64)
+    neighbours: List[List[NDArray[np.intp]]] = []
+    for cl in ring.clusters:
+        li = np.asarray(cl.loc_index, dtype=np.intp)
+        pts = np.column_stack([x[li], y[li]])
+        tree = cKDTree(pts)
+        neighbours.append([np.asarray(v, dtype=np.intp) for v in tree.query_ball_point(pts, r=eps)])
+    k = len(neighbours)
+    if k == 0:
+        return FMinCalibration(grid, (), (), float("nan"), float(tolerance), int(replicates), 0, int(ring.index), eps,
+                               ms, int(seed), "the reference ring has no cluster")
+    rng = np.random.default_rng(np.random.SeedSequence(int(seed), spawn_key=(int.from_bytes(b"thin", "big"),)))
+    means: List[float] = []
+    sds: List[float] = []
+    for f in grid:
+        rec = np.empty(int(replicates))
+        for r in range(int(replicates)):
+            alive = 0
+            for nb in neighbours:
+                keep = rng.random(len(nb)) < f
+                if not keep.any():
+                    continue
+                counts = np.fromiter((int(np.count_nonzero(keep[v])) for v in nb), dtype=np.int64, count=len(nb))
+                if bool(np.any(keep & (counts >= ms))):
+                    alive += 1
+            rec[r] = alive / k
+        means.append(float(rec.mean()))
+        sds.append(float(rec.std(ddof=1)) if rec.size > 1 else 0.0)
+    tol = float(tolerance)
+    f_min = float("nan")
+    note = ""
+    if means[0] < tol:
+        f_min, note = 1.0, "even the full ring keeps fewer clusters than the tolerance: no localization can be lost"
+    else:
+        f_min = float(grid[-1])
+        note = f"the recall stays above the tolerance down to f = {grid[-1]:g}"
+        for i in range(1, len(grid)):
+            if means[i] < tol:
+                f0, f1, m0, m1 = grid[i - 1], grid[i], means[i - 1], means[i]
+                f_min = f1 + (tol - m1) * (f0 - f1) / (m0 - m1) if m0 != m1 else f0
+                note = ""
+                break
+    return FMinCalibration(grid, tuple(means), tuple(sds), float(f_min), tol, int(replicates), k, int(ring.index),
+                           eps, ms, int(seed), note)
+
+
+# ------------------------------------------------------------------- the rule
+Z_SCALE_OUTSIDE = "outside the documented range"
+
+
+def file_precision_nm(lp_lateral_nm: Any, lpz_nm: Any) -> Optional[Tuple[float, float]]:
+    """(median lateral, median axial) precision of a file's localizations, or None when either is missing."""
+    if lp_lateral_nm is None or lpz_nm is None:
+        return None
+    lp = np.asarray(lp_lateral_nm, dtype=np.float64)
+    lz = np.asarray(lpz_nm, dtype=np.float64)
+    lp, lz = lp[np.isfinite(lp) & (lp > 0)], lz[np.isfinite(lz) & (lz > 0)]
+    if not (lp.size and lz.size):
+        return None
+    return float(np.median(lp)), float(np.median(lz))
+
+
+def group_z_scale_of(params: ViabilityParams, precision_nm: Optional[Tuple[float, float]]) -> Tuple[float, str]:
+    """The axial scale of the 3D variance groups and its source: the typed value, else sigma_xy / sigma_z of the
+    file (median lateral over median axial precision), else 0.5 (the suggestion: astigmatic axial precision is 2-3x
+    the lateral, Huang et al. 2008). A ratio measured outside the documented range (``VIABILITY_RANGES``) is used and
+    flagged in the source words (``Z_SCALE_OUTSIDE``), never clamped."""
+    from tools.mps_sizer import GROUP_Z_SCALE
+    if params.group_z_scale is not None:
+        return float(params.group_z_scale), "user"
+    if precision_nm is not None:
+        lp, lpz = (float(v) for v in precision_nm)
+        if math.isfinite(lp) and math.isfinite(lpz) and lp > 0 and lpz > 0:
+            ratio = lp / lpz
+            src = f"from the file: lateral {lp:.0f} nm / axial {lpz:.0f} nm"
+            lo, hi = VIABILITY_RANGES["group_z_scale"]
+            if not lo <= ratio <= hi:
+                src += f"; {Z_SCALE_OUTSIDE} {lo:g}-{hi:g} (used as measured)"
+            return ratio, src
+    return float(GROUP_Z_SCALE), "suggestion 0.5 (no precision in the file)"
+
+
+def viability_v2(res: Any, zq: Optional[ZQuality] = None, *, xyz_lab_nm: Optional[Sequence[NDArray[np.float64]]] = None,
+                 groups: Optional[NDArray[np.int64]] = None, p_ref_nm: Optional[float] = None,
+                 params: Optional[ViabilityParams] = None, precision_nm: Optional[Tuple[float, float]] = None,
+                 fmin_calibration: Optional[FMinCalibration] = None, sizer_map: bool = True,
+                 reference_readings: bool = True) -> AxonViabilityV2:
+    """
+    The ring-pair viability rule v2 of a ``build_rings`` result.
 
     Parameters
     ----------
@@ -1413,14 +2073,23 @@ def viability_v2(res: Any, zq: Optional[ZQuality] = None, *, xyz_lab_nm: Optiona
         loc_index, clusters, sigma_z_nm, lpz_median_nm), ``z_p`` (every
         input localization, input order), ``x_p`` / ``y_p`` and
         ``params.min_samples``.
-    zq : its ``z_quality`` (the leak numbers of criterion 4); None -> run.
+    zq : its ``z_quality`` (the leak numbers and tolerances of criterion
+        4); None -> run with ``params``.
     xyz_lab_nm : the localizations' LAB x, y, z (input order) for the 3D
-        DBSCAN groups of the cluster-robust variance -- the coordinates
-        the zmin research used. Without it the axon-frame coordinates are
-        used and a warning says so.
+        DBSCAN groups of the cluster-robust variance. Without it the
+        axon-frame coordinates are used and a warning says so.
     groups : the groups themselves (overrides ``xyz_lab_nm``).
-    p_ref_nm : the period P of h = 0.10 P and of the peak window P/3;
-        None -> ``zq.p_ref_nm`` or ``P_REF_DEFAULT_NM``.
+    p_ref_nm : the reference period; None -> ``zq.p_ref_nm`` or
+        ``params.p_ref_nm``. h and the peak window scale with the axon's
+        own period (``scale_period_nm``), which falls back to it.
+    params : ``ViabilityParams`` (None: defaults; ``zq.params`` when zq
+        carries them).
+    precision_nm : (median lateral, median axial) precision of the file,
+        for the groups' z scale; None -> the 0.5 suggestion.
+    fmin_calibration : a ``calibrate_count_floor`` result for this axon;
+        its f_min replaces the fitted line.
+    sizer_map / reference_readings : compute the SiZer map over
+        ``SIZER_MAP_H_OVER_P`` and Silverman's reading of every pair.
 
     Returns
     -------
@@ -1428,57 +2097,81 @@ def viability_v2(res: Any, zq: Optional[ZQuality] = None, *, xyz_lab_nm: Optiona
         Rings bottom to top, one ``PairViabilityV2`` per consecutive pair
         (none with fewer than two rings), the limiting factors.
     """
-    from tools.mps_sizer import GROUP_EPS_NM, GROUP_MIN_SAMPLES, GROUP_Z_SCALE, SIZER_ALPHA, SIZER_H_OVER_P
+    from tools.mps_sizer import GROUP_EPS_NM, GROUP_MIN_SAMPLES, SIZER_ALPHA
     from tools.mps_sizer import groups_3d, sizer_profile, valley_between
 
+    vp = params if params is not None else (getattr(zq, "params", None) or ViabilityParams())
     if p_ref_nm is None:
         p_ref_nm = getattr(zq, "p_ref_nm", None) if zq is not None else None
-    p_ref = float(p_ref_nm) if p_ref_nm is not None else P_REF_DEFAULT_NM
+    p_ref = float(p_ref_nm) if p_ref_nm is not None else float(vp.p_ref_nm)
+    p_ref_src = (str(getattr(zq, "p_ref_source", vp.p_ref_source)) if zq is not None and p_ref_nm is not None
+                 else str(vp.p_ref_source))
     if zq is None:
-        zq = z_quality(res, p_ref_nm=p_ref)
+        zq = z_quality(res, p_ref_nm=p_ref, params=vp)
     warnings: List[str] = []
     rings = sorted(res.rings, key=lambda r: int(r.index))
+    p_scale, p_scale_src = scale_period_nm(rings, p_ref)
     ms = int(res.params.min_samples)
     n_locs = [int(np.asarray(r.loc_index).size) for r in rings]
     k_cl = [len(r.clusters) for r in rings]
-    pos_c = central_ring_position(n_locs)
+    pos_c = reference_ring_position(n_locs, [int(r.index) for r in rings], vp.reference_ring, vp.reference_ring_index)
+    ref_word = "central" if vp.reference_ring == "central" else "reference"
     zp = np.asarray(res.z_p, dtype=np.float64)
 
     # ---- groups of the cluster-robust variance
+    zscale, zscale_src = group_z_scale_of(vp, precision_nm)
+    if Z_SCALE_OUTSIDE in zscale_src:
+        warnings.append(f"3D groups: the file's lateral / axial precision ratio {zscale:.2f} is {Z_SCALE_OUTSIDE} "
+                        f"{VIABILITY_RANGES['group_z_scale'][0]:g}-{VIABILITY_RANGES['group_z_scale'][1]:g}: used as "
+                        "measured; check the precisions (Data quality) or type a scale in Criteria...")
     if groups is not None:
         g = np.asarray(groups, dtype=np.int64)
         g_src = "given"
     elif xyz_lab_nm is not None:
         x, y, z = (np.asarray(v, dtype=np.float64) for v in xyz_lab_nm)
-        g = groups_3d(x, y, z, GROUP_EPS_NM, GROUP_MIN_SAMPLES, GROUP_Z_SCALE)
+        g = groups_3d(x, y, z, GROUP_EPS_NM, GROUP_MIN_SAMPLES, zscale)
         g_src = "lab coordinates (3D DBSCAN)"
     else:
         g = groups_3d(np.asarray(res.x_p, dtype=np.float64), np.asarray(res.y_p, dtype=np.float64), zp,
-                      GROUP_EPS_NM, GROUP_MIN_SAMPLES, GROUP_Z_SCALE)
+                      GROUP_EPS_NM, GROUP_MIN_SAMPLES, zscale)
         g_src = "axon-frame coordinates (3D DBSCAN; lab coordinates not given)"
         warnings.append("SiZer groups from the axon-frame coordinates: the rule is defined on the lab coordinates")
     if g.size != zp.size:
         raise ValueError(f"viability_v2: {g.size} group labels for {zp.size} localizations")
     n_groups = int(np.unique(g).size) if g.size else 0
 
-    # ---- SiZer on the whole z' profile
+    # ---- SiZer on the whole z' profile, at the chosen bandwidth and over the map
     profile = None
-    if zp.size >= 2 and np.ptp(zp) > 0:
-        profile = sizer_profile(zp, g, p_ref_nm=p_ref, c=SIZER_H_OVER_P, alpha=SIZER_ALPHA, robust=True)
+    ok_profile = zp.size >= 2 and np.ptp(zp) > 0
+    if ok_profile:
+        profile = sizer_profile(zp, g, p_ref_nm=p_scale, c=float(vp.h_over_p), alpha=SIZER_ALPHA, robust=True,
+                                small_sample=bool(vp.small_sample_correction))
     else:
         warnings.append("fewer than two distinct z values: no SiZer profile")
     peaks = list(profile.peaks) if profile is not None else []
-    win = V2_PEAK_WINDOW_OVER_P * p_ref
+    win = float(vp.peak_window_over_p) * p_scale
 
-    # ---- central ring, x and f_min
+    # ---- reference ring, x and f_min
     if pos_c is not None and k_cl[pos_c] > 0 and ms > 0:
-        x_c = n_locs[pos_c] / k_cl[pos_c] / ms
+        if vp.x_statistic == "median":
+            x_c = float(np.median([int(cl.n_locs) for cl in rings[pos_c].clusters])) / ms
+        else:
+            x_c = n_locs[pos_c] / k_cl[pos_c] / ms
     else:
         x_c = float("nan")
     fm = f_min_of_x(x_c)
+    fmin_src = FMIN_SOURCE_FORMULA
+    if fmin_calibration is not None and math.isfinite(fmin_calibration.f_min):
+        fm = FMin(float(fmin_calibration.f_min), fm.x, True,
+                  f"calibrated on ring {fmin_calibration.ring_index} by thinning (recall "
+                  f"{fmin_calibration.tolerance:.2f}, {fmin_calibration.replicates} replicates)")
+        fmin_src = FMIN_SOURCE_THINNING
+    elif abs(float(vp.recall_tolerance) - 0.90) > 1e-9 and math.isfinite(fm.f_min):
+        warnings.append(f"the fitted count-floor line belongs to a recall of 0.90, not {vp.recall_tolerance:.2f}: "
+                        "calibrate the count floor on this axon")
     n_central = n_locs[pos_c] if pos_c is not None else 0
 
-    # ---- in-focus ring and z edges
+    # ---- best-precision ring and z edges
     lpz = [float(r.lpz_median_nm) for r in rings]
     fin = [i for i, v in enumerate(lpz) if math.isfinite(v)]
     pos_f = min(fin, key=lambda i: lpz[i]) if fin else None
@@ -1486,7 +2179,6 @@ def viability_v2(res: Any, zq: Optional[ZQuality] = None, *, xyz_lab_nm: Optiona
     z_for_edges = np.asarray(xyz_lab_nm[2], dtype=np.float64) if xyz_lab_nm is not None else zp
     edges = z_edge_truncation(z_for_edges)
 
-    sig_over_p = {int(q.index): float(q.sigma_over_p) for q in getattr(zq, "rings", ())}
     ring_v: List[RingViabilityV2] = []
     for i, r in enumerate(rings):
         cen = float(r.centre_z_nm)
@@ -1501,9 +2193,23 @@ def viability_v2(res: Any, zq: Optional[ZQuality] = None, *, xyz_lab_nm: Optiona
             index=int(r.index), centre_z_nm=cen, n_locs=n_locs[i], k_clusters=k_cl[i],
             f_of_central=(n_locs[i] / n_central if n_central > 0 else float("nan")),
             locs_per_cluster=(n_locs[i] / k_cl[i] if k_cl[i] else float("nan")), sigma_z_nm=sig,
-            sigma_over_p=sig_over_p.get(int(r.index), sig / p_ref), lpz_median_nm=lpz[i], peak=bool(near),
+            sigma_over_p=sig / p_scale, lpz_median_nm=lpz[i], peak=bool(near),
             peak_z_nm=(min(near, key=lambda p: abs(p - cen)) if near else None), is_central=(i == pos_c),
             is_in_focus=(i == pos_f), truncated_edge=trunc))
+
+    # ---- the SiZer map
+    map_rows: List[SizerMapRow] = []
+    if sizer_map and ok_profile:
+        for c in SIZER_MAP_H_OVER_P:
+            prof_c = (profile if (profile is not None and abs(c - float(vp.h_over_p)) < 1e-12) else
+                      sizer_profile(zp, g, p_ref_nm=p_scale, c=c, alpha=SIZER_ALPHA, robust=True,
+                                    small_sample=bool(vp.small_sample_correction)))
+            rp = tuple(any(abs(p - rv.centre_z_nm) <= win for p in prof_c.peaks) for rv in ring_v)
+            pv = tuple(valley_between(prof_c.grid, prof_c.sign, *sorted((ring_v[i].centre_z_nm,
+                                                                         ring_v[i + 1].centre_z_nm)))
+                       for i in range(len(ring_v) - 1))
+            map_rows.append(SizerMapRow(float(c), float(c) * p_scale, tuple(prof_c.peaks), tuple(prof_c.valleys),
+                                        rp, tuple(bool(v) for v in pv)))
 
     # ---- pairs
     by_pair = {(int(b.ring_a), int(b.ring_b)): b for b in getattr(zq, "boundaries", ())}
@@ -1516,21 +2222,37 @@ def viability_v2(res: Any, zq: Optional[ZQuality] = None, *, xyz_lab_nm: Optiona
         if b is None:
             warnings.append(f"rings {ra.index}-{rb.index}: no z_quality boundary (leak unknown)")
         spur = float(b.exp_spur_frac) if b is not None else float("nan")
+        sv = float(getattr(b, "spur_viable", V2_SPUR_VIABLE)) if b is not None else V2_SPUR_VIABLE
+        sm = float(getattr(b, "spur_marginal", V2_SPUR_MARGINAL)) if b is not None else V2_SPUR_MARGINAL
         verdict, reasons = verdict_v2(rings=(ra.index, rb.index), peak_a=ra.peak, peak_b=rb.peak, valley=valley,
                                       f_a=ra.f_of_central, f_b=rb.f_of_central, f_min=fm.f_min, exp_spur_frac=spur,
-                                      x=fm.x, x_note=fm.note, p_ref_nm=p_ref)
+                                      x=fm.x, x_note=fm.note, p_ref_nm=p_scale, spur_viable=sv, spur_marginal=sm,
+                                      window_over_p=float(vp.peak_window_over_p), reference_word=ref_word)
         count_ok = math.isfinite(fm.f_min) and all(math.isfinite(f) and f >= fm.f_min
                                                     for f in (ra.f_of_central, rb.f_of_central))
+        h_crit = p_sil = float("nan")
+        if reference_readings:
+            li = np.concatenate([np.asarray(rings[i].loc_index, np.intp), np.asarray(rings[i + 1].loc_index, np.intp)])
+            h_crit, p_sil = silverman_reading(zp[li], seed=int(getattr(res.params, "random_seed", 0)))
         pair_v.append(PairViabilityV2(
             ring_a=ra.index, ring_b=rb.index, peak_a=ra.peak, peak_b=rb.peak, valley=valley, f_a=ra.f_of_central,
             f_b=rb.f_of_central, f_min=fm.f_min, x=fm.x, x_in_range=fm.in_range, count_ok=count_ok,
             exp_spur_frac=spur, d_sep=(float(b.d_sep) if b is not None else float("nan")),
-            d39_verdict=(str(b.verdict) if b is not None else ""), verdict=verdict, reasons=reasons))
+            d39_verdict=(str(b.verdict) if b is not None else ""), verdict=verdict, reasons=reasons,
+            spur_viable=sv, spur_marginal=sm, tolerance_source=(str(getattr(b, "tolerance_source", "")) if b else ""),
+            silverman_h_crit_nm=h_crit, silverman_p=p_sil,
+            valley_by_h=tuple(row.pair_valley[i] for row in map_rows)))
 
+    # the sd of a ring peak's position at the verdict's bandwidth, for the reference ring (independent points:
+    # a lower bound with clustered localizations)
+    peak_sd = float("nan")
+    if pos_c is not None and profile is not None:
+        peak_sd = peak_location_sd_nm(ring_v[pos_c].sigma_z_nm, profile.h_nm, max(k_cl[pos_c], 1))
     factors = _limiting_factors(ring_v, pair_v, edges, z_edge_src, fm, n_central,
-                                (k_cl[pos_c] if pos_c is not None else 0), ms, p_ref)
+                                (k_cl[pos_c] if pos_c is not None else 0), ms, p_scale, p_scale_src, fmin_src,
+                                ref_word)
     return AxonViabilityV2(
-        rule=VIABILITY_RULE_V2, p_ref_nm=p_ref, h_nm=(profile.h_nm if profile is not None else 0.1 * p_ref),
+        rule=VIABILITY_RULE_V2, p_ref_nm=p_ref, h_nm=(profile.h_nm if profile is not None else vp.h_over_p * p_scale),
         alpha=(profile.alpha if profile is not None else 0.05), min_samples=ms, rings=tuple(ring_v),
         pairs=tuple(pair_v), central_index=(ring_v[pos_c].index if pos_c is not None else None),
         in_focus_index=(ring_v[pos_f].index if pos_f is not None else None), x=fm.x, f_min=fm.f_min,
@@ -1538,12 +2260,15 @@ def viability_v2(res: Any, zq: Optional[ZQuality] = None, *, xyz_lab_nm: Optiona
         z_edges=edges, z_edges_source=z_edge_src, limiting_factors=factors,
         viable_pairs=tuple((p.ring_a, p.ring_b) for p in pair_v if p.verdict == VERDICT_VIABLE),
         marginal_pairs=tuple((p.ring_a, p.ring_b) for p in pair_v if p.verdict == VERDICT_MARGINAL),
-        warnings=tuple(warnings))
+        warnings=tuple(warnings), p_nm=p_scale, p_source=p_scale_src, p_ref_source=p_ref_src, params=vp,
+        sizer_map=tuple(map_rows), group_z_scale=zscale, group_z_scale_source=zscale_src, peak_sd_nm=peak_sd,
+        fmin_source=fmin_src, fmin_calibration=fmin_calibration, reference_ring=vp.reference_ring)
 
 
 def _limiting_factors(rings: Sequence[RingViabilityV2], pairs: Sequence[PairViabilityV2],
                       edges: Tuple[EdgeTruncation, EdgeTruncation], z_src: str, fm: FMin, n_central: int,
-                      k_central: int, ms: int, p_ref: float) -> Tuple[LimitingFactor, ...]:
+                      k_central: int, ms: int, p_ref: float, p_src: str = "", fmin_src: str = FMIN_SOURCE_FORMULA,
+                      ref_word: str = "central") -> Tuple[LimitingFactor, ...]:
     """The axon-level summary for the microscopy team: what limits the
     ring comparison, with the numbers the rule and the reports use."""
     out: List[LimitingFactor] = []
@@ -1552,8 +2277,9 @@ def _limiting_factors(rings: Sequence[RingViabilityV2], pairs: Sequence[PairViab
     out.append(LimitingFactor(
         "rings", "Rings detected", f"{n} ring(s), {max(n - 1, 0)} consecutive pair(s)",
         "at least 2 rings (one pair) to compare clusters between rings",
-        LF_LIMITING if n < 2 else LF_OK, "D-41 (Q-35)"))
-    # axial resolution: the RMS width of the best pair's two rings over P (= 1 / (sqrt 2 d) at a gap of P)
+        LF_LIMITING if n < 2 else LF_OK, "rule v2"))
+    # ring width / period: the RMS width of the best pair's two rings over P (= 1 / (sqrt 2 d) at a gap of P)
+    p_words = f"P = {p_ref:.1f} nm, {p_src}" if p_src else f"P = {p_ref:.1f} nm"
     cut_in_best: List[int] = []
     if pairs:
         by_idx = {r.index: r for r in rings}
@@ -1561,7 +2287,7 @@ def _limiting_factors(rings: Sequence[RingViabilityV2], pairs: Sequence[PairViab
                for p in pairs]
         best = min(rms)
         bp = pairs[rms.index(best)] if best in rms else pairs[0]
-        where = f"best pair {bp.ring_a}-{bp.ring_b} (RMS width of its two rings / P = {p_ref:.1f} nm)"
+        where = f"best pair {bp.ring_a}-{bp.ring_b} (RMS width of its two rings / P; {p_words})"
         # a ring whose data the z filter cuts is fitted narrower than it is: its pair's width is not evidence
         cut_in_best = [k for k in (bp.ring_a, bp.ring_b) if by_idx[k].truncated_edge]
         if cut_in_best:
@@ -1569,36 +2295,44 @@ def _limiting_factors(rings: Sequence[RingViabilityV2], pairs: Sequence[PairViab
                       f"underestimated (the other pairs: up to {max(rms):.3f})")
     elif rings:
         best = float(np.median([r.sigma_z_nm for r in rings])) / p_ref
-        where = f"ring width / P = {p_ref:.1f} nm"
+        where = f"ring width / P ({p_words})"
     else:
         best = float("nan")
         where = "no ring"
-    # judged on the value shown (three decimals): a reference from the simulations, not a hard threshold
+    # judged on the value shown (three decimals): a reference mark, not a hard threshold
     shown = round(best, 3) if math.isfinite(best) else best
     status = LF_LIMITING if (math.isfinite(shown) and shown > LF_SIGMA_OVER_P_VALLEY) else (
         (LF_WARNING if cut_in_best else LF_OK) if math.isfinite(shown) else LF_INFO)
+    d50 = 100 * valley_depth_equal(LF_SIGMA_OVER_P_VALLEY)
+    d25 = 100 * valley_depth_equal(LF_SIGMA_OVER_P_NONE)
+    d32 = 100 * valley_depth_equal(LF_SIGMA_OVER_P_D39)
     out.append(LimitingFactor(
-        "axial_resolution", "Axial resolution (sigma_z / P)", f"{shown:.3f} ({where})" if math.isfinite(best) else where,
-        f"smaller is better, no hard threshold: in the simulations (zmin report sec. 2) SiZer found the valley in ~80 % "
-        f"of simulated profiles (4000 localizations in the central ring) at {LF_SIGMA_OVER_P_VALLEY:.2f} when the "
-        f"weaker ring holds ~81 % of the central ring, and not in "
-        f"80 % even with equal rings at {LF_SIGMA_OVER_P_NONE:.2f}; D-39 'viable' asks d >= 2.2 "
-        f"(~{LF_SIGMA_OVER_P_D39:.2f})",
-        status, "D-41 / zmin report sec. 2; D-39(b)"))
-    # localizations per cluster of the central ring
+        "axial_resolution", "Ring width / period (sigma_z / P)",
+        f"{shown:.3f} ({where})" if math.isfinite(best) else where,
+        f"smaller is better, no hard threshold: at {LF_SIGMA_OVER_P_VALLEY:.2f} the valley between two equal rings "
+        f"is {d50:.0f} % deep, at {LF_SIGMA_OVER_P_D39:.2f} {d32:.0f} % (the separation d = 2.2), at "
+        f"{LF_SIGMA_OVER_P_NONE:.2f} only {d25:.0f} %, and above 0.5 there is none; the instrument's axial resolution "
+        "is only one ingredient of this width",
+        status, "closed form (equal Gaussian rings); separation thresholds from simulation"))
+    # localizations per cluster of the reference ring
     lo, hi = FMIN_X_RANGE
     if math.isfinite(fm.x):
-        value = (f"x = {fm.x:.1f} ({n_central} localizations / {k_central} clusters in the central ring / "
+        value = (f"x = {fm.x:.1f} ({n_central} localizations / {k_central} clusters in the {ref_word} ring / "
                  f"min_samples {ms})")
-        st = LF_LIMITING if fm.x < lo else (LF_OUTSIDE if fm.x > hi else LF_OK)
-        need = (f"validated x {lo:g}-{hi:g} (f_min 87-60 %); here every ring needs >= {_pct(fm.f_min)} of the central "
-                "ring" + (f" ({fm.note})" if fm.note else "") + "; brighter clusters lower f_min but raise the leak "
-                "copies at equal separation (D-39 a)")
+        if fmin_src == FMIN_SOURCE_THINNING:
+            st = LF_OK
+            need = (f"every ring needs >= {_pct(fm.f_min)} of the {ref_word} ring ({fm.note}); brighter clusters "
+                    "lower f_min but raise the leak copies at equal separation")
+        else:
+            st = LF_LIMITING if fm.x < lo else (LF_OUTSIDE if fm.x > hi else LF_OK)
+            need = (f"suggestion from a simulation line valid for x {lo:g}-{hi:g}: here every ring needs >= "
+                    f"{_pct(fm.f_min)} of the {ref_word} ring" + (f" ({fm.note})" if fm.note else "")
+                    + "; calibrate the count floor on this axon to replace it")
     else:
-        value, st = "not computable (no central ring with clusters)", LF_INFO
+        value, st = f"not computable (no {ref_word} ring with clusters)", LF_INFO
         need = f"validated x {lo:g}-{hi:g}"
     out.append(LimitingFactor("locs_per_cluster", "Localizations per cluster (x)", value, need, st,
-                              "D-41 (Q-34 criterion 3) / zmin report sec. 3"))
+                              fmin_src))
     # z-filter truncation
     cut = [e for e in edges if e.truncated]
     if cut:
@@ -1611,8 +2345,8 @@ def _limiting_factors(rings: Sequence[RingViabilityV2], pairs: Sequence[PairViab
     out.append(LimitingFactor(
         "z_truncation", f"z-filter truncation ({z_src})", value,
         "the profile should fall to ~0 before the z filter: a cut edge ring's % is underestimated and its 'peak' "
-        "may be the cut", st, "zmin report sec. 4"))
-    # focus
+        "may be the cut", st, "descriptive"))
+    # best axial precision
     foc = [r for r in rings if r.is_in_focus]
     cen = [r for r in rings if r.is_central]
     if foc:
@@ -1620,33 +2354,36 @@ def _limiting_factors(rings: Sequence[RingViabilityV2], pairs: Sequence[PairViab
         posn = ("top" if f0 is rings[-1] else "bottom" if f0 is rings[0] else "middle") if n > 1 else "only"
         value = f"ring {f0.index} ({posn}; median lpz {f0.lpz_median_nm:.0f} nm)"
         if cen and cen[0] is not f0:
-            value += f"; the central ring {cen[0].index} has median lpz {cen[0].lpz_median_nm:.0f} nm"
+            value += f"; the {ref_word} ring {cen[0].index} has median lpz {cen[0].lpz_median_nm:.0f} nm"
         st = LF_INFO
     else:
         value, st = "unknown (no lpz)", LF_INFO
     out.append(LimitingFactor(
-        "focus", "Ring in focus (smallest median lpz)", value,
-        "information: the in-focus ring need not be the central one", st,
-        "zmin report sec. 1"))
+        "focus", "Ring with the best axial precision (smallest median lpz)", value,
+        "information: astigmatic axial precision degrades away from focus; this ring need not be the reference one",
+        st, "Huang et al. 2008"))
     # leak (criterion 4)
-    sp = [p.exp_spur_frac for p in pairs if math.isfinite(p.exp_spur_frac)]
-    if sp:
-        best_sp = min(sp)
-        st = LF_OK if best_sp <= V2_SPUR_VIABLE else LF_LIMITING
-        value = f"best pair {100 * best_sp:.1f} % expected leak copies"
+    fin = [p for p in pairs if math.isfinite(p.exp_spur_frac)]
+    if fin:
+        bp = min(fin, key=lambda p: p.exp_spur_frac - p.spur_viable)
+        st = LF_OK if bp.exp_spur_frac <= bp.spur_viable else LF_LIMITING
+        value = (f"best pair {bp.ring_a}-{bp.ring_b}: expected copies {100 * bp.exp_spur_frac:.1f} % vs tolerated "
+                 f"{_tol_text(bp.spur_viable)}")
+        need = (f"<= the pair's viable tolerance ({_tol_text(bp.spur_viable)}), <= its marginal one "
+                f"({_tol_text(bp.spur_marginal)}); {bp.tolerance_source}" if bp.tolerance_source else
+                f"<= {_tol_text(bp.spur_viable)} viable, <= {_tol_text(bp.spur_marginal)} marginal")
     else:
         st, value = LF_INFO, "no pair"
+        need = f"<= {_tol_text(V2_SPUR_VIABLE)} viable, <= {_tol_text(V2_SPUR_MARGINAL)} marginal (suggestion)"
     out.append(LimitingFactor(
-        "leak", "Expected leak copies (D-39)", value,
-        f"<= {100 * V2_SPUR_VIABLE:g} % viable, <= {100 * V2_SPUR_MARGINAL:g} % marginal", st,
-        "D-39(a, b); D-41 criterion 4"))
+        "leak", "Expected leak copies (ring-level estimate)", value, need, st, "rule v2 criterion 4"))
     return tuple(out)
 
 
 def viability_v2_key(v2: AxonViabilityV2, mode: str) -> Tuple[int, Tuple[Tuple[int, int], ...]]:
     """(number of rings, selected pairs sorted) under rule v2: the
-    identity a simulated replicate must share with the observed axon
-    (Q-29 + D-41). ``mode`` "viable" or "viable+marginal"."""
+    identity a simulated replicate must share with the observed axon.
+    ``mode`` "viable" or "viable+marginal"."""
     if mode not in Z_SELECTION_MODES:
         raise ValueError(f"mode must be one of {Z_SELECTION_MODES}, got {mode!r}")
     pairs = v2.viable_pairs if mode == "viable" else v2.viable_pairs + v2.marginal_pairs

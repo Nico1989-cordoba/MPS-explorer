@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
+from tools import mps_kdistance as _kdist
 from tools import mps_cut_clusters as _cut
 from tools import mps_zcalibration as _zcal
 from tools.cluster_quality import describe_roi, good_cluster_labels
@@ -75,15 +76,33 @@ from tools.results_table import cell_text
 # calibrated range (nominal, or resolved by a bead stack), whether the
 # file's own record matches a chosen one, and what a bead stack measured.
 # Empty cells, with z_magnification_origin "blank", when nothing was read.
-# v6 (2026-10-14, P-R59): the clusters cut by the pick boundary
-# (CUT_COLUMNS), written once at the very end of the row: the rule, the
-# NeNA it used and where that came from, the boundary and where it came
-# from, k of K and whether the cut clusters were left out; "boundary
-# unknown: not evaluated" when no pick boundary was known. The clusters
-# table ends with cut_by_pick. Other unmerged branches also call their
-# table v6: renumber to the next free version when this one is merged.
+# v6 (2026-10-14): the randomization control of SCI-3 (docs/randomization_and_ks.md).
+# ks_pvalue removed; added, beside the measured columns (also with
+# "_discard"): ks_null_mean, ks_z, ks_p_mc_median, ks_p_mc_d,
+# ks_cdf_crossing_significant, randomization_n_redrawn,
+# randomization_packing_fraction, randomization_n_outside_band,
+# nn_regularity_index and this axon's null regularity index
+# (nn_regularity_null_mean, nn_regularity_null_lo, nn_regularity_null_hi);
+# written once: the randomization's settings and the occupancy's sigma cap.
+# ks_cdf_crossing now holds the level read against the null band.
+# v7 (2026-10-14): the axial mixture of SCI-6
+# (docs/axial_mixture_and_rings.md), written once at the end of the row,
+# after the z calibration, so that no earlier column moves
+# (AXIAL_MIXTURE_COLUMNS): main_peak_mode, z_peak_density_nm,
+# z_peak_weight_nm, slab_foreign_fraction, delta_z_se_nm.
+# v8 (2026-10-14, P-R58): how eps was chosen (EPS_CHOICE_COLUMNS), written
+# once at the very end of the row, after SCI-6's axial mixture: the
+# published default, typed, the k-distance valley accepted or a click on
+# the k-distance graph, with k, the valley and its interval, the share left
+# unclustered and the file the graph was drawn on (docs/eps_kdistance.md).
+# v9 (2026-10-14, P-R59): the clusters cut by the pick boundary
+# (CUT_COLUMNS), written once at the very end of the row, after how eps
+# was chosen: the rule, the NeNA it used and where that came from, the
+# boundary and where it came from, k of K and whether the cut clusters
+# were left out; "boundary unknown: not evaluated" when no pick boundary
+# was known. The clusters table ends with cut_by_pick.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v6"
+TABLE_VERSION = "axon tables v9"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
@@ -123,7 +142,12 @@ SHARED_COLUMNS: Tuple[str, ...] = (
     "n_clusters_raw", "n_clusters_removed", "removed_edge_touching",
     "removed_low_dbcv", "edge_criterion_disabled", "mahalanobis_threshold",
     "ellipse_mode", "random_seed", "randomization_requested",
-    "contour_guide_nm")
+    "contour_guide_nm",
+    # How the randomization and the occupancy ran (SCI-3).
+    "randomization_band_half_width_nm", "randomization_smoothing_rms_nm",
+    "randomization_exclude_incomplete", "randomization_max_attempts_factor",
+    "randomization_grid_spacing_nm", "randomization_hard_core",
+    "ks_band_alpha", "occupancy_sigma_cap_fraction")
 
 # Columns the discard does change: everything from the clusters that are
 # left onwards. These are the ones written twice, the second time with a
@@ -148,13 +172,32 @@ MEASURED_COLUMNS: Tuple[str, ...] = (
     "occupancy_n_capped_ellipses", "ks_statistic", "ks_cdf_crossing",
     "randomization_n_iterations", "randomization_min_sep_nm",
     "randomization_incomplete_iters", "randomized_median_1nn_nm",
-    "ks_pvalue", "n_warnings", "warnings")
+    # Where ks_pvalue stood until SCI-3: D's own null, the Monte Carlo
+    # p-values, the band's crossing flag, the placement diagnostics and the
+    # 1NN regularity index.
+    "ks_null_mean", "ks_z", "ks_p_mc_median", "ks_p_mc_d",
+    "ks_cdf_crossing_significant", "randomization_n_redrawn",
+    "randomization_packing_fraction", "randomization_n_outside_band",
+    "nn_regularity_index", "nn_regularity_null_mean", "nn_regularity_null_lo",
+    "nn_regularity_null_hi", "n_warnings", "warnings")
 
 DISCARD_SUFFIX = "_discard"
 
 # The z calibration of the measurement (tools.mps_zcalibration), written
 # once, last: what the z axis of this file is in, never a correction of it.
 Z_CALIBRATION_COLUMNS: Tuple[str, ...] = _zcal.Z_CALIBRATION_COLUMNS
+
+# SCI-6, the axial mixture (written once, after the z calibration, so that
+# no earlier column moves): which reading of the main peak centred the slab
+# and both readings, the slab's expected foreign fraction F, and the SE of
+# the mean Delta-Z. The discard cannot change them.
+AXIAL_MIXTURE_COLUMNS: Tuple[str, ...] = (
+    "main_peak_mode", "z_peak_density_nm", "z_peak_weight_nm",
+    "slab_foreign_fraction", "delta_z_se_nm")
+
+# How eps was chosen (P-R58, tools.mps_kdistance), written once, last. The
+# discard cannot change it.
+EPS_CHOICE_COLUMNS: Tuple[str, ...] = _kdist.EPS_CHOICE_COLUMNS
 
 # The clusters cut by the pick boundary (P-R59, tools.mps_cut_clusters),
 # written once, last. The discard cannot change them: they describe the
@@ -180,13 +223,20 @@ ROUNDING: Tuple[Tuple[str, int], ...] = (
 )
 # Fractions and the statistics that behave like one.
 _FOUR_DECIMALS = frozenset({"ks_statistic", "contour_tour_over_hull",
-                            "contour_length_in_long_edges"})
+                            "contour_length_in_long_edges", "ks_null_mean",
+                            "nn_regularity_index", "nn_regularity_null_mean",
+                            "nn_regularity_null_lo", "nn_regularity_null_hi",
+                            "randomization_packing_fraction",
+                            "eps_kdist_unclustered_fraction"})
 # Not measurements: what the analysis was RUN with is written exactly as
 # it was given, however many digits that takes.
 _SETTINGS: frozenset = frozenset({
     "pixel_size_nm", "eps_nm", "min_samples", "dbcv_threshold",
     "mahalanobis_threshold", "slab_half_width_nm", "discard_margin_nm",
     "random_seed", "randomization_requested", "randomization_min_sep_nm",
+    "randomization_band_half_width_nm", "randomization_smoothing_rms_nm",
+    "randomization_max_attempts_factor", "randomization_grid_spacing_nm",
+    "ks_band_alpha", "occupancy_sigma_cap_fraction",
     "cut_nena_multiple",
 })
 
@@ -199,7 +249,7 @@ def _rounded(name: str, value: Any) -> Any:
         return value
     base = (name[:-len(DISCARD_SUFFIX)] if name.endswith(DISCARD_SUFFIX)
             else name)
-    if base in _SETTINGS or base.endswith("pvalue"):
+    if base in _SETTINGS or base.endswith("pvalue") or base.startswith("ks_p_mc"):
         return value
     if base in _FOUR_DECIMALS or base.startswith("fraction_"):
         return round(value, 4)
@@ -219,7 +269,7 @@ def _unknown_columns(record: Dict[str, Any]) -> List[str]:
     A column added to AxonAnalysis.export_dict and to no list here would
     vanish from the axon table without a word; it is raised instead.
     """
-    placed = set(SHARED_COLUMNS) | set(MEASURED_COLUMNS) | {
+    placed = set(SHARED_COLUMNS) | set(MEASURED_COLUMNS) | set(AXIAL_MIXTURE_COLUMNS) | {
         "source", "roi", "cluster_set", "discard_margin_nm",
         "discard_registration", "n_clusters_discarded"}
     return sorted(set(record) - placed)
@@ -258,6 +308,8 @@ def analysis_id(analysis: AxonAnalysis) -> str:
         f"{analysis.discard_margin_nm}",
         str(analysis.contour_order_source),
         format_guide(analysis.contour_guide) or "",
+        repr(sorted(analysis.randomization_params.to_dict().items())),
+        f"{analysis.sigma_cap_fraction}",
     ]
     # Leaving the cut clusters out is another analysis of the same slab
     # (P-R59); flagging them changes no number, so it adds nothing here.
@@ -329,6 +381,7 @@ def axon_row(
     axoplasm: Optional[Dict[str, Any]] = None,
     exported_at: Optional[str] = None,
     z_calibration: Optional[Dict[str, Any]] = None,
+    eps_choice: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     One axon as one row: who it is, what state it is in, the analysis of
@@ -341,6 +394,10 @@ def axon_row(
     ``axoplasm`` is the panel's own row (``mps_axoplasm.summary_row``).
     ``z_calibration`` is ``tools.mps_zcalibration.export_columns`` of the
     file's calibration state; None writes the columns blank.
+    ``eps_choice`` is the settings' record of how eps was chosen on the
+    k-distance graph (``MPSSettings.eps_choice``); it is written only when
+    it describes the eps this analysis ran with, and otherwise -- or when
+    None -- eps reads as the published default or as typed.
     """
     if measured.discard_applied:
         raise ValueError(
@@ -430,6 +487,13 @@ def axon_row(
     for name in Z_CALIBRATION_COLUMNS:
         row[name] = _rounded(name, zc.get(name))
 
+    # --- the axial mixture (SCI-6), after everything else ----------------
+    for name in AXIAL_MIXTURE_COLUMNS:
+        row[name] = _rounded(name, record.get(name))
+    # --- how eps was chosen (P-R58), last --------------------------------
+    chosen = _kdist.export_columns(eps_choice or {}, float(measured.eps_nm))
+    for name in EPS_CHOICE_COLUMNS:
+        row[name] = _rounded(name, chosen.get(name))
     # --- the clusters cut by the pick boundary (P-R59), last -------------
     cut = _cut.export_columns(getattr(measured, "cut", None))
     for name in CUT_COLUMNS:
@@ -792,6 +856,7 @@ def build_tables(
     y_nm: Optional[NDArray[np.float64]] = None,
     z_nm: Optional[NDArray[np.float64]] = None,
     z_calibration: Optional[Dict[str, Any]] = None,
+    eps_choice: Optional[Dict[str, Any]] = None,
 ) -> AxonTables:
     """
     Build the axon's row, and the tables that were asked for, from one
@@ -804,7 +869,7 @@ def build_tables(
     stamp = _now()
     row = axon_row(measured, identity=identity, discard=discard,
                    axoplasm=axoplasm, exported_at=stamp,
-                   z_calibration=z_calibration)
+                   z_calibration=z_calibration, eps_choice=eps_choice)
     tables = AxonTables(axon=row)
     tables.warnings.extend(
         w for w in (identity.warnings() if identity is not None else []))

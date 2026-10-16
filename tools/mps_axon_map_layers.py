@@ -114,6 +114,8 @@ ROW_STYLES: Dict[str, Style] = {
     "cdf_observed": Style("observed", 255, "line", width=2.0),
     "cdf_randomized": Style("randomized", 255, "line", width=2.0),
     "cdf_crossing": Style("neutral", 255, "dashed line", width=1.0, pen="dash"),
+    # The null band of the CDF (the central 1 - alpha of the randomizations' own CDFs): this program's, neutral.
+    "cdf_null_band": Style("neutral", 255, "dotted lines", width=1.0, pen="dot"),
 }
 
 
@@ -1129,25 +1131,65 @@ def axial_details(inp: AxialInputs) -> List[DetailRow]:
     rows: List[DetailRow] = []
     if zr is None:
         return [_row("Gaussian mixture", "- (not fitted)", inp.fit_reason)]
-    rows.append(_row("components chosen by BIC", str(int(zr.n_components)), "the number with the lowest BIC"))
+    candidates = tuple(int(k) for k in getattr(zr, "candidate_counts", ()) or ())
+    rows.append(_row("components chosen by BIC", str(int(zr.n_components)),
+                     "the number with the lowest BIC among the candidates "
+                     + (", ".join(str(k) for k in candidates) if candidates else "")
+                     + " (1 to 4 can be offered: BIC approximates the density, it does not count rings)",
+                     reg.info("axial.components").origin))
     for n_comp, bic in sorted((int(k), float(v)) for k, v in dict(zr.bic_by_n).items()):
         rows.append(_row(f"BIC with {n_comp} component{'s' if n_comp != 1 else ''}", f"{bic:,.1f}",
-                         "lower is better; only the differences between these rows matter"))
+                         "lower is better; only the differences between these rows matter"
+                         + ("" if not candidates or n_comp in candidates else "; reported only, not a candidate")))
     for i, (m, s, w) in enumerate(zip(zr.means_nm, zr.sigmas_nm, zr.weights), 1):
         rows.append(_row(f"component {i}", f"mean {float(m):,.1f} nm, sigma {float(s):,.1f} nm, weight {float(w):.2f}"))
     rows.append(_row("components left out (weight <= 5 %)", str(int(zr.n_discarded_components))))
-    rows.append(_row("density peak", f"{float(zr.main_peak_nm):,.1f} nm", "the automatic slab centre: the mode of "
-                     "the fitted mixture", reg.info("slab.centre").origin))
-    dz = zr.mean_delta_z_nm
-    if inp.z_magnification is None:
-        rows.append(_row("mean Delta-Z", "- (one component)" if dz is None else f"{dz:,.1f} nm"))
+    mode = str(getattr(zr, "main_peak_mode", "density"))
+    by_density = float(getattr(zr, "peak_by_density_nm", float("nan")))
+    by_weight = float(getattr(zr, "peak_by_weight_nm", float("nan")))
+    if np.isfinite(by_density):
+        rows.append(_row("density peak", f"{by_density:,.1f} nm",
+                         ("the automatic slab centre: " if mode == "density" else "")
+                         + "the mode of the fitted mixture", reg.info("slab.centre").origin))
     else:
-        rows.append(_row("mean Delta-Z", "- (one component)" if dz is None else f"{dz:,.1f} nm",
-                         f"per z calibration (m = {inp.z_magnification:g}): every axial length scales with m"))
+        rows.append(_row("density peak", f"{float(zr.main_peak_nm):,.1f} nm", "the automatic slab centre: the mode "
+                         "of the fitted mixture", reg.info("slab.centre").origin))
+    if np.isfinite(by_weight):
+        rows.append(_row("heaviest component's mean", f"{by_weight:,.1f} nm",
+                         ("the automatic slab centre: " if mode == "weight" else "the alternative reading: ")
+                         + "the centre of the ring with the most localizations; the two coincide when the rings "
+                         "are resolved", reg.info("slab.main_peak_mode").origin))
+    dz = zr.mean_delta_z_nm
+    scale = ("" if inp.z_magnification is None
+             else f"; per z calibration (m = {inp.z_magnification:g}): every axial length scales with m")
+    se = getattr(zr, "delta_z_se_nm", None)
+    rows.append(_row("mean Delta-Z", "- (one component)" if dz is None else f"{dz:,.1f} nm"
+                     + ("" if se is None else f" +/- {float(se):.1f} nm (SE)"),
+                     (f"{len(zr.delta_z_nm)} interval(s)" + scale) if dz is not None else scale.lstrip("; ")))
+    if dz is not None:
+        from tools.mps_periodicity import delta_z_summary
+        for d in delta_z_summary(zr.delta_z_nm).distances:
+            r = d.reference
+            value = (f"{d.difference_nm:+.1f} nm" if d.spread_units is None
+                     else f"{d.spread_units:+.2f} spreads ({d.difference_nm:+.1f} nm)")
+            rows.append(_row(f"  vs {r.label}", value,
+                             f"{r.period_nm:g}" + ("" if r.spread_nm is None else f" +/- {r.spread_nm:g}")
+                             + f" nm, {r.tissue}, {r.axis}"
+                             + (f"; +/- {r.spread_kind}" if r.spread_kind in ("SD", "SEM")
+                                else "; nature of the +/- not stated" if r.spread_kind == "unstated" else "")
+                             + "; a distance, not a verdict", reg.info("reference.delta_z_periods").origin))
+        rows.append(_row("half the ring period", f"{0.5 * dz:,.1f} nm",
+                         "the alternative slab half-width: half the mean Delta-Z"))
     a = inp.analysis
     if a is not None:
         half = float(a.slab_half_width_nm)
         rows.append(_row("MPS analysis slab", f"{a.slab_zmin_nm:,.1f} to {a.slab_zmax_nm:,.1f} nm", a.slab_source))
+        ff = getattr(a, "slab_foreign_fraction", None)
+        if ff is not None:
+            rows.append(_row("foreign fraction of the slab", f"{100.0 * float(ff):.1f} %",
+                             "the share of the slab's localizations the fitted mixture expects from other "
+                             "components; warned above " + reg.format_value("slab.foreign_fraction_warn"),
+                             reg.info("slab.foreign_fraction_warn").origin))
         rows.append(_row("slab half-width", f"{half:g} nm", reg.range_hint("slab.half_width_nm", half),
                          reg.badge("slab.half_width_nm", half)))
     if inp.cut is not None:
@@ -1350,7 +1392,7 @@ NN_ON: FrozenSet[str] = frozenset({"nn_bars", "nn_median"})      # the reference
 
 
 def nn_details(shown: Any, n: int) -> List[DetailRow]:
-    """K, P, clusters per um, the median 1NN, N (12.8)."""
+    """K, P, clusters per um, the median 1NN, the regularity index r, N (12.8)."""
     if shown is None:
         return [_row("clusters", "- (no MPS analysis)")]
     rows = [_row("clusters K (analysis shown)", str(int(shown.n_clusters_kept)))]
@@ -1360,13 +1402,23 @@ def nn_details(shown: Any, n: int) -> List[DetailRow]:
     rows.append(_row("clusters per um", "-" if cpu is None else f"{cpu:,.2f}"))
     med = None if shown.nn is None else shown.nn.median_1nn_nm
     rows.append(_row("median 1NN", "-" if med is None else f"{med:,.1f} nm"))
+    r_index = getattr(shown, "nn_regularity_index", None)
+    rows.append(_row("regularity r = median 1NN x K / P", "-" if r_index is None else f"{r_index:.2f}",
+                     "1 for evenly spaced centres; the 1NN scales with the clusters per um, r does not"))
+    null = getattr(shown, "nn_regularity_null", None)
+    reading = getattr(shown, "nn_regularity_reading", None)
+    rows.append(_row("null r (this axon)", "- (no randomization)" if null is None
+                     else f"{null[0]:.2f} [{null[1]:.2f}-{null[2]:.2f}]",
+                     ("the random level depends on the minimum separation and the band; "
+                      + (reading or "") + (" (docs/randomization_and_ks.md, section 6)"))))
     rows.append(_row("neighbours N", str(int(n))))
     return rows
 
 
 def cdf_layers(shown: Any) -> List[Layer]:
-    """Observed and randomized 1NN CDFs (the old CDF plot's arrays) and the crossing line, which is this program's
-    heuristic: neutral, never the paper colour (P5)."""
+    """Observed and randomized 1NN CDFs (the old CDF plot's arrays), the null band (the central 1 - alpha of the
+    randomizations' own CDFs) and the line where the band-exceeding excess of short distances ends: this program's,
+    neutral, never the paper colour (P5)."""
     if shown is None or shown.randomization is None:
         return []
     r = shown.randomization
@@ -1380,10 +1432,20 @@ def cdf_layers(shown: Any) -> List[Layer]:
     layers = [Layer("cdf_randomized", "randomized", "cdf", "curves", {"x": xr, "y": yr}, None,
                     "Every randomized 1NN distance, pooled over the iterations."),
               Layer("cdf_observed", "observed", "cdf", "curves", {"x": xe, "y": ye}, None, "The measured 1NN.")]
+    grid = np.asarray(getattr(r, "cdf_grid_nm", np.empty(0)), float)
+    if grid.size:
+        alpha = float(r.params.cdf_band_alpha)
+        layers.append(Layer("cdf_null_band", f"null band ({100.0 * (1.0 - alpha):g} % of the randomizations)",
+                            "cdf", "curves",
+                            {"grid": grid, "curves": [np.asarray(r.cdf_band_lo, float),
+                                                      np.asarray(r.cdf_band_hi, float)]},
+                            None, reg.tooltip("randomization.cdf_band_alpha", alpha)))
     if r.cdf_crossing is not None:
-        layers.append(Layer("cdf_crossing", f"crossing {r.cdf_crossing:.2f} (heuristic)", "cdf", "hline",
-                            {"y": float(r.cdf_crossing), "label": f"crossing {r.cdf_crossing:.2f} (heuristic)"},
-                            None, reg.tooltip("randomization.cdf_crossing_floor")))
+        words = (f"excess up to F = {r.cdf_crossing:.2f}" if r.cdf_crossing_significant
+                 else f"excess up to F = {r.cdf_crossing:.2f} (not significant)")
+        layers.append(Layer("cdf_crossing", words, "cdf", "hline",
+                            {"y": float(r.cdf_crossing), "label": words},
+                            None, reg.tooltip("randomization.cdf_band_alpha", float(r.params.cdf_band_alpha))))
     return layers
 
 
@@ -1392,26 +1454,52 @@ def cdf_title(shown: Any, comparison: Any, measured: Any) -> str:
     return CDF_TITLE + (f" ({words})" if words else "")
 
 
+def _p(v: Optional[float]) -> str:
+    return "-" if v is None else f"{v:.3f}"
+
+
 def cdf_details(shown: Any) -> List[DetailRow]:
-    """D, B, the minimum separation, the candidates, the band (paper), incomplete iterations, the mean placed
-    fraction, the randomized median. Not the KS p: it has no valid reading on these samples."""
+    """D with its own null (null mean, z_D), the Monte Carlo p-values (approximate), the crossing, B, the minimum
+    separation and how it was set, the candidates, the band, the centres outside it, incomplete and re-drawn
+    iterations, the packing fraction, the randomized median. Not the KS p: it has no valid reading on these
+    samples."""
     if shown is None or shown.randomization is None:
         return [_row("randomization", "- (not run)")]
     r = shown.randomization
     band = float(r.annulus_half_width_nm)
     med = r.randomized_median_nm
+    pr = r.params
+    excluded = bool(pr.exclude_incomplete)
     return [
         _row("KS statistic D", f"{float(r.ks_statistic):.3f}",
-             "descriptive: the largest gap between the two CDFs. Its size under the null falls as about "
-             "0.87/sqrt(K), so it is not comparable between axons; a later version adds its null mean and z_D"),
-        _row("randomizations B", f"{int(r.n_iterations):,}", "", reg.badge("randomization.iterations",
-                                                                            int(r.n_iterations))),
-        _row("minimum separation used", f"{float(r.min_distance_nm):,.1f} nm"),
+             "descriptive: the largest gap between the two CDFs; its size under the null falls with K"),
+        _row("null mean of D", "-" if r.ks_null_mean is None else f"{r.ks_null_mean:.3f}",
+             f"the D each randomization reaches against the pool, for K = {int(r.n_clusters)}"),
+        _row("z_D", "-" if r.ks_z is None else f"{r.ks_z:+.2f}",
+             "D in null standard deviations: comparable between axons"),
+        _row("Monte Carlo p (median, two-sided)", _p(r.ks_p_mc_median),
+             "approximate: the hard core is estimated from the data"),
+        _row("Monte Carlo p (D)", _p(r.ks_p_mc_d), "approximate, as above"),
+        _row("CDF crossing", r.crossing_words(),
+             f"band alpha {pr.cdf_band_alpha:g}; Monte Carlo p of its strength "
+             + _p(getattr(r, "cdf_crossing_p_mc", None)) + "; DKW bound of K distances "
+             + ("-" if r.cdf_dkw_floor is None else f"{r.cdf_dkw_floor:.2f}"),
+             reg.badge("randomization.cdf_band_alpha", float(pr.cdf_band_alpha))),
+        _row("randomizations B", f"{int(r.n_iterations_used):,} used of {int(r.n_iterations):,}", "",
+             reg.badge("randomization.iterations", int(r.n_iterations))),
+        _row("minimum separation used", f"{float(r.min_distance_nm):,.1f} nm",
+             f"hard core: {r.hard_core}", reg.badge("randomization.hard_core", pr.hard_core)),
         _row("candidate positions", f"{int(r.n_candidates):,}"),
         _row("band half-width", f"{band:g} nm", reg.range_hint("randomization.band_half_width_nm", band),
              reg.badge("randomization.band_half_width_nm", band)),
-        _row("incomplete iterations", f"{int(r.n_incomplete_iterations):,}", "kept in the pool",
-             reg.badge("randomization.incomplete_iterations")),
+        _row("observed centres outside the band", f"{int(r.n_outside_band)}",
+             "the null cannot place a centre there; above 0 the comparison partly measures the band"),
+        _row("incomplete iterations", f"{int(r.n_incomplete_iterations):,}",
+             (f"re-drawn ({int(r.n_redrawn):,} redraws) and left out of the null" if excluded
+              else "kept in the pool"),
+             reg.badge("randomization.incomplete_iterations", excluded)),
+        _row("packing fraction phi", "-" if r.packing_fraction is None else f"{r.packing_fraction:.2f}",
+             "K pi d^2 / (4 x band area): near 0.5 or above, random placement jams"),
         _row("mean placed fraction", f"{float(r.mean_placed_fraction):.3f}",
              "the share of the K centres placed per iteration; below 1 the band could not hold them at the "
              "minimum separation"),

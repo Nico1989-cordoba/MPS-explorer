@@ -173,6 +173,9 @@ class TwoChannelInputs:
     kwargs_b: Dict[str, Any] = field(default_factory=dict)
     # Where channel 2's eps and min samples came from, for the export.
     channel_b_parameter_source: str = ""
+    # The record behind them (tools.mps_channel_params.provenance),
+    # re-checked against the values in use at every run.
+    channel_b_provenance: Dict[str, Any] = field(default_factory=dict)
     # How the main window chose the axial slab, when it is not the two
     # words the slab itself implies ("" = today's: "manual" when a slab
     # is given, "automatic" when not). UI stage 2 (design 6.3) adds one:
@@ -292,6 +295,7 @@ def run_two_channels(
             slab=slab, slab_half_width_nm=inputs.slab_half_width_nm,
             registration=registration, analyze_kwargs_b=inputs.kwargs_b,
             channel_b_parameter_source=inputs.channel_b_parameter_source,
+            channel_b_provenance=inputs.channel_b_provenance,
             **inputs.kwargs_a)
     except ValueError as error:
         if str(error) != CHANNEL2_PARAMETERS_REQUIRED:
@@ -623,10 +627,23 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
             return
         if self._parameters is not None:
             params_a, params_b = self._parameters()
+            kwargs_b = dict(self.inputs.kwargs_b, **params_b)
+            source = self.inputs.channel_b_parameter_source
+            record = self.inputs.channel_b_provenance
+            if "eps_nm" in kwargs_b and "min_samples" in kwargs_b:
+                # The boxes may have been edited since the panel opened: a
+                # value that is no longer the derived one is the user's.
+                from tools.mps_channel_params import ORIGIN_DERIVED, reconcile
+                record = reconcile(record, float(kwargs_b["eps_nm"]),
+                                   int(kwargs_b["min_samples"]))
+                both = (record["eps_b_origin"] == ORIGIN_DERIVED
+                        and record["min_samples_b_origin"] == ORIGIN_DERIVED)
+                source = "derived" if both else "typed"
             self.inputs = dataclasses.replace(
                 self.inputs,
                 kwargs_a=dict(self.inputs.kwargs_a, **params_a),
-                kwargs_b=dict(self.inputs.kwargs_b, **params_b))
+                kwargs_b=kwargs_b, channel_b_parameter_source=source,
+                channel_b_provenance=record)
             self._show_selection()
         inputs = self.inputs
         generation = self._generation

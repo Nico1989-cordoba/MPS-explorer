@@ -17,9 +17,9 @@ reported so it can be checked:
    same camera therefore spans [c - 0.5, c + 0.5) in localization
    coordinates. Different camera regions are reconciled from the
    Micro-Manager metadata that both files carry. The sample still moves
-   between acquisitions: on 30/4/26 the widefield images sat (-2.1, +5.6)
-   px away from the drift-corrected STORM data. The shift is measured by
-   cross-correlating a widefield image of the super-resolved protein with a
+   between acquisitions: on unpublished pilot data the widefield images
+   sat a few pixels away from the drift-corrected STORM data. The shift is
+   measured by cross-correlating a widefield image of the super-resolved protein with a
    rendering of its localizations. The tubulin image cannot do this: it
    shows another structure. It takes the shift of a widefield image
    acquired with it.

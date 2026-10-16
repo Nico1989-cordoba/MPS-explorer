@@ -54,10 +54,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.stats import f as f_distribution
 
 from tools.mps_identity import FIELD_LABELS, AxonIdentity
 from tools.mps_identity import FIELDS as IDENTITY_FIELDS
-from tools.mps_randomization import DEFAULT_N_RANDOMIZATIONS
+from tools.mps_occupancy import SIGMA_CAP_FRACTION
+from tools.mps_randomization import DEFAULT_N_RANDOMIZATIONS, RandomizationParams
 
 
 # ============================================================================
@@ -125,10 +127,14 @@ def parse_metadata(
 # is. The same names with "_discard" are the analysis without the
 # clusters the axoplasm panel discarded, where that was done.
 #
-# Never ks_pvalue: it is a within-axon p-value (are this axon's clusters
-# spaced unlike random ones?), and a p-value is not a quantity whose
-# difference between genotypes means anything. The KS statistic itself is
-# a size of effect and can be compared.
+# Never a p-value (ks_p_mc_median, ks_p_mc_d): they are within-axon
+# p-values (are this axon's clusters spaced unlike random ones?), and a
+# p-value is not a quantity whose difference between genotypes means
+# anything. Not the raw KS distance D either: its size under the null
+# falls as about 0.87/sqrt(K), and K grows with the perimeter, so a
+# difference in D between groups confounds organisation with cluster
+# number. z_D, D standardised by its own null for that axon's K, is
+# comparable (SCI-3).
 COMPARABLE_COLUMNS: Dict[str, str] = {
     "occupancy_percent": "Occupancy of the perimeter (%)",
     "median_1nn_nm": "Median distance to the nearest cluster (nm)",
@@ -138,7 +144,8 @@ COMPARABLE_COLUMNS: Dict[str, str] = {
     "median_area_nm2": "Median cluster area (nm^2)",
     "median_r_eff_nm": "Median cluster effective radius (nm)",
     "delta_z_mean_nm": "Axial period, mean Delta-Z (nm)",
-    "ks_statistic": "KS statistic, clusters against randomized ones",
+    "ks_z": "KS distance against its own null, z_D (clusters against randomized ones)",
+    "nn_regularity_index": "1NN regularity index r = median 1NN x K / P",
     # Not a property of the axon but of its reconstruction: a group whose
     # contours are more inflated than the other's would show a difference
     # in every perimeter-derived column above without any biology.
@@ -237,15 +244,42 @@ class BatchSettings:
     slab_half_width_nm: float
     dbcv_threshold: float
     mahalanobis_threshold: float
+    # The randomization and the occupancy cap, from the same settings the
+    # axon window reads (SCI-3).
+    n_randomizations: int = DEFAULT_N_RANDOMIZATIONS
+    random_seed: int = 0
+    randomization_params: RandomizationParams = field(default_factory=RandomizationParams)
+    sigma_cap_fraction: float = SIGMA_CAP_FRACTION
+    # How eps was chosen on the k-distance graph (P-R58), when it was: the
+    # settings' record, written beside every row (on another file's graph).
+    eps_choice: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_settings(cls, settings: Any) -> "BatchSettings":
+        stored = dict(getattr(settings, "randomization_params", {}) or {})
+        try:
+            n_rand = int(stored.get("n_iterations", DEFAULT_N_RANDOMIZATIONS))
+        except (TypeError, ValueError):
+            n_rand = DEFAULT_N_RANDOMIZATIONS
+        try:
+            seed = int(stored.get("seed", 0))
+        except (TypeError, ValueError):
+            seed = 0
+        record = getattr(settings, "eps_choice", None)
         return cls(eps_nm=float(settings.eps_nm),
                    min_samples=int(settings.min_samples),
                    slab_half_width_nm=float(settings.slab_half_width_nm),
                    dbcv_threshold=float(settings.dbcv_threshold),
                    mahalanobis_threshold=float(
-                       settings.mahalanobis_threshold))
+                       settings.mahalanobis_threshold),
+                   n_randomizations=n_rand if n_rand >= 1 else DEFAULT_N_RANDOMIZATIONS,
+                   random_seed=seed,
+                   randomization_params=RandomizationParams.from_dict(stored),
+                   sigma_cap_fraction=float(getattr(settings, "occupancy_sigma_cap_fraction",
+                                                    SIGMA_CAP_FRACTION)),
+                   eps_choice=dict(record) if isinstance(record, dict)
+                   else {})
+
 
     def describe(self) -> str:
         return (f"DBSCAN eps {self.eps_nm:g} nm, min samples "
@@ -253,8 +287,9 @@ class BatchSettings:
                 f"{self.slab_half_width_nm:g} nm around the main peak, "
                 f"found per axon; Mahalanobis threshold "
                 f"{self.mahalanobis_threshold:g}; the clusters compared "
-                f"with {DEFAULT_N_RANDOMIZATIONS} randomized placements, as "
-                f"in the axon window")
+                f"with {self.n_randomizations} randomized placements "
+                f"(band +/-{self.randomization_params.band_half_width_nm:g} nm, "
+                f"seed {self.random_seed}), as in the axon window")
 
 
 @dataclass
@@ -395,13 +430,18 @@ def analyse_file(item: BatchFile, settings: BatchSettings,
             eps_nm=settings.eps_nm, min_samples=settings.min_samples,
             slab_half_width_nm=settings.slab_half_width_nm,
             dbcv_threshold=settings.dbcv_threshold,
-            mahalanobis_threshold=settings.mahalanobis_threshold)
+            mahalanobis_threshold=settings.mahalanobis_threshold,
+            n_randomizations=settings.n_randomizations,
+            random_seed=settings.random_seed,
+            randomization_params=settings.randomization_params,
+            sigma_cap_fraction=settings.sigma_cap_fraction)
         from tools import mps_zcalibration as zcal
 
         z_state = zcal.state_for(loc.info, zcal.store_entry(z_store,
                                                             item.path))
         row = axon_row(analysis, identity=item.identity,
-                       z_calibration=zcal.export_columns(z_state))
+                       z_calibration=zcal.export_columns(z_state),
+                       eps_choice=settings.eps_choice)
     except Exception as error:                        # noqa: BLE001
         return AxonRecord(source=item.path, identity=item.identity,
                           error=f"could not be analysed: {error}")
@@ -601,8 +641,12 @@ class NestingDiagnostic:
     n_observations: int
     n_groups: int
     mean_group_size: float
-    null_p95: Optional[float] = None      # ICC this design reaches by chance
+    null_p95: Optional[float] = None      # ICC this design reaches by chance (at null_percentile)
     warnings: List[str] = field(default_factory=list)
+    null_percentile: float = 95.0
+    # Optional plain-language labels (off by default): the clustered-data
+    # convention small / medium / large = 0.05 / 0.10 / 0.15.
+    labels: bool = False
 
     @property
     def exceeds_chance(self) -> Optional[bool]:
@@ -613,19 +657,75 @@ class NestingDiagnostic:
 
     @property
     def severity(self) -> str:
+        """How to read this ICC, without adjectives (SCI-3): within chance,
+        or the design effect and the effective number of observations. The
+        cut-offs 0.2 / 0.5 used before had no source."""
         if self.icc is None:
             return "undetermined"
         # A raw ICC is not interpretable on its own: the estimator is
         # clamped at zero and so biased upward, and with few groups a true
-        # ICC of zero routinely estimates well above it (simulated: with
-        # two groups of nine, the 95th percentile under the null is 0.31).
+        # ICC of zero routinely estimates well above it -- by how much is
+        # the F quantile of icc_chance_level.
         if self.null_p95 is not None and self.icc <= self.null_p95:
             return "within chance for this design"
-        if self.icc > 0.5:
-            return "severe"
-        if self.icc > 0.2:
-            return "substantial"
-        return "mild"
+        words = ("" if self.design_effect is None
+                 else f"design effect {self.design_effect:.1f}")
+        if self.effective_n is not None:
+            words += (f": {self.n_observations} observations are worth "
+                      f"{self.effective_n:.1f}")
+        if self.labels:
+            label = icc_label(self.icc)
+            words += f" ({label}, Zyzanski et al. 2004 convention)"
+        return words or "undetermined"
+
+
+# The clustered-data convention for small / medium / large intraclass
+# correlations (Zyzanski et al. 2004, after Hox 2002). Optional, off by
+# default: the design effect is what should be read.
+ICC_LABEL_CUTOFFS: Tuple[float, float, float] = (0.05, 0.10, 0.15)
+ICC_PERCENTILE_RANGE: Tuple[float, float] = (90.0, 99.0)
+
+
+def icc_label(icc: float, cutoffs: Tuple[float, float, float] = ICC_LABEL_CUTOFFS) -> str:
+    """'below small', 'small', 'medium' or 'large' by the cited convention."""
+    small, medium, large = cutoffs
+    if icc >= large:
+        return "large"
+    if icc >= medium:
+        return "medium"
+    if icc >= small:
+        return "small"
+    return "below small"
+
+
+@functools.lru_cache(maxsize=256)
+def icc_chance_level(sizes: Tuple[int, ...], percentile: float = 95.0) -> Optional[float]:
+    """
+    ICC a design with these group sizes reaches by chance alone, at the
+    given percentile, in closed form.
+
+    The one-way ANOVA estimator is (F - 1) / (F + n0 - 1) with F = MS_b /
+    MS_w and n0 = (N - sum n_i^2 / N) / (k - 1); under a true ICC of zero
+    and normal data F follows F(k - 1, N - k) exactly for balanced designs
+    and approximately, with n0, for ragged ones (McGraw & Wong 1996; Donner
+    1986). The estimator is monotone in F, so its percentile is that of F:
+    q = (F_p(k - 1, N - k) - 1) / (F_p + n0 - 1). An observed ICC below it
+    is not evidence of nesting.
+
+    The sizes are the real ones, not their mean: an ROI holds six axons or
+    more and a slide several ROIs, so the groups of a real design are
+    ragged. ``icc_null_for_sizes`` (Monte Carlo) is kept as the cross-check.
+    """
+    groups_sizes = [int(v) for v in sizes if int(v) > 0]
+    k = len(groups_sizes)
+    n = sum(groups_sizes)
+    if k < 2 or n <= k:
+        return None
+    n0 = (n - sum(v * v for v in groups_sizes) / n) / (k - 1)
+    if n0 <= 0:
+        return None
+    f_q = float(f_distribution.ppf(float(percentile) / 100.0, k - 1, n - k))
+    return max(0.0, (f_q - 1.0) / (f_q + n0 - 1.0))
 
 
 @functools.lru_cache(maxsize=256)
@@ -636,17 +736,10 @@ def icc_null_for_sizes(
     random_seed: int = 0,
 ) -> Optional[float]:
     """
-    ICC a design with these group sizes reaches by chance alone, at the
-    given percentile.
-
-    Simulates groups of exactly these sizes drawn from one distribution --
-    true ICC zero -- and returns the requested percentile of the
-    estimates. An observed ICC below it is not evidence of nesting.
-
-    The sizes are the real ones, not their mean: an ROI holds six axons or
-    more and a slide several ROIs, so the groups of a real design are
-    ragged, and a threshold simulated for a balanced design is the
-    threshold of a design that does not exist.
+    The same chance level by Monte Carlo: groups of exactly these sizes
+    drawn from one normal distribution (true ICC zero), the requested
+    percentile of the clamped estimates. Kept as the cross-check of
+    ``icc_chance_level`` (its Monte Carlo sd at 400 draws is 0.01-0.03).
     """
     groups_sizes = [int(s) for s in sizes if int(s) > 0]
     if len(groups_sizes) < 2 or sum(groups_sizes) <= len(groups_sizes):
@@ -665,21 +758,18 @@ def icc_null_threshold(
     n_groups: int,
     mean_group_size: float,
     percentile: float = 95.0,
-    n_sim: int = 400,
-    random_seed: int = 0,
 ) -> Optional[float]:
     """
     The same for a balanced design of ``n_groups`` groups of
-    ``mean_group_size``: simulated at 400 draws, the 95th percentile is
-    0.31 for two groups of nine, 0.13 for six groups of nine, and 0.02 for
-    six groups of fifty. Studies with three to five animals per genotype
-    sit squarely in the noisy regime.
+    ``mean_group_size``, in closed form: (F_0.95(k - 1, N - k) - 1) /
+    (F_0.95 + m - 1). Few groups give a high chance level, so studies with
+    three to five animals per genotype sit in the noisy regime.
     """
     k = int(n_groups)
     m = max(int(round(mean_group_size)), 2)
     if k < 2:
         return None
-    return icc_null_for_sizes(tuple([m] * k), percentile, n_sim, random_seed)
+    return icc_chance_level(tuple([m] * k), percentile)
 
 
 def _icc_core(groups: Sequence[NDArray[np.float64]]) -> Optional[float]:
@@ -707,6 +797,7 @@ def _icc_core(groups: Sequence[NDArray[np.float64]]) -> Optional[float]:
 def intraclass_correlation(
     groups: Sequence[Sequence[float]], parameter: str = "",
     observation_label: str = "axon", group_label: str = "group",
+    percentile: float = 95.0, labels: bool = False,
 ) -> NestingDiagnostic:
     """
     One-way random-effects intraclass correlation: the share of total
@@ -718,7 +809,11 @@ def intraclass_correlation(
     sample size is far below the number of axons.
 
     The design effect ``1 + (m - 1) * ICC`` converts that into the number
-    of independent observations the data is actually worth.
+    of independent observations the data is actually worth (Killip et al.
+    2004): that number, not an adjective, is what to read. The chance
+    level is the closed form of ``icc_chance_level`` at ``percentile``
+    (documented range 90-99); ``labels`` adds the optional small / medium /
+    large words of the clustered-data convention.
 
     Note that with very few groups the estimate is unstable -- with two
     groups it is really just restating that those two groups differ -- so
@@ -756,12 +851,13 @@ def intraclass_correlation(
             parameter=parameter, icc=None, design_effect=None,
             effective_n=None, n_observations=n_obs, n_groups=k,
             mean_group_size=m, null_p95=None,
-            warnings=["Degenerate variance; ICC undefined."])
+            warnings=["Degenerate variance; ICC undefined."],
+            null_percentile=float(percentile), labels=bool(labels))
 
     icc = float(icc_val)
     deff = 1.0 + (m - 1.0) * icc
     eff_n = n_obs / deff if deff > 0 else None
-    null_p95 = icc_null_for_sizes(tuple(sorted(int(s) for s in sizes)))
+    null_p95 = icc_chance_level(tuple(sorted(int(s) for s in sizes)), float(percentile))
 
     if k < 5:
         warnings_.append(
@@ -773,15 +869,15 @@ def intraclass_correlation(
         warnings_.append(
             f"ICC = {icc:.2f} is within what this design "
             f"({k} {group_label}s of about {m:.0f}) reaches by chance "
-            f"(null 95th percentile {null_p95:.2f}). It is not evidence "
-            f"of nesting."
+            f"(null {percentile:g}th percentile {null_p95:.2f}). It is not "
+            f"evidence of nesting."
         )
-    elif icc > 0.5:
+    elif deff >= 2.0 and eff_n is not None:
         warnings_.append(
-            f"ICC = {icc:.2f}: {observation_label}s of the same "
-            f"{group_label} behave close to replicates. Treating the {n_obs} "
-            f"{observation_label}s as independent claims about {deff:.1f}x "
-            f"more evidence than the data holds."
+            f"ICC = {icc:.2f}, design effect {deff:.1f}: treating the "
+            f"{n_obs} {observation_label}s of {k} {group_label}s as "
+            f"independent claims about {deff:.1f}x more evidence than the "
+            f"data holds (worth about {eff_n:.1f})."
         )
 
     return NestingDiagnostic(
@@ -789,6 +885,7 @@ def intraclass_correlation(
         effective_n=None if eff_n is None else float(eff_n),
         n_observations=n_obs, n_groups=k, mean_group_size=m,
         null_p95=null_p95, warnings=warnings_,
+        null_percentile=float(percentile), labels=bool(labels),
     )
 
 
@@ -863,11 +960,10 @@ class GroupComparison:
             if n.icc is None:
                 continue
             chance = ("" if n.null_p95 is None
-                      else f", chance reaches {n.null_p95:.2f}")
+                      else f"; chance reaches {n.null_p95:.2f}")
             lines.append(
                 f"  nesting in {group}: ICC={n.icc:.2f} ({n.severity}"
-                f"{chance}), {n.n_observations} axons worth about "
-                f"{n.effective_n:.1f}")
+                f"{chance})")
         return "\n".join(lines)
 
 
@@ -1135,7 +1231,9 @@ class RingRecord:
             if run is not None:
                 merged.update(run.export_dict())
             merged["error"] = ""
-            out.append(merged)
+            # SCI-6's columns after every column of before (no earlier column moves).
+            from tools.mps_multisegment import SCI6_SEGMENT_COLUMNS, columns_last
+            out.append(columns_last(merged, SCI6_SEGMENT_COLUMNS))
         return out
 
     def pair_rows(self) -> List[Dict[str, Any]]:
@@ -1144,10 +1242,11 @@ class RingRecord:
         if self.rings is None:
             return []
         out: List[Dict[str, Any]] = []
+        from tools.mps_multisegment import SCI6_PAIR_COLUMNS, columns_last
         for pair in self.rings.pairs:
             row = self._meta_row()
             row.update(pair.export_dict())
-            out.append(row)
+            out.append(columns_last(row, SCI6_PAIR_COLUMNS))
         return out
 
 

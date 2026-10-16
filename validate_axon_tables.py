@@ -1084,17 +1084,20 @@ def test_schema_and_excel() -> None:
                    discard=pair.discard_applied, axoplasm=panel)
 
     def the_columns_are_the_layout_and_in_order():
-        from tools.axon_export import (_AXOPLASM_DROPPED, CUT_COLUMNS,
+        from tools.axon_export import (_AXOPLASM_DROPPED, AXIAL_MIXTURE_COLUMNS,
+                                       CUT_COLUMNS, EPS_CHOICE_COLUMNS,
                                        Z_CALIBRATION_COLUMNS)
         from tools.mps_axoplasm import SUMMARY_COLUMNS
         # v4 (SCI-1): the measurement's z calibration, last, so no earlier
-        # column moved; v6 (P-R59): the clusters cut by the pick, after it.
+        # column moved; v7 (SCI-6): the axial mixture after it; v8 (P-R58):
+        # how eps was chosen; v9 (P-R59): the clusters cut by the pick, last.
         expected = (list(HEAD_COLUMNS) + list(STATE_COLUMNS)
                     + list(SHARED_COLUMNS) + list(MEASURED_COLUMNS)
                     + [n + DISCARD_SUFFIX for n in MEASURED_COLUMNS]
                     + [AXOPLASM_PREFIX + n for n in SUMMARY_COLUMNS
                        if n not in _AXOPLASM_DROPPED]
-                    + list(Z_CALIBRATION_COLUMNS) + list(CUT_COLUMNS))
+                    + list(Z_CALIBRATION_COLUMNS) + list(AXIAL_MIXTURE_COLUMNS)
+                    + list(EPS_CHOICE_COLUMNS) + list(CUT_COLUMNS))
         assert list(row) == expected, [
             (a, b) for a, b in zip(list(row) + [""] * 5, expected + [""] * 5)
             if a != b][:4]
@@ -1140,11 +1143,11 @@ def test_schema_and_excel() -> None:
             path = os.path.join(folder, "axons.csv")
             append_rows(path, [row])
             from tools.results_table import TableMismatch
-            trimmed = {k: v for k, v in row.items() if k != "ks_pvalue"}
+            trimmed = {k: v for k, v in row.items() if k != "ks_z"}
             try:
                 append_rows(path, [trimmed])
             except TableMismatch as error:
-                assert "ks_pvalue" in str(error), error
+                assert "ks_z" in str(error), error
                 return str(error)[:58]
             raise AssertionError("a table took a row of other columns")
         finally:
