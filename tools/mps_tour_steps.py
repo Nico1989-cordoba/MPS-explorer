@@ -53,9 +53,9 @@ DEMO_FACTS: Dict[str, Any] = {
     "n_clusters": 56,         # DBSCAN clusters of the slab
     "n_kept": 56,             # after the automatic curation
     "n_noise": 1418,          # localizations of the slab left as noise
-    "nena": 7.6,              # Data quality: NeNA, nm
+    "nena": 9.4,              # Data quality: NeNA, nm (maximum-likelihood fit, fix/nena-fit)
     "lp_reported": 8.9,       # Data quality: reported lateral precision (median), nm
-    "nena_ratio": 0.85,       # NeNA / reported
+    "nena_ratio": 1.05,       # NeNA / reported
 }
 
 
