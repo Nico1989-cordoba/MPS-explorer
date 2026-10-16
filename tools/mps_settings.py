@@ -170,6 +170,11 @@ class MPSSettings:
     # outside its documented range is kept and flagged, never clamped; an
     # entry that is not a value at all is dropped.
     viability_params: Dict[str, Any] = field(default_factory=dict)
+    # The beginner tour (tools/mps_tour.py): {"enabled": bool, "seen":
+    # {window id: True}, "language": "es" | "en"}. Empty on a fresh install,
+    # which means the tour is on, no window's tour has been seen and the
+    # cards are in Spanish. Nothing in it touches an analysis.
+    beginner_tour: Dict[str, Any] = field(default_factory=dict)
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -321,6 +326,7 @@ class MPSSettings:
                     "expression (%s); no input will be flagged",
                     self.uncalibrated_labels, exc)
                 self.uncalibrated_labels = ""
+        self.beginner_tour = clean_tour_state(self.beginner_tour)
         return self
 
 
@@ -358,6 +364,29 @@ def clean_randomization_store(value: Any) -> Dict[str, Any]:
             continue
         out[key] = parsed
     return out
+
+
+TOUR_LANGUAGES = ("es", "en")
+
+
+def clean_tour_state(value: Any) -> Dict[str, Any]:
+    """The beginner tour's state with anything malformed dropped: a flag
+    that is not a bool, a seen mark that is not True, a language the tour
+    does not have. Never raises; an unusable value is an empty state (the
+    tour on, nothing seen)."""
+    if not isinstance(value, dict):
+        return {}
+    kept: Dict[str, Any] = {}
+    enabled = value.get("enabled")
+    if isinstance(enabled, bool):
+        kept["enabled"] = enabled
+    seen = value.get("seen")
+    if isinstance(seen, dict):
+        kept["seen"] = {str(k): True for k, v in seen.items() if v is True}
+    language = value.get("language")
+    if language in TOUR_LANGUAGES:
+        kept["language"] = str(language)
+    return kept
 
 
 def settings_path(directory: Optional[str] = None) -> Path:
