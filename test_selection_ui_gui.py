@@ -117,7 +117,7 @@ def main() -> int:
         for name in su.SELECTION_UI_TOOLTIPS:
             obj = w1.findChild(QtWidgets.QWidget, name)
             assert obj is not None and obj.toolTip().strip(), name
-        assert s1.spec.is_default and "pre-specified rule" in w1.label.text() and "EXPLORATORY" not in w1.label.text()
+        assert s1.spec.is_default and "declared default" in w1.label.text() and "EXPLORATORY" not in w1.label.text()
         w1.v2_row.checks["leak"].setChecked(False)
         assert s1.spec.label == "v2[peak,valley,count]", s1.spec.label
         assert not w2.v2_row.checks["leak"].isChecked() and "EXPLORATORY" in w2.label.text()
@@ -191,7 +191,7 @@ def main() -> int:
                     it = t.item(i, j)
                     assert it is None or it.background().style() == QtCore.Qt.BrushStyle.NoBrush, (t.objectName(), i, j)
         assert w.pairs_title.text() == zw.PAIRS_TITLE
-        assert "never selects pairs" in w.v2c_title.text() and "D-43" in w.v2c_title.text()
+        assert "selects no pair" in w.v2c_title.text() and "D-43" not in w.v2c_title.text()   # SCI-5: plain words
         st["zq_texts"] = [[w.pair_table.item(i, j).text() for j in range(w.pair_table.columnCount())]
                           for i in range(w.pair_table.rowCount())]
         a, b = os.path.join(WORK, "zq_default"), os.path.join(WORK, "zq_direct")

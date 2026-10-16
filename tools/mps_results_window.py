@@ -123,15 +123,31 @@ PLOT_SCATTER = "Scatter off the outline"
 # Tooltips of the results table (rev 3, 12.8): what each reference value is,
 # and the two cells whose number is this program's heuristic or has no
 # valid reading. The texts of the cells themselves are unchanged.
+PAPER_HEADER = "Reference (Gazal et al. 2026, preprint v1, pooled)"
 PAPER_HEADER_TIP = (
-    "Values of Gazal et al. 2026 (preprint v1): another dataset and another pipeline; agreeing with them is not a "
-    "validation criterion. A later version renames this column.")
-KS_P_TIP = (
-    "This p treats the K distances as independent and the 1,000 randomizations as a second sample; neither holds. "
-    "Under a true null it rejects up to about four times as often as its nominal 5 % (9-22 % at a nominal 5 % in "
-    "this project's simulations). A later version replaces it with Monte Carlo p-values.")
-CROSSING_TIP = ("This program's heuristic; a later version reports a crossing only where the curves leave the band "
-                "the randomizations themselves give.")
+    "Values of Gazal et al. 2026 (preprint v1), read on data pooled over its axons: another dataset and another "
+    "pipeline; agreeing with them is not a validation criterion. The 1NN scales with the clusters detected per um, "
+    "so compare that and the regularity index r first.")
+KS_TIP = (
+    "D is descriptive: its size under the null falls with the number of clusters K, so it is not comparable between "
+    "axons or with the paper's pooled value. z_D is D in standard deviations of its own null (the D each "
+    "randomization reaches against the pool): comparable between axons. The two-sample KS p is not reported: these "
+    "samples break its assumptions, and under a true null it rejected up to about four times its nominal 5 % in "
+    "this project's simulations.")
+MC_P_TIP = (
+    "Monte Carlo rank p-values, (1 + b) / (B + 1): how often a random placement with the same cluster number, band "
+    "and minimum separation gives a median 1NN (two-sided) or a D at least as extreme. Approximate: the minimum "
+    "separation of the null is estimated from the same data.")
+CROSSING_TIP = ("Reported only where the observed CDF leaves the band the randomizations themselves give; called "
+                "significant when the crossing is stronger than the randomizations themselves reach (Monte Carlo).")
+# The public methods page of the randomization rows (tools.mps_randomization.METHODS_DOC).
+METHODS_TIP = "Methods: docs/randomization_and_ks.md"
+REGULARITY_TIP = (
+    "r = median 1NN x K / P: 1 for evenly spaced centres. What random placement gives is not a fixed number: it "
+    "depends on the minimum separation and the band, so it is computed for this axon from its own randomizations "
+    "(mean and central 95 % of their r). Below that interval: an excess of short distances; above it: more "
+    "regular than random. Its two-sided test is the Monte Carlo p of the median. "
+    "Methods: docs/randomization_and_ks.md, section 6")
 # The reference cell of each row, by the row's name (summary_rows), and the registry entry that says what it is.
 _REFERENCE_KEYS: Dict[str, str] = {
     "Clusters per um": "reference.clusters_per_um",
@@ -143,6 +159,10 @@ _REFERENCE_KEYS: Dict[str, str] = {
     "  CDF crossing": "reference.cdf_crossing",
 }
 _KS_ROW = "Randomization KS test"
+_MC_ROW = "  Monte Carlo p"
+# The other rows the randomization methods page documents.
+_RAND_ROWS = ("  centres outside the band",)
+_REGULARITY_ROW = "  regularity r"
 # The slab's expected foreign fraction (SCI-6) and the Delta-Z row: what they are, and where it is documented.
 _FOREIGN_ROW = "  foreign fraction of the slab"
 _DELTA_Z_ROW = "Delta-Z (axial periodicity)"
@@ -562,7 +582,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         )
         self.field_maha = ParamField("occupancy.mahalanobis", self.spin_maha)
         lo.addWidget(self.field_maha, 0, 1)
-        self.more_occupancy = MoreLine("occupancy")
+        self.more_occupancy = MoreLine("occupancy", editable=True)
+        self.more_occupancy.edit_button.setToolTip("Edit the sigma cap of the occupancy ellipses, then re-run.")
+        self.more_occupancy.edit_button.clicked.connect(self._on_edit_occupancy)
         lo.addWidget(self.more_occupancy, 1, 0, 1, 2)
 
         # --- Randomization: the switch (no badge: a switch carries none,
@@ -571,13 +593,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.chk_random = QtWidgets.QCheckBox("Randomization")
         self.chk_random.setChecked(True)
         self.chk_random.setToolTip(
-            "Run the 1,000-iteration randomization control (parameter 8).\n"
+            "Run the randomization control (parameter 8; 999 iterations by default).\n"
             "It is the slowest step (a few seconds per axon), so switch it\n"
             "off while tuning the other parameters and back on for the\n"
             "final numbers."
         )
         lr.addWidget(self.chk_random, 0, 0)
-        self.more_randomization = MoreLine("randomization")
+        self.more_randomization = MoreLine("randomization", editable=True)
+        self.more_randomization.edit_button.setToolTip(
+            "Edit the randomization control (band, iterations, seed, smoothing, incomplete iterations, attempts, "
+            "grid, CDF band, hard core), then re-run.")
+        self.more_randomization.edit_button.clicked.connect(self._on_edit_randomization)
         lr.addWidget(self.more_randomization, 1, 0)
 
         # --- Contour
@@ -605,7 +631,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_reset.setObjectName("btn_reset")
         self.btn_reset.setToolTip(reg.reset_tooltip())
         self.btn_reset.clicked.connect(self._on_reset)
-        # placed under the results table, beside 'Warnings (N)...' (_build_left_column): with the badges'
+        # placed under the results table, beside 'Analysis notes (N)...' (_build_left_column): with the badges'
         # publication name the strip keeps two lines at 1366 px only without it (manual test 2)
 
         # The axon's actions sit at the right of the plot tabs' bar, a line
@@ -651,6 +677,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         for w in (self.combo_peak, self.spin_half, self.spin_eps,
                   self.spin_min, self.spin_maha,
                   self.chk_random, self.btn_reset, self.btn_contour,
+                  self.more_randomization.edit_button, self.more_occupancy.edit_button,
                   self.btn_slab_auto, self.chk_typed, self.edit_typed_min,
                   self.edit_typed_max, self.btn_typed_apply):
             w.setEnabled(enabled)
@@ -853,7 +880,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.table = QtWidgets.QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
             ["Parameter", "Measured", "All clusters", "Discard applied",
-             "Gazal 2026", "Note"])
+             PAPER_HEADER, "Note"])
         for col in (_COL_NAME, _COL_MEASURED, _COL_EVERY, _COL_DISCARD):
             self.table.horizontalHeader().setSectionResizeMode(
                 col, QtWidgets.QHeaderView.ResizeToContents)
@@ -870,7 +897,26 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        # Every row in sight without scrolling (manual test of SCI-3: the last rows, "CDF crossing" and "centres
+        # outside the band", sat below the fold at 1366 x 768 and a new user did not know to scroll): one text line
+        # per row, compact, instead of the style's ~31 px. Every cell is one line of text.
+        vh = self.table.verticalHeader()
+        row_px = self.table.fontMetrics().height() + 4
+        vh.setMinimumSectionSize(row_px)
+        vh.setDefaultSectionSize(row_px)
+        vh.setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
+        self.table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         lay.addWidget(self.table, stretch=3)
+        # If the user still makes the table shorter than its rows (a dragged divider, a smaller screen), it says
+        # so in words: a scrollbar alone is easy to miss.
+        self.lbl_more_rows = QtWidgets.QLabel("More rows below: scroll the table.")
+        self.lbl_more_rows.setObjectName("lbl_more_rows")
+        self.lbl_more_rows.setStyleSheet(f"color: {_C_TEXT_WARN}; font-weight: bold;")
+        self.lbl_more_rows.setVisible(False)
+        lay.addWidget(self.lbl_more_rows)
+        bar = self.table.verticalScrollBar()
+        bar.rangeChanged.connect(lambda *_a: self._update_more_rows())
+        bar.valueChanged.connect(lambda *_a: self._update_more_rows())
 
         # The two columns leave together, in one row. A table holding the
         # two analyses of one axon as two rows is how a statistic over it
@@ -888,10 +934,12 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.box_export)
 
         # The warnings leave the window (manual test 2, item 5): a button with their count, a preview in its
-        # tooltip, and the whole list written to a .txt file on a click (never over an existing file).
+        # tooltip, and the whole list written to a .txt file on a click (never over an existing file). The
+        # user reads them as "Analysis notes" (manual test of SCI-3: "Warnings" sounded like danger, a new
+        # user would hesitate to press it); the code keeps calling them warnings.
         row = QtWidgets.QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        self.btn_warnings = QtWidgets.QPushButton("Warnings (0)...")
+        self.btn_warnings = QtWidgets.QPushButton("Analysis notes (0)...")
         self.btn_warnings.setObjectName("btn_warnings")
         self.btn_warnings.clicked.connect(self._on_save_warnings)
         row.addWidget(self.btn_warnings)
@@ -902,6 +950,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._warning_count = 0
 
         return w
+
+    def _update_more_rows(self) -> None:
+        """The 'more rows below' line: shown while rows of the table lie below its visible part."""
+        bar = self.table.verticalScrollBar()
+        self.lbl_more_rows.setVisible(bar.maximum() > 0 and bar.value() < bar.maximum())
 
     def _build_plots(self) -> QtWidgets.QWidget:
         """The axon map above, the tabs under it (design 3.1, Q4)."""
@@ -1050,6 +1103,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.comparison = self._ask_discard()
         self._read_selection()
         self._sync_controls()
+        self._sync_more()
         self._sync_slab_widgets()
         self._sync_reset()
         self._sync_discard_widgets()
@@ -1476,13 +1530,19 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         elif col in (_COL_MEASURED, _COL_EVERY, _COL_DISCARD):
             own = item.toolTip()
             if name == _KS_ROW:
-                item.setToolTip(KS_P_TIP + (f"\n\n{own}" if own else ""))
+                item.setToolTip(KS_TIP + "\n" + METHODS_TIP + (f"\n\n{own}" if own else ""))
+            elif name == _MC_ROW:
+                item.setToolTip(MC_P_TIP + "\n" + METHODS_TIP + (f"\n\n{own}" if own else ""))
+            elif name == _REGULARITY_ROW:
+                item.setToolTip(REGULARITY_TIP + (f"\n\n{own}" if own else ""))
+            elif name in _RAND_ROWS:
+                item.setToolTip(METHODS_TIP + (f"\n\n{own}" if own else ""))
             elif name == _FOREIGN_ROW:
                 item.setToolTip(FOREIGN_TIP + (f"\n\n{own}" if own else ""))
             elif name == _DELTA_Z_ROW:
                 item.setToolTip(DELTA_Z_TIP + (f"\n\n{own}" if own else ""))
             elif name == _CROSSING_ROW:
-                item.setToolTip(CROSSING_TIP + "\n" + reg.tooltip("randomization.cdf_crossing_floor")
+                item.setToolTip(CROSSING_TIP + "\n" + reg.tooltip("randomization.cdf_band_alpha")
                                 + (f"\n\n{own}" if own else ""))
 
     @staticmethod
@@ -1511,11 +1571,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                     messages += [prefix + w for w in other.warnings
                                  if w not in seen]
                     seen.update(other.warnings)
-            lines = list(messages) if messages else ["No warnings."]
+            lines = list(messages) if messages else ["No analysis notes."]
         self._warning_lines = lines
         self._warning_count = len(messages)
         n = len(messages)
-        self.btn_warnings.setText(f"Warnings ({n})...")
+        self.btn_warnings.setText(f"Analysis notes ({n})...")
         self.btn_warnings.setEnabled(n > 0)
         self.btn_warnings.setStyleSheet(f"color: {_C_TEXT_WARN}; font-weight: bold;" if n else "")
         if n:
@@ -1525,7 +1585,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             more = n - len(preview)
             tip = "\n".join(preview) + (f"\n... and {more} more." if more > 0 else "")
             self.btn_warnings.setToolTip(
-                tip + "\n\nClick to save every warning, in full, as a .txt file (an existing file is never "
+                tip + "\n\nClick to save every note, in full, as a .txt file (an existing file is never "
                 "overwritten: a new name is chosen).")
         else:
             self.btn_warnings.setToolTip(lines[0] if lines else "")
@@ -1536,9 +1596,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _warnings_text(self) -> str:
         a = self._display_analysis()
-        head = [f"MPS analysis warnings: {os.path.basename(a.source_name) if a is not None else ''}",
+        head = [f"MPS analysis notes: {os.path.basename(a.source_name) if a is not None else ''}",
                 _strip(self.lbl_provenance.text()).replace("<br>", " | "),
-                f"{self._warning_count} warning(s)", ""]
+                f"{self._warning_count} note(s)", ""]
         body = [f"{i}. {w}" for i, w in enumerate(self._warning_lines, 1)]
         return "\n".join(head) + "\n" + "\n\n".join(body) + "\n"
 
@@ -1552,7 +1612,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         parent = os.path.dirname(str(source)) if source else ""
         folder = parent if parent and os.path.isdir(parent) else os.getcwd()
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save the warnings", os.path.join(folder, f"{stem}_warnings.txt"), "Text (*.txt)")
+            self, "Save the analysis notes", os.path.join(folder, f"{stem}_analysis_notes.txt"), "Text (*.txt)")
         if not path:
             return
         if os.path.splitext(path)[1].lower() != ".txt":
@@ -1560,13 +1620,13 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         try:
             written = write_text_file(path, self._warnings_text())
         except OSError as error:
-            QtWidgets.QMessageBox.critical(self, "Warnings not saved",
-                                           f"Could not write the warnings:\n\n{error}")
+            QtWidgets.QMessageBox.critical(self, "Analysis notes not saved",
+                                           f"Could not write the analysis notes:\n\n{error}")
             return
         renamed = ("" if os.path.normcase(written) == os.path.normcase(path)
                    else f"\n\n{os.path.basename(path)} already existed and was left as it is.")
         QtWidgets.QMessageBox.information(
-            self, "Warnings saved", f"{self._warning_count} warning(s) written to\n{written}{renamed}")
+            self, "Analysis notes saved", f"{self._warning_count} note(s) written to\n{written}{renamed}")
 
     # ------------------------------------------------------------------
     # the banner (3.4 rule 5)
@@ -1837,12 +1897,69 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             peak = centre if mode == "component" else None
         self._rerun(main_peak_override_nm=(None if peak is None else float(peak)))
 
-    def _rerun(self, main_peak_override_nm: Optional[float]) -> None:
+    def _sync_more(self) -> None:
+        """The randomization and occupancy "More" lines say the values the analysis shown ran with (SCI-3)."""
+        from tools.mps_randomization_ui import analysis_values, more_values
+
+        a = self.analysis
+        self.more_randomization.set_values(more_values(analysis_values(a)))
+        self.more_occupancy.set_values(
+            {} if a is None else {"occupancy.sigma_cap_fraction": float(a.sigma_cap_fraction)})
+
+    def _rerun_with(self, extra: Dict[str, Any]) -> None:
+        """Re-run with the strip's values and ``extra`` keywords (the randomization's or the sigma cap's)."""
+        if self.analysis is None:
+            self._update_banner()
+            return
+        peak = self.combo_peak.currentData()
+        self._rerun(main_peak_override_nm=(None if peak is None else float(peak)), **extra)
+
+    def _on_edit_randomization(self) -> None:
+        """The randomization dialog: its values go into the one store and the analysis runs again with them."""
+        from tools.mps_randomization_ui import (
+            RandomizationDialog, analysis_values, analyze_kwargs, values_from_store,
+        )
+
+        if self.rerun_callback is None:
+            return
+        dialog = RandomizationDialog(analysis_values(self.analysis), self)
+        if dialog.exec_() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        if self.links.store is not None:
+            self.links.store({"randomization_params": values})
+        kw = analyze_kwargs(values)
+        # every keyword, so the run is these values whatever the store's defaults
+        full = values_from_store(values)
+        from tools.mps_randomization import RandomizationParams
+
+        kw.setdefault("n_randomizations", int(full["n_iterations"]))
+        kw.setdefault("random_seed", int(full["seed"]))
+        kw.setdefault("randomization_params", RandomizationParams.from_dict(full))
+        self._rerun_with(kw)
+
+    def _on_edit_occupancy(self) -> None:
+        """The sigma-cap dialog: the value goes into the one store and the analysis runs again with it."""
+        from tools.mps_randomization_ui import SigmaCapDialog
+
+        if self.rerun_callback is None:
+            return
+        cap = None if self.analysis is None else float(self.analysis.sigma_cap_fraction)
+        dialog = SigmaCapDialog(cap, self)
+        if dialog.exec_() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        value = float(dialog.values()["occupancy_sigma_cap_fraction"])
+        if self.links.store is not None:
+            self.links.store({"occupancy_sigma_cap_fraction": value})
+        self._rerun_with({"sigma_cap_fraction": value})
+
+    def _rerun(self, main_peak_override_nm: Optional[float], **extra: Any) -> None:
         if self.rerun_callback is None:
             return
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
             self.analysis = self.rerun_callback(
+                **extra,
                 main_peak_override_nm=main_peak_override_nm,
                 slab_half_width_nm=float(self.spin_half.value()),
                 eps_nm=float(self.spin_eps.value()),

@@ -26,8 +26,10 @@ from golden_ui_stage2_compare import _diff, _load
 
 # B1-B13: the stage-2 design; B14-B16: the behaviour changes of manual test 2 (MT2_REQUEST.md); B17: the species
 # column (fix/identity-species); B18 onwards: the science PRs in merge order (design 13.0 SR-2), B18 = SCI-1 (the z
-# calibration's export columns and store), B19 = SCI-3, B20 = SCI-5, B21 = SCI-6 (the axial mixture, the ring
-# boundaries and the ring correlation). Each entry carries a one-line reason.
+# calibration's export columns and store), B19 = SCI-3 (the randomization control, the KS p removed, the regularity
+# index, the sigma cap; axon tables v6 and the settings' new fields), B20 = SCI-5 (the viability parameters' store in
+# the settings file), B21 = SCI-6 (the axial mixture, the ring boundaries and the ring correlation). Each entry
+# carries a one-line reason.
 B_CHANGES = {f"B{i}" for i in range(1, 22)}
 # The path ends where the compare tool's ": <first> != <second>" (or ": only in ...", ": n items vs m") begins: at
 # the first colon followed by a space. A key may hold a colon of its own ("other:_columns.csv").

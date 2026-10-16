@@ -45,9 +45,11 @@ PASSED = 0
 FAILED = 0
 T0 = time.perf_counter()
 WORK = tempfile.mkdtemp(prefix="test_zquality_clusters_gui_")
-OLD_LEGEND = ["localizations (10 nm bars)", "smoothed density<br>(h = 17 nm = 0.10 P)", "significant peak",
+# SCI-5: h is 0.10 of the axon's own period (written per case), and the ring centres are labelled with their share of
+# the reference ring
+OLD_LEGEND = ["localizations (10 nm bars)", "smoothed density<br>(h = {h:.0f} nm = 0.10 P)", "significant peak",
               "significant valley", "SiZer: density rises (significant)", "SiZer: density falls (significant)",
-              "SiZer: no significant slope", "ring centre: % of the central ring<br>(thick solid = central)"]
+              "SiZer: no significant slope", "ring centre: % of the reference ring<br>(thick solid = reference)"]
 
 
 def check(name: str, fn: Callable[[], Optional[str]]) -> None:
@@ -136,11 +138,12 @@ def main() -> int:
             assert w.cluster_panel.isVisible() and not w.cluster_panel.isHidden()
             res, _p, _l, _w = build_review_rings(inp)
             k_ring = sum(len(r.clusters) for r in res.rings)
-            lab = mac.groups_3d_labels(inp.x_nm, inp.y_nm, inp.z_nm)
+            zs = float(rep.v2.group_z_scale)          # SCI-5: the file's lateral / axial precision ratio
+            lab = mac.groups_3d_labels(inp.x_nm, inp.y_nm, inp.z_nm, zs)
             k_3d = int(np.unique(lab[lab >= 0]).size)
             # groups_3d (rule v2's variance groups) = the same DBSCAN: its groups larger than one point are these
             from tools.mps_sizer import groups_3d
-            g = groups_3d(inp.x_nm, inp.y_nm, inp.z_nm)
+            g = groups_3d(inp.x_nm, inp.y_nm, inp.z_nm, zscale=zs)
             assert int(np.count_nonzero(np.bincount(g) >= 2)) == k_3d
             sets = rep.clusters.sets
             assert sets["ring_slab"].n_clusters == k_ring, (sets["ring_slab"].n_clusters, k_ring)
@@ -156,7 +159,7 @@ def main() -> int:
                 assert w.cluster_source() == key
                 shown[key] = bar_total(w.cluster_plot)
                 assert shown[key] == s.n_clusters, (key, shown[key], s.n_clusters)
-                assert s.profile is not None and abs(s.profile.h_nm - 0.10 * rep.v2.p_ref_nm) < 1e-9
+                assert s.profile is not None and abs(s.profile.h_nm - 0.10 * rep.v2.p_scale_nm) < 1e-9
                 assert not s.profile.robust          # iid: one point per cluster
                 assert len(s.median_z_nm) == len(s.n_locs) == len(s.ring_index)
                 assert np.all(s.n_locs >= 1) and np.all(s.q25_z_nm <= s.median_z_nm + 1e-9)
@@ -211,9 +214,12 @@ def main() -> int:
             inp = need(st, f"inp_{name}")
             rep = w.report
             res, _p, _l, _w = build_review_rings(inp)
-            direct = viability_v2(res, z_quality(res), xyz_lab_nm=(inp.x_nm, inp.y_nm, inp.z_nm))
+            from tools.mps_axial_precision import file_precision_nm
+            direct = viability_v2(res, z_quality(res), xyz_lab_nm=(inp.x_nm, inp.y_nm, inp.z_nm),
+                                  precision_nm=file_precision_nm(inp.lp_lateral_nm, inp.lpz_nm))
             assert [p.verdict for p in rep.v2.pairs] == [p.verdict for p in direct.pairs]
-            assert [lab_.text for _s, lab_ in w.legend.items] == OLD_LEGEND, [lab_.text for _s, lab_ in w.legend.items]
+            legend = [t.format(h=rep.v2.h_nm) for t in OLD_LEGEND]
+            assert [lab_.text for _s, lab_ in w.legend.items] == legend, [lab_.text for _s, lab_ in w.legend.items]
             # the same report with and without its cluster profile writes byte-identical existing files
             bare = copy.copy(rep)
             bare.clusters = None

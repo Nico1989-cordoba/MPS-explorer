@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 SiZer on the axial (z') profile of an axon: significant peaks and valleys
-with a cluster-robust variance (D-41, criteria 1 and 2 of the ring-pair
+with a cluster-robust variance (criteria 1 and 2 of the ring-pair
 viability rule v2).
 
 SiZer (Chaudhuri & Marron 1999, JASA 94:807-823) smooths the profile with
@@ -21,9 +21,7 @@ point is its own group). Significance uses the simultaneous quantile of
 Chaudhuri & Marron, q = Phi^-1((1 + (1 - alpha)^(1/l)) / 2), with l = n /
 mean effective sample size over the grid points where it is >= 5.
 
-Port of the H5-E zmin research code (private research scripts:
-``sizer_row`` / ``peaks_valleys``, ``sign_row`` /
-``valley_between``, ``groups_3d``; the same numbers to 1e-12 on the
+Port of this project's research code (the same numbers to 1e-12 on the
 fixed inputs of ``testdata/viability_v2/sizer_parity.json``). Nothing is
 drawn: every function is deterministic.
 """
@@ -57,14 +55,21 @@ __all__ = [
 ]
 
 SQ2PI = math.sqrt(2.0 * math.pi)
-# D-41: kernel h = 0.10 P, alpha 0.05 (simultaneous), the zmin report's
-# recommended variant ("cl_0.1").
+# Kernel h = 0.10 P (P the axon's period), alpha 0.05 (simultaneous): the
+# scale is bounded above by the resolution condition sqrt(s^2 + h^2) < P/2
+# of an equal pair (Schilling et al. 2002) and below by the slope variance,
+# proportional to 1 / (n h^3); editable 0.05-0.25 P, with the map shown.
 SIZER_H_OVER_P = 0.10
 SIZER_ALPHA = 0.05
 # A grid point whose effective sample size sum K_h(x - X_i) / K_h(0) is
 # below this is never significant (Chaudhuri & Marron's rule of thumb).
 SIZER_MIN_ESS = 5.0
-# The 3D DBSCAN that defines the clusters of the variance (zmin part B/C).
+# The 3D DBSCAN that defines the clusters of the variance: eps 25 nm and
+# min_samples 10, the lab's published settings (Gazal et al. 2026), with the
+# axial coordinate scaled by the acquisition's lateral-to-axial precision ratio
+# (computed per file, ``tools.mps_axial_precision.group_z_scale_of``); 0.5 is
+# the suggestion when the file carries no precision (astigmatic axial
+# precision is 2-3x the lateral, Huang et al. 2008).
 GROUP_EPS_NM = 25.0
 GROUP_MIN_SAMPLES = 10
 GROUP_Z_SCALE = 0.5
@@ -114,7 +119,7 @@ def sizer_grid(z: NDArray[np.float64], h: float) -> NDArray[np.float64]:
 
 
 def sizer_row(z: NDArray[np.float64], h: float, grid: NDArray[np.float64], groups: Optional[NDArray[np.int64]],
-              alpha: float, robust: bool = True, block: int = 64) -> SizerRow:
+              alpha: float, robust: bool = True, block: int = 64, small_sample: bool = False) -> SizerRow:
     """
     The SiZer sign row of the kernel density of ``z`` at bandwidth ``h``.
 
@@ -123,7 +128,9 @@ def sizer_row(z: NDArray[np.float64], h: float, grid: NDArray[np.float64], group
     cluster-robust one, sum over groups of (S_g - m_g f')^2 / n^2 with S_g
     the group's summed kernel derivative and m_g its size. A grid point is
     significant when |f'| / sd > q; points with an effective sample size
-    below ``SIZER_MIN_ESS`` are set to 0.
+    below ``SIZER_MIN_ESS`` are set to 0. ``small_sample`` multiplies the
+    cluster-robust variance by G / (G - 1), the usual finite-sample factor
+    for G groups (Cameron & Miller 2015; < 3 % for G >= 40; off by default).
     """
     z = np.asarray(z, dtype=np.float64)
     grid = np.asarray(grid, dtype=np.float64)
@@ -153,6 +160,10 @@ def sizer_row(z: NDArray[np.float64], h: float, grid: NDArray[np.float64], group
             var[s:s + block] = (r * r).sum(axis=0) / (n * n)
         else:
             var[s:s + block] = ((D * D).mean(axis=1) - fd[s:s + block] ** 2) / n
+    if small_sample and M is not None:
+        n_g = int(M.shape[0])
+        if n_g > 1:
+            var = var * (n_g / (n_g - 1.0))
     ok = ess >= SIZER_MIN_ESS
     l_blocks = n / max(float(np.mean(ess[ok])), 1e-9) if ok.any() else 1.0
     l_blocks = max(l_blocks, 1.0)
@@ -190,9 +201,9 @@ def peaks_valleys(sign: NDArray[np.int64], fhat: NDArray[np.float64],
 
 def sizer_profile(z: NDArray[np.float64], groups: Optional[NDArray[np.int64]], *, p_ref_nm: float,
                   c: float = SIZER_H_OVER_P, alpha: float = SIZER_ALPHA, robust: bool = True,
-                  q: Optional[float] = None) -> SizerProfile:
+                  q: Optional[float] = None, small_sample: bool = False) -> SizerProfile:
     """
-    SiZer of a z' profile at h = c * ``p_ref_nm`` on ``sizer_grid``
+    SiZer of a z' profile at h = c * ``p_ref_nm`` (the period that scales it: the axon's own) on ``sizer_grid``
     (port of ``zm_real.sign_row``). ``robust`` uses the cluster-robust
     variance over ``groups``; ``q`` replaces the simultaneous quantile by a
     pointwise one (a liberal reading kept for comparison, never the rule).
@@ -200,7 +211,7 @@ def sizer_profile(z: NDArray[np.float64], groups: Optional[NDArray[np.int64]], *
     z = np.asarray(z, dtype=np.float64)
     h = c * float(p_ref_nm)
     grid = sizer_grid(z, h)
-    r = sizer_row(z, h, grid, groups if robust else None, alpha, robust=robust)
+    r = sizer_row(z, h, grid, groups if robust else None, alpha, robust=robust, small_sample=small_sample)
     sg = r.sign
     if q is not None:
         sg = np.where(r.t > q, 1, np.where(r.t < -q, -1, 0)).astype(np.int64)

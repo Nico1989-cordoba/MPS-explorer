@@ -729,6 +729,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             s.mahalanobis_threshold = float(values["mahalanobis_threshold"])
         if "randomization" in values:
             self.mps_randomization = bool(values["randomization"])
+        # SCI-3: the randomization control's values and the occupancy's
+        # sigma cap (the strip's dialogs); validate() keeps a value outside
+        # its documented range and drops one that is not a value.
+        if "randomization_params" in values:
+            s.randomization_params = dict(values["randomization_params"])
+        if "occupancy_sigma_cap_fraction" in values:
+            s.occupancy_sigma_cap_fraction = float(
+                values["occupancy_sigma_cap_fraction"])
         slab = values.get("slab")
         if slab is not None and not self._z_range_user_edited:
             mode, centre = slab
@@ -1726,10 +1734,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """Keep channel 2's parameters for the rest of this acquisition.
 
         Per folder, like the pixel size, and for the same reason: the
-        measurement that forces the question is per file. Across five
-        real adducin files the localizations per resolution cell ran 4,
-        62, 238, 485 and 550, so one global answer would only move the
-        assumption instead of removing it.
+        measurement that forces the question is per file. On unpublished
+        adducin files the localizations per resolution cell differed by up
+        to two orders of magnitude from file to file, so one global answer
+        would only move the assumption instead of removing it.
         """
         key = self._channel2_folder()
         if not key:
@@ -2901,6 +2909,14 @@ class MPS_explorer(QtWidgets.QMainWindow):
             params["main_peak_override_nm"] = float(self.slab_choice.centre_nm)
         if "run_randomization" not in overrides and not self.mps_randomization:
             params["run_randomization"] = False
+        # SCI-3: the randomization's values and the sigma cap, from the one
+        # store, only where they depart from the defaults (rule K).
+        from tools.mps_randomization_ui import analyze_kwargs
+        for key, value in analyze_kwargs(
+                s.randomization_params,
+                s.occupancy_sigma_cap_fraction).items():
+            if key not in overrides:
+                params[key] = value
         if "contour_guide" not in overrides and self._guide is not None:
             if self._guide[1] == self._guide_key():
                 params["contour_guide"] = self._guide[0]
@@ -3934,11 +3950,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.xroi2 = self.yroi2 = self.zroi2 = None
         self.cluster_labels2 = self.cluster_centroids2 = None
         self._clustered_x[2] = None
-        # A new acquisition is a new question. Across five real adducin
-        # files the localizations per resolution cell ran 4, 62, 238,
-        # 485 and 550, so a choice made for one folder is not an answer
-        # for the next; the boxes go back to auto unless this folder
-        # already has one.
+        # A new acquisition is a new question. On unpublished adducin
+        # files the localizations per resolution cell differed by up to
+        # two orders of magnitude from file to file, so a choice made for
+        # one folder is not an answer for the next; the boxes go back to
+        # auto unless this folder already has one.
         self._show_channel2_parameters(self._remembered_channel2())
         if self.two_channel_window is not None:
             self.two_channel_window.close()

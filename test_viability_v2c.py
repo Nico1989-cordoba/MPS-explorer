@@ -237,12 +237,13 @@ def test_rule_on_planar_separated_rings() -> None:
     assert len(rows) == 6
     want = ["axon_id", "rule", "variant", "variant_label", "ring_a", "ring_b", "h_over_p", "peak_a", "peak_b",
             "valley", "valley_at_cut", "k_a", "k_b", "k_ratio_a", "k_ratio_b", "k_min", "count_ok",
-            "exp_spur_frac_clusters", "exp_spur_frac_d39", "n_points", "n_outside", "verdict", "reasons"]
+            "exp_spur_frac_clusters", "exp_spur_frac_d39", "exp_spur_frac_own", "spur_viable", "n_points", "n_outside",
+                "verdict", "reasons"]
     assert list(rows[0]) == want
     assert "n_chained" not in rows[0] and "chained" not in rows[0]
     assert all(r["reasons"].startswith("sensitivity only") for r in rows[3:])
     text = "\n".join(ac.v2c_summary_lines(out))
-    assert "EXPLORATORY" in text and "never" in text and "Q-38" in text
+    assert "EXPLORATORY" in text and "NOT the declared rule" in text and "Q-38" not in text and "D-4" not in text
 
 
 def test_count_criterion_is_a_fraction_of_the_central_ring() -> None:
@@ -254,7 +255,7 @@ def test_count_criterion_is_a_fraction_of_the_central_ring() -> None:
     assert var.rings[2].k_ratio == pytest.approx(len(res.rings[2].clusters) / var.k_central)
     p12 = [p for p in out.pairs_of("ring_slab") if (p.ring_a, p.ring_b) == (1, 2)][0]
     assert not p12.count_ok and p12.verdict == "not viable"
-    assert any("of the central ring" in r and "minimum is 89 %" in r for r in p12.reasons)
+    assert any("of the reference ring" in r and "minimum is 90 %" in r for r in p12.reasons)
 
 
 def test_verdict_tiers() -> None:
@@ -268,7 +269,7 @@ def test_verdict_tiers() -> None:
     assert ac.verdict_v2c(exp_spur_frac_clusters_=0.0, **b2)[0] == "not viable"
     b3: Dict[str, Any] = dict(base, k_central=0, k_ratio_a=float("nan"), k_ratio_b=float("nan"))
     v, _valley, ok, reasons = ac.verdict_v2c(exp_spur_frac_clusters_=0.0, **b3)
-    assert v == "not viable" and not ok and any("central ring without clusters" in r for r in reasons)
+    assert v == "not viable" and not ok and any("reference ring without clusters" in r for r in reasons)
 
 
 # =========================================================================== Q-38: never selects pairs

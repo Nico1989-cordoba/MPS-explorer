@@ -335,6 +335,7 @@ def rule_v2_viability(res: RingsResult, xyz_lab_nm: Optional[Sequence[Any]] = No
     """
     import batch_columns as bc
     from tools.mps_axial_precision import viability_v2, z_quality
+    from tools.mps_selection import stored_viability_params
     from tools.mps_zquality_window import lab_xyz_of
 
     if xyz_lab_nm is None:
@@ -343,7 +344,9 @@ def rule_v2_viability(res: RingsResult, xyz_lab_nm: Optional[Sequence[Any]] = No
     else:
         xyz = tuple(np.asarray(v, dtype=np.float64).reshape(-1) for v in xyz_lab_nm)
         src = "lab coordinates of the selection"
-    v2 = viability_v2(res, z_quality(res), xyz_lab_nm=xyz)
+    vp = stored_viability_params()
+    v2 = viability_v2(res, z_quality(res, params=vp), xyz_lab_nm=xyz, params=vp, sizer_map=False,
+                      reference_readings=False)
     verdicts = bc.v2_viability(res, None, precomputed=v2)
     return ReviewViability(rule=str(verdicts.rule), pairs=tuple(verdicts.pairs), detail=v2, lab_source=src)
 
@@ -522,7 +525,7 @@ COLUMNS_WINDOW_TOOLTIPS: Dict[str, str] = {
         "The analyses do not depend on the selection, so most changes need no run at all: the results are re-drawn "
         "at once. A run nobody needs any more (the selection went back to no pair) is stopped.",
     "selection_counter_label":
-        "Under an EXPLORATORY selection (not the pre-specified rule v2, D-41) its label and short hash first; they are "
+        "Under an EXPLORATORY selection (not the declared default rule v2) its label and short hash first; they are "
         "in every export of this window.\n\n"
         "Then how many different selections the p values of this axon were shown under in this session (every one is "
         "logged in selection_exploration_log.csv). The p values are NOT corrected for trying several selections.",
@@ -1836,7 +1839,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
         self.results_view.setFont(font)
         lay.addWidget(self.results_view, stretch=5)  # H6 toggles: the results keep their room under the switches
-        lay.addWidget(QtWidgets.QLabel("Warnings"))
+        lay.addWidget(QtWidgets.QLabel("Analysis notes"))
         self.warnings_list = QtWidgets.QListWidget()
         self.warnings_list.setObjectName("warnings_list")
         self.warnings_list.setWordWrap(True)
@@ -1925,7 +1928,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
             msgs += [("warn", f"run: {w}") for w in self.last_result.warnings]
         msgs += [("dim", f"rings: {w}") for w in self.res.warnings]
         if not msgs:
-            msgs = [("good", "No warnings.")]
+            msgs = [("good", "No analysis notes.")]
         for kind, text in msgs:
             item = QtWidgets.QListWidgetItem(marked(kind, text))
             item.setForeground(QtGui.QColor(verdict(kind, dark=False)))

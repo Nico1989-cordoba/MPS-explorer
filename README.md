@@ -307,6 +307,13 @@ pytest test_mps_explorer.py -v
   files, the per-measurement z calibration: no z correction is applied yet, so z is used as the localization software
   fitted it; whether the file carries its own calibration record is shown (only Data quality's coverage check reads
   its calibrated range), and the inputs to read one are present but disabled.
+- **Randomization control, KS and the 1NN** (parameter 8 of Gazal et al. 2026). The null (999 iterations, ±50 nm band
+  around the closed smoothed contour, the smallest observed 1NN as minimum separation, incomplete iterations re-drawn
+  and excluded) is editable from the strip (Randomization → More → Edit...). The KS distance D is reported with its
+  own null (z_D) and Monte Carlo p-values; the two-sample KS p-value is not reported (its assumptions fail here and it
+  over-rejects true nulls). The CDF crossing is read against the iterations' own band, and the regularity index
+  r = median 1NN × K / P separates regularity from detected cluster density. Every choice, its origin, the synthetic
+  calibrations and the decision record: [docs/randomization_and_ks.md](docs/randomization_and_ks.md).
 - **The axial mixture, the ring boundaries, the axon axis and the ring correlation.** The z mixture of a region (its
   candidate components, the main peak as the mode of the fitted density, and the slab's expected foreign fraction F,
   warned above 5 %); ΔZ with its standard error and its distance from the published periods (never a verdict); the
@@ -344,7 +351,13 @@ and to judge first whether the z profile of the axon can answer that at all.
     simulated null always run at tau_0.
 - **Z quality...** — the axial profile of the axon, ring by ring and pair by pair: the viability rule v2 (SiZer peak
   and valley, localization minimum, expected leak copies), the exploratory cluster-level variant, switches for each
-  criterion, the limiting factors in plain words, and an export of the report.
+  criterion, the limiting factors in plain words, and an export of the report. **Criteria...** edits every value of
+  the viability (reference period 170 nm after Gazal et al. 2026 and its presets, SiZer bandwidth and peak window as
+  fractions of the axon's own period, separation thresholds, the per-pair tolerance of leak copies, the count-floor
+  recall), each with its origin and documented range; **Calibrate count floor** calibrates criterion (3) on the axon by
+  thinning. Where every number comes from, the derivations, the simulations (scripts in `docs/sims/viability/`), the
+  leak diagnostics that were removed and why, the limitations and the decision record:
+  [docs/viability_and_reference_period.md](docs/viability_and_reference_period.md).
 - **Columns batch...** — runs `batch_columns.py` in a separate process with live progress.
 - **Viability explorer...** — rule v2 over many picked axons at once (computed in worker processes and cached), with
   the criteria switches and a combination table.
