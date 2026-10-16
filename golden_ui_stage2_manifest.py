@@ -8,8 +8,8 @@ MANIFEST.json is a list of entries ``{"cell": "A:S2:E2", "snapshot": "entry", "p
 "b_change": "B2", "reason": "..."}``. ``path`` is a prefix of the difference's path inside the snapshot, as
 ``golden_ui_stage2_compare.py`` prints it after "<cell> / snapshots / <snapshot> / "; an entry may cover several
 differences under that prefix, and must cover at least one; a difference belongs to the longest prefix that matches
-it. ``b_change`` must be one of B1-B21 (G6: no rev-3 item may appear; B19-B21 are the science PRs SCI-3, SCI-5 and
-SCI-6, numbered in their planned merge order). An empty list (``[]``) means "byte-identical": the expectation of every step before IMPL-D (IMPL-0 to
+it. ``b_change`` must be one of B1-B22 (G6: no rev-3 item may appear; B19-B22 are the science PRs SCI-3, SCI-5,
+SCI-6 and channel 2's parameters, numbered in their planned merge order). An empty list (``[]``) means "byte-identical": the expectation of every step before IMPL-D (IMPL-0 to
 IMPL-C), since no B-change is implemented before it.
 
 Exit status 0 when the differences are exactly the manifest's, 1 otherwise. Nothing is normalised here (the golden
@@ -28,9 +28,10 @@ from golden_ui_stage2_compare import _diff, _load
 # column (fix/identity-species); B18 onwards: the science PRs in merge order (design 13.0 SR-2), B18 = SCI-1 (the z
 # calibration's export columns and store), B19 = SCI-3 (the randomization control, the KS p removed, the regularity
 # index, the sigma cap; axon tables v6 and the settings' new fields), B20 = SCI-5 (the viability parameters' store in
-# the settings file), B21 = SCI-6 (the axial mixture, the ring boundaries and the ring correlation). Each entry
-# carries a one-line reason.
-B_CHANGES = {f"B{i}" for i in range(1, 22)}
+# the settings file), B21 = SCI-6 (the axial mixture, the ring boundaries and the ring correlation; axon tables v7),
+# B22 = channel 2's DBSCAN parameters from the NeNA (P-R57; reserved: its golden is identical to main's, so it has no
+# entries). Each entry carries a one-line reason.
+B_CHANGES = {f"B{i}" for i in range(1, 23)}
 # The path ends where the compare tool's ": <first> != <second>" (or ": only in ...", ": n items vs m") begins: at
 # the first colon followed by a space. A key may hold a colon of its own ("other:_columns.csv").
 _PREFIX = re.compile(r"^(?P<cell>[^ ]+) / snapshots / (?P<snap>[^ /]+) / (?P<path>.*?)(?:: .*)?$")
@@ -66,7 +67,7 @@ def check(ref_path: str, branch_path: str, manifest_path: str) -> int:
     problems: List[str] = []
     for i, e in enumerate(manifest):
         if e.get("b_change") not in B_CHANGES:
-            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B21 (G6, manual test 2, "
+            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B22 (G6, manual test 2, "
                             f"species, the science PRs)")
     found, other = differences(ref, branch)
     problems.extend(f"not a snapshot difference: {o}" for o in other)

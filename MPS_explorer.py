@@ -1718,7 +1718,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         path = self.ui.lineEdit_filename_2.text().strip()
         return folder_key(path) if path else ""
 
-    def _remembered_channel2(self) -> Optional[Dict[str, float]]:
+    def _remembered_channel2(self) -> Optional[Dict[str, Any]]:
         """What was chosen for channel 2 in this acquisition, if anything."""
         key = self._channel2_folder()
         if not key:
@@ -1730,59 +1730,86 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return dict(entry)
 
-    def _remember_channel2(self, values: Dict[str, float]) -> None:
+    def _remember_channel2(self, values: Dict[str, Any]) -> None:
         """Keep channel 2's parameters for the rest of this acquisition.
 
-        Per folder, like the pixel size, and for the same reason: the
-        measurement that forces the question is per file. On unpublished
-        adducin files the localizations per resolution cell differed by up
-        to two orders of magnitude from file to file, so one global answer
-        would only move the assumption instead of removing it.
+        Per folder, like the pixel size, and for the same reason: what
+        they are derived from -- channel 2's precision and dye -- belongs
+        to the acquisition. The record keeps where they came from
+        (tools.mps_channel_params.provenance): each value's origin, both
+        channels' NeNA and whole-field files (by name), dye, buffer and
+        n_loc,mol.
         """
         key = self._channel2_folder()
         if not key:
             return
-        self.mps_settings.channel2_clustering_by_folder[key] = {
-            "eps_nm": float(values["eps_nm"]),
-            "min_samples": float(values["min_samples"]),
-        }
+        entry = dict(values)
+        entry["eps_nm"] = float(values["eps_nm"])
+        entry["min_samples"] = float(values["min_samples"])
+        self.mps_settings.channel2_clustering_by_folder[key] = entry
         save_settings(self.mps_settings)
 
-    def _ask_channel2_parameters(self) -> Optional[Dict[str, float]]:
+    def _channel2_provenance(self, params_b: Dict[str, Any]
+                             ) -> Tuple[str, Dict[str, Any]]:
+        """Where the channel-2 pair in use comes from: (source word, record).
+
+        The record remembered for this folder when the pair is still the
+        one it describes (its origins re-checked against the values in
+        use); otherwise the values were typed, and the record says "user".
+        """
+        from tools.mps_channel_params import ORIGIN_DERIVED, reconcile
+
+        if not params_b:
+            return "", {}
+        remembered = self._remembered_channel2() or {}
+        record = reconcile(remembered, float(params_b["eps_nm"]),
+                           int(params_b["min_samples"]))
+        derived = (record.get("eps_b_origin") == ORIGIN_DERIVED
+                   and record.get("min_samples_b_origin") == ORIGIN_DERIVED)
+        return ("derived" if derived else "typed"), record
+
+    def _ask_channel2_parameters(self) -> Optional[Dict[str, Any]]:
         """Ask for channel 2's own clustering, once per acquisition.
 
         Returns the pair and remembers it for this folder, or None when
         the person declined -- in which case the comparison is refused
         and the panel still opens for the registration.
 
-        The box is given the ROI selection of both channels so it can
-        show what it is asking about: the measured density of each
-        channel, in the unit Min Pts counts, and what the program's own
-        estimator makes of channel 2's points. Without those a person
-        asked for a number they do not have will type anything.
+        The box measures each channel's precision (NeNA) on its
+        whole-field file, found by name from the two loaded files, and
+        pre-fills channel 2's eps and Min Pts derived from it and the dye
+        chosen (docs/channel2_parameters.md); both stay editable. It is
+        also given the ROI selection of both channels, to show how densely
+        each is sampled in the unit Min Pts counts.
         """
         from tools.channel2_ui import ask_channel2_parameters
 
+        remembered = None
+        key = self._channel2_folder()
+        if key:
+            remembered = self.mps_settings.channel2_clustering_by_folder.get(
+                key)
         answer = ask_channel2_parameters(
             self,
             x_a=self.xroi, y_a=self.yroi,
             x_b=self.xroi2, y_b=self.yroi2,
-            channel1={"eps_nm": float(self.mps_settings.eps_nm),
-                      "min_samples": int(self.mps_settings.min_samples)},
-            file_name=os.path.basename(
-                self.ui.lineEdit_filename_2.text().strip()))
+            path_a=self.ui.lineEdit_filename.text().strip(),
+            path_b=self.ui.lineEdit_filename_2.text().strip(),
+            eps1_nm=float(self.mps_settings.eps_nm),
+            remembered=remembered if isinstance(remembered, dict) else None)
         if answer is None:
             return None
         self._remember_channel2(answer)
         self._show_channel2_parameters(answer)
         self.logger.info(
-            f"Channel 2's clustering set by hand: eps "
-            f"{answer['eps_nm']:g} nm, min samples "
-            f"{int(answer['min_samples'])}; remembered for "
-            f"{self._channel2_folder() or 'this folder'}")
+            f"Channel 2's clustering: eps {answer['eps_nm']:g} nm "
+            f"({answer.get('eps_b_origin', 'user')}), min samples "
+            f"{int(answer['min_samples'])} "
+            f"({answer.get('min_samples_b_origin', 'user')}); remembered "
+            f"for {self._channel2_folder() or 'this folder'}")
         return answer
 
-    def _show_channel2_parameters(self, values: Optional[Dict[str, float]]
+    def _show_channel2_parameters(self, values: Optional[Dict[str, Any]]
                                   ) -> None:
         """Put a chosen pair in the boxes, or put them back on auto."""
         if values is None:
@@ -1851,7 +1878,6 @@ class MPS_explorer(QtWidgets.QMainWindow):
         slab = self._applied_slab
         shared = dict(dbcv_threshold=float(s.dbcv_threshold), roi=roi)
         params_a, params_b = self._clustering_parameters()
-        source = "typed" if params_b else ""
         # Ask only when a comparison is actually going to run. With no
         # ROI this panel measures the registration and nothing else --
         # it is offered from the menu as exactly that -- and demanding
@@ -1862,14 +1888,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
             if remembered is not None:
                 params_b = {"eps_nm": float(remembered["eps_nm"]),
                             "min_samples": int(remembered["min_samples"])}
-                source = "typed"
                 self._show_channel2_parameters(remembered)
             else:
                 answer = self._ask_channel2_parameters()
                 if answer is not None:
                     params_b = {"eps_nm": float(answer["eps_nm"]),
                                 "min_samples": int(answer["min_samples"])}
-                    source = "typed"
+        source, provenance = self._channel2_provenance(params_b)
         kwargs_a = dict(
             shared, **params_a,
             pixel_size_nm=self.locs1.pixel_size_nm,
@@ -1903,6 +1928,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     slab_half_width_nm=float(s.slab_half_width_nm),
                     kwargs_a=kwargs_a, kwargs_b=kwargs_b,
                     channel_b_parameter_source=source,
+                    channel_b_provenance=provenance,
                     slab_source=self._slab_source_word()),
                 parent=self, parameters=self._clustering_parameters,
                 identity_callback=self.current_identity)
@@ -3950,11 +3976,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.xroi2 = self.yroi2 = self.zroi2 = None
         self.cluster_labels2 = self.cluster_centroids2 = None
         self._clustered_x[2] = None
-        # A new acquisition is a new question. On unpublished adducin
-        # files the localizations per resolution cell differed by up to
-        # two orders of magnitude from file to file, so a choice made for
-        # one folder is not an answer for the next; the boxes go back to
-        # auto unless this folder already has one.
+        # A new acquisition is a new question: channel 2's parameters are
+        # derived from that acquisition's precision and dye, so a choice
+        # made for one folder is not an answer for the next; the boxes go
+        # back to auto unless this folder already has one.
         self._show_channel2_parameters(self._remembered_channel2())
         if self.two_channel_window is not None:
             self.two_channel_window.close()
