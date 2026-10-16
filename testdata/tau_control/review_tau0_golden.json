@@ -6,6 +6,7 @@
    "counter_visible": true,
    "decisions_header": [
     "axon_id",
+    "species",
     "genotype",
     "protein",
     "animal",
@@ -45,7 +46,7 @@
     "cluster_set_sha"
    ],
    "decisions_n_rows": 158,
-   "decisions_sha256": "5a4e34ed1cb56738e29014d4ce879e9435ca9a4d2c2fc5dff561734aa669d387",
+   "decisions_sha256": "a01db04b80c791d6b9ff6d0b09702a95f5465d6ca290efc07db0f359c930219a",
    "export_files": [
     "decisions.csv",
     "decisions_results.csv"
@@ -76,6 +77,7 @@
    ],
    "results_header": [
     "axon_id",
+    "species",
     "genotype",
     "protein",
     "animal",
@@ -220,6 +222,7 @@
     "sensitivity_z_A": "0.5903168892325815",
     "simnull_reproduces_set": "True",
     "source": "sim_marginal.npz",
+    "species": "mouse",
     "tau0_nm": "80.57564059152288",
     "viability_rule": "viability rule v2: cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), localizations >= f_min of the reference ring, expected leak copies within the pair's tolerance",
     "viable_pairs": "1-2"
@@ -233,9 +236,7 @@
     "!  run: arc test (localization membrane, diagnostic): ring 1: 2 of 60 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
     "!  run: arc test (localization membrane, diagnostic): ring 2: 2 of 50 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
     "!  run: No widefield images: the lumen rule is isolation only (REMOVE = ISO_STRICT, D-35a); its completeness is not certified -- a lumen cluster shallower than ~600 nm or close to other clusters can stay (low sensitivity at 400-600 nm, D-34c). Review the doubtful clusters.",
-    "!  run: every statistic here is not calibrated for axial leak (H5-E)",
-    "-  rings: Ambiguous main peak: the two strongest axial components have nearly equal weights (0.37 vs 0.32). The 180 nm slab was centred on z = -20 nm, but a different MPS segment is almost equally supported by the data.",
-    "-  rings: Valley boundaries sit up to 5 nm away from the midpoints between means (median 5 nm)."
+    "!  run: every statistic here is not calibrated for axial leak (H5-E)"
    ]
   },
   "none": {
@@ -244,6 +245,7 @@
    "counter_visible": false,
    "decisions_header": [
     "axon_id",
+    "species",
     "genotype",
     "protein",
     "animal",
@@ -283,7 +285,7 @@
     "cluster_set_sha"
    ],
    "decisions_n_rows": 194,
-   "decisions_sha256": "4922d65efecfc41bf07f32346fe7ca2e715ff8057c12a1f519d798fe0ac27c44",
+   "decisions_sha256": "3d844ea6723a5efa5644c953aa1808c02e6639d6c8c37a25e20013ab3f781c6f",
    "export_files": [
     "decisions.csv"
    ],
@@ -298,8 +300,7 @@
    "viability_label": "Ring-pair viability (rule v2, D-41): x  No VIABLE or MARGINAL pair: 'Apply and re-run' will compute nothing and say why.",
    "warnings": [
     "!  lumen rule: 1 cluster(s) removed automatically, 0 doubtful (kept unless removed by hand), 0 vetoed by the interior",
-    "-  rings: Ambiguous main peak: the two strongest axial components have nearly equal weights (0.38 vs 0.32). The 180 nm slab was centred on z = 15 nm, but a different MPS segment is almost equally supported by the data.",
-    "-  rings: Valley boundaries sit up to 19 nm away from the midpoints between means (median 15 nm)."
+    "-  rings: 2 boundary(ies) dip less than 10% below the lower adjacent peak: the two segments are barely separated axially (for two equal Gaussian rings a depth of 0.10 is a spacing of about 2.45 widths)."
    ]
   },
   "viable": {
@@ -308,6 +309,7 @@
    "counter_visible": true,
    "decisions_header": [
     "axon_id",
+    "species",
     "genotype",
     "protein",
     "animal",
@@ -347,7 +349,7 @@
     "cluster_set_sha"
    ],
    "decisions_n_rows": 156,
-   "decisions_sha256": "06ea136a26ffae89c5e75f75b43f071c6d6014fac9ad22463690195912bd906c",
+   "decisions_sha256": "ed3cd73b9379d27ed0d69d9128d1a8146bf34df68075dd3ce8884bb465cdc8b1",
    "export_files": [
     "decisions.csv",
     "decisions_results.csv"
@@ -378,6 +380,7 @@
    ],
    "results_header": [
     "axon_id",
+    "species",
     "genotype",
     "protein",
     "animal",
@@ -522,6 +525,7 @@
     "sensitivity_z_A": "",
     "simnull_reproduces_set": "True",
     "source": "sim_viable.npz",
+    "species": "mouse",
     "tau0_nm": "80.57564059152288",
     "viability_rule": "viability rule v2: cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), localizations >= f_min of the reference ring, expected leak copies within the pair's tolerance",
     "viable_pairs": "0-1 1-2"
@@ -534,9 +538,7 @@
     "!  run: arc test (localization membrane, diagnostic): ring 1: 1 of 57 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
     "!  run: No widefield images: the lumen rule is isolation only (REMOVE = ISO_STRICT, D-35a); its completeness is not certified -- a lumen cluster shallower than ~600 nm or close to other clusters can stay (low sensitivity at 400-600 nm, D-34c). Review the doubtful clusters.",
     "!  run: every statistic here is not calibrated for axial leak (H5-E)",
-    "-  rings: Main-peak estimates disagree by 169 nm (density 173 nm vs weight 4 nm): the axial distribution has more than one comparable peak, so the 180 nm slab may not isolate the intended MPS segment.",
-    "-  rings: Ambiguous main peak: the two strongest axial components have nearly equal weights (0.36 vs 0.35). The 180 nm slab was centred on z = 173 nm, but a different MPS segment is almost equally supported by the data.",
-    "-  rings: Valley boundaries sit up to 1 nm away from the midpoints between means (median 1 nm)."
+    "-  rings: Main-peak estimates disagree by 169 nm (density 173 nm vs weight 4 nm), more than the slab half-width of 90 nm: windows centred on the two would share 6% of their extent, so the axial distribution has more than one comparable peak and the choice decides which MPS segment is analysed."
    ]
   }
  },
