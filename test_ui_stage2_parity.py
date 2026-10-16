@@ -22,7 +22,7 @@ else different (``golden_ui_stage2_manifest.py``). The manifest itself is checke
      dictionary fall under the paths B17 and B18 already list.
   8. B20 (SCI-5) in every cell: the settings file's new (empty) store of the viability parameters; nothing else.
   9. B21 (SCI-6, the axial mixture, the ring boundaries and the ring correlation) in every cell: the axon table's
-     five axial-mixture columns and v6, the dictionary's entries, the results table's foreign-fraction row, the
+     five axial-mixture columns and v7, the dictionary's entries, the results table's foreign-fraction row, the
      warnings, the rings window and its CSVs.
 
 R8: simulated axons only (the harness's own); every cell runs in its own temporary folder.
@@ -74,7 +74,7 @@ WHERE = {   # B-change -> (scenarios, entry points) it may appear in (design 6.4
     # SCI-5: the settings file's new store of the viability parameters (empty), in every cell
     "B20": ({"S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11a", "S11b", "S12a", "S12b"},
             {"E1", "E2", "E3", "E4", "E5"}),
-    # SCI-6: every export (five axial-mixture columns, table v6, the dictionary), the results table's foreign
+    # SCI-6: every export (five axial-mixture columns, table v7, the dictionary), the results table's foreign
     # fraction row and warnings, the rings window and its CSVs
     "B21": ({"S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11a", "S11b", "S12a", "S12b"},
             {"E1", "E2", "E3", "E4", "E5"}),

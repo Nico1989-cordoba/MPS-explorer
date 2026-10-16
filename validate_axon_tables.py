@@ -1088,7 +1088,7 @@ def test_schema_and_excel() -> None:
                                        Z_CALIBRATION_COLUMNS)
         from tools.mps_axoplasm import SUMMARY_COLUMNS
         # v4 (SCI-1): the measurement's z calibration, last, so no earlier
-        # column moved; v6 (SCI-6): the axial mixture after it.
+        # column moved; v7 (SCI-6): the axial mixture after it.
         expected = (list(HEAD_COLUMNS) + list(STATE_COLUMNS)
                     + list(SHARED_COLUMNS) + list(MEASURED_COLUMNS)
                     + [n + DISCARD_SUFFIX for n in MEASURED_COLUMNS]

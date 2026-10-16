@@ -83,8 +83,13 @@ from tools.results_table import cell_text
 # (nn_regularity_null_mean, nn_regularity_null_lo, nn_regularity_null_hi);
 # written once: the randomization's settings and the occupancy's sigma cap.
 # ks_cdf_crossing now holds the level read against the null band.
+# v7 (2026-10-14): the axial mixture of SCI-6
+# (docs/axial_mixture_and_rings.md), written once at the end of the row,
+# after the z calibration, so that no earlier column moves
+# (AXIAL_MIXTURE_COLUMNS): main_peak_mode, z_peak_density_nm,
+# z_peak_weight_nm, slab_foreign_fraction, delta_z_se_nm.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v6"
+TABLE_VERSION = "axon tables v7"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported

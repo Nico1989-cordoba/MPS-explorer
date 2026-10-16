@@ -211,7 +211,7 @@ def test_analysis_exports_the_axial_mixture_columns(tmp_path: Any) -> None:
     assert a.slab_foreign is not None and a.slab_foreign_fraction is not None
     row = axon_row(a, exported_at="t")
     assert list(row)[-len(AXIAL_MIXTURE_COLUMNS):] == list(AXIAL_MIXTURE_COLUMNS)
-    assert row["table_version"] == TABLE_VERSION == "axon tables v6"
+    assert row["table_version"] == TABLE_VERSION == "axon tables v7"   # v6 is SCI-3's
     assert row["main_peak_mode"] == "density" and 0.0 <= row["slab_foreign_fraction"] <= 1.0
     assert all(describe(c) for c in AXIAL_MIXTURE_COLUMNS)
     assert known_columns()[-len(AXIAL_MIXTURE_COLUMNS):] == list(AXIAL_MIXTURE_COLUMNS)

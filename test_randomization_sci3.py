@@ -231,7 +231,7 @@ def test_analysis_rows_and_columns() -> None:
                  "randomization_grid_spacing_nm", "randomization_hard_core", "ks_band_alpha",
                  "occupancy_sigma_cap_fraction"):
         assert name in rec and name in SHARED_COLUMNS and cd.describe(name), name
-    assert TABLE_VERSION == "axon tables v6"
+    assert TABLE_VERSION == "axon tables v7"   # v6 = SCI-3; v7 = SCI-6 after it
     r_index = a.median_1nn_nm * a.n_clusters_kept / (a.perimeter.perimeter_um * 1000.0)
     assert abs(a.nn_regularity_index - r_index) < 1e-12
     names = [row[0] for row in a.summary_rows()]
