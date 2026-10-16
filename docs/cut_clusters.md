@@ -184,7 +184,7 @@ localizations), which is why the rule is the default and centroid selection is r
   hue that view does not use; both are told apart by shape as well (`validate_plot_colours.py`), and disabled while
   the centres are coloured by the widefield images, whose spectrin rows use the same purple. The figure title names
   them.
-- **Axon table** (v6; renumbered at merge if another table version lands first), at the end of the row:
+- **Axon table** (v9, after the eps record of v8), at the end of the row:
   `cut_status`, `cut_rule`, `cut_nena_multiple`, `cut_nena_nm`, `cut_nena_source`, `cut_margin_nm`,
   `cut_boundary_source`, `cut_boundary_shape`, `n_clusters_cut` (k), `n_clusters_cut_of` (K), `cut_percent`,
   `cut_excluded`. When excluded, the cut clusters are counted in `n_clusters_removed` and every measured column is

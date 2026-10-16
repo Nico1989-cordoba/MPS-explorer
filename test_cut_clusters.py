@@ -253,7 +253,7 @@ def export_columns() -> str:
     row = axon_export.axon_row(a, exported_at="2026-10-14T00:00:00Z")
     names = list(row)
     assert names[-len(axon_export.CUT_COLUMNS):] == list(axon_export.CUT_COLUMNS), names[-14:]
-    assert row["table_version"] == "axon tables v6"
+    assert row["table_version"] == "axon tables v9"   # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59
     assert row["cut_status"] == "evaluated" and row["cut_nena_nm"] == 8.0 and row["cut_margin_nm"] == 8.0
     assert row["cut_nena_multiple"] == 1.0 and row["cut_excluded"] is False
     assert row["n_clusters_cut"] == a.cut.k and row["n_clusters_cut_of"] == a.n_clusters_kept

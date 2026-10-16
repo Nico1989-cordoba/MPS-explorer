@@ -260,7 +260,7 @@ def main() -> int:
         assert all(c[0] > st["described"]["A"]["centre_nm"][0] + 0.5 * st["described"]["A"]["ring_radius_nm"]
                    for c in cut.cut_centroids), cut.cut_centroids
         row = export_row()
-        assert row["table_version"] == "axon tables v6" and row["cut_status"] == "evaluated"
+        assert row["table_version"] == "axon tables v9" and row["cut_status"] == "evaluated"
         assert row["n_clusters_cut"] == str(cut.k) and row["cut_excluded"] == "False"
         assert row["cut_boundary_shape"] == "Polygon" and "sim_axon_A_picks.yaml" in row["cut_boundary_source"]
         rows = {r[0]: r for r in w.analysis.summary_rows()}
