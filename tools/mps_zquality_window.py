@@ -77,6 +77,7 @@ Run on its own (a demonstration on SIMULATED axons, or an NPZ):
 from __future__ import annotations
 
 import csv
+import json
 import math
 import os
 import re
@@ -147,19 +148,21 @@ SIZER_STYLE: Dict[int, Tuple[str, float, float, str]] = {
     0: ("sizer_flat", -0.12, 0.12, "SiZer: no significant slope"),
 }
 SIZER_LABELS: Dict[int, str] = {k: v[3] for k, v in SIZER_STYLE.items()}
-NOT_CALIBRATED_LINE = ("The column test's p-values stay NOT calibrated (H5-E closed as not accepted, D-41); this view "
-                       "computes no column statistic, only the geometry of the z profile.")
+NOT_CALIBRATED_LINE = ("The column test's p-values stay NOT calibrated (its synthetic calibration was not accepted); "
+                       "this view computes no column statistic, only the geometry of the z profile. Its viability "
+                       "never reads the column statistic, so restricting the test to the viable pairs does not bias "
+                       "its Monte Carlo p.")
 # What the exploratory dataset taught about the acquisition (not about the axon on screen): the summary's "FOR NEW
 # ACQUISITIONS" block, as generic advice. Each line names its evidence; nothing here is a promise about a new sample.
 MEASURED_LEVERS: Tuple[str, ...] = (
     "Picasso fitting box: a box narrower than about 6 sigma of the PSF truncates the astigmatic PSF; use a box that "
     "covers +-3 sigma (check sx, sy at their 95th percentile) for new data. A truncated PSF can make the rings wider "
-    "than the reported precision. [axial-width budget, 2026-09-13]",
+    "than the reported precision. [axial-width budget]",
     "Picasso z filter: a z filter that cuts where the density is still high truncates the edge rings; widen the z "
-    "filter when exporting from Picasso so that the profile falls to ~0 before the cut. [zmin report sec. 4]",
+    "filter when exporting from Picasso so that the profile falls to ~0 before the cut. [own simulation]",
     "Check with the data before blaming the sample: axial drift (are the z shifts between time segments "
     "autocorrelated?), axon tilt (does removing it change sigma_z?) and the reported precisions (NeNA against the "
-    "reported lp). [axial-width budget, 2026-09-13]",
+    "reported lp). [axial-width budget]",
 )
 _MARK_OF_STATUS = {"limiting": "bad", "warning": "warn", "outside calibrated range": "warn", "ok": "good", "info": "dim"}
 # The cluster panel's one-line note (trap (i) of OPT_MAP_C): the ring clusters come from DBSCAN inside each ring's slab.
@@ -178,7 +181,7 @@ CLUSTER_PANEL_HEIGHT = 250
 SPLIT_SHARES: Tuple[float, float] = (0.42, 0.58)
 # The tint of the rows an exploratory selection selects (role, alpha): a pale wash under the black text of the table.
 SELECTION_TINT: Dict[str, Tuple[str, int]] = {"viable": ("good", 60), "marginal": ("warn", 70)}
-PAIRS_TITLE = "<b>Consecutive ring pairs</b>: rule v2 (D-41), criteria (1)-(4)"
+PAIRS_TITLE = "<b>Consecutive ring pairs</b>: rule v2, criteria (1)-(4)"
 TINT_NOTE = ("<span style='background:#cdebe0'>&nbsp;tinted&nbsp;</span> rows: the pairs the EXPLORATORY "
              "selection reads (green VIABLE, orange MARGINAL); the verdicts stay the rule's own")
 TINT_SUMMARY = "; their rows are tinted in the tables below (green VIABLE, orange MARGINAL; verdicts unchanged)"
@@ -198,8 +201,9 @@ SIZER_LAYER_KEYS: Dict[int, str] = {1: "sizer_up", -1: "sizer_down", 0: "sizer_f
 ZQUALITY_WINDOW_TOOLTIPS: Dict[str, str] = {
     "graphics":
         "The axial profile of this axon: every localization's z' (the axon's own axis, the tilt removed) in 10 nm "
-        "bars, the smoothed density (orange; kernel h = 0.10 P), the ring centres (grey lines, labelled with the "
-        "ring's share of the CENTRAL ring's localizations; the central ring is the thick solid line), and the "
+        "bars, the smoothed density (orange; kernel h = 0.10 P, P the axon's own period), the ring centres (grey "
+        "lines, labelled with the ring's share of the REFERENCE ring's localizations, by default the central ring; it "
+        "is the thick solid line), and the "
         "significant peaks (up triangles) and valleys (down triangles).\n\n"
         "The strip underneath is SiZer: blue upper bar = the density rises significantly there, vermillion lower bar "
         "= it falls significantly, thin grey = no significant slope. Each 3D cluster counts as ONE unit in the "
@@ -208,14 +212,20 @@ ZQUALITY_WINDOW_TOOLTIPS: Dict[str, str] = {
         "them: on the strip, blue then vermillion around each ring, and vermillion then blue between them.\n\n"
         "Click a legend entry to hide or show it.",
     "ring_table":
-        "One row per ring, bottom to top. '% of central' is the ring's localizations over the central ring's "
-        "(Q-35: the middle ring; with 2 rings, or 2 middle rings, the more populated). x = localizations per cluster "
-        "of the central ring / min_samples sets the minimum % every ring of a pair needs (criterion 3). sigma_z / P "
-        "is the ring's axial width over the MPS period: the smaller, the better separated the rings.",
+        "One row per ring, bottom to top. '% of central' is the ring's localizations over the reference ring's "
+        "(by default the central ring: the middle ring; with 2 rings, or 2 middle rings, the more populated; it can "
+        "be changed in Criteria...). x = localizations per cluster of the reference ring / min_samples. sigma_z / P "
+        "is the ring's axial width over the axon's period: the smaller, the better separated the rings. 'best "
+        "precision' marks the ring with the smallest median lpz (astigmatic precision is best near focus).",
     "pair_table":
-        "One row per consecutive ring pair with the four criteria of rule v2 (D-41): (1) a significant peak of each "
-        "ring, (2) a significant valley between them, (3) each ring holds at least f_min(x) of the central ring's "
-        "localizations, (4) the expected axial-leak copies (D-39) <= 2 % for VIABLE, <= 5 % for MARGINAL.\n\n"
+        "One row per consecutive ring pair with the four criteria of rule v2: (1) a significant peak of each "
+        "ring, (2) a significant valley between them (the next column: the valley at h = 0.05, 0.10, 0.15, 0.20 and "
+        "0.25 P, the SiZer map), (3) each ring holds at least f_min of the reference ring's localizations (a "
+        "simulation line until the count floor is calibrated on the axon), (4) the expected axial-leak copies "
+        "(ring-level estimate) within the pair's own tolerance: 0.25 null sd of the column excess for VIABLE, 0.5 "
+        "for MARGINAL, from the pair's cluster counts, ring lengths and the column test's tolerance (the fixed "
+        "2 % / 5 % only when those are unknown). Silverman's critical bandwidth and its bootstrap p are a reference "
+        "reading of 'more than one mode' (localizations treated as independent): never a criterion.\n\n"
         "Only VIABLE pairs enter the column test; MARGINAL pairs are a sensitivity analysis only; NOT VIABLE pairs "
         "are never analysed. 'Why' says, in plain words, what failed.\n\n"
         "The verdicts here are always rule v2's own. Under an EXPLORATORY selection of the switches above (D-43) the "
@@ -224,8 +234,9 @@ ZQUALITY_WINDOW_TOOLTIPS: Dict[str, str] = {
     "summary_view":
         "The same verdicts in plain words for the microscopy team: what limits the z quality of this axon, with the "
         "numbers, and what the rule would need. Every line of 'What would help' names its evidence in [brackets]: "
-        "zmin report = the statistical study behind rule v2 (2026-10-01/02); axial-width budget = the measurement of "
-        "why the rings are wider than the precision (exploratory dataset, 2026-09-13); D-39 / D-41 = the decisions.",
+        "own simulation = the simulation study behind rule v2's suggested thresholds (its generator parameterised on "
+        "a pilot acquisition); axial-width budget = the measurement of why the rings are wider than the precision; "
+        "closed form = arithmetic on two equal Gaussian rings.",
     "export_button":
         "Write the report of this axon into a folder you choose: a PNG of this view and one of the profile, the "
         "ring, pair, limiting-factor and profile tables as CSV, and the summary as text. Existing files are never "
@@ -253,23 +264,26 @@ ZQUALITY_WINDOW_TOOLTIPS: Dict[str, str] = {
     "cluster_note":
         "Why the two cluster sets differ near the slab cuts (dash-dot lines): see the cluster set selector.",
     "v2c_title":
-        "Rule v2-clusters (EXPLORATORY, D-42): the four criteria of rule v2 read on the CLUSTERS instead of the "
-        "localizations. It never selects pairs under the pre-specified rule: rule v2 above decides what enters the "
-        "column test. Since the user's decision of 2026-10-02 (Q-38, D-43) it can select them when chosen in the "
-        "switches above, always as an EXPLORATORY selection, criterion by criterion.",
+        "Rule v2-clusters (EXPLORATORY): the four criteria of rule v2 read on the CLUSTERS instead of the "
+        "localizations. Under the declared default rule v2 above decides what enters the column test; this rule "
+        "selects pairs only when chosen in the switches above, always as an EXPLORATORY selection.",
     "v2c_table":
-        "Rule v2-clusters (EXPLORATORY, D-42; not the rule). One row per ring pair and cluster set; each cluster is ONE "
+        "Rule v2-clusters (EXPLORATORY; not the declared rule). One row per ring pair and cluster set; each cluster is "
+        "ONE "
         "point: A = ring clusters (median z'), B = slab-free 3D clusters (median z'), C = ring clusters with the centre "
         "corrected for the slab cut.\n\n"
         "(1c) a significant SiZer peak of the cluster points (iid, h = 0.10 P) within P/3 of each ring centre; (2c) a "
-        "significant valley between them; (3c) each ring holds >= 89 % of the CENTRAL ring's clusters (K / K "
-        "central); (4c) the cluster-level expected leak copies (tnfix) <= 2 % VIABLE, <= 5 % MARGINAL, shown beside "
-        "rule v2's D-39 number. '(1c)+(2c) at h 0.20 P': the same two criteria with a wider kernel (information "
+        "significant valley between them; (3c) each ring holds at least the recall tolerance (90 %) of the "
+        "reference ring's clusters (K / K reference: under random localization loss the count ratio is the recall); "
+        "(4c) the cluster-level expected leak copies (tnfix, an upper bound) within the pair's tolerance, shown "
+        "beside rule v2's ring-level number. With about a hundred-fold fewer points than the localizations the "
+        "reading has little power. '(1c)+(2c) at h 0.20 P': the same two criteria with a wider kernel (information "
         "only).\n\n"
-        "A valley of A or C inside a slab gap (the dash-dot cuts of the cluster panel, +-15 nm) is built by the "
+        "A valley of A or C inside a slab gap (the dash-dot cuts of the cluster panel, widened by one bandwidth) is "
+        "built by the "
         "segmentation: each ring cluster is found inside its ring's slab, so no median crosses the cut, and moving "
         "the cut moves the dip. It never counts for (2c); for B it is only flagged.\n\n"
-        "It never selects pairs under the pre-specified rule (rule v2). With the switches above (Q-38, D-43) the "
+        "Under the declared default (rule v2) it selects nothing. With the switches above the "
         "column review, the batch and the simulated null can read it as an EXPLORATORY selection: the rows it then "
         "selects are tinted. A and C cannot pass (2c) for two similar rings (the slab cut sits at the valley): "
         "uncheck (2c) to use them; B's selection depends on whether columns exist (lower power).",
@@ -278,6 +292,17 @@ ZQUALITY_WINDOW_TOOLTIPS: Dict[str, str] = {
         "only).",
     "progress_bar":
         "The z-quality computation runs in the background; the window stays usable.",
+    "criteria_button":
+        "The values of the viability (reference period, SiZer bandwidth and peak window, separation thresholds, "
+        "copy tolerance, count-floor recall, ...) with where each comes from; saved for every axon and read by Z "
+        "quality, the viability explorer, the column review and the batch. A value outside its documented range is "
+        "kept and flagged.",
+    "calibrate_button":
+        "Calibrate the count floor (criterion 3) on this axon: the localizations of the reference ring's clusters "
+        "are randomly thinned (kept with probability f = 1.00, 0.95, ... 0.30, 20 times each) and a cluster survives "
+        "while some kept localization still has min_samples kept neighbours within eps (the DBSCAN core condition); "
+        "f_min is where the share of surviving clusters falls to the recall tolerance. It replaces the line fitted "
+        "to a simulation study, for this axon only.",
 }
 
 
@@ -313,6 +338,13 @@ class ZQualityReport:
     # ``compute_z_quality_v2c`` after the two above; None = not computed (the table stays hidden). Never selects pairs.
     v2c: Any = None
     v2c_error: str = ""
+    # what a recomputation needs (Criteria..., Calibrate count floor): the rings, the lab coordinates, the file's
+    # precision ratio, the parameters and the count-floor calibration used
+    res: Any = None
+    xyz_lab: Any = None
+    precision_nm: Optional[Tuple[float, float]] = None
+    params: Any = None
+    fmin_calibration: Any = None
 
 
 def lab_xyz_of(res: Any) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
@@ -329,16 +361,22 @@ def lab_xyz_of(res: Any) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDAr
 
 
 def compute_z_quality(res: Any, xyz_lab_nm: Optional[Sequence[Any]] = None, *, p_ref_nm: Optional[float] = None,
-                      source_name: str = "", roi_text: str = "") -> ZQualityReport:
+                      source_name: str = "", roi_text: str = "", params: Any = None,
+                      precision_nm: Optional[Tuple[float, float]] = None,
+                      fmin_calibration: Any = None) -> ZQualityReport:
     """
     The z-quality report of one axon's rings (``build_rings`` as the column
     review builds them): ``z_quality`` and rule v2 (``viability_v2``) with
     the 3D groups on the LAB coordinates ``xyz_lab_nm`` -- rebuilt from the
     axon frame when not given (``lab_xyz_of``) -- and the 10 nm histogram of
-    z'. Geometry only: no column statistic.
+    z'. ``params``: the ``ViabilityParams`` (None: the stored ones); ``precision_nm``: the file's (median lateral,
+    median axial) precision for the 3D groups' z scale; ``fmin_calibration``: a count-floor calibration of this axon.
+    Geometry only: no column statistic.
     """
     from tools.mps_axial_precision import viability_v2, z_quality
     from tools.mps_identity import axon_id
+    if params is None:
+        params = msel.stored_viability_params()
 
     t0 = time.perf_counter()
     warnings_: List[str] = []
@@ -351,8 +389,9 @@ def compute_z_quality(res: Any, xyz_lab_nm: Optional[Sequence[Any]] = None, *, p
     zp = np.asarray(res.z_p, dtype=np.float64)
     if xyz[0].size != zp.size:
         raise ValueError(f"{xyz[0].size} lab coordinates for {zp.size} localizations of the rings")
-    zq = z_quality(res, p_ref_nm=p_ref_nm)
-    v2 = viability_v2(res, zq, xyz_lab_nm=xyz, p_ref_nm=p_ref_nm)
+    zq = z_quality(res, p_ref_nm=p_ref_nm, params=params)
+    v2 = viability_v2(res, zq, xyz_lab_nm=xyz, p_ref_nm=p_ref_nm, params=params, precision_nm=precision_nm,
+                      fmin_calibration=fmin_calibration)
     warnings_.extend(str(w) for w in getattr(zq, "warnings", ()))
     warnings_.extend(str(w) for w in v2.warnings)
     fin = zp[np.isfinite(zp)]
@@ -369,7 +408,8 @@ def compute_z_quality(res: Any, xyz_lab_nm: Optional[Sequence[Any]] = None, *, p
         n_locs=int(zp.size), z_p=zp, hist_edges=np.asarray(edges, dtype=np.float64),
         hist_counts=np.asarray(counts, dtype=np.float64), zq=zq, v2=v2, lab_source=lab_source,
         seconds=float(time.perf_counter() - t0), warnings=warnings_,
-        computed_at=datetime.now().isoformat(timespec="seconds"))
+        computed_at=datetime.now().isoformat(timespec="seconds"), res=res, xyz_lab=xyz, precision_nm=precision_nm,
+        params=params, fmin_calibration=fmin_calibration)
 
 
 def compute_z_quality_clusters(res: Any, xyz_lab_nm: Optional[Sequence[Any]], rep: ZQualityReport) -> ZQualityReport:
@@ -382,7 +422,9 @@ def compute_z_quality_clusters(res: Any, xyz_lab_nm: Optional[Sequence[Any]], re
     """
     try:
         xyz = lab_xyz_of(res) if xyz_lab_nm is None else tuple(xyz_lab_nm)
-        rep.clusters = cluster_z_profile(res, xyz, p_ref_nm=float(rep.v2.p_ref_nm), h_over_p=CLUSTER_SIZER_H_OVER_P)
+        zs = float(getattr(rep.v2, "group_z_scale", float("nan")))
+        rep.clusters = cluster_z_profile(res, xyz, p_ref_nm=float(rep.v2.p_scale_nm), h_over_p=CLUSTER_SIZER_H_OVER_P,
+                                         z_scale=zs if math.isfinite(zs) else None)
         rep.clusters_error = ""
     except Exception as exc:  # noqa: BLE001 - the localization view must survive; the reason is kept
         rep.clusters = None
@@ -399,7 +441,8 @@ def compute_z_quality_v2c(res: Any, xyz_lab_nm: Optional[Sequence[Any]], rep: ZQ
     """
     try:
         xyz = lab_xyz_of(res) if xyz_lab_nm is None else tuple(xyz_lab_nm)
-        rep.v2c = viability_v2c(res, rep.v2, xyz_lab_nm=xyz, clusters=rep.clusters, p_ref_nm=float(rep.v2.p_ref_nm))
+        rep.v2c = viability_v2c(res, rep.v2, xyz_lab_nm=xyz, clusters=rep.clusters,
+                                p_ref_nm=float(rep.v2.p_scale_nm), params=rep.params)
         rep.v2c_error = ""
     except Exception as exc:  # noqa: BLE001 - the localization view must survive; the reason is kept
         rep.v2c = None
@@ -436,7 +479,6 @@ def verdict_text(verdict_: str) -> Tuple[str, str]:
 def short_why(p: Any) -> str:
     """One line with the criteria a rule-v2 pair (``PairViabilityV2``) fails and their numbers, e.g. "(1) ring 0: no
     peak; (2) no valley; (3) 55 % / 100 % < 72 %; (4) leak 8.0 % > 5 %" (the full sentences are ``p.reasons``)."""
-    from tools.mps_axial_precision import V2_SPUR_MARGINAL, V2_SPUR_VIABLE
     if str(p.verdict) == "viable":
         return "all four criteria met"
     parts: List[str] = []
@@ -448,18 +490,20 @@ def short_why(p: Any) -> str:
     if not p.count_ok:
         parts.append(f"(3) {_pct(p.f_a)} / {_pct(p.f_b)} < {_pct(p.f_min)}")
     spur = float(p.exp_spur_frac)
-    if math.isfinite(spur) and spur > V2_SPUR_VIABLE:
-        limit = V2_SPUR_MARGINAL if spur > V2_SPUR_MARGINAL else V2_SPUR_VIABLE
-        parts.append(f"(4) leak {100 * spur:.1f} % > {100 * limit:g} %")
+    tv, tm = float(p.spur_viable), float(p.spur_marginal)
+    if math.isfinite(spur) and spur > tv:
+        limit = tm if spur > tm else tv
+        parts.append(f"(4) leak {100 * spur:.1f} % > {100 * limit:.3g} %")
     text = "; ".join(parts) or "; ".join(p.reasons)
     return text + (" (marginal: sensitivity only)" if str(p.verdict) == "marginal" else "")
 
 
-def short_why_v2c(p: Any) -> str:
+def short_why_v2c(p: Any, tolerance: Optional[Tuple[float, float]] = None) -> str:
     """One line with the criteria a rule v2-clusters pair (``V2CPair``) fails, e.g. "(1c) ring 0: no peak; (2c)
-    valley in the slab gap (built in); (3c) 60 % < 89 %; (4c) leak 20.0 % > 5 %" (the full sentences are
-    ``p.reasons``)."""
+    valley in the slab gap (built in); (3c) 60 % < 90 %; (4c) leak 20.0 % > 5 %" (the full sentences are
+    ``p.reasons``). ``tolerance``: the pair's (viable, marginal) copy tolerance (None: the fixed suggestion)."""
     from tools.mps_axial_clusters import V2C_SPUR_MARGINAL, V2C_SPUR_VIABLE
+    tv, tm = tolerance if tolerance is not None else (V2C_SPUR_VIABLE, V2C_SPUR_MARGINAL)
     parts: List[str] = []
     miss = [str(k) for k, ok in ((p.ring_a, p.peak_a), (p.ring_b, p.peak_b)) if not ok]
     if miss:
@@ -473,20 +517,20 @@ def short_why_v2c(p: Any) -> str:
     if not p.count_ok:
         parts.append(f"(3c) {_pct(p.k_ratio_a)} / {_pct(p.k_ratio_b)} < {_pct(p.k_min)}")
     spur = float(p.exp_spur_frac_clusters)
-    if math.isfinite(spur) and spur > V2C_SPUR_VIABLE:
-        limit = V2C_SPUR_MARGINAL if spur > V2C_SPUR_MARGINAL else V2C_SPUR_VIABLE
-        parts.append(f"(4c) leak {100 * spur:.1f} % > {100 * limit:g} %")
+    if math.isfinite(spur) and spur > tv:
+        limit = tm if spur > tm else tv
+        parts.append(f"(4c) leak {100 * spur:.1f} % > {100 * limit:.3g} %")
     elif not math.isfinite(spur):
         parts.append("(4c) leak unknown")
     return "; ".join(parts) or "all four criteria met"
 
 
-def _ring_role(r: Any) -> str:
+def _ring_role(r: Any, reference_ring: str = "central") -> str:
     roles = []
     if r.is_central:
-        roles.append("central")
+        roles.append("central" if reference_ring == "central" else f"reference ({reference_ring})")
     if r.is_in_focus:
-        roles.append("in focus")
+        roles.append("best precision")
     if r.truncated_edge:
         roles.append(f"data cut at the {r.truncated_edge} edge")
     return ", ".join(roles)
@@ -495,7 +539,11 @@ def _ring_role(r: Any) -> str:
 def _head(report: ZQualityReport) -> Dict[str, Any]:
     return {"axon_id": report.axon_id, "source": report.source_name, "roi": report.roi_text,
             "rule": report.v2.rule, "p_ref_nm": report.v2.p_ref_nm, "computed_at": report.computed_at,
-            "program": PROGRAM}
+            "program": PROGRAM, "p_ref_source": getattr(report.v2, "p_ref_source", ""),
+            "p_nm": getattr(report.v2, "p_scale_nm", report.v2.p_ref_nm), "p_source": getattr(report.v2, "p_source", ""),
+            "f_min_source": getattr(report.v2, "fmin_source", ""),
+            "viability_params": json.dumps(report.params.to_store(), sort_keys=True)
+            if getattr(report, "params", None) is not None else "{}"}
 
 
 def ring_rows(report: ZQualityReport) -> List[Dict[str, Any]]:
@@ -503,7 +551,8 @@ def ring_rows(report: ZQualityReport) -> List[Dict[str, Any]]:
     out = []
     for r in report.v2.rings:
         row = dict(_head(report))
-        row.update(ring=r.index, role=_ring_role(r), centre_z_nm=r.centre_z_nm, n_locs=r.n_locs,
+        mode = str(getattr(report.v2, "reference_ring", "central"))
+        row.update(ring=r.index, role=_ring_role(r, mode), centre_z_nm=r.centre_z_nm, n_locs=r.n_locs,
                    f_of_central=r.f_of_central, k_clusters=r.k_clusters, locs_per_cluster=r.locs_per_cluster,
                    lpz_median_nm=r.lpz_median_nm, sigma_z_nm=r.sigma_z_nm, sigma_over_p=r.sigma_over_p,
                    sizer_peak=bool(r.peak), sizer_peak_z_nm=r.peak_z_nm, is_central=bool(r.is_central),
@@ -520,7 +569,10 @@ def pair_rows(report: ZQualityReport) -> List[Dict[str, Any]]:
         row.update(pair=f"{p.ring_a}-{p.ring_b}", ring_a=p.ring_a, ring_b=p.ring_b, peak_a=bool(p.peak_a),
                    peak_b=bool(p.peak_b), valley=bool(p.valley), f_a=p.f_a, f_b=p.f_b, f_min=p.f_min, x=p.x,
                    x_in_range=bool(p.x_in_range), x_note=report.v2.x_note, count_ok=bool(p.count_ok),
-                   exp_spur_frac=p.exp_spur_frac, d_sep=p.d_sep, d39_verdict=p.d39_verdict, verdict=p.verdict,
+                   exp_spur_frac=p.exp_spur_frac, spur_viable=p.spur_viable, spur_marginal=p.spur_marginal,
+                   tolerance_source=p.tolerance_source, d_sep=p.d_sep, d39_verdict=p.d39_verdict,
+                   valley_by_h=" ".join("+" if v else "-" for v in p.valley_by_h),
+                   silverman_h_crit_nm=p.silverman_h_crit_nm, silverman_p=p.silverman_p, verdict=p.verdict,
                    reasons=" | ".join(p.reasons))
         out.append(row)
     return out
@@ -552,7 +604,7 @@ def plain_summary(report: ZQualityReport) -> List[str]:
     """The axon's verdicts and limiting factors in plain English, for the microscopy team (the text of the
     window's summary and of the exported ``_summary.txt``)."""
     v2 = report.v2
-    P = float(v2.p_ref_nm)
+    P = float(v2.p_scale_nm)
     rings, pairs = list(v2.rings), list(v2.pairs)
     n_v = sum(1 for p in pairs if p.verdict == "viable")
     n_m = sum(1 for p in pairs if p.verdict == "marginal")
@@ -560,7 +612,8 @@ def plain_summary(report: ZQualityReport) -> List[str]:
     name = os.path.basename(report.source_name) or "this axon"
     lines.append(f"Z QUALITY OF {name}" + (f" ({report.roi_text})" if report.roi_text else ""))
     lines.append(f"{report.n_locs:,} localizations, {len(rings)} ring(s), {len(pairs)} consecutive pair(s); "
-                 f"rule v2 (D-41), P = {P:.1f} nm, SiZer h = {v2.h_nm:.0f} nm, alpha {v2.alpha:g}.")
+                 f"rule v2, P = {P:.1f} nm ({v2.p_source}), SiZer h = {v2.h_nm:.0f} nm, alpha {v2.alpha:g}; "
+                 f"reference period P_ref = {v2.p_ref_nm:.0f} nm ({v2.p_ref_source}).")
     lines.append("")
     if not pairs:
         lines.append(marked("bad", "No ring pair: with fewer than two rings there is nothing to compare."))
@@ -592,20 +645,38 @@ def plain_summary(report: ZQualityReport) -> List[str]:
     lines.append("FOR NEW ACQUISITIONS (learnt on the exploratory dataset, not on this axon)")
     lines.extend(f"   * {t}" for t in MEASURED_LEVERS)
     lines.append("")
-    lines.append("HOW THE VERDICT IS MADE (rule v2, D-41)")
-    lines.append(f"   (1) each ring has a significant SiZer peak within P/3 = {P / 3:.0f} nm of its centre;")
+    if v2.sizer_map:
+        lines.append("SIZER MAP (the valley between each pair at every bandwidth; the verdict reads h = "
+                     f"{v2.h_nm / P:.2f} P)")
+        for row in v2.sizer_map:
+            vals = ", ".join(f"{p.ring_a}-{p.ring_b} {'valley' if v else 'no valley'}"
+                             for p, v in zip(pairs, row.pair_valley))
+            lines.append(f"   h = {row.h_over_p:.2f} P ({row.h_nm:.0f} nm): {vals or 'no pair'}")
+        lines.append("")
+    vp = getattr(v2, "params", None)
+    win = float(getattr(vp, "peak_window_over_p", 1.0 / 3.0))
+    lines.append("HOW THE VERDICT IS MADE (rule v2, the declared default; every threshold an editable suggestion)")
+    lines.append(f"   (1) each ring has a significant SiZer peak within {win:.2f} P = {win * P:.0f} nm of its centre;")
     lines.append("   (2) a significant valley separates the two rings (the density falls, then rises, between them);")
-    lines.append("   (3) each ring holds at least f_min(x) of the CENTRAL ring's localizations, x = localizations per "
-                 "cluster of the central ring / min_samples, f_min = 1.46 - 0.336 ln x (validated for x 5.8-13.3);")
-    lines.append("   (4) the expected axial-leak copies (D-39) are <= 2 % (VIABLE) or <= 5 % (MARGINAL, sensitivity only).")
-    lines.append(f"   Central ring: {v2.central_index if v2.central_index is not None else 'none'} (Q-35: the middle "
-                 "ring; with 2 rings, or 2 middle rings, the more populated). SiZer groups: "
-                 f"{v2.groups_source}, {v2.n_groups:,} units.")
+    lines.append("   (3) each ring holds at least f_min of the reference ring's localizations: "
+                 + ("calibrated on this axon by thinning its reference ring's clusters"
+                    if v2.fmin_calibration is not None else
+                    "until the count floor is calibrated on the axon, the line f_min = 1.46 - 0.336 ln x fitted to a "
+                    "simulation study (x = localizations per cluster of the reference ring / min_samples, valid for x "
+                    "5.8-13.3)") + ";")
+    lines.append("   (4) the expected axial-leak copies (ring-level estimate) are within the pair's own tolerance: the "
+                 "copy fraction that biases the column excess by 0.25 null sd (VIABLE) or 0.5 (MARGINAL, sensitivity "
+                 "only), from the pair's cluster counts, ring lengths and the column test's tolerance.")
+    lines.append(f"   Reference ring: {v2.central_index if v2.central_index is not None else 'none'} "
+                 f"({v2.reference_ring}). SiZer groups: {v2.groups_source}, {v2.n_groups:,} units, z scale "
+                 f"{v2.group_z_scale:.2f} ({v2.group_z_scale_source}).")
+    lines.append("   Reference readings beside SiZer (never criteria): Silverman's critical bandwidth and its "
+                 "bootstrap p per pair.")
     lines.append("")
     lines.append(NOT_CALIBRATED_LINE)
     if report.warnings:
         lines.append("")
-        lines.append("Warnings: " + " | ".join(dict.fromkeys(report.warnings)))
+        lines.append("Notes: " + " | ".join(dict.fromkeys(report.warnings)))
     return lines
 
 
@@ -615,12 +686,12 @@ def _what_would_help(report: ZQualityReport) -> List[str]:
     from tools.mps_axial_precision import LF_SIGMA_OVER_P_NONE, LF_SIGMA_OVER_P_VALLEY
 
     v2 = report.v2
-    P = float(v2.p_ref_nm)
+    P = float(v2.p_scale_nm)
     out: List[str] = []
     rings, pairs = list(v2.rings), list(v2.pairs)
     if len(rings) < 2:
         out.append("A selection with at least two rings in z (a longer z range, or a thicker section of the axon). "
-                   "[rule v2, D-41]")
+                   "[rule v2]")
         return out
     by = {r.index: r for r in rings}
     pair_sig = [(math.sqrt(0.5 * (by[p.ring_a].sigma_z_nm ** 2 + by[p.ring_b].sigma_z_nm ** 2)), p) for p in pairs]
@@ -641,39 +712,42 @@ def _what_would_help(report: ZQualityReport) -> List[str]:
                        f"in ~80 % of simulated profiles (4000 localizations in the central ring) at sigma_z / P "
                        f"{LF_SIGMA_OVER_P_VALLEY:.2f} (sigma_z ~{target:.0f} nm here) "
                        f"when the weaker ring holds ~81 % of the central ring, and not in 80 % even with equal rings "
-                       f"at {LF_SIGMA_OVER_P_NONE:.2f}. [zmin report sec. 2]")
+                       f"at {LF_SIGMA_OVER_P_NONE:.2f}. [closed form; own simulation]")
         elif cut:
             out.append(f"The best pair ({bp.ring_a}-{bp.ring_b}) looks narrow (sigma_z / P = {shown:.3f}), but ring "
                        f"{', '.join(str(k) for k in cut)} sits at a cut z edge, where the fitted width is "
                        "underestimated: not evidence of enough axial resolution (the other pairs reach sigma_z / P = "
-                       f"{max(sig) / P:.3f}); widen the z filter first. [zmin report sec. 4]")
+                       f"{max(sig) / P:.3f}); widen the z filter first. [own simulation]")
         else:
             out.append(f"The axial width is where the simulations found valleys (sigma_z ~{best:.0f} nm, sigma_z / P = "
-                       f"{shown:.3f}, at or below {LF_SIGMA_OVER_P_VALLEY:.2f}). [zmin report sec. 2]")
+                       f"{shown:.3f}, at or below {LF_SIGMA_OVER_P_VALLEY:.2f}). [closed form; own simulation]")
     low = [r for r in rings if math.isfinite(r.f_of_central) and math.isfinite(v2.f_min) and r.f_of_central < v2.f_min]
     if low:
         out.append("More balanced rings: " + ", ".join(f"ring {r.index} has {_pct(r.f_of_central)}" for r in low)
-                   + f" of the central ring's localizations and needs >= {_pct(v2.f_min)} (x = {_num(v2.x)}"
-                   + (f"; {v2.x_note}" if v2.x_note else "") + "). [rule v2 criterion 3; zmin report sec. 3]")
+                   + f" of the reference ring's localizations and needs >= {_pct(v2.f_min)} (x = {_num(v2.x)}"
+                   + (f"; {v2.x_note}" if v2.x_note else "") + "). [rule v2 criterion 3]")
     if math.isfinite(v2.x) and not v2.x_in_range:
         out.append(f"Localizations per cluster outside the validated range (x = {v2.x:.1f}; validated 5.8-13.3): the "
-                   "minimum % used is the conservative end of the formula. [zmin report sec. 3]")
+                   "minimum % used is the conservative end of the formula. [own simulation]")
     cut = [e for e in v2.z_edges if e.truncated]
     for e in cut:
         out.append(f"Do not cut the z range: the data end abruptly at the {e.side} ({e.z_nm:.0f} nm, {v2.z_edges_source}) "
                    f"while the density there is still {_pct(e.edge_frac)} of its maximum. Widen the z filter when "
                    "exporting from Picasso so the profile falls to ~0 before the data end; a cut edge ring's share is "
-                   "underestimated and its 'peak' can be the cut itself. [zmin report sec. 4]")
+                   "underestimated and its 'peak' can be the cut itself. [own simulation]")
     foc = [r for r in rings if r.is_in_focus]
     cen = [r for r in rings if r.is_central]
     if foc and cen and foc[0].index != cen[0].index:
-        out.append(f"The ring in focus (smallest median lpz) is ring {foc[0].index}, not the central ring "
+        out.append(f"The ring with the best axial precision (smallest median lpz) is ring {foc[0].index}, not the "
+                   f"reference ring "
                    f"{cen[0].index}: the axial precision is best at ring {foc[0].index}, not in the middle of the stack "
-                   "(information). [zmin report sec. 1]")
-    sp = [p.exp_spur_frac for p in pairs if math.isfinite(p.exp_spur_frac)]
-    if sp and min(sp) > 0.02:
-        out.append(f"Less axial leak: even the best pair expects {100 * min(sp):.1f} % of its clusters to be copies "
-                   "leaked from the neighbouring ring (<= 2 % needed); it falls with a smaller sigma_z. [D-39]")
+                   "(information). [Huang et al. 2008]")
+    sp = [p for p in pairs if math.isfinite(p.exp_spur_frac)]
+    if sp and all(p.exp_spur_frac > p.spur_viable for p in sp):
+        bp = min(sp, key=lambda p: p.exp_spur_frac - p.spur_viable)
+        out.append(f"Less axial leak: even the best pair ({bp.ring_a}-{bp.ring_b}) expects {100 * bp.exp_spur_frac:.1f} "
+                   f"% of its clusters to be copies leaked from the neighbouring ring (<= {100 * bp.spur_viable:.2g} % "
+                   "tolerated for it); it falls with a smaller sigma_z. [ring-level leak estimate]")
     if not out:
         out.append("Nothing limits this axon under rule v2.")
     return out
@@ -840,18 +914,19 @@ RING_HEADERS: Tuple[str, ...] = (
     "Median\nlpz [nm]", "sigma_z\n[nm]", "sigma_z\n/ P", "SiZer\npeak")
 # "Why" is last: it stretches over the rest of the width and wraps (the full text is also its tooltip)
 PAIR_COLUMNS: Tuple[str, ...] = (
-    "Pair", "(1) Peaks", "(2) Valley", "(3) % of central", "(3) Minimum f_min(x)", "(4) Leak copies",
-    "Verdict (rule v2)", "D-39 (old rule)", "Why")
+    "Pair", "(1) Peaks", "(2) Valley", "(2) Valley by h", "(3) % of central", "(3) Minimum f_min(x)",
+    "(4) Leak copies", "(4) Tolerated", "Silverman (reference)", "Verdict (rule v2)", "D-39 (old rule)", "Why")
 PAIR_HEADERS: Tuple[str, ...] = (
-    "Pair", "(1)\nPeaks", "(2)\nValley", "(3) % of\ncentral", "(3) minimum\nf_min(x)", "(4) Leak\ncopies",
-    "Verdict\n(rule v2)", "D-39\n(old rule)", "Why")
+    "Pair", "(1)\nPeaks", "(2)\nValley", "(2) valley at h\n0.05 ... 0.25 P", "(3) % of\nreference",
+    "(3) minimum\nf_min", "(4) Leak\ncopies", "(4) tolerated\n(viable / marg.)", "Silverman\nh_crit, p",
+    "Verdict\n(rule v2)", "First filter\n(earlier rule)", "Why")
 # Rule v2-clusters (EXPLORATORY, D-42): its own table, never inside the one above
 V2C_COLUMNS: Tuple[str, ...] = (
     "Pair", "Cluster set", "(1c) Peaks", "(2c) Valley", "Valley in slab gap", "(3c) K / K central",
     "(4c) Leak (clusters)", "D-39 leak (rule v2)", "(1c)+(2c) at h 0.20 P", "Verdict (v2-clusters)", "Why")
 V2C_HEADERS: Tuple[str, ...] = (
-    "Pair", "Cluster set", "(1c)\nPeaks", "(2c)\nValley", "Valley in\nslab gap", "(3c) K /\nK central",
-    "(4c) Leak\n(clusters)", "D-39 leak\n(rule v2)", "(1c)+(2c)\nh 0.20 P", "Verdict\n(v2-clusters)", "Why")
+    "Pair", "Cluster set", "(1c)\nPeaks", "(2c)\nValley", "Valley in\nslab gap", "(3c) K /\nK reference",
+    "(4c) Leak\n(clusters)", "Ring-level\nleak (v2)", "(1c)+(2c)\nh 0.20 P", "Verdict\n(v2-clusters)", "Why")
 
 
 class _ResizeWatcher(QtCore.QObject):
@@ -1068,6 +1143,16 @@ class ZQualityWindow(QtWidgets.QMainWindow):
         self.columns_button.clicked.connect(self._on_columns)
         self.columns_button.setVisible(columns_callback is not None)
         buttons.addWidget(self.columns_button)
+        self.criteria_button = QtWidgets.QPushButton("Criteria...")
+        self.criteria_button.setObjectName("criteria_button")
+        self.criteria_button.clicked.connect(self._on_criteria)
+        self.criteria_button.setEnabled(False)
+        buttons.addWidget(self.criteria_button)
+        self.calibrate_button = QtWidgets.QPushButton("Calibrate count floor")
+        self.calibrate_button.setObjectName("calibrate_button")
+        self.calibrate_button.clicked.connect(self._on_calibrate)
+        self.calibrate_button.setEnabled(False)
+        buttons.addWidget(self.calibrate_button)
         buttons.addStretch(1)
         rl.addLayout(buttons)
         lower.addWidget(right)
@@ -1089,8 +1174,8 @@ class ZQualityWindow(QtWidgets.QMainWindow):
         vpl.setContentsMargins(0, 0, 0, 0)
         vpl.setSpacing(2)
         self.v2c_title = QtWidgets.QLabel(
-            f"<b>Clusters (exploratory)</b>: {V2C_RULE}, the same criteria (1c)-(4c) on the clusters; never selects "
-            "pairs under the pre-specified rule, only as an exploratory selection (Q-38, D-43)")
+            f"<b>Clusters (exploratory)</b>: {V2C_RULE}, the same criteria (1c)-(4c) on the clusters; selects pairs "
+            "only as an exploratory selection of the switches above, never under the declared default")
         self.v2c_title.setObjectName("v2c_title")
         self.v2c_title.setWordWrap(True)
         vpl.addWidget(self.v2c_title)
@@ -1180,8 +1265,8 @@ class ZQualityWindow(QtWidgets.QMainWindow):
         self.header_label.setText(
             f"<b>{os.path.basename(rep.source_name) or 'axon'}</b>" + (f" ({rep.roi_text})" if rep.roi_text else "")
             + f" &nbsp;|&nbsp; {rep.n_locs:,} localizations, {len(v2.rings)} ring(s), {n_p} pair(s): <b>{state}</b>"
-            + f" &nbsp;|&nbsp; rule v2 (D-41); geometry only, no column statistic; {rep.lab_source}; "
-            + f"{rep.seconds:.1f} s")
+            + f" &nbsp;|&nbsp; rule v2; P = {v2.p_scale_nm:.1f} nm ({v2.p_source}); P_ref = {v2.p_ref_nm:.0f} nm "
+            + f"({v2.p_ref_source}); geometry only, no column statistic; {rep.lab_source}; {rep.seconds:.1f} s")
         self._draw(rep)
         self._fill_rings(rep)
         self._fill_pairs(rep)
@@ -1191,7 +1276,57 @@ class ZQualityWindow(QtWidgets.QMainWindow):
         self._set_criteria(rep)
         self._apply_selection()
         self.export_button.setEnabled(True)
+        can = getattr(rep, "res", None) is not None
+        self.criteria_button.setEnabled(can)
+        self.calibrate_button.setEnabled(can and len(v2.rings) > 0)
         self.report_ready.emit(rep)
+
+    # ------------------------------------------------------------ Criteria... and the count-floor calibration
+    def recompute(self, params: Any = None, fmin_calibration: Any = None, *, calibrate: bool = False) -> None:
+        """Recompute the report on screen with ``params`` (None: the report's own) and the count floor (``calibrate``
+        runs the thinning calibration first, on the reference ring, at the parameters' recall tolerance)."""
+        rep = self.report
+        if rep is None or rep.res is None:
+            return
+        res, xyz, prec = rep.res, rep.xyz_lab, rep.precision_nm
+        vp = params if params is not None else rep.params
+        keep_cal = fmin_calibration if fmin_calibration is not None else (
+            rep.fmin_calibration if params is None or (rep.params is not None and abs(
+                float(vp.recall_tolerance) - float(rep.params.recall_tolerance)) < 1e-12) else None)
+        ref_index = rep.v2.central_index
+        src, roi = rep.source_name, rep.roi_text
+
+        def job(say: Callable[[str], None]) -> ZQualityReport:
+            from tools.mps_axial_precision import calibrate_count_floor
+            cal = keep_cal
+            if calibrate:
+                say("Calibrating the count floor by thinning the reference ring's clusters")
+                cal = calibrate_count_floor(res, ring_index=ref_index, tolerance=float(vp.recall_tolerance),
+                                            seed=int(getattr(res.params, "random_seed", 0)))
+            say("SiZer and the rule v2 on the rings")
+            new = compute_z_quality(res, xyz, source_name=src, roi_text=roi, params=vp, precision_nm=prec,
+                                    fmin_calibration=cal)
+            say("The cluster medians (descriptive)")
+            new = compute_z_quality_clusters(res, xyz, new)
+            say("Rule v2-clusters (exploratory)")
+            return compute_z_quality_v2c(res, xyz, new)
+
+        self.start(job)
+
+    def _on_criteria(self) -> None:
+        from tools.mps_viability_params_ui import ViabilityParamsDialog, save_stored
+        rep = self.report
+        if rep is None:
+            return
+        dlg = ViabilityParamsDialog(rep.params, self, ring_indices=tuple(r.index for r in rep.v2.rings))
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        params = dlg.params()
+        save_stored(params)
+        self.recompute(params)
+
+    def _on_calibrate(self) -> None:
+        self.recompute(calibrate=True)
 
     # ------------------------------------------------------------ the cluster panel (H6 clusters, descriptive)
     def _show_clusters(self, rep: ZQualityReport) -> None:
@@ -1261,8 +1396,8 @@ class ZQualityWindow(QtWidgets.QMainWindow):
             return
         self.v2c_title.setText(
             f"<b>Clusters (exploratory)</b>: {V2C_RULE}, the same criteria (1c)-(4c) on the clusters (one point "
-            f"per cluster); <b>never selects pairs</b> under the pre-specified rule -- only as an exploratory "
-            f"selection of the switches above (Q-38, D-43)")
+            f"per cluster); <b>selects no pair</b> under the declared default -- only as an exploratory "
+            f"selection of the switches above")
         self._v2c_title_base = self.v2c_title.text()
         self._fill_v2c(rep)
         lines = plain_summary(rep) + [""] + v2c_summary_lines(v2c)
@@ -1333,8 +1468,13 @@ class ZQualityWindow(QtWidgets.QMainWindow):
                 valley = ("yes" + (" (flagged)" if p.valley_at_cut else ""), "good")
             gap = ("yes (built in)" if forced else "yes (flag only)") if p.valley_at_cut else "no"
             gap_tip = ("valleys between the centres: " + (", ".join(f"{v:.0f} nm" for v in p.valleys_between) or "none")
-                       + "; slab gap +-15 nm counts as 'in the gap'")
+                       + f"; the slab gap widened by {getattr(v2c, 'cut_flag_nm', float('nan')):.0f} nm (one "
+                       "bandwidth) counts as 'in the gap'")
             spur, d39 = float(p.exp_spur_frac_clusters), float(p.exp_spur_frac_d39)
+            lk = next((x for x in v2c.leaks if (x.ring_a, x.ring_b) == (p.ring_a, p.ring_b)), None)
+            tv = float(getattr(lk, "spur_viable", 0.02)) if lk is not None else 0.02
+            tm = float(getattr(lk, "spur_marginal", 0.05)) if lk is not None else 0.05
+            own = float(getattr(lk, "exp_spur_frac_own", float("nan"))) if lk is not None else float("nan")
             c12 = (s2 is not None and s2.peak_a and s2.peak_b and s2.valley)
             why = "; ".join(p.reasons) if p.reasons else "all four criteria met"
             cells = [
@@ -1345,17 +1485,20 @@ class ZQualityWindow(QtWidgets.QMainWindow):
                 (valley[0], gap_tip, valley[1]),
                 (gap, gap_tip, ("bad" if forced else "warn") if p.valley_at_cut else None),
                 (f"{_pct(p.k_ratio_a)} / {_pct(p.k_ratio_b)}",
-                 f"K {p.k_a} / {p.k_b} clusters; central ring {var.k_central}; minimum {_pct(V2C_K_MIN)} of it",
+                 f"K {p.k_a} / {p.k_b} clusters; reference ring {var.k_central}; minimum {_pct(p.k_min)} of it "
+                 "(the recall tolerance)",
                  "good" if p.count_ok else "bad"),
                 (f"{100 * spur:.1f} %" if math.isfinite(spur) else "n/a",
-                 "cluster-level expected leak copies (tnfix, shared by the three cluster sets): <= 2 % viable, <= 5 % "
-                 "marginal", "good" if spur <= 0.02 else ("warn" if spur <= 0.05 else "bad")),
-                (f"{100 * d39:.1f} %" if math.isfinite(d39) else "n/a", "rule v2's criterion (4), D-39, for "
-                 "comparison", None),
+                 "cluster-level expected leak copies (tnfix, an upper bound, shared by the three cluster sets) "
+                 f"against the pair's tolerance {100 * tv:.2g} % viable, {100 * tm:.2g} % marginal"
+                 + (f"; own-width estimate {100 * own:.1f} % (not used until calibrated)" if math.isfinite(own) else ""),
+                 "good" if spur <= tv else ("warn" if spur <= tm else "bad")),
+                (f"{100 * d39:.1f} %" if math.isfinite(d39) else "n/a", "rule v2's criterion (4), the ring-level "
+                 "estimate, for comparison", None),
                 ("yes" if c12 else "NO", f"(1c) and (2c) at h = {V2C_H_TABLE:g} P (information only, never the "
                  "verdict)", None),
                 (f"v2-clusters: {vtext}", f"{V2C_RULE}: {why}", vkind),
-                (short_why_v2c(p), why, None),
+                (short_why_v2c(p, (tv, tm)), why, None),
             ]
             for j, (txt, tip, kind) in enumerate(cells):
                 t.setItem(i, j, self._item(txt, tip, kind))
@@ -1651,7 +1794,8 @@ class ZQualityWindow(QtWidgets.QMainWindow):
             kde_pen = pg.mkPen(ROLES["fit"], width=2.5)
             kde = pg.PlotDataItem(prof.grid, prof.fhat * scale, pen=kde_pen)
             pp.addItem(kde)
-            layers.entry(self.legend, "loc_kde", f"smoothed density<br>(h = {prof.h_nm:.0f} nm = 0.10 P)", "line",
+            layers.entry(self.legend, "loc_kde", f"smoothed density<br>(h = {prof.h_nm:.0f} nm = "
+                         f"{prof.h_nm / v2.p_scale_nm:.2f} P)", "line",
                          [kde], pen=kde_pen)
             top = max(top, float(np.max(prof.fhat * scale)))
             for xs, sym, label, key in ((prof.peaks, "t1", "significant peak", "peak"),
@@ -1696,7 +1840,7 @@ class ZQualityWindow(QtWidgets.QMainWindow):
                                 pen=pg.mkPen(neutral(dark=True), width=2 if r.is_central else 1, style=style))
             sp.addItem(b)
             # two lines only: on a short plot (a 1366 x 768 screen) a third line reached down into the peaks
-            label = (f"ring {r.index}\nCENTRAL" if r.is_central else f"ring {r.index}\n{_pct(r.f_of_central)}")
+            label = (f"ring {r.index}\nREFERENCE" if r.is_central else f"ring {r.index}\n{_pct(r.f_of_central)}")
             if r.truncated_edge:
                 label += " (edge cut)"
             # hangs down from just under the top, just right of its own line (never crossed by it)
@@ -1706,7 +1850,7 @@ class ZQualityWindow(QtWidgets.QMainWindow):
             centre_items.extend((a, b, txt))
         if len(v2.rings):
             # the last entry, as before: one sample for every ring centre of both plots and their labels
-            layers.entry(self.legend, "ring_centre", "ring centre: % of the central ring<br>(thick solid = central)",
+            layers.entry(self.legend, "ring_centre", "ring centre: % of the reference ring<br>(thick solid = reference)",
                          "line", centre_items,
                          pen=pg.mkPen(neutral(dark=True), width=2, style=QtCore.Qt.PenStyle.DashLine))
         # where the data end abruptly (a z filter?), drawn at the end of the z' data
@@ -1729,7 +1873,7 @@ class ZQualityWindow(QtWidgets.QMainWindow):
         if len(name) > 44:
             name = name[:16] + "..." + name[-25:]
         set_title(pp, f"Axial profile of {name}: "
-                      f"{len(v2.rings)} ring(s), central ring {v2.central_index}, P = {v2.p_ref_nm:.1f} nm")
+                      f"{len(v2.rings)} ring(s), reference ring {v2.central_index}, P = {v2.p_scale_nm:.1f} nm")
 
     def _item(self, text: str, tip: str = "", kind: Optional[str] = None) -> QtWidgets.QTableWidgetItem:
         it = QtWidgets.QTableWidgetItem(text)
@@ -1748,7 +1892,8 @@ class ZQualityWindow(QtWidgets.QMainWindow):
         for r in rep.v2.rings:
             i = t.rowCount()
             t.insertRow(i)
-            vals = [str(r.index), _ring_role(r), _num(r.centre_z_nm, ".0f"), f"{r.n_locs:,}", _pct(r.f_of_central),
+            mode = str(getattr(rep.v2, "reference_ring", "central"))
+            vals = [str(r.index), _ring_role(r, mode), _num(r.centre_z_nm, ".0f"), f"{r.n_locs:,}", _pct(r.f_of_central),
                     str(r.k_clusters), _num(r.locs_per_cluster), _num(r.lpz_median_nm, ".0f"),
                     _num(r.sigma_z_nm, ".0f"), _num(r.sigma_over_p, ".3f"),
                     (f"yes ({r.peak_z_nm:.0f} nm)" if r.peak and r.peak_z_nm is not None else "NO")]
@@ -1770,22 +1915,42 @@ class ZQualityWindow(QtWidgets.QMainWindow):
             i = t.rowCount()
             t.insertRow(i)
             vtext, vkind = verdict_text(p.verdict)
-            fmin = f"{_pct(p.f_min)} (x = {_num(p.x)})" + ("" if p.x_in_range else " !")
-            fmin_tip = ("x inside the validated range 5.8-13.3" if p.x_in_range else
-                        "! x outside the calibrated range 5.8-13.3" + (f": {v2.x_note}" if v2.x_note else ""))
+            calibrated = getattr(v2, "fmin_calibration", None) is not None
+            fmin = (f"{_pct(p.f_min)} (calibrated)" if calibrated else
+                    f"{_pct(p.f_min)} (x = {_num(p.x)})" + ("" if p.x_in_range else " !"))
+            fmin_tip = (f"calibrated on this axon by thinning: {v2.x_note}" if calibrated else
+                        "suggestion from a simulation line (x inside its range 5.8-13.3); calibrate the count floor "
+                        "on this axon to replace it" if p.x_in_range else
+                        "! x outside the simulation line's range 5.8-13.3" + (f": {v2.x_note}" if v2.x_note else ""))
+            tol_ok = math.isfinite(p.exp_spur_frac)
+            tol_text = (f"{100 * p.spur_viable:.2g} / {100 * p.spur_marginal:.2g} %"
+                        if math.isfinite(p.spur_viable) and math.isfinite(p.spur_marginal) else "n/a")
+            sil = (f"{p.silverman_h_crit_nm:.0f} nm, p {p.silverman_p:.3f}" if math.isfinite(p.silverman_h_crit_nm)
+                   else "n/a")
+            by_h = " ".join("+" if v else "-" for v in p.valley_by_h) or "n/a"
             why = "; ".join(p.reasons) if p.reasons else "all four criteria met"
             cells = [
                 (f"{p.ring_a}-{p.ring_b}", "", None),
                 (f"{'yes' if p.peak_a else 'NO'} / {'yes' if p.peak_b else 'NO'}", "",
                  "good" if (p.peak_a and p.peak_b) else "bad"),
                 ("yes" if p.valley else "NO", "", "good" if p.valley else "bad"),
+                (by_h, "the SiZer map: a significant valley (+) or not (-) between the two rings at h = "
+                       + ", ".join(f"{r.h_over_p:.2f}" for r in v2.sizer_map) + " P (the verdict reads one of them)",
+                 None),
                 (f"{_pct(p.f_a)} / {_pct(p.f_b)}", "", "good" if p.count_ok else "bad"),
-                (fmin, fmin_tip, None if p.x_in_range else "warn"),
-                (f"{100 * p.exp_spur_frac:.1f} %" if math.isfinite(p.exp_spur_frac) else "n/a",
-                 "expected fraction of clusters that are axial-leak copies (D-39): <= 2 % viable, <= 5 % marginal",
-                 "good" if p.exp_spur_frac <= 0.02 else ("warn" if p.exp_spur_frac <= 0.05 else "bad")),
+                (fmin, fmin_tip, None if (p.x_in_range or calibrated) else "warn"),
+                (f"{100 * p.exp_spur_frac:.1f} %" if tol_ok else "n/a",
+                 "expected fraction of the pair's clusters that are axial-leak copies (ring-level estimate; may "
+                 "under-estimate for non-flat rings)",
+                 ("good" if p.exp_spur_frac <= p.spur_viable else ("warn" if p.exp_spur_frac <= p.spur_marginal
+                                                                     else "bad")) if tol_ok else None),
+                (tol_text, p.tolerance_source or "the pair's tolerated copy fraction (viable / marginal)", None),
+                (sil, "Silverman's critical bandwidth (the smallest kernel with one mode) and its smoothed-bootstrap p: "
+                      "a reference reading of 'more than one mode', localizations treated as independent; never a "
+                      "criterion", None),
                 (vtext, why, vkind),
-                (p.d39_verdict, "the D-39 verdict, shown for comparison (not used)", None),
+                (p.d39_verdict, "the first filter's verdict (separation index, copies, information), shown for "
+                                "comparison (not used)", None),
                 (why, why, None),
             ]
             for j, (txt, tip, kind) in enumerate(cells):
@@ -1911,8 +2076,11 @@ def open_z_quality_for_inputs(inputs: Any, *, parent: Optional[QtWidgets.QWidget
         say(f"Building the rings of {n:,} localizations (as the column review does)")
         res, _params, _lpz, warns = build_review_rings(inputs)
         say("SiZer and the rule v2 on the rings")
+        from tools.mps_axial_precision import file_precision_nm
         rep = compute_z_quality(res, (inputs.x_nm, inputs.y_nm, inputs.z_nm), source_name=str(inputs.source_name),
-                                roi_text=str(getattr(inputs, "roi_text", "") or ""))
+                                roi_text=str(getattr(inputs, "roi_text", "") or ""),
+                                precision_nm=file_precision_nm(getattr(inputs, "lp_lateral_nm", None),
+                                                               getattr(inputs, "lpz_nm", None)))
         rep.warnings = list(warns) + rep.warnings
         say("The cluster medians (descriptive)")
         rep = compute_z_quality_clusters(res, (inputs.x_nm, inputs.y_nm, inputs.z_nm), rep)

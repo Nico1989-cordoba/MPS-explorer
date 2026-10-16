@@ -175,11 +175,11 @@ def test_fewer_than_two_rings() -> None:
 def test_defaults_and_sources() -> None:
     res = _fake_res([0.0, P], [30.0, 30.0], min_samples=7)
     zq = ap.z_quality(res)
-    assert zq.p_ref_nm == ap.P_REF_DEFAULT_NM and "default" in zq.p_ref_source
+    assert zq.p_ref_nm == ap.P_REF_DEFAULT_NM == 170.0 and "Gazal et al. 2026" in zq.p_ref_source
     assert zq.min_samples == 7
     zq2 = ap.z_quality(res, p_ref_nm=160.0)
     assert zq2.p_ref_nm == 160.0 and zq2.p_ref_source == "argument"
-    assert ap.z_quality(res) == zq                                   # deterministic, bit for bit
+    assert repr(ap.z_quality(res)) == repr(zq)                       # deterministic, bit for bit (NaN-safe)
     t = ap.ZQualityThresholds()
     assert (t.d_viable, t.d_marginal, t.spur_viable, t.spur_marginal, t.info_ratio_min, t.merged_sigma_over_p,
             t.merged_gap_over_p) == (2.2, 2.0, 0.02, 0.05, 2.0, 0.5, 1.3)
@@ -270,4 +270,4 @@ def test_envelope_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     d = zq.boundaries[0].d_sep
     monkeypatch.setattr(ap, "CALIBRATED_ENVELOPE", {"d_sep_min": d + 0.1, "exp_spur_frac_max": 1.0})
     flags = ap.calibration_range_flags("axonA", zq)
-    assert len(flags) == 1 and "fuera del rango calibrado" in flags[0] and "0-1" in flags[0]
+    assert len(flags) == 1 and "outside the calibrated range" in flags[0] and "0-1" in flags[0]

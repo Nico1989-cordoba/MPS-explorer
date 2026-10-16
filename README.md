@@ -308,10 +308,37 @@ pytest test_mps_explorer.py -v
   change will replace: *ad hoc* (no written derivation yet) and *unreviewed* (no verified research record yet). The
   tooltip of each badge gives the source, the documented range and, in words, what a later version changes; a
   value outside its documented range is flagged, never clamped.
+- **Channel 2's clustering** (Two channels). A second channel is never clustered with channel 1's eps and Min Pts.
+  Its own are derived and pre-filled (editable, each with its origin): eps₂ = eps₁ × NeNA₂ / NeNA₁, with NeNA
+  measured on each channel's whole-field, unlinked file, and Min Pts₂ from channel 2's dye and buffer (switching
+  cycles of Dempsey et al. 2011); when the precision cannot be measured the fields stay empty with the reason. The
+  criteria, the derivation, the dye table and the decision record:
+  [docs/channel2_parameters.md](docs/channel2_parameters.md).
 - **Measurement panel** (main window). Each loaded channel's pixel size with the source of the number, and, for 3D
   files, the per-measurement z calibration: no z correction is applied yet, so z is used as the localization software
   fitted it; whether the file carries its own calibration record is shown (only Data quality's coverage check reads
   its calibrated range), and the inputs to read one are present but disabled.
+- **NeNA precision** (Data quality → Precision). The localization precision measured from the data (Endesfelder et
+  al. 2014) with Picasso's model, fitted since 2026-10-14 by maximum likelihood (the nearby-molecule term kept only
+  when the data support it), with a 95 % interval, an independent estimate and warnings when the fit is poorly
+  identified or the field too crowded; the value is never replaced by another. Picasso's least-squares value is still
+  shown for comparison. Why the fit changed, the synthetic validation and the limitations: [docs/nena.md](docs/nena.md).
+- **Randomization control, KS and the 1NN** (parameter 8 of Gazal et al. 2026). The null (999 iterations, ±50 nm band
+  around the closed smoothed contour, the smallest observed 1NN as minimum separation, incomplete iterations re-drawn
+  and excluded) is editable from the strip (Randomization → More → Edit...). The KS distance D is reported with its
+  own null (z_D) and Monte Carlo p-values; the two-sample KS p-value is not reported (its assumptions fail here and it
+  over-rejects true nulls). The CDF crossing is read against the iterations' own band, and the regularity index
+  r = median 1NN × K / P separates regularity from detected cluster density. Every choice, its origin, the synthetic
+  calibrations and the decision record: [docs/randomization_and_ks.md](docs/randomization_and_ks.md).
+- **The axial mixture, the ring boundaries, the axon axis and the ring correlation.** The z mixture of a region (its
+  candidate components, the main peak as the mode of the fitted density, and the slab's expected foreign fraction F,
+  warned above 5 %); ΔZ with its standard error and its distance from the published periods (never a verdict); the
+  boundaries between rings (the valley as the antimode with its depth referred to the peaks, the Bayes boundary and
+  the midpoint, one depth level 0.10, the guard band in units of s_eff); the axon axis and its tilt checks; the ring
+  correlation along the membrane (arc length, 1999 rotations, a one-sided p, unmeasured bins masked by default
+  because interpolating them inflated the null's false positives to ~45 %), and the autocorrelation window. Every
+  number with its origin, the limitations and the decision record:
+  [docs/axial_mixture_and_rings.md](docs/axial_mixture_and_rings.md).
 
 ---
 
@@ -340,7 +367,13 @@ and to judge first whether the z profile of the axon can answer that at all.
     simulated null always run at tau_0.
 - **Z quality...** — the axial profile of the axon, ring by ring and pair by pair: the viability rule v2 (SiZer peak
   and valley, localization minimum, expected leak copies), the exploratory cluster-level variant, switches for each
-  criterion, the limiting factors in plain words, and an export of the report.
+  criterion, the limiting factors in plain words, and an export of the report. **Criteria...** edits every value of
+  the viability (reference period 170 nm after Gazal et al. 2026 and its presets, SiZer bandwidth and peak window as
+  fractions of the axon's own period, separation thresholds, the per-pair tolerance of leak copies, the count-floor
+  recall), each with its origin and documented range; **Calibrate count floor** calibrates criterion (3) on the axon by
+  thinning. Where every number comes from, the derivations, the simulations (scripts in `docs/sims/viability/`), the
+  leak diagnostics that were removed and why, the limitations and the decision record:
+  [docs/viability_and_reference_period.md](docs/viability_and_reference_period.md).
 - **Columns batch...** — runs `batch_columns.py` in a separate process with live progress.
 - **Viability explorer...** — rule v2 over many picked axons at once (computed in worker processes and cached), with
   the criteria switches and a combination table.

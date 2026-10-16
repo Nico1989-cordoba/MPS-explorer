@@ -89,7 +89,8 @@ __all__ = [
 ]
 
 # The SiZer bandwidth of the cluster medians as a fraction of P: the same 0.10 P as rule v2's localization profile so
-# the two strips are comparable; a later stage may change it (the medians are ~10x fewer points than the locs).
+# the two strips are comparable. The slope variance scales as 1 / (n h^3): ~10^2 cluster medians against ~10^4
+# localizations carry about one hundredth of the information at that scale, so this reading is intrinsically weak.
 CLUSTER_SIZER_H_OVER_P = 0.10
 # a few hundred medians per axon against tens of thousands of localizations: 20 nm bars instead of the
 # localizations' 10 nm.
@@ -204,14 +205,16 @@ def ring_slab_medians(res: Any, *, p_ref_nm: float, h_over_p: float = CLUSTER_SI
     return _make("ring_slab", med, n, q25, q75, np.asarray(ring, dtype=np.int64), p_ref_nm, h_over_p, params)
 
 
-def groups_3d_labels(x: NDArray[np.float64], y: NDArray[np.float64], z: NDArray[np.float64]) -> NDArray[np.int64]:
-    """The DBSCAN labels of ``tools.mps_sizer.groups_3d`` (same eps, min_samples, z scale) with the noise kept as
-    -1 (``groups_3d`` turns every noise point into a group of its own)."""
+def groups_3d_labels(x: NDArray[np.float64], y: NDArray[np.float64], z: NDArray[np.float64],
+                     z_scale: Optional[float] = None) -> NDArray[np.int64]:
+    """The DBSCAN labels of ``tools.mps_sizer.groups_3d`` (same eps, min_samples; z scale ``z_scale``, None -> the
+    0.5 suggestion) with the noise kept as -1 (``groups_3d`` turns every noise point into a group of its own)."""
     from sklearn.cluster import DBSCAN
 
     from tools.mps_sizer import GROUP_EPS_NM, GROUP_MIN_SAMPLES, GROUP_Z_SCALE
+    zs = float(GROUP_Z_SCALE if z_scale is None else z_scale)
     xyz = np.column_stack([np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64),
-                           np.asarray(z, dtype=np.float64) * GROUP_Z_SCALE])
+                           np.asarray(z, dtype=np.float64) * zs])
     if not xyz.shape[0]:
         return np.zeros(0, dtype=np.int64)
     lab = DBSCAN(eps=GROUP_EPS_NM, min_samples=GROUP_MIN_SAMPLES).fit_predict(xyz)
@@ -220,15 +223,18 @@ def groups_3d_labels(x: NDArray[np.float64], y: NDArray[np.float64], z: NDArray[
 
 def groups_3d_medians(res: Any, xyz_lab_nm: Sequence[Any], *, p_ref_nm: float,
                       h_over_p: float = CLUSTER_SIZER_H_OVER_P,
-                      slabs: Optional[Sequence[Tuple[int, float, float]]] = None) -> ClusterMedians:
+                      slabs: Optional[Sequence[Tuple[int, float, float]]] = None,
+                      z_scale: Optional[float] = None) -> ClusterMedians:
     """The slab-free 3D clusters (DBSCAN on the lab coordinates, ``groups_3d_labels``), one median of the z' of
-    their localizations (``res.z_p``, input order) each; noise is left out."""
+    their localizations (``res.z_p``, input order) each; noise is left out, as DBSCAN prescribes (Ester et al.
+    1996). ``z_scale``: the axial scale (the file's lateral / axial precision ratio; None -> 0.5)."""
     from tools.mps_sizer import GROUP_EPS_NM, GROUP_MIN_SAMPLES, GROUP_Z_SCALE
+    zs = float(GROUP_Z_SCALE if z_scale is None else z_scale)
     x, y, z = (np.asarray(v, dtype=np.float64).reshape(-1) for v in xyz_lab_nm)
     zp = np.asarray(res.z_p, dtype=np.float64)
     if x.size != zp.size:
         raise ValueError(f"{x.size} lab coordinates for {zp.size} localizations of the rings")
-    lab = groups_3d_labels(x, y, z)
+    lab = groups_3d_labels(x, y, z, zs)
     med: List[float] = []
     n: List[int] = []
     q25: List[float] = []
@@ -249,19 +255,20 @@ def groups_3d_medians(res: Any, xyz_lab_nm: Sequence[Any], *, p_ref_nm: float,
             q75.append(float(c))
             n.append(int(zz.size))
     ring = _slab_of(np.asarray(med, dtype=np.float64), list(slabs or ()))
-    params = (f"DBSCAN on the lab coordinates (x, y, {GROUP_Z_SCALE:g} z): eps {GROUP_EPS_NM:g} nm, min_samples "
+    params = (f"DBSCAN on the lab coordinates (x, y, {zs:.3g} z): eps {GROUP_EPS_NM:g} nm, min_samples "
               f"{GROUP_MIN_SAMPLES} (the clusters of rule v2's cluster-robust SiZer variance), noise left out")
     return _make("groups_3d", med, n, q25, q75, ring, p_ref_nm, h_over_p, params)
 
 
 def cluster_z_profile(res: Any, xyz_lab_nm: Sequence[Any], *, p_ref_nm: float,
-                      h_over_p: float = CLUSTER_SIZER_H_OVER_P) -> ClusterZProfile:
+                      h_over_p: float = CLUSTER_SIZER_H_OVER_P, z_scale: Optional[float] = None) -> ClusterZProfile:
     """Both cluster sets of one axon (module docstring). ``xyz_lab_nm``: the lab coordinates of every localization
     of ``res``, in its input order. Geometry only: no verdict, no column statistic."""
     t0 = time.perf_counter()
     slabs = [(int(r.index), float(r.z_lo_nm), float(r.z_hi_nm)) for r in res.rings]
     sets = {
-        "groups_3d": groups_3d_medians(res, xyz_lab_nm, p_ref_nm=p_ref_nm, h_over_p=h_over_p, slabs=slabs),
+        "groups_3d": groups_3d_medians(res, xyz_lab_nm, p_ref_nm=p_ref_nm, h_over_p=h_over_p, slabs=slabs,
+                                       z_scale=z_scale),
         "ring_slab": ring_slab_medians(res, p_ref_nm=p_ref_nm, h_over_p=h_over_p),
     }
     warnings_: List[str] = []
@@ -304,10 +311,12 @@ def cluster_median_rows(prof: ClusterZProfile, head: Optional[Dict[str, Any]] = 
 #   C "ring_slab_tn"  the A clusters with the centre corrected for the slab cut (truncated-normal MLE, sigma = the
 #                     ring's sigma_z), point = that centre.
 # (1c) a significant SiZer peak (iid: each cluster one point, h = 0.10 P) within P/3 of each ring centre; (2c) a
-# significant valley between the two centres -- for A and C a valley inside the slab gap widened by 15 nm is built by
-# the segmentation (moving the cut moves it) and never counts; (3c) K(ring) / K(central) >= 0.89 for both rings, always
-# a fraction of the central ring (Q-35); (4c) the cluster-level expected leak copies "tnfix", computed once per pair
-# from the ring-slab clusters and shared by every variant: <= 2 % VIABLE, <= 5 % MARGINAL.
+# significant valley between the two centres -- for A and C a valley inside the slab gap widened by one bandwidth h
+# is built by the segmentation (moving the cut moves it) and never counts; (3c) K(ring) / K(reference) >= k_min for
+# both rings, k_min = the recall tolerance (0.90): under random localization loss the count ratio IS the cluster
+# recall; (4c) the cluster-level expected leak copies "tnfix" (an upper bound: it gives every cluster the whole ring
+# width), computed once per pair from the ring-slab clusters and shared by every variant, against the pair's own copy
+# tolerance (the same as rule v2's).
 #
 # EXPLORATORY and NOT ADOPTED: it is shown next to rule v2, never instead of it. Under the pre-specified rule it never
 # selects pairs; since the user's decision of 2026-10-02 (Q-38, D-43) the review, the batch and simnull can read it
@@ -316,18 +325,21 @@ def cluster_median_rows(prof: ClusterZProfile, head: Optional[Dict[str, Any]] = 
 
 V2C_RULE = "rule v2-clusters (exploratory)"
 V2C_H_OVER_P = 0.10
-V2C_H_SENSITIVITY: Tuple[float, ...] = (0.14, 0.20, 0.25)
+# the map across bandwidths shown beside the verdict (0.10-0.30 P)
+V2C_H_SENSITIVITY: Tuple[float, ...] = (0.15, 0.20, 0.25, 0.30)
 # the sensitivity bandwidth shown next to the verdict (a few hundred medians need h ~ 0.20 P to have any power)
 V2C_H_TABLE = 0.20
 V2C_ALPHA = 0.05
 V2C_PEAK_WINDOW_OVER_P = 1.0 / 3.0
-# criterion 3c: K(ring) / K(central) >= 0.89 (zmin part B recipe at recall 0.90: 0.887 [0.855; 0.906]; re-derived in
-# the review 0.878 [0.859; 0.902]; ~flat in x, so a constant)
-V2C_K_MIN = 0.89
+# criterion 3c: K(ring) / K(reference) >= the recall tolerance (default 0.90; ``ViabilityParams.recall_tolerance``):
+# under Bernoulli thinning the count ratio is the cluster recall, so no separate constant is fitted.
+V2C_K_MIN = 0.90
 V2C_SPUR_VIABLE = 0.02
 V2C_SPUR_MARGINAL = 0.05
-# a valley strictly between the two centres inside [z_hi(lower) - 15, z_lo(upper) + 15] is "in the slab gap"
-V2C_CUT_FLAG_NM = 15.0
+# a valley strictly between the two centres inside [z_hi(lower) - w, z_lo(upper) + w] is "in the slab gap", w = one
+# bandwidth h (the distance over which the kernel spreads the gap edges; ``ViabilityParams.v2c_cut_flag_over_h``)
+V2C_CUT_FLAG_OVER_H = 1.0
+V2C_CUT_FLAG_NM = 15.0   # the fixed width used before the flag followed the bandwidth (kept for old callers)
 V2C_MIN_POINTS = 5
 # criterion 4c only: the sigma of F and of the slab's keep fraction is floored at 5 nm, the keep fraction at 5 %
 V2C_SIGMA_FLOOR_NM = 5.0
@@ -343,7 +355,10 @@ V2C_VARIANT_LABELS: Dict[str, str] = {
 V2C_CUT_FORCED: Tuple[str, ...] = ("ring_slab", "ring_slab_tn")
 V2C_REASON_AT_CUT = "valley lies in the slab gap (construction artefact)"
 V2C_LEAK_ESTIMATOR = ("tnfix: per ring cluster, its truncated-normal centre (sigma = the ring's sigma_z) and "
-                      "P[Bin(n0, F) >= min_samples] across the cut between the slabs")
+                      "P[Bin(n0, F) >= min_samples] across the cut between the slabs; an upper bound (over-estimates "
+                      "copies in simulation)")
+V2C_OWN_WIDTH_ESTIMATOR = ("own width: per ring cluster, its truncated-normal centre AND spread (both fitted on its own "
+                           "z values) and P[Bin(n0, F) >= min_samples]; shown, not used, until calibrated")
 
 
 @dataclass(frozen=True)
@@ -433,6 +448,9 @@ class V2CLeak:
     cut_nm: float
     exp_spur_frac_clusters: float
     exp_spur_frac_d39: float
+    exp_spur_frac_own: float = float("nan")
+    spur_viable: float = 0.02
+    spur_marginal: float = 0.05
 
 
 @dataclass(frozen=True)
@@ -458,6 +476,8 @@ class AxonViabilityV2C:
     viable_pairs: Dict[str, Tuple[Tuple[int, int], ...]]
     warnings: Tuple[str, ...]
     seconds: float
+    h_table: float = 0.20
+    cut_flag_nm: float = V2C_CUT_FLAG_NM
 
     def pairs_of(self, variant: str, sensitivity: bool = False) -> List[V2CPair]:
         src = self.sensitivity_pairs if sensitivity else self.pairs
@@ -485,26 +505,54 @@ def tn_centre_fixed_sigma(z: Any, sigma_nm: float, lo_nm: float, hi_nm: float) -
     return float(r.x)
 
 
+def tn_centre_and_sigma(z: Any, lo_nm: float, hi_nm: float, sigma_floor_nm: float = V2C_SIGMA_FLOOR_NM,
+                        sigma_start_nm: Optional[float] = None) -> Tuple[float, float]:
+    """(mu, sigma) of N(mu, sigma) truncated to [lo, hi] fitted to a cluster's own z values (Cohen 1950: truncation
+    points known, both parameters free), by bounded Nelder-Mead on (mu, log sigma); sigma floored at
+    ``sigma_floor_nm``. Fewer than 3 values: their mean and the floor (or ``sigma_start_nm``)."""
+    from scipy.optimize import minimize
+    zz = np.asarray(z, dtype=np.float64)
+    zz = zz[np.isfinite(zz)]
+    floor = float(sigma_floor_nm)
+    if zz.size < 3:
+        return (float(np.mean(zz)) if zz.size else float("nan"),
+                max(float(sigma_start_nm) if sigma_start_nm is not None else floor, floor))
+    s0 = max(float(zz.std(ddof=1)), floor)
+    lo, hi = float(lo_nm), float(hi_nm)
+
+    def nll(theta: NDArray[np.float64]) -> float:
+        return _tn_nll(float(theta[0]), max(math.exp(float(theta[1])), floor), zz, lo, hi)
+
+    r = minimize(nll, np.array([float(np.mean(zz)), math.log(s0)]), method="Nelder-Mead",
+                 options={"xatol": 1e-3, "fatol": 1e-6, "maxiter": 400})
+    return float(r.x[0]), max(math.exp(float(r.x[1])), floor)
+
+
 def exp_spur_frac_clusters(n_a: Sequence[int], mu_a: Sequence[float], n_b: Sequence[int], mu_b: Sequence[float], *,
-                           sigma_a_nm: float, sigma_b_nm: float, slab_a: Tuple[float, float],
-                           slab_b: Tuple[float, float], cut_nm: float, min_samples: int) -> float:
+                           sigma_a_nm: Any, sigma_b_nm: Any, slab_a: Tuple[float, float],
+                           slab_b: Tuple[float, float], cut_nm: float, min_samples: int,
+                           sigma_floor_nm: float = V2C_SIGMA_FLOOR_NM, keep_floor: float = V2C_KEEP_FLOOR) -> float:
     """
     Criterion 4c ("tnfix"): the expected fraction of the pair's ring clusters that are axial-leak COPIES, from each
-    cluster's own centre. Ring a lies below the cut, ring b above. Per cluster c (n_c localizations, centre mu_c):
-    sigma = max(the ring's sigma_z, 5 nm); F_c = the share of its localizations past the cut (a: above, b: below);
-    keep_c = the share inside its slab (clipped to [0.05, 1]); n0 = round(n_c / keep_c); a copy needs min_samples
-    of them across: P[Bin(n0, F_c) >= min_samples]. The sum over both rings over K_a + K_b (NaN without clusters).
-    Validated on simulated axons against the true copies: Spearman 0.93, AUC 0.99, never below the truth,
-    overestimates x2.9 (D-39: x1.6).
+    cluster's own centre (Cohen 1950's truncated-normal centre). Ring a lies below the cut, ring b above. Per cluster
+    c (n_c localizations, centre mu_c): sigma = max(the ring's sigma_z, the floor) -- or the cluster's own when
+    ``sigma_a_nm`` / ``sigma_b_nm`` is a sequence (one per cluster: the own-width variant); F_c = the share of its
+    localizations past the cut (a: above, b: below); keep_c = the share inside its slab (clipped to [keep_floor,
+    1]); n0 = round(n_c / keep_c); a copy needs min_samples of them across (the DBSCAN core count, Ester et al.
+    1996): P[Bin(n0, F_c) >= min_samples]. The sum over both rings over K_a + K_b (NaN without clusters). With the
+    ring width, which includes the between-cluster dispersion of the centres, it over-estimates copies (about
+    three-fold in this project's simulation, never below the truth): an upper bound. The floors (5 nm, 5 %) are
+    numerical safeguards that do not act on realistic data.
     """
     from scipy.stats import binom, norm
     e = 0.0
     for side, ns, mus, sig, (lo, hi) in ((+1, n_a, mu_a, sigma_a_nm, slab_a), (-1, n_b, mu_b, sigma_b_nm, slab_b)):
-        sd = max(float(sig), V2C_SIGMA_FLOOR_NM)
-        for n, mu in zip(ns, mus):
+        per = isinstance(sig, (list, tuple, np.ndarray))
+        for j, (n, mu) in enumerate(zip(ns, mus)):
+            sd = max(float(sig[j]) if per else float(sig), float(sigma_floor_nm))
             f_to = float(norm.sf((cut_nm - mu) / sd)) if side > 0 else float(norm.cdf((cut_nm - mu) / sd))
             keep = float(norm.cdf((hi - mu) / sd) - norm.cdf((lo - mu) / sd))
-            keep = min(max(keep, V2C_KEEP_FLOOR), 1.0)
+            keep = min(max(keep, float(keep_floor)), 1.0)
             e += float(binom.sf(int(min_samples) - 1, int(round(int(n) / keep)), f_to))
     k = len(n_a) + len(n_b)
     return e / k if k else float("nan")
@@ -519,12 +567,14 @@ def valley_at_cut(valleys: Sequence[float], lo_centre: float, hi_centre: float, 
     return bool(flag), vals
 
 
-def v2c_sizer(points: Any, centres: Sequence[float], *, p_ref_nm: float, h_over_p: float) -> V2CSizer:
+def v2c_sizer(points: Any, centres: Sequence[float], *, p_ref_nm: float, h_over_p: float,
+              window_over_p: float = V2C_PEAK_WINDOW_OVER_P) -> V2CSizer:
     """SiZer on one variant's points (iid, alpha ``V2C_ALPHA``) and the peak-near-each-centre booleans; no profile
-    with fewer than ``V2C_MIN_POINTS`` points or no spread."""
+    with fewer than ``V2C_MIN_POINTS`` points or no spread. ``p_ref_nm``: the period that scales h and the window
+    (the axon's own)."""
     from tools.mps_sizer import sizer_profile
     pts = np.asarray(points, dtype=np.float64)
-    win = V2C_PEAK_WINDOW_OVER_P * float(p_ref_nm)
+    win = float(window_over_p) * float(p_ref_nm)
     if pts.size < V2C_MIN_POINTS or not np.ptp(pts) > 0:
         return V2CSizer(float(h_over_p), float(h_over_p) * float(p_ref_nm), int(pts.size), (), (),
                         tuple(False for _c in centres), None)
@@ -541,16 +591,22 @@ def _pct0(f: float) -> str:
 def verdict_v2c(*, variant: str, rings: Tuple[int, int], peak_a: bool, peak_b: bool, valley_raw: bool,
                 valley_at_cut_: bool, k_ratio_a: float, k_ratio_b: float, k_a: int, k_b: int, k_central: int,
                 exp_spur_frac_clusters_: float, k_min: float = V2C_K_MIN,
-                p_ref_nm: float = P_REF_DEFAULT_NM) -> Tuple[str, bool, bool, Tuple[str, ...]]:
+                p_ref_nm: float = P_REF_DEFAULT_NM, spur_viable: Optional[float] = None,
+                spur_marginal: Optional[float] = None,
+                window_over_p: float = V2C_PEAK_WINDOW_OVER_P) -> Tuple[str, bool, bool, Tuple[str, ...]]:
     """
     The v2-clusters verdict of one pair under one variant: (verdict, valley counted for (2c), count_ok, reasons).
-    VIABLE iff both peaks, the valley (for A and C not in the slab gap), both K ratios >= k_min and 4c <= 2 %;
-    MARGINAL iff (1c)-(3c) and 2 % < 4c <= 5 %; else NOT VIABLE. Exploratory: never used to select pairs.
+    VIABLE iff both peaks, the valley (for A and C not in the slab gap), both K ratios >= k_min and 4c <= the
+    pair's viable tolerance; MARGINAL iff (1c)-(3c) and 4c <= its marginal tolerance; else NOT VIABLE (the
+    tolerances: None -> the fixed 2 % / 5 % suggestion). Exploratory: selects pairs only as an exploratory
+    selection. ``p_ref_nm``: the period of the peak window (the axon's own).
     """
-    from tools.mps_axial_precision import VERDICT_MARGINAL, VERDICT_NOT_VIABLE, VERDICT_VIABLE
+    from tools.mps_axial_precision import VERDICT_MARGINAL, VERDICT_NOT_VIABLE, VERDICT_VIABLE, _tol_text
+    sv = float(V2C_SPUR_VIABLE if spur_viable is None else spur_viable)
+    sm = float(V2C_SPUR_MARGINAL if spur_marginal is None else spur_marginal)
     a, b = rings
     reasons: List[str] = []
-    win = V2C_PEAK_WINDOW_OVER_P * float(p_ref_nm)
+    win = float(window_over_p) * float(p_ref_nm)
     for k, pk in ((a, peak_a), (b, peak_b)):
         if not pk:
             reasons.append(f"ring {k}: no significant peak of the cluster points within {win:.0f} nm of its centre")
@@ -563,24 +619,24 @@ def verdict_v2c(*, variant: str, rings: Tuple[int, int], peak_a: bool, peak_b: b
                                             " -- flagged only: these 3D clusters are not cut by the slabs"))
     count_ok = all(math.isfinite(r) and r >= k_min for r in (k_ratio_a, k_ratio_b))
     if k_central <= 0:
-        reasons.append("central ring without clusters: the cluster count criterion cannot be computed")
+        reasons.append("reference ring without clusters: the cluster count criterion cannot be computed")
     else:
         for k, r, n in ((a, k_ratio_a, k_a), (b, k_ratio_b, k_b)):
             if not (math.isfinite(r) and r >= k_min):
-                reasons.append(f"ring {k} has {n} clusters = {_pct0(r)} of the central ring's {k_central}; the "
-                               f"minimum is {_pct0(k_min)}")
+                reasons.append(f"ring {k} has {n} clusters = {_pct0(r)} of the reference ring's {k_central}; "
+                               f"the minimum is {_pct0(k_min)}")
     crit = bool(peak_a and peak_b and valley and count_ok)
     spur = float(exp_spur_frac_clusters_)
     if not math.isfinite(spur):
         reasons.append("cluster-level leak copies unknown (no ring clusters)")
-    elif spur > V2C_SPUR_MARGINAL:
-        reasons.append(f"cluster-level leak copies {100 * spur:.1f} % > {100 * V2C_SPUR_MARGINAL:g} %")
-    elif spur > V2C_SPUR_VIABLE:
-        reasons.append(f"cluster-level leak copies {100 * spur:.1f} % > {100 * V2C_SPUR_VIABLE:g} %"
-                       + (" (marginal)" if crit else f" (VIABLE needs <= {100 * V2C_SPUR_VIABLE:g} %)"))
-    if crit and math.isfinite(spur) and spur <= V2C_SPUR_VIABLE:
+    elif spur > sm:
+        reasons.append(f"cluster-level leak copies {100 * spur:.1f} % > {_tol_text(sm)}")
+    elif spur > sv:
+        reasons.append(f"cluster-level leak copies {100 * spur:.1f} % > {_tol_text(sv)}"
+                       + (" (marginal)" if crit else f" (VIABLE needs <= {_tol_text(sv)})"))
+    if crit and math.isfinite(spur) and spur <= sv:
         return VERDICT_VIABLE, valley, count_ok, tuple(reasons)
-    if crit and math.isfinite(spur) and spur <= V2C_SPUR_MARGINAL:
+    if crit and math.isfinite(spur) and spur <= sm:
         return VERDICT_MARGINAL, valley, count_ok, tuple(reasons)
     return VERDICT_NOT_VIABLE, valley, count_ok, tuple(reasons)
 
@@ -596,7 +652,8 @@ def _lab_of_frame(res: Any) -> Tuple[NDArray[np.float64], NDArray[np.float64], N
 
 
 def viability_v2c(res: Any, v2: Any = None, *, xyz_lab_nm: Optional[Sequence[Any]] = None,
-                  clusters: Optional[ClusterZProfile] = None, p_ref_nm: Optional[float] = None) -> AxonViabilityV2C:
+                  clusters: Optional[ClusterZProfile] = None, p_ref_nm: Optional[float] = None,
+                  params: Any = None) -> AxonViabilityV2C:
     """
     Rule v2-clusters (EXPLORATORY, D-42) of a ``build_rings`` result: the four criteria of rule v2 read on the
     clusters (section comment above), for the variants A, B, C, next to -- never instead of -- ``viability_v2``.
@@ -604,18 +661,26 @@ def viability_v2c(res: Any, v2: Any = None, *, xyz_lab_nm: Optional[Sequence[Any
     ``v2``: the axon's ``viability_v2`` (ring centres, central ring, D-39 leak shown beside 4c); None -> computed
     with ``xyz_lab_nm``. ``clusters``: the axon's ``cluster_z_profile`` (variant B is its "groups_3d" set); None ->
     computed from ``xyz_lab_nm`` (the lab coordinates of every localization, input order; rebuilt from the axon
-    frame when not given). ``p_ref_nm``: P; None -> ``v2.p_ref_nm``.
+    frame when not given). ``p_ref_nm``: the period of h and the windows; None -> the axon's own period of ``v2``
+    (``v2.p_scale_nm``). ``params``: ``ViabilityParams`` (None -> ``v2.params`` or the defaults): the bandwidth, the
+    cut-flag width, k_min (= the recall tolerance), the floors.
 
     Geometry only (R8): no column statistic. Its verdicts never select pairs under the pre-specified rule; through
     ``tools.mps_selection`` they can, as an exploratory selection (Q-38, D-43).
     """
+    from tools.mps_axial_precision import ViabilityParams
     t0 = time.perf_counter()
     warnings_: List[str] = []
+    vp = params if params is not None else (getattr(v2, "params", None) or ViabilityParams())
     if v2 is None:
         from tools.mps_axial_precision import viability_v2, z_quality
-        p0 = float(p_ref_nm) if p_ref_nm is not None else P_REF_DEFAULT_NM
-        v2 = viability_v2(res, z_quality(res, p_ref_nm=p0), xyz_lab_nm=xyz_lab_nm, p_ref_nm=p0)
-    p_ref = float(p_ref_nm) if p_ref_nm is not None else float(v2.p_ref_nm)
+        v2 = viability_v2(res, z_quality(res, params=vp), xyz_lab_nm=xyz_lab_nm, params=vp, sizer_map=False,
+                          reference_readings=False)
+    p_ref = float(p_ref_nm) if p_ref_nm is not None else float(getattr(v2, "p_scale_nm", v2.p_ref_nm))
+    h_verdict = float(vp.v2c_h_over_p)
+    k_min = float(vp.recall_tolerance)
+    win_over_p = float(vp.peak_window_over_p)
+    cut_flag = float(vp.v2c_cut_flag_over_h) * h_verdict * p_ref
     rings = sorted(res.rings, key=lambda r: int(r.index))
     ms = int(res.params.min_samples)
     idx = [int(r.index) for r in rings]
@@ -628,7 +693,9 @@ def viability_v2c(res: Any, v2: Any = None, *, xyz_lab_nm: Optional[Sequence[Any
         xyz = _lab_of_frame(res) if xyz_lab_nm is None else tuple(xyz_lab_nm)
         if xyz_lab_nm is None:
             warnings_.append("3D clusters from the lab coordinates rebuilt from the axon frame")
-        b_set = groups_3d_medians(res, xyz, p_ref_nm=p_ref, slabs=list(slabs))
+        b_set = groups_3d_medians(res, xyz, p_ref_nm=p_ref, slabs=list(slabs),
+                                  z_scale=(float(v2.group_z_scale) if math.isfinite(float(getattr(
+                                      v2, "group_z_scale", float("nan")))) else None))
     else:
         b_set = clusters.sets["groups_3d"]
 
@@ -639,6 +706,8 @@ def viability_v2c(res: Any, v2: Any = None, *, xyz_lab_nm: Optional[Sequence[Any
     a_noise: Dict[int, List[float]] = {k: [] for k in idx}
     per_ring_n: Dict[int, List[int]] = {k: [] for k in idx}
     per_ring_mu: Dict[int, List[float]] = {k: [] for k in idx}
+    own_mu: Dict[int, List[float]] = {k: [] for k in idx}
+    own_sd: Dict[int, List[float]] = {k: [] for k in idx}
     for r in rings:
         sig = float(r.sigma_z_nm)
         for cl in r.clusters:
@@ -646,6 +715,9 @@ def viability_v2c(res: Any, v2: Any = None, *, xyz_lab_nm: Optional[Sequence[Any
             if not zv.size:
                 continue
             mu = tn_centre_fixed_sigma(zv, sig, float(r.z_lo_nm), float(r.z_hi_nm))
+            m_own, s_own = tn_centre_and_sigma(zv, float(r.z_lo_nm), float(r.z_hi_nm), float(vp.v2c_sigma_floor_nm))
+            own_mu[int(r.index)].append(m_own)
+            own_sd[int(r.index)].append(s_own)
             a_pts.append(float(np.median(zv)))
             c_pts.append(mu)
             a_ring.append(int(r.index))
@@ -656,19 +728,27 @@ def viability_v2c(res: Any, v2: Any = None, *, xyz_lab_nm: Optional[Sequence[Any
 
     # ---- criterion 4c, once per pair (shared by every variant)
     d39 = {(int(p.ring_a), int(p.ring_b)): float(p.exp_spur_frac) for p in v2.pairs}
+    tol = {(int(p.ring_a), int(p.ring_b)): (float(getattr(p, "spur_viable", V2C_SPUR_VIABLE)),
+                                           float(getattr(p, "spur_marginal", V2C_SPUR_MARGINAL))) for p in v2.pairs}
     leaks: List[V2CLeak] = []
     for i in range(len(rings) - 1):
         ra, rb = rings[i], rings[i + 1]
+        ia_, ib_ = int(ra.index), int(rb.index)
         cut = 0.5 * (float(ra.z_hi_nm) + float(rb.z_lo_nm))
-        e = exp_spur_frac_clusters(per_ring_n[int(ra.index)], per_ring_mu[int(ra.index)], per_ring_n[int(rb.index)],
-                                   per_ring_mu[int(rb.index)], sigma_a_nm=float(ra.sigma_z_nm),
-                                   sigma_b_nm=float(rb.sigma_z_nm), slab_a=(float(ra.z_lo_nm), float(ra.z_hi_nm)),
-                                   slab_b=(float(rb.z_lo_nm), float(rb.z_hi_nm)), cut_nm=cut, min_samples=ms)
-        leaks.append(V2CLeak(int(ra.index), int(rb.index), cut, float(e),
-                             d39.get((int(ra.index), int(rb.index)), float("nan"))))
+        common: Dict[str, Any] = dict(slab_a=(float(ra.z_lo_nm), float(ra.z_hi_nm)),
+                                      slab_b=(float(rb.z_lo_nm), float(rb.z_hi_nm)),
+                                      cut_nm=cut, min_samples=ms, sigma_floor_nm=float(vp.v2c_sigma_floor_nm),
+                                      keep_floor=float(vp.keep_floor))
+        e = exp_spur_frac_clusters(per_ring_n[ia_], per_ring_mu[ia_], per_ring_n[ib_], per_ring_mu[ib_],
+                                   sigma_a_nm=float(ra.sigma_z_nm), sigma_b_nm=float(rb.sigma_z_nm), **common)
+        e_own = exp_spur_frac_clusters(per_ring_n[ia_], own_mu[ia_], per_ring_n[ib_], own_mu[ib_],
+                                       sigma_a_nm=own_sd[ia_], sigma_b_nm=own_sd[ib_], **common)
+        sv, sm = tol.get((ia_, ib_), (V2C_SPUR_VIABLE, V2C_SPUR_MARGINAL))
+        leaks.append(V2CLeak(ia_, ib_, cut, float(e), d39.get((ia_, ib_), float("nan")), float(e_own), sv, sm))
 
     # ---- the variants
-    hs = (V2C_H_OVER_P,) + tuple(V2C_H_SENSITIVITY)
+    h_table = V2C_H_TABLE if abs(V2C_H_TABLE - h_verdict) > 1e-12 else V2C_H_SENSITIVITY[-1]
+    hs = tuple(dict.fromkeys((h_verdict,) + tuple(V2C_H_SENSITIVITY) + (h_table,)))
     raw = {
         "ring_slab": (np.asarray(a_pts, dtype=np.float64), np.asarray(a_ring, dtype=np.int64),
                       "build_rings DBSCAN inside each ring slab; point = median z' of the cluster"),
@@ -682,9 +762,9 @@ def viability_v2c(res: Any, v2: Any = None, *, xyz_lab_nm: Optional[Sequence[Any
         pts, ring_of, params = raw[key]
         ks = [int(np.count_nonzero(ring_of == k)) for k in idx]
         k_c = ks[c_pos] if c_pos is not None else 0
-        sizer = {h: v2c_sizer(pts, centres, p_ref_nm=p_ref, h_over_p=h) for h in hs}
-        s0 = sizer[V2C_H_OVER_P]
-        win = V2C_PEAK_WINDOW_OVER_P * p_ref
+        sizer = {h: v2c_sizer(pts, centres, p_ref_nm=p_ref, h_over_p=h, window_over_p=win_over_p) for h in hs}
+        s0 = sizer[h_verdict]
+        win = win_over_p * p_ref
         vr: List[V2CRing] = []
         for j, k in enumerate(idx):
             mine = pts[ring_of == k]
@@ -713,33 +793,37 @@ def viability_v2c(res: Any, v2: Any = None, *, xyz_lab_nm: Optional[Sequence[Any
                 var = variants[key]
                 s = var.sizer[h]
                 vraw = bool(s.profile is not None and valley_between(s.profile.grid, s.profile.sign, lo_c, hi_c))
-                flag, vals = valley_at_cut(s.valleys, lo_c, hi_c, gap_lo, gap_hi)
+                flag, vals = valley_at_cut(s.valleys, lo_c, hi_c, gap_lo, gap_hi,
+                                           flag_nm=float(vp.v2c_cut_flag_over_h) * float(h) * p_ref)
                 ra_, rb_ = var.rings[i], var.rings[i + 1]
                 verdict_, valley, count_ok, reasons = verdict_v2c(
                     variant=key, rings=(idx[i], idx[i + 1]), peak_a=s.ring_peak[i], peak_b=s.ring_peak[i + 1],
                     valley_raw=vraw, valley_at_cut_=flag, k_ratio_a=ra_.k_ratio, k_ratio_b=rb_.k_ratio,
                     k_a=ra_.k_clusters, k_b=rb_.k_clusters, k_central=var.k_central,
-                    exp_spur_frac_clusters_=leaks[i].exp_spur_frac_clusters, p_ref_nm=p_ref)
+                    exp_spur_frac_clusters_=leaks[i].exp_spur_frac_clusters, p_ref_nm=p_ref, k_min=k_min,
+                    spur_viable=leaks[i].spur_viable, spur_marginal=leaks[i].spur_marginal,
+                    window_over_p=win_over_p)
                 out.append(V2CPair(
                     variant=key, ring_a=idx[i], ring_b=idx[i + 1], h_over_p=float(h), peak_a=bool(s.ring_peak[i]),
                     peak_b=bool(s.ring_peak[i + 1]), valley_raw=vraw, valleys_between=vals, valley_at_cut=flag,
                     valley=valley, k_a=ra_.k_clusters, k_b=rb_.k_clusters, k_ratio_a=ra_.k_ratio,
-                    k_ratio_b=rb_.k_ratio, k_min=V2C_K_MIN, count_ok=count_ok,
+                    k_ratio_b=rb_.k_ratio, k_min=k_min, count_ok=count_ok,
                     exp_spur_frac_clusters=leaks[i].exp_spur_frac_clusters,
                     exp_spur_frac_d39=leaks[i].exp_spur_frac_d39, verdict=verdict_, reasons=reasons))
         return out
 
-    pairs = pairs_at(V2C_H_OVER_P)
-    sens = pairs_at(V2C_H_TABLE)
+    pairs = pairs_at(h_verdict)
+    sens = pairs_at(h_table)
     if len(rings) < 2:
         warnings_.append("fewer than two rings: no pair")
     viable = {k: tuple((p.ring_a, p.ring_b) for p in pairs if p.variant == k and p.verdict == "viable")
               for k in V2C_VARIANT_ORDER}
     return AxonViabilityV2C(
-        rule=V2C_RULE, p_ref_nm=p_ref, h_over_p=V2C_H_OVER_P, alpha=V2C_ALPHA, k_min=V2C_K_MIN, min_samples=ms,
+        rule=V2C_RULE, p_ref_nm=p_ref, h_over_p=h_verdict, alpha=V2C_ALPHA, k_min=k_min, min_samples=ms,
         central_index=(idx[c_pos] if c_pos is not None else None), centres_z_nm=tuple(centres), slabs=slabs,
         variants=variants, leaks=tuple(leaks), pairs=tuple(pairs), sensitivity_pairs=tuple(sens),
-        viable_pairs=viable, warnings=tuple(warnings_), seconds=float(time.perf_counter() - t0))
+        viable_pairs=viable, warnings=tuple(warnings_), seconds=float(time.perf_counter() - t0), h_table=h_table,
+        cut_flag_nm=cut_flag)
 
 
 def v2c_pair_rows(v2c: AxonViabilityV2C, head: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -759,6 +843,10 @@ def v2c_pair_rows(v2c: AxonViabilityV2C, head: Optional[Dict[str, Any]] = None) 
                        valley_at_cut=p.valley_at_cut, k_a=p.k_a, k_b=p.k_b, k_ratio_a=p.k_ratio_a,
                        k_ratio_b=p.k_ratio_b, k_min=p.k_min, count_ok=p.count_ok,
                        exp_spur_frac_clusters=p.exp_spur_frac_clusters, exp_spur_frac_d39=p.exp_spur_frac_d39,
+                       exp_spur_frac_own=next((lk.exp_spur_frac_own for lk in v2c.leaks
+                                               if (lk.ring_a, lk.ring_b) == (p.ring_a, p.ring_b)), float("nan")),
+                       spur_viable=next((lk.spur_viable for lk in v2c.leaks
+                                         if (lk.ring_a, lk.ring_b) == (p.ring_a, p.ring_b)), float("nan")),
                        n_points=var.n_points, n_outside=var.n_outside, verdict=p.verdict,
                        reasons=" | ".join(reasons))
             out.append(row)
@@ -768,13 +856,14 @@ def v2c_pair_rows(v2c: AxonViabilityV2C, head: Optional[Dict[str, Any]] = None) 
 def v2c_summary_lines(v2c: AxonViabilityV2C) -> List[str]:
     """The v2-clusters block of the view's plain-language summary (never part of rule v2's summary file)."""
     P = v2c.p_ref_nm
-    lines = [f"RULE v2-CLUSTERS (EXPLORATORY, D-42): the same four criteria on the CLUSTERS -- NOT the rule, it never "
-             "selects pairs under the pre-specified rule; only as an exploratory selection of the criteria switches "
-             "(Q-38, D-43)",
-             "   Rule v2 above reads the LOCALIZATIONS: (1)-(2) their density, (3) their count, (4) the D-39 leak. Here "
-             "each cluster is ONE point (its median z', or for C its centre corrected for the slab cut): (1c)-(2c) "
+    lines = [f"RULE v2-CLUSTERS (EXPLORATORY): the same four criteria on the CLUSTERS -- NOT the declared rule; it "
+             "selects pairs only as an exploratory selection of the criteria switches",
+             "   Rule v2 above reads the LOCALIZATIONS: (1)-(2) their density, (3) their count, (4) the ring-level "
+             "leak. Here each cluster is ONE point (its median z', or for C its centre corrected for the slab cut), "
+             "about a hundred-fold fewer points, so the reading has little power: (1c)-(2c) "
              f"SiZer on those points (iid, h = {v2c.h_over_p:g} P = {v2c.h_over_p * P:.0f} nm), (3c) K(ring) / "
-             f"K(central) >= {100 * v2c.k_min:.0f} %, (4c) cluster-level leak copies (tnfix) <= 2 % / 5 %."]
+             f"K(reference) >= {100 * v2c.k_min:.0f} % (the recall tolerance), (4c) cluster-level leak copies "
+             "(tnfix, an upper bound) within the pair's tolerance."]
     by_pair: Dict[Tuple[int, int], List[V2CPair]] = {}
     for p in v2c.pairs:
         by_pair.setdefault((p.ring_a, p.ring_b), []).append(p)
@@ -789,7 +878,11 @@ def v2c_summary_lines(v2c: AxonViabilityV2C) -> List[str]:
                      + f"); peaks at {pk} nm, valleys at {vl} nm.")
     for (a, b), ps in by_pair.items():
         leak = ps[0].exp_spur_frac_clusters
-        lines.append(f"   rings {a}-{b} (4c leak {100 * leak:.1f} %, D-39 {100 * ps[0].exp_spur_frac_d39:.1f} %):")
+        lk = next((x for x in v2c.leaks if (x.ring_a, x.ring_b) == (a, b)), None)
+        own = (f", own-width {100 * lk.exp_spur_frac_own:.1f} %" if lk is not None
+               and math.isfinite(lk.exp_spur_frac_own) else "")
+        lines.append(f"   rings {a}-{b} (4c leak {100 * leak:.1f} %{own}, ring-level "
+                     f"{100 * ps[0].exp_spur_frac_d39:.1f} %):")
         for p in ps:
             var = v2c.variants[p.variant]
             lines.append(f"      {var.letter}: {p.verdict.upper()} (exploratory) -- "
@@ -797,8 +890,8 @@ def v2c_summary_lines(v2c: AxonViabilityV2C) -> List[str]:
     lines.append("   A valley of the ring clusters (A, C) inside a slab gap is built by the segmentation (each cluster is "
                  "found inside its ring's slab, so no median crosses the cut; moving the cut moves the dip) and "
                  "never counts.")
-    lines.append("   Each cluster's centre is still spread by the axial precision, so the axial resolution can "
-                 "limit this rule as it limits rule v2 [H6 clusters research, 2026-10-02].")
+    lines.append("   Each cluster's centre is still spread by the axial precision, so the ring width over the period "
+                 "can limit this rule as it limits rule v2.")
     if v2c.warnings:
-        lines.append("   Warnings: " + " | ".join(v2c.warnings))
+        lines.append("   Notes: " + " | ".join(v2c.warnings))
     return lines

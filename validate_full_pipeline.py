@@ -159,11 +159,17 @@ if __name__ == "__main__":
     print(f"  cluster area median   : {np.median(A):>9,.0f} nm^2   [paper 1,965]")
     print(f"  r_eff median          : {np.median(R):>9.1f} nm     [paper ~25]")
 
+    # The pooled median and quartiles are the primary summary; the mode is
+    # smoothing-dependent and is printed by two estimators, each with its
+    # smoothing and an interval from resampling AXONS. The paper's values
+    # come from another dataset and pipeline: not a validation criterion.
     pooled = pool_nn_across_axons([r["nn1"] for r in rows], peak_method="kde")
-    pooled_h = pool_nn_across_axons([r["nn1"] for r in rows], peak_method="histogram")
-    print(f"  1NN pooled peak (KDE) : {pooled.peak_nm:>9.0f} nm     [paper ~200]")
-    print(f"  1NN pooled peak (hist): {pooled_h.peak_nm:>9.0f} nm     [paper ~200]")
-    print(f"  1NN median of medians : {pooled.median_of_medians_nm:>9.0f} nm     [paper 260]")
+    literal = pool_nn_across_axons([r["nn1"] for r in rows], peak_method="histogram",
+                                   bins=50, n_bootstrap=0)
+    for line in pooled.summary_lines():
+        print(f"  1NN {line}")
+    print(f"  1NN histogram mode, 50 bins (literal reading): {literal.peak_nm:.0f} nm"
+          f"   [paper ~200 peak, 260 median of medians]")
     print(f"  per-axon 1NN medians  : {np.min(pooled.per_axon_medians_nm):.0f} .. "
           f"{np.max(pooled.per_axon_medians_nm):.0f} nm")
 
@@ -181,12 +187,14 @@ if __name__ == "__main__":
         print(f"  N vs perimeter        : y = {slope:.2f}x {intercept:+.2f}   r = {rr:.2f}")
         print(f"  paper                 : y = 4.08x -12.62   r = 0.81")
 
-    # ---------------- occupancy-independent constancy check ----------------
-    med = pooled.per_axon_medians_nm
-    rr2 = np.corrcoef(P[:, 0], med)[0, 1] if len(P) > 2 else float("nan")
-    print(f"\n  1NN median vs perimeter correlation: r = {rr2:+.2f}")
-    print(f"    (paper's claim: per-axon 1NN median is ~constant regardless of"
-          f" perimeter, i.e. r near 0)")
+    # ---------------- constancy with calibre ----------------
+    # A pooled Pearson r over axons nested in sections and animals is
+    # pseudoreplication (Lazic 2010; Aarts et al. 2014), and r near 0 is
+    # absence of evidence, not constancy. The relation is examined with
+    # animals as the unit, on data with several animals:
+    # tools.mps_constancy (python -m tools.mps_constancy <batch table>).
+    print()
+    print("  constancy with calibre: see tools.mps_constancy (needs several animals)")
 
     ng = sum(1 for r in rows if r["guard"])
     if ng:

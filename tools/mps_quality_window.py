@@ -41,6 +41,14 @@ _OK = role("good")
 _WARN = role("warn")
 _DIM = TEXT_DIM
 
+NENA_TOOLTIP = (
+    "NeNA (Endesfelder et al. 2014): the localization precision measured "
+    "from the data, from the distance between a molecule's localizations in "
+    "consecutive frames. Picasso's model fitted by maximum likelihood, its "
+    "nearby-molecule term kept only when the data support it. Needs a "
+    "whole-field, unlinked file. docs/nena.md."
+)
+
 
 def _axial_verdict(component: Any) -> Tuple[str, str]:
     """What one axial component's width says, and which kind of finding
@@ -164,8 +172,26 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
         kind = "good" if check.ratio < 1.3 else (
             "warn" if check.ratio < 2.0 else "bad"
         )
+        detail = check.nena
+        if detail is None:
+            # A report built before the interval existed: fit it here.
+            from tools.mps_quality import nena as _nena
+            detail = _nena(
+                self.loc.frame, self.loc.x_nm, self.loc.y_nm,
+                reported_lp_nm=check.reported_lateral_nm,
+            )
+        interval = (
+            f"{detail.ci_low_nm:.2f} - {detail.ci_high_nm:.2f} nm"
+            if np.isfinite(detail.ci_low_nm) and np.isfinite(detail.ci_high_nm)
+            else "-")
         rows = [
             ("NeNA (experimental)", f"{check.nena_nm:.2f} nm"),
+            ("NeNA 95 % interval", interval),
+            ("with a random-neighbour term",
+             f"{detail.random_term_nm:.2f} nm"
+             if np.isfinite(detail.random_term_nm) else "-"),
+            ("Picasso least squares (before 2026-10-14)",
+             f"{detail.lsq_nm:.2f} nm" if np.isfinite(detail.lsq_nm) else "-"),
             ("reported lpx (median)", f"{check.reported_lpx_nm:.2f} nm"),
             ("reported lpy (median)", f"{check.reported_lpy_nm:.2f} nm"),
             ("reported lpz (median)",
@@ -175,31 +201,56 @@ class MPSQualityWindow(QtWidgets.QMainWindow):
             ("next-frame pairs", f"{check.n_pairs:,}"),
         ]
         grid = QtWidgets.QGridLayout()
+        tips = {
+            "NeNA (experimental)": NENA_TOOLTIP,
+            "NeNA 95 % interval": (
+                "Profile-likelihood interval: the precisions the next-frame "
+                "distances cannot tell apart from the value at the 95 % "
+                "level. Wider than +-10 % is flagged as poorly pinned down. "
+                "docs/nena.md, section 4."),
+            "with a random-neighbour term": (
+                "The same fit with a third term for randomly placed "
+                "neighbours. An independent estimate: if it falls outside "
+                "the interval and more than 5 % away, a warning says so; it "
+                "never replaces NeNA. docs/nena.md, section 4."),
+            "Picasso least squares (before 2026-10-14)": (
+                "Picasso's own fit of the same model, by least squares on "
+                "the histogram. It was the value shown here until "
+                "2026-10-14; on synthetic files of known precision with no "
+                "other molecules nearby it was more than 5 % off in 15 % of "
+                "them (from 30 % low to 12 % high). docs/nena.md, "
+                "section 2."),
+        }
         for row, (name, value) in enumerate(rows):
-            grid.addWidget(_label(name, _DIM), row, 0)
-            grid.addWidget(_label(value, TITLE_FG, bold=True), row, 1)
+            name_label = _label(name, _DIM)
+            value_label = _label(value, TITLE_FG, bold=True)
+            if name in tips:
+                name_label.setToolTip(tips[name])
+                value_label.setToolTip(tips[name])
+            grid.addWidget(name_label, row, 0)
+            grid.addWidget(value_label, row, 1)
         grid.setColumnStretch(2, 1)
         lay.addLayout(grid)
         lay.addWidget(_label(marked(kind, check.verdict), role(kind),
                              bold=True))
+        if detail.converged and not detail.well_identified:
+            lay.addWidget(_label(marked(
+                "warn", "The NeNA fit is poorly identified on this file: "
+                "see the findings above (docs/nena.md)."), _WARN))
         lay.addWidget(_label(
             "NeNA measures the precision from the data itself: the same "
             "molecule seen in two consecutive frames appears twice, and the "
             "spread between those two positions is the error. It needs no "
             "photon calibration, which is what makes it a check on the "
-            "precision the fit reported.", _DIM))
+            "precision the fit reported. Fitted by maximum likelihood on "
+            "Picasso's model; method, interval, checks and validation in "
+            "docs/nena.md.", _DIM))
 
         plot = pg.PlotWidget()
         style_dark(plot)
         set_title(plot, "Next-frame neighbour distances")
         plot.setLabel("bottom", "distance [nm]", color=AXIS_FG)
         plot.setLabel("left", "count", color=AXIS_FG)
-        # Recompute so the curve can be drawn; the summary kept only numbers.
-        from tools.mps_quality import nena as _nena
-        detail = _nena(
-            self.loc.frame, self.loc.x_nm, self.loc.y_nm,
-            reported_lp_nm=check.reported_lateral_nm,
-        )
         if detail.histogram.size:
             plot.plot(detail.distances_nm, detail.histogram,
                       pen=pg.mkPen(role("locs"), width=1))

@@ -3,11 +3,12 @@
 Which ring pairs the column test reads: the criteria of the viability rules as SWITCHES (D-43, user decisions of
 2026-10-02). No Qt; geometry only (R8: nothing here computes a column statistic).
 
-Rule v2 (D-41, ``tools.mps_axial_precision.viability_v2``) reads four criteria on the LOCALIZATIONS: (1) a SiZer peak
-of each ring, (2) a SiZer valley between them, (3) the localizations of each ring >= f_min(x) of the central ring,
-(4) the D-39 leak copies <= 2 % VIABLE / <= 5 % MARGINAL. Rule v2-clusters (D-42, ``tools.mps_axial_clusters.
-viability_v2c``) reads the same four on the CLUSTERS, variants A (ring-slab medians), B (slab-free 3D groups),
-C (ring-slab truncated-normal centres), with the per-cluster leak "tnfix" as (4c).
+Rule v2 (``tools.mps_axial_precision.viability_v2``) reads four criteria on the LOCALIZATIONS: (1) a SiZer peak
+of each ring, (2) a SiZer valley between them, (3) the localizations of each ring >= f_min of the reference ring,
+(4) the ring-level leak copies within the pair's viable tolerance (VIABLE) / marginal tolerance (MARGINAL). Rule
+v2-clusters (``tools.mps_axial_clusters.viability_v2c``) reads the same four on the CLUSTERS, variants A (ring-slab
+medians), B (slab-free 3D groups), C (ring-slab truncated-normal centres), with the cluster-level leak "tnfix" (an
+upper bound) as (4c).
 
 The user asked (2026-10-02) that every criterion can be checked and unchecked, so the pairs can be seen under
 stricter or more permissive combinations, and (Q-38) that BOTH rules can select the pairs of the column tests. This
@@ -15,19 +16,26 @@ module is the single place that turns the per-pair criteria (already computed by
 re-runs SiZer or DBSCAN) into a selection:
 
 - ``SelectionSpec``: rule ("v2", "v2c", "both" = AND, "either" = OR), the v2c variant, one ``CriteriaSet`` per rule
-  (the four switches + the leak estimate: "D-39", "tnfix" or "max", Q-39 still open), a canonical text label
+  (the four switches + the leak estimate: "D-39" = ring level, "tnfix" = cluster level, or "max"; which one is THE
+  criterion stays the user's choice until the synthetic calibration is run), a canonical text label
   (``v2[peak,valley,count,leak:D-39]``) and an 8-hex hash that also covers the thresholds.
-- ``DEFAULT_SELECTION`` = the pre-specified rule v2 with its four criteria and the D-39 leak. Under it every output is
+- ``DEFAULT_SELECTION`` = the declared default: rule v2 with its four criteria and the ring-level leak, fixed before
+  any column statistic was computed on real data, after inspection of pilot z profiles. Under it every output is
   byte-identical to the program without this module (``rule_text`` returns rule v2's own text, the pairs and reasons
   are rule v2's verbatim). ANY other selection is an "exploratory selection" and says so wherever a result appears.
 - ``axon_criteria`` / ``compute_axon_criteria``: the per-pair criteria of one axon (``AxonCriteria``).
 - ``evaluate_selection``: the pure evaluation (microseconds), ``SelectionResult`` with the verdict, tier and reasons
   of every pair, the key a simulated replicate must share (simnull), the rule text written in the outputs.
 - ``ExplorationLog``: the append-only CSV of every selection a column statistic was shown or written under, and the
-  count of selection variants tried this session (p values are NOT corrected for trying several selections).
+  count of selection variants tried this session (p values are NOT corrected for trying several selections: they
+  are labelled exploratory and shown with that count, since adjustment belongs to confirmatory conclusions, Bender &
+  Lange 2001, and analytic flexibility must be disclosed, Simmons et al. 2011; a Bonferroni factor over nested,
+  correlated selections would be meaningless). Letting the user switch criteria is a multiverse /
+  specification-curve design (Steegen et al. 2016; Simonsohn et al. 2020).
 
-MARGINAL tier: with the leak criterion checked, the 2 % / 5 % tiers apply as in D-41 / D-42; with it unchecked, a
-pair that meets the other checked criteria is VIABLE (there is no MARGINAL tier then).
+MARGINAL tier: with the leak criterion checked, the pair's own tolerances apply (``tools.mps_axial_precision.
+copy_tolerance``; the fixed 2 % / 5 % when it cannot be computed); with it unchecked, a pair that meets the other
+checked criteria is VIABLE (there is no MARGINAL tier then).
 """
 from __future__ import annotations
 
@@ -63,8 +71,10 @@ CRITERION_LABELS: Dict[str, str] = {"peak": "(1) Peak", "valley": "(2) Valley", 
 CRITERION_LABELS_V2C: Dict[str, str] = {"peak": "(1c) Peak", "valley": "(2c) Valley", "count": "(3c) Count",
                                         "leak": "(4c) Leak"}
 LEAK_ESTIMATES: Tuple[str, ...] = ("D-39", "tnfix", "max")
-LEAK_ESTIMATE_LABELS: Dict[str, str] = {"D-39": "D-39 (per ring, rule v2's)", "tnfix": "per cluster (tnfix, D-42)",
-                                        "max": "the larger of the two"}
+LEAK_ESTIMATE_LABELS: Dict[str, str] = {
+    "D-39": "ring level (rule v2's; may under-estimate copies for non-flat rings)",
+    "tnfix": "cluster level (an upper bound: over-estimates copies in simulation)",
+    "max": "the larger of the two (a conservative envelope)"}
 RULES: Tuple[str, ...] = ("v2", "v2c", "both", "either")
 # the letters of the v2c variants and the keys of ``tools.mps_axial_clusters.V2C_VARIANT_ORDER``
 VARIANT_KEYS: Dict[str, str] = {"A": "ring_slab", "B": "groups_3d", "C": "ring_slab_tn"}
@@ -326,8 +336,9 @@ def selection_thresholds() -> Tuple[Any, ...]:
     every hash)."""
     from tools import mps_axial_clusters as ac
     from tools import mps_axial_precision as ap
+    stored = sorted(stored_viability_params().to_store().items())
     return (ap.V2_SPUR_VIABLE, ap.V2_SPUR_MARGINAL, ac.V2C_SPUR_VIABLE, ac.V2C_SPUR_MARGINAL, ac.V2C_K_MIN,
-            ac.V2C_H_OVER_P, ap.VIABILITY_RULE_V2, ac.V2C_RULE)
+            ac.V2C_H_OVER_P, ap.VIABILITY_RULE_V2, ac.V2C_RULE, ap.P_REF_DEFAULT_NM, repr(stored))
 
 
 def selection_source_sha(base: str = "") -> str:
@@ -417,6 +428,13 @@ class PairCriteria:
     v2: SideCriteria
     v2c: Optional[Tuple[SideCriteria, ...]] = None
     v2c_error: str = ""
+    # the pair's own copy tolerance (NaN: the fixed suggestion), the period of the peak window (the axon's own) and its
+    # fraction, and the word naming the reference ring
+    spur_viable: float = _NAN
+    spur_marginal: float = _NAN
+    p_nm: float = _NAN
+    window_over_p: float = _NAN
+    reference_word: str = "central"
 
     @property
     def key(self) -> Tuple[int, int]:
@@ -457,7 +475,9 @@ class AxonCriteria:
             r: Dict[str, Any] = {"axon_id": self.axon_id, "n_rings": self.n_rings, "v2_rule": self.v2_rule,
                                  "v2c_rule": self.v2c_rule, "v2c_error": self.v2c_error or p.v2c_error,
                                  "ring_a": p.ring_a, "ring_b": p.ring_b, "p_ref_nm": p.p_ref_nm, "d39": p.d39,
-                                 "tnfix": p.tnfix}
+                                 "tnfix": p.tnfix, "spur_viable": p.spur_viable, "spur_marginal": p.spur_marginal,
+                                 "p_nm": p.p_nm, "window_over_p": p.window_over_p,
+                                 "reference_word": p.reference_word}
             for s in (p.v2,) + tuple(p.v2c or ()):
                 for f in dataclasses.fields(SideCriteria):
                     if f.name == "side":
@@ -495,7 +515,9 @@ class AxonCriteria:
             v2c = tuple(sides[k] for k in VARIANTS if k in sides) or None
             pairs.append(PairCriteria(int(r["ring_a"]), int(r["ring_b"]), _f(r.get("p_ref_nm")), _f(r.get("d39")),
                                       _f(r.get("tnfix")), sides["v2"], v2c if v2c and len(v2c) == 3 else None,
-                                      str(r.get("v2c_error") or "")))
+                                      str(r.get("v2c_error") or ""), _f(r.get("spur_viable")),
+                                      _f(r.get("spur_marginal")), _f(r.get("p_nm")), _f(r.get("window_over_p")),
+                                      str(r.get("reference_word") or "central")))
             axon_id = axon_id or str(r.get("axon_id") or "")
             n_rings = n_rings or int(_f(r.get("n_rings")) if math.isfinite(_f(r.get("n_rings"))) else 0)
             v2_rule = v2_rule or str(r.get("v2_rule") or "")
@@ -545,6 +567,10 @@ def axon_criteria(v2: Any, v2c: Any = None, v2c_error: str = "", *, axon_id: str
     repeated pair or two different D-39 numbers for one pair raise ValueError.
     """
     p_ref = _f(getattr(v2, "p_ref_nm", _NAN))
+    p_nm = _f(getattr(v2, "p_nm", _NAN))
+    vparams = getattr(v2, "params", None)
+    window = _f(getattr(vparams, "peak_window_over_p", _NAN)) if vparams is not None else _NAN
+    ref_word = "central" if str(getattr(v2, "reference_ring", "central")) == "central" else "reference"
     by_v2c: Dict[Tuple[int, int], Dict[str, Any]] = {}
     tnfix: Dict[Tuple[int, int], float] = {}
     if v2c is not None:
@@ -591,7 +617,9 @@ def axon_criteria(v2: Any, v2c: Any = None, v2c_error: str = "", *, axon_id: str
                     k_central=int(var.k_central)))
             sides = tuple(out)
         pairs.append(PairCriteria(key[0], key[1], p_ref, d39, tnfix.get(key, _NAN), s2, sides,
-                                  "" if v2c is not None else str(v2c_error)))
+                                  "" if v2c is not None else str(v2c_error),
+                                  _f(getattr(p, "spur_viable", _NAN)), _f(getattr(p, "spur_marginal", _NAN)), p_nm,
+                                  window, ref_word))
     return AxonCriteria(axon_id=str(axon_id), n_rings=len(getattr(v2, "rings", ())), pairs=tuple(pairs),
                         v2_rule=str(v2.rule), v2c_rule=str(getattr(v2c, "rule", "") or ""),
                         v2c_error="" if v2c is not None else str(v2c_error))
@@ -599,29 +627,44 @@ def axon_criteria(v2: Any, v2c: Any = None, v2c_error: str = "", *, axon_id: str
 
 def compute_axon_criteria(res: Any, xyz_lab_nm: Optional[Sequence[Any]], *, zq: Any = None, v2: Any = None,
                           v2c: Any = None, with_v2c: bool = True, axon_id: str = "",
-                          p_ref_nm: Optional[float] = None) -> AxonCriteria:
+                          p_ref_nm: Optional[float] = None, params: Any = None,
+                          precision_nm: Optional[Tuple[float, float]] = None) -> AxonCriteria:
     """
     The per-pair criteria of a ``build_rings`` result, computing what is not given: ``z_quality``, ``viability_v2``
     (lab coordinates ``xyz_lab_nm``) and, when ``with_v2c``, ``viability_v2c(res, v2, xyz_lab_nm)`` -- whose failure
     (e.g. a ring with a non-finite sigma_z, review N2) is recorded in ``v2c_error`` and never falls back to v2.
-    Geometry only (R8).
+    ``params``: the ``ViabilityParams`` (None: the stored ones, ``stored_viability_params``); ``precision_nm``:
+    (median lateral, median axial) precision of the file for the 3D groups' z scale. Geometry only (R8).
     """
     from tools.mps_axial_precision import viability_v2, z_quality
     xyz = None if xyz_lab_nm is None else tuple(np.asarray(v, dtype=np.float64).reshape(-1) for v in xyz_lab_nm)
+    vp = params if params is not None else stored_viability_params()
     if v2 is None:
         if zq is None:
-            zq = z_quality(res) if p_ref_nm is None else z_quality(res, p_ref_nm=p_ref_nm)
-        v2 = viability_v2(res, zq, xyz_lab_nm=xyz, p_ref_nm=p_ref_nm)
+            zq = z_quality(res, p_ref_nm=p_ref_nm, params=vp)
+        v2 = viability_v2(res, zq, xyz_lab_nm=xyz, p_ref_nm=p_ref_nm, params=vp, precision_nm=precision_nm,
+                          sizer_map=False, reference_readings=False)
     err = ""
     if v2c is None and with_v2c:
         try:
             from tools.mps_axial_clusters import viability_v2c
-            v2c = viability_v2c(res, v2, xyz_lab_nm=xyz)
+            v2c = viability_v2c(res, v2, xyz_lab_nm=xyz, params=vp)
         except Exception as exc:  # noqa: BLE001 - recorded; a selection that needs v2c then selects nothing
             v2c, err = None, f"{type(exc).__name__}: {exc}"
     elif v2c is None:
         err = "not requested"
     return axon_criteria(v2, v2c, err, axon_id=axon_id)
+
+
+def stored_viability_params() -> Any:
+    """The viability parameters of the settings file (``MPSSettings.viability_params``; the defaults when it holds
+    none or cannot be read)."""
+    from tools.mps_axial_precision import ViabilityParams
+    try:
+        from tools.mps_settings import load_settings
+        return ViabilityParams.from_store(load_settings().viability_params)
+    except Exception:  # noqa: BLE001 - a settings problem must not stop an analysis: the defaults are used
+        return ViabilityParams()
 
 
 # ============================================================================ the pure evaluation
@@ -638,7 +681,10 @@ def leak_value(pc: PairCriteria, estimate: str) -> float:
     raise ValueError(f"leak estimate must be one of {LEAK_ESTIMATES}, got {estimate!r}")
 
 
-def _spur_thresholds(side: str) -> Tuple[float, float]:
+def _spur_thresholds(side: str, pc: Optional[PairCriteria] = None) -> Tuple[float, float]:
+    """The pair's own copy tolerance (the same for every side), or the fixed suggestion when it is not known."""
+    if pc is not None and math.isfinite(_f(pc.spur_viable)) and math.isfinite(_f(pc.spur_marginal)):
+        return float(pc.spur_viable), float(pc.spur_marginal)
     if side == "v2":
         from tools.mps_axial_precision import V2_SPUR_MARGINAL, V2_SPUR_VIABLE
         return float(V2_SPUR_VIABLE), float(V2_SPUR_MARGINAL)
@@ -659,27 +705,28 @@ class SideEvaluation:
 
 
 _LEAK_NAME = {"D-39": "expected leak copies", "tnfix": "cluster-level leak copies",
-              "max": "leak copies (the larger of D-39 and the cluster-level tnfix)"}
+              "max": "leak copies (the larger of the ring-level and the cluster-level estimate)"}
 
 
-def _leak_reason(side: str, est: str, spur: float, crit: bool) -> Optional[str]:
-    """The leak reason in the rules' own words (verdict_v2 for D-39 on v2, verdict_v2c for tnfix on v2c)."""
-    viable, marginal = _spur_thresholds(side)
+def _leak_reason(side: str, est: str, spur: float, crit: bool, pc: Optional[PairCriteria] = None) -> Optional[str]:
+    """The leak reason in the rules' own words (verdict_v2 for the ring level on v2, verdict_v2c for tnfix on v2c)."""
+    from tools.mps_axial_precision import _tol_text
+    viable, marginal = _spur_thresholds(side, pc)
     name = _LEAK_NAME[est]
     if not math.isfinite(spur):
         if est == "D-39":
             return "expected leak copies unknown (no axial mixture component)"
         if est == "tnfix":
             return "cluster-level leak copies unknown (no ring clusters)"
-        return "leak copies unknown (D-39 or the cluster-level tnfix not computable)"
+        return "leak copies unknown (the ring-level or the cluster-level estimate not computable)"
     if spur > marginal:
-        return f"{name} {100 * spur:.1f} % > {100 * marginal:g} %"
+        return f"{name} {100 * spur:.1f} % > {_tol_text(marginal)}"
     if spur > viable:
         if side == "v2" and est == "D-39":
-            tail = "(marginal: sensitivity only, D-39 d)" if crit else f"(VIABLE needs <= {100 * viable:g} %)"
-            return f"{name} {100 * spur:.1f} % > {100 * viable:g} % " + tail
-        tail = " (marginal)" if crit else f" (VIABLE needs <= {100 * viable:g} %)"
-        return f"{name} {100 * spur:.1f} % > {100 * viable:g} %" + tail
+            tail = "(marginal: sensitivity only)" if crit else f"(VIABLE needs <= {_tol_text(viable)})"
+            return f"{name} {100 * spur:.1f} % > {_tol_text(viable)} " + tail
+        tail = " (marginal)" if crit else f" (VIABLE needs <= {_tol_text(viable)})"
+        return f"{name} {100 * spur:.1f} % > {_tol_text(viable)}" + tail
     return None
 
 
@@ -692,7 +739,8 @@ def _criteria_reasons(pc: PairCriteria, s: SideCriteria, cs: CriteriaSet) -> Lis
             rings=pc.key, peak_a=(s.peak_a if cs.peak else True), peak_b=(s.peak_b if cs.peak else True),
             valley=(s.valley if cs.valley else True), f_a=(s.f_a if cs.count else 1.0),
             f_b=(s.f_b if cs.count else 1.0), f_min=(s.f_min if cs.count else 0.0), exp_spur_frac=0.0,
-            x=s.x, x_note=s.x_note, p_ref_nm=(pc.p_ref_nm if math.isfinite(pc.p_ref_nm) else P_REF_DEFAULT_NM))
+            x=s.x, x_note=s.x_note, p_ref_nm=_window_period(pc), window_over_p=_window_fraction(pc),
+            reference_word=pc.reference_word)
         return list(reasons)
     from tools.mps_axial_clusters import verdict_v2c
     _v, _valley, _count, reasons = verdict_v2c(
@@ -701,22 +749,41 @@ def _criteria_reasons(pc: PairCriteria, s: SideCriteria, cs: CriteriaSet) -> Lis
         valley_at_cut_=(s.valley_at_cut if cs.valley else False), k_ratio_a=(s.k_ratio_a if cs.count else 1.0),
         k_ratio_b=(s.k_ratio_b if cs.count else 1.0), k_a=s.k_a, k_b=s.k_b,
         k_central=(s.k_central if cs.count else max(1, s.k_central)), exp_spur_frac_clusters_=0.0,
-        k_min=(s.k_min if math.isfinite(s.k_min) else 0.89),
-        p_ref_nm=(pc.p_ref_nm if math.isfinite(pc.p_ref_nm) else P_REF_DEFAULT_NM))
+        k_min=(s.k_min if math.isfinite(s.k_min) else _v2c_k_min()), p_ref_nm=_window_period(pc),
+        window_over_p=_window_fraction(pc))
     return list(reasons)
+
+
+def _window_period(pc: PairCriteria) -> float:
+    """The period of the peak window: the axon's own (``p_nm``), else the reference period, else the default."""
+    for v in (pc.p_nm, pc.p_ref_nm):
+        if math.isfinite(_f(v)):
+            return float(v)
+    return float(P_REF_DEFAULT_NM)
+
+
+def _window_fraction(pc: PairCriteria) -> float:
+    from tools.mps_axial_precision import V2_PEAK_WINDOW_OVER_P
+    return float(pc.window_over_p) if math.isfinite(_f(pc.window_over_p)) else float(V2_PEAK_WINDOW_OVER_P)
+
+
+def _v2c_k_min() -> float:
+    from tools.mps_axial_clusters import V2C_K_MIN
+    return float(V2C_K_MIN)
 
 
 def evaluate_side(pc: PairCriteria, side: str, cs: CriteriaSet) -> SideEvaluation:
     """
     One pair under one side: a checked criterion fails when its boolean is False (the leak: its value is not finite
-    or above the MARGINAL threshold). When every checked one of peak / valley / count passes: leak checked -> VIABLE
-    (<= 2 %), MARGINAL (2-5 %), else NOT VIABLE; leak unchecked -> VIABLE. Otherwise NOT VIABLE.
+    or above the marginal tolerance). When every checked one of peak / valley / count passes: leak checked -> VIABLE
+    (<= the pair's viable tolerance), MARGINAL (<= its marginal one), else NOT VIABLE; leak unchecked -> VIABLE.
+    Otherwise NOT VIABLE.
     """
     s = pc.side(side)
     if s is None:
         err = pc.v2c_error or "no v2c result for this pair"
         return SideEvaluation(side, VERDICT_NOT_VIABLE, ("v2c",), (), (f"{V2C_NOT_COMPUTED}: {err}",))
-    viable_t, marginal_t = _spur_thresholds(side)
+    viable_t, marginal_t = _spur_thresholds(side, pc)
     failing: List[str] = []
     unchecked: List[str] = []
     for c in ("peak", "valley", "count"):
@@ -743,7 +810,7 @@ def evaluate_side(pc: PairCriteria, side: str, cs: CriteriaSet) -> SideEvaluatio
         verdict = VERDICT_NOT_VIABLE
     reasons = _criteria_reasons(pc, s, cs)
     if cs.leak:
-        lr = _leak_reason(side, cs.leak_estimate, spur, crit)
+        lr = _leak_reason(side, cs.leak_estimate, spur, crit, pc)
         if lr:
             reasons.append(lr)
     if unchecked:
@@ -938,10 +1005,12 @@ WARNING_AC_VALLEY = ("v2c-A / v2c-C cannot pass the cluster valley criterion for
 WARNING_B = "v2c-B: selection depends on whether columns exist: lower power, exploratory"
 WARNING_NO_LEAK = ("leak not checked: leak copies sit in register with their source cluster and inflate column "
                    "matches (false columns)")
-WARNING_D39 = "D-39 assumes flat rings and can under-estimate copies for non-flat rings (Q-39 open)"
-WARNING_TNFIX = "tnfix never under-estimated in simulation, over-estimates ~3x"
-WARNING_EXPLORATORY = ("Exploratory selection: not the pre-specified rule v2[peak,valley,count,leak:D-39]; p values are "
-                       "not corrected for trying several selections")
+WARNING_D39 = ("the ring-level leak estimate assumes flat rings and can under-estimate copies when the rings are not "
+               "flat")
+WARNING_TNFIX = ("the cluster-level leak estimate never under-estimated copies in simulation and over-estimates them "
+                 "about three-fold: an upper bound")
+WARNING_EXPLORATORY = ("Exploratory selection: not the declared default rule v2[peak,valley,count,leak:D-39]; p values "
+                       "are not corrected for trying several selections")
 
 
 def selector_warnings(spec: SelectionSpec) -> List[Tuple[str, str]]:
@@ -1165,6 +1234,12 @@ class ExplorationLog:
         with open(self.path, "r", encoding="utf-8", newline="") as fh:
             return list(csv.DictReader(fh))
 
+    def variants_tried_all_sessions(self, source: Optional[str] = None) -> int:
+        """The distinct selection hashes in the whole log, every session together (``source`` "batch" / "review" /
+        ... restricts it): the count of what was tried across sessions, written beside the batch's outputs."""
+        return len({r.get("selection_hash") for r in self.rows()
+                    if r.get("selection_hash") and (source is None or r.get("source") == source)})
+
     def variants_tried(self, axon_id: str = "", *, input_sha256: str = "", session_id: Optional[str] = None) -> int:
         """The distinct selection hashes logged for this axon (matched on ``input_sha256`` when given, else on
         ``axon_id``) in this session."""
@@ -1205,5 +1280,7 @@ def geometry_for_file(path: str, *, pixel_size_nm: Optional[float] = None, with_
                       pixel_size_source=str(inp.pixel_size_source), n_frames=inp.n_frames, roi=None)
     xyz = (np.asarray(inp.x_nm, dtype=np.float64), np.asarray(inp.y_nm, dtype=np.float64),
            np.asarray(inp.z_nm, dtype=np.float64))
-    return compute_axon_criteria(res, xyz, with_v2c=with_v2c, axon_id=axon_id_of(os.path.basename(path), ""))
+    from tools.mps_axial_precision import file_precision_nm
+    return compute_axon_criteria(res, xyz, with_v2c=with_v2c, axon_id=axon_id_of(os.path.basename(path), ""),
+                                 precision_nm=file_precision_nm(inp.lp_lateral_nm, inp.lpz_nm))
 

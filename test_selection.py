@@ -239,8 +239,9 @@ def test_each_criterion_toggled_matches_its_boolean(sims: Any) -> None:
                 r = ms.evaluate_selection(crit, spec)
                 for pc, ps in zip(crit.pairs, r.pairs):
                     v = ms.leak_value(pc, est)
-                    want = (ms.VERDICT_VIABLE if math.isfinite(v) and v <= 0.02 else
-                            ms.VERDICT_MARGINAL if math.isfinite(v) and v <= 0.05 else ms.VERDICT_NOT_VIABLE)
+                    tv, tm = ms._spur_thresholds(side, pc)      # the pair's own copy tolerance
+                    want = (ms.VERDICT_VIABLE if math.isfinite(v) and v <= tv else
+                            ms.VERDICT_MARGINAL if math.isfinite(v) and v <= tm else ms.VERDICT_NOT_VIABLE)
                     assert ps.verdict == want
 
 

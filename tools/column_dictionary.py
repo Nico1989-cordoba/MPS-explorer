@@ -21,8 +21,8 @@ import os
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from tools.axon_export import (
-    AXOPLASM_PREFIX, DISCARD_SUFFIX, HEAD_COLUMNS, MEASURED_COLUMNS,
-    SHARED_COLUMNS, STATE_COLUMNS, Z_CALIBRATION_COLUMNS,
+    AXIAL_MIXTURE_COLUMNS, AXOPLASM_PREFIX, DISCARD_SUFFIX, HEAD_COLUMNS,
+    MEASURED_COLUMNS, SHARED_COLUMNS, STATE_COLUMNS, Z_CALIBRATION_COLUMNS,
 )
 from tools.mps_identity import FIELD_HINTS, FIELDS as IDENTITY_FIELDS
 
@@ -127,6 +127,31 @@ ANALYSIS: Dict[str, str] = {
     "random_seed": "Seed of the randomization control, so it repeats.",
     "randomization_requested": "How many randomized rings were asked for; 0 "
                                "means the control was off.",
+    "randomization_band_half_width_nm": "How far from the smoothed contour a "
+                                        "randomized centre may sit (the "
+                                        "band is twice this wide).",
+    "randomization_smoothing_rms_nm": "How closely the smoothed contour "
+                                      "follows the cluster centres: its RMS "
+                                      "residual per centre. 1 nm passes "
+                                      "through them.",
+    "randomization_exclude_incomplete": "Whether randomized rings that could "
+                                        "not place every cluster were drawn "
+                                        "again and left out of the null.",
+    "randomization_max_attempts_factor": "Candidates tried per cluster before "
+                                         "a randomized ring gives up.",
+    "randomization_grid_spacing_nm": "Spacing of the grid of positions a "
+                                     "randomized centre is drawn from.",
+    "randomization_hard_core": "How the minimum separation of the "
+                               "randomized centres was set: the smallest "
+                               "measured 1NN (the paper's rule) or its bias "
+                               "correction.",
+    "ks_band_alpha": "Level of the null band the CDF crossing is read "
+                     "against.",
+    "occupancy_sigma_cap_fraction": "Cap of each cluster's ellipse: its "
+                                    "largest standard deviation is at most "
+                                    "this fraction of the farthest "
+                                    "localization's distance (1/3 in the "
+                                    "paper).",
     # --- what the discard changes
     "n_clusters_kept": "Clusters this analysis measured.",
     "perimeter_um": "Length of the contour through the cluster centres.",
@@ -190,17 +215,63 @@ ANALYSIS: Dict[str, str] = {
     "occupancy_n_capped_ellipses": "Cluster ellipses that had to be bounded "
                                    "before measuring.",
     "ks_statistic": "How far the measured 1NN distribution is from the "
-                    "randomized one (KS D).",
-    "ks_cdf_crossing": "Whether those two distributions cross, which makes "
-                       "D hard to read on its own.",
-    "randomization_n_iterations": "Randomized rings actually built.",
+                    "randomized one (KS D). Descriptive: it shrinks with "
+                    "the number of clusters, so compare ks_z between axons.",
+    "ks_cdf_crossing": "The CDF level up to which the measured 1NN "
+                       "distances are shorter than random, read only where "
+                       "the two curves leave the band the randomized rings "
+                       "give. Empty when no such crossing is seen. Until "
+                       "axon tables v6 this column held a heuristic "
+                       "crossing without a band.",
+    "ks_cdf_crossing_significant": "Whether that crossing is stronger than "
+                                   "random placements of this axon's "
+                                   "clusters reach (Monte Carlo, at the "
+                                   "band's level): true is a crossing this "
+                                   "axon resolves.",
+    "randomization_n_iterations": "Randomized rings in the null: the "
+                                  "complete ones.",
     "randomization_min_sep_nm": "Closest two randomized centres were allowed "
                                 "to be.",
     "randomization_incomplete_iters": "Randomized rings that could not place "
                                       "every cluster.",
     "randomized_median_1nn_nm": "Median 1NN of the randomized rings.",
-    "ks_pvalue": "p-value of that KS test. With 94 measured against 94,000 "
-                 "randomized distances, read D, not this.",
+    "ks_null_mean": "The D that randomized rings of this axon reach "
+                    "against the pooled ones: D's own null mean for this "
+                    "number of clusters.",
+    "ks_z": "How many null standard deviations D lies above that mean. "
+            "Comparable between axons, unlike D.",
+    "ks_p_mc_median": "Monte Carlo p of the median 1NN against the "
+                      "randomized rings' medians, two-sided. Approximate: "
+                      "the minimum separation of the null comes from the "
+                      "same data. Replaces the KS p-value, which these "
+                      "samples do not support.",
+    "ks_p_mc_d": "Monte Carlo p of D against the randomized rings' own D. "
+                 "Approximate, as above.",
+    "randomization_n_redrawn": "Randomized rings drawn again because the "
+                               "first draw could not place every cluster.",
+    "randomization_packing_fraction": "How crowded the minimum separation "
+                                      "makes the band: K pi d^2 / (4 x band "
+                                      "area). Near 0.5 or above, random "
+                                      "placement jams.",
+    "randomization_n_outside_band": "Measured cluster centres farther from "
+                                    "the smoothed contour than the band "
+                                    "reaches, where no randomized centre "
+                                    "can sit.",
+    "nn_regularity_index": "Median 1NN times the clusters over the "
+                           "perimeter (median 1NN x K / P): 1 for evenly "
+                           "spaced centres. Separates regularity from how "
+                           "many clusters were detected. What random "
+                           "placement gives depends on the minimum "
+                           "separation and the band: compare it with this "
+                           "axon's null r (the next three columns).",
+    "nn_regularity_null_mean": "The same index of the randomized rings of "
+                               "this axon (same K and P), averaged: the "
+                               "random level for this axon.",
+    "nn_regularity_null_lo": "Lower end of the central 95 % of the "
+                             "randomized rings' index. Below it: an excess "
+                             "of short distances.",
+    "nn_regularity_null_hi": "Upper end of the same interval. Above it: "
+                             "more regular than random.",
     "n_warnings": "How many warnings this analysis raised.",
     "warnings": "Their text, separated by ' | '.",
 }
@@ -413,11 +484,13 @@ CROSSCHANNEL: Dict[str, str] = {
     "n_locs_slab_a": "Channel A localizations in the analysed slab.",
     "n_locs_slab_b": "Channel B localizations in it.",
     "eps_a_nm": "DBSCAN radius used on channel A.",
-    "eps_b_nm": "DBSCAN radius used on channel B. When nothing set it, it "
-                "is channel A's -- which is an assumption about the partner "
-                "protein's density, not a measurement of it.",
+    "eps_b_nm": "DBSCAN radius used on channel B: its own, never channel "
+                "A's. Derived as eps_a x NeNA_b / NeNA_a, or typed; "
+                "eps_b_origin says which.",
     "min_samples_a": "DBSCAN minimum cluster size on channel A.",
-    "min_samples_b": "On channel B, with the same caveat as eps_b_nm.",
+    "min_samples_b": "On channel B: its own, derived as round(1 + (n_loc_mol_b "
+                     "- 1) x (1 - exp(-eps_b^2 / (4 NeNA_b^2)))), or typed; "
+                     "min_samples_b_origin says which.",
 
     # --- heterotypic nearest neighbours
     "median_hetero_nn_a_to_b_nm": "From each channel-A cluster to the nearest "
@@ -442,19 +515,46 @@ CROSSCHANNEL: Dict[str, str] = {
                           "contour centre.",
     "median_radius_b_nm": "The same for channel B's.",
 
-    "locs_per_cell_a": "Median localizations within 20 nm of a channel-1 "
-                       "localization: how densely this channel is sampled, "
-                       "in the unit Min Pts counts.",
-    "locs_per_cell_b": "The same for channel 2. Far above channel 1's means "
-                       "the two are not in the same regime and cannot share "
-                       "a Min Pts; on unpublished adducin files the ratio "
-                       "reached two orders of magnitude.",
+    "locs_within_eps_a": "Median localizations within channel 1's eps of a "
+                         "channel-1 localization, itself included: how "
+                         "densely the channel is sampled, in the unit Min Pts "
+                         "counts. A diagnostic, never used to cluster.",
+    "locs_within_eps_b": "The same for channel 2, within its own eps. A ratio "
+                         "of three or more either way is warned about; it is "
+                         "never used to set Min Pts, because it also holds "
+                         "the partner protein's abundance.",
     "channel_b_parameter_source": "Where channel 2's Epsilon and Min Pts "
                                   "came from, as the caller stated it: "
-                                  "typed by a person, estimated by the "
-                                  "program from channel 2's own points, or "
-                                  "empty when a script supplied them and "
-                                  "nobody can say.",
+                                  "derived from channel 2's NeNA and dye, "
+                                  "typed by a person, or empty when a "
+                                  "script supplied them and nobody can say.",
+    "eps_b_origin": "'derived' when channel 2's eps is the value derived "
+                    "from the two channels' NeNA (docs/channel2_parameters"
+                    ".md); 'user' when it was typed or edited.",
+    "min_samples_b_origin": "'derived' when channel 2's Min Pts is the value "
+                            "derived from its NeNA and its dye's switching "
+                            "cycles; 'user' when typed or edited.",
+    "nena_a_nm": "Channel 1's precision used for eps_b: NeNA (Endesfelder et "
+                 "al. 2014) on channel 1's whole-field, unlinked file, or the "
+                 "published reference when it could not be measured "
+                 "(nena_a_origin).",
+    "nena_a_source_file": "The whole-field file channel 1's NeNA was measured "
+                          "on (name only).",
+    "nena_a_origin": "'measured', or 'reference (Gazal et al. 2026)' when "
+                     "channel 1's NeNA could not be measured.",
+    "eps_a_reference_nm": "The channel-1 radius eps_b was scaled from.",
+    "nena_b_nm": "Channel 2's precision: NeNA on its whole-field, unlinked "
+                 "file. Empty when it could not be measured.",
+    "nena_b_source_file": "The whole-field file channel 2's NeNA was measured "
+                          "on (name only).",
+    "dye_b": "Channel 2's dye, as chosen from the table of Dempsey et al. "
+             "(2011).",
+    "buffer_b": "Channel 2's imaging buffer (MEA or bME), as chosen.",
+    "n_loc_mol_b": "Localizations per labelled molecule used for Min Pts: "
+                   "the dye's mean switching cycles in that buffer.",
+    "n_loc_mol_b_origin": "Where n_loc_mol_b comes from: the dye table "
+                          "(Dempsey et al. 2011, Table 1), a lower bound "
+                          "until the label is calibrated.",
 
     # --- where channel B sits relative to channel A's outline
     "radial_offset_b_median_nm": "Median signed distance from channel B's "
@@ -567,13 +667,34 @@ Z_CALIBRATION: Dict[str, str] = {
     "z_lateral_shift_y_nm": "The same for y.",
 }
 
+# SCI-6: the axial mixture, after the z calibration.
+AXIAL_MIXTURE: Dict[str, str] = {
+    "main_peak_mode": "Which reading of 'the main peak of the axial "
+                      "localization distribution' centred the automatic slab: "
+                      "'density' (the mode of the fitted mixture) or 'weight' "
+                      "(the mean of its heaviest component).",
+    "z_peak_density_nm": "The mode of the fitted axial mixture density.",
+    "z_peak_weight_nm": "The mean of the mixture component with the largest "
+                        "weight. The two readings coincide when the rings are "
+                        "resolved.",
+    "slab_foreign_fraction": "Expected share (0-1) of the slab's localizations "
+                             "that the fitted mixture attributes to components "
+                             "other than the slab's own ring: sum of w_k x the "
+                             "mass of component k inside the slab over the other "
+                             "components, divided by the same sum over all. This "
+                             "program warns above 0.05.",
+    "delta_z_se_nm": "Standard error of delta_z_mean_nm: sd of the spacings / "
+                     "sqrt(m), with m >= 2 spacings; empty with one. Delta-Z is "
+                     "in the length units of the measurement's z calibration.",
+}
+
 _PANEL = {**AXOPLASM, **AXOPLASM_CLUSTERS, **AXOPLASM_LOCALIZATIONS}
 
 
 def describe(name: str) -> Optional[str]:
     """What one column means, or None when nothing here describes it."""
     for table in (IDENTITY, STATE, ANALYSIS, CLUSTERS, LOCALIZATIONS,
-                  CROSSCHANNEL, Z_CALIBRATION):
+                  CROSSCHANNEL, Z_CALIBRATION, AXIAL_MIXTURE):
         if name in table:
             return table[name]
     if name.endswith(DISCARD_SUFFIX):
@@ -634,4 +755,5 @@ def known_columns() -> List[str]:
     columns += [name + DISCARD_SUFFIX for name in MEASURED_COLUMNS]
     columns += [AXOPLASM_PREFIX + name for name in AXOPLASM]
     columns += list(Z_CALIBRATION_COLUMNS)
+    columns += list(AXIAL_MIXTURE_COLUMNS)
     return columns

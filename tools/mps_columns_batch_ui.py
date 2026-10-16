@@ -263,6 +263,10 @@ class ColumnsBatchDialog(QtWidgets.QDialog):
         spec = self.selection_widget.spec
         if spec.exploratory:
             args += ["--selection", spec.label]
+        from tools.mps_selection import stored_viability_params
+        stored = stored_viability_params().to_store()
+        if stored:
+            args += ["--viability-params", json.dumps(stored, sort_keys=True)]
         args += ["--exploration-log", self.log_path]
         return args
 
