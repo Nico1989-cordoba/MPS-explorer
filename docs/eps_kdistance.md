@@ -89,7 +89,7 @@ visibly, so the valley was kept; its bias is documented and shown in the dialog 
 ## 4. What is recorded
 
 The choice is a record in the settings (`eps_choice`) and seven columns at the end of the per-axon table
-(table version **v6**), described in the column dictionary written beside every export:
+(table version **v8**), described in the column dictionary written beside every export:
 
 | column | meaning |
 |---|---|
