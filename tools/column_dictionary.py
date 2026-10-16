@@ -21,7 +21,8 @@ import os
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from tools.axon_export import (
-    AXIAL_MIXTURE_COLUMNS, AXOPLASM_PREFIX, DISCARD_SUFFIX, HEAD_COLUMNS,
+    AXIAL_MIXTURE_COLUMNS, AXOPLASM_PREFIX, DISCARD_SUFFIX, EPS_CHOICE_COLUMNS,
+    HEAD_COLUMNS,
     MEASURED_COLUMNS, SHARED_COLUMNS, STATE_COLUMNS, Z_CALIBRATION_COLUMNS,
 )
 from tools.mps_identity import FIELD_HINTS, FIELDS as IDENTITY_FIELDS
@@ -688,13 +689,45 @@ AXIAL_MIXTURE: Dict[str, str] = {
                      "in the length units of the measurement's z calibration.",
 }
 
+# How eps was chosen (decision P-R58; docs/eps_kdistance.md).
+EPS_CHOICE: Dict[str, str] = {
+    "eps_source": "How eps_nm was chosen: 'gazal_default' (the published "
+                  "25 nm of Gazal et al. 2026, kept or chosen on the "
+                  "k-distance graph), 'typed', 'kdist_valley' (the valley of "
+                  "the k-distance density, suggested and accepted) or "
+                  "'kdist_click' (set by clicking on the k-distance graph). "
+                  "The eps_kdist_ columns are filled only when the choice "
+                  "was made on the graph.",
+    "eps_kdist_k": "The neighbour rank of the k-distance graph eps was "
+                   "chosen on: k = min samples - 1 other localizations "
+                   "(scikit-learn counts the point itself; Schubert et al. "
+                   "2017).",
+    "eps_kdist_valley_nm": "Where the graph's valley was: the minimum of the "
+                           "kernel density of log10(k-distance) between its "
+                           "two most prominent modes, Silverman bandwidth. "
+                           "Empty when the density had no valley -- nothing "
+                           "was then suggested.",
+    "eps_kdist_valley_low_nm": "Lower end of the valley's 95 % bootstrap "
+                               "interval (200 resamples of the "
+                               "k-distances): the uncertainty of where the "
+                               "valley is, not of the right eps.",
+    "eps_kdist_valley_high_nm": "Upper end of that interval.",
+    "eps_kdist_unclustered_fraction": "Share of the localizations the graph "
+                                      "was drawn on that DBSCAN(eps_nm, min "
+                                      "samples) labels noise, before any "
+                                      "cluster is removed by the analysis.",
+    "eps_kdist_file": "The file whose selection the k-distance graph was "
+                      "drawn on (name only); another file's in a batch.",
+}
+
 _PANEL = {**AXOPLASM, **AXOPLASM_CLUSTERS, **AXOPLASM_LOCALIZATIONS}
 
 
 def describe(name: str) -> Optional[str]:
     """What one column means, or None when nothing here describes it."""
     for table in (IDENTITY, STATE, ANALYSIS, CLUSTERS, LOCALIZATIONS,
-                  CROSSCHANNEL, Z_CALIBRATION, AXIAL_MIXTURE):
+                  CROSSCHANNEL, Z_CALIBRATION, AXIAL_MIXTURE,
+                  EPS_CHOICE):
         if name in table:
             return table[name]
     if name.endswith(DISCARD_SUFFIX):
@@ -756,4 +789,5 @@ def known_columns() -> List[str]:
     columns += [AXOPLASM_PREFIX + name for name in AXOPLASM]
     columns += list(Z_CALIBRATION_COLUMNS)
     columns += list(AXIAL_MIXTURE_COLUMNS)
+    columns += list(EPS_CHOICE_COLUMNS)
     return columns

@@ -1,0 +1,459 @@
+{
+ "by_background_fraction": {
+  "0": {
+   "n_runs": 48,
+   "valley_found": 0.020833333333333332,
+   "valley": {
+    "n": 1,
+    "median_rel_ari": 0.7626406957285513,
+    "share_rel_ari_ge_0.9": 0.0,
+    "median_ratio": 0.6756260369094255,
+    "ratio_q10_q90": [
+     0.6756260369094255,
+     0.6756260369094255
+    ]
+   },
+   "kneedle": {
+    "n": 48,
+    "median_rel_ari": 0.9769919693810519,
+    "share_rel_ari_ge_0.9": 0.8125,
+    "median_ratio": 0.979073851268274,
+    "ratio_q10_q90": [
+     0.7595990142106815,
+     1.1979260218099572
+    ]
+   },
+   "p90_old": {
+    "n": 48,
+    "median_rel_ari": 0.8184179878796825,
+    "share_rel_ari_ge_0.9": 0.10416666666666667,
+    "median_ratio": 0.7161603949703677,
+    "ratio_q10_q90": [
+     0.5286473648305889,
+     0.8562612020588637
+    ]
+   },
+   "gazal25": {
+    "n": 48,
+    "median_rel_ari": 0.8797554320719523,
+    "share_rel_ari_ge_0.9": 0.4583333333333333,
+    "median_ratio": 0.8868393047179851,
+    "ratio_q10_q90": [
+     0.29663028001898434,
+     1.5782828282828283
+    ]
+   }
+  },
+  "0.1": {
+   "n_runs": 48,
+   "valley_found": 0.7291666666666666,
+   "valley": {
+    "n": 35,
+    "median_rel_ari": 0.7148538286346331,
+    "share_rel_ari_ge_0.9": 0.02857142857142857,
+    "median_ratio": 2.739477190777374,
+    "ratio_q10_q90": [
+     2.2329313849657737,
+     3.4690696370462963
+    ]
+   },
+   "kneedle": {
+    "n": 48,
+    "median_rel_ari": 0.9023332536470354,
+    "share_rel_ari_ge_0.9": 0.5,
+    "median_ratio": 1.465203711326331,
+    "ratio_q10_q90": [
+     1.2210472548815687,
+     1.7391862766451462
+    ]
+   },
+   "p90_old": {
+    "n": 48,
+    "median_rel_ari": 0.9553122852041568,
+    "share_rel_ari_ge_0.9": 0.75,
+    "median_ratio": 1.2869675369035518,
+    "ratio_q10_q90": [
+     1.0359968408321931,
+     1.5520678495079612
+    ]
+   },
+   "gazal25": {
+    "n": 48,
+    "median_rel_ari": 0.9032039323813157,
+    "share_rel_ari_ge_0.9": 0.5208333333333334,
+    "median_ratio": 0.7903888713246918,
+    "ratio_q10_q90": [
+     0.2800179211469534,
+     1.3763286972010411
+    ]
+   }
+  },
+  "0.3": {
+   "n_runs": 48,
+   "valley_found": 0.8125,
+   "valley": {
+    "n": 39,
+    "median_rel_ari": 0.8749910388396858,
+    "share_rel_ari_ge_0.9": 0.358974358974359,
+    "median_ratio": 2.127426682155295,
+    "ratio_q10_q90": [
+     1.800673123553543,
+     2.4373429464870635
+    ]
+   },
+   "kneedle": {
+    "n": 48,
+    "median_rel_ari": 0.9659240157176318,
+    "share_rel_ari_ge_0.9": 0.7708333333333334,
+    "median_ratio": 1.3350340153294042,
+    "ratio_q10_q90": [
+     1.0412836964283656,
+     1.8587707073071804
+    ]
+   },
+   "p90_old": {
+    "n": 48,
+    "median_rel_ari": 0.22529722082808679,
+    "share_rel_ari_ge_0.9": 0.0,
+    "median_ratio": 3.9868674993541777,
+    "ratio_q10_q90": [
+     3.272315798939917,
+     5.78827516632136
+    ]
+   },
+   "gazal25": {
+    "n": 48,
+    "median_rel_ari": 0.929530506195923,
+    "share_rel_ari_ge_0.9": 0.5833333333333334,
+    "median_ratio": 0.7251356542717962,
+    "ratio_q10_q90": [
+     0.314228255404726,
+     1.2043347268497402
+    ]
+   }
+  },
+  "0.5": {
+   "n_runs": 48,
+   "valley_found": 1.0,
+   "valley": {
+    "n": 48,
+    "median_rel_ari": 0.9337806826068205,
+    "share_rel_ari_ge_0.9": 0.6875,
+    "median_ratio": 1.7370897181968288,
+    "ratio_q10_q90": [
+     0.9154645383687218,
+     2.0082838600158306
+    ]
+   },
+   "kneedle": {
+    "n": 48,
+    "median_rel_ari": 0.97250446288441,
+    "share_rel_ari_ge_0.9": 0.6458333333333334,
+    "median_ratio": 1.257317771798536,
+    "ratio_q10_q90": [
+     0.8787093336896213,
+     4.662976301591148
+    ]
+   },
+   "p90_old": {
+    "n": 48,
+    "median_rel_ari": 0.24543321648956493,
+    "share_rel_ari_ge_0.9": 0.0,
+    "median_ratio": 3.3413365784303863,
+    "ratio_q10_q90": [
+     2.414673237562354,
+     4.258652997995386
+    ]
+   },
+   "gazal25": {
+    "n": 48,
+    "median_rel_ari": 0.970892734449835,
+    "share_rel_ari_ge_0.9": 0.6041666666666666,
+    "median_ratio": 0.8372404554588078,
+    "ratio_q10_q90": [
+     0.3272911131061049,
+     1.3276686139139673
+    ]
+   }
+  },
+  "0.7": {
+   "n_runs": 48,
+   "valley_found": 0.9375,
+   "valley": {
+    "n": 45,
+    "median_rel_ari": 0.9610896543147952,
+    "share_rel_ari_ge_0.9": 0.9555555555555556,
+    "median_ratio": 1.506401312973929,
+    "ratio_q10_q90": [
+     0.8683125590488907,
+     1.7552094997761745
+    ]
+   },
+   "kneedle": {
+    "n": 48,
+    "median_rel_ari": -0.003724497695094006,
+    "share_rel_ari_ge_0.9": 0.0,
+    "median_ratio": 3.8302323600527997,
+    "ratio_q10_q90": [
+     3.1094624138580387,
+     4.864719520711606
+    ]
+   },
+   "p90_old": {
+    "n": 48,
+    "median_rel_ari": 0.1970574473524128,
+    "share_rel_ari_ge_0.9": 0.0,
+    "median_ratio": 2.550990854822244,
+    "ratio_q10_q90": [
+     2.083951816483008,
+     3.2636140323012603
+    ]
+   },
+   "gazal25": {
+    "n": 48,
+    "median_rel_ari": 0.9480969460146738,
+    "share_rel_ari_ge_0.9": 0.6666666666666666,
+    "median_ratio": 0.8868393047179851,
+    "ratio_q10_q90": [
+     0.35260930888575454,
+     1.51639307256113
+    ]
+   }
+  }
+ },
+ "by_locs_per_cluster": {
+  "10": {
+   "valley_found": 0.4166666666666667,
+   "valley_median_rel_ari": 0.9682945140187432,
+   "valley_median_ratio": 0.8846148315598987
+  },
+  "25": {
+   "valley_found": 0.7833333333333333,
+   "valley_median_rel_ari": 0.8575250235631675,
+   "valley_median_ratio": 2.034005173860651
+  },
+  "60": {
+   "valley_found": 0.8,
+   "valley_median_rel_ari": 0.9241432969243654,
+   "valley_median_ratio": 1.9769507691506196
+  },
+  "150": {
+   "valley_found": 0.8,
+   "valley_median_rel_ari": 0.940220071018989,
+   "valley_median_ratio": 1.821291380017752
+  }
+ },
+ "by_sigma": {
+  "6": {
+   "valley_found": 0.75,
+   "valley_median_rel_ari": 0.9332500836321839
+  },
+  "10": {
+   "valley_found": 0.7,
+   "valley_median_rel_ari": 0.9348468685963888
+  },
+  "15": {
+   "valley_found": 0.7,
+   "valley_median_rel_ari": 0.895483756736409
+  },
+  "20": {
+   "valley_found": 0.65,
+   "valley_median_rel_ari": 0.8614583575259328
+  }
+ },
+ "by_cell": {
+  "f=0 locs=10": {
+   "valley_found": "1/12",
+   "median_ratio_to_eps_star": 0.6756260369094255,
+   "median_ratio_to_sep_star": null,
+   "median_rel_ari": 0.7626406957285513,
+   "median_eps_star_nm": 81.92,
+   "median_valley_nm": 56.941762390726375
+  },
+  "f=0 locs=25": {
+   "valley_found": "0/12",
+   "median_ratio_to_eps_star": null,
+   "median_ratio_to_sep_star": null,
+   "median_rel_ari": null,
+   "median_eps_star_nm": 32.57,
+   "median_valley_nm": null
+  },
+  "f=0 locs=60": {
+   "valley_found": "0/12",
+   "median_ratio_to_eps_star": null,
+   "median_ratio_to_sep_star": null,
+   "median_rel_ari": null,
+   "median_eps_star_nm": 21.13,
+   "median_valley_nm": null
+  },
+  "f=0 locs=150": {
+   "valley_found": "0/12",
+   "median_ratio_to_eps_star": null,
+   "median_ratio_to_sep_star": null,
+   "median_rel_ari": null,
+   "median_eps_star_nm": 17.77,
+   "median_valley_nm": null
+  },
+  "f=0.1 locs=10": {
+   "valley_found": "0/12",
+   "median_ratio_to_eps_star": null,
+   "median_ratio_to_sep_star": null,
+   "median_rel_ari": null,
+   "median_eps_star_nm": 89.28,
+   "median_valley_nm": null
+  },
+  "f=0.1 locs=25": {
+   "valley_found": "11/12",
+   "median_ratio_to_eps_star": 2.618178629598166,
+   "median_ratio_to_sep_star": 2.397221029109465,
+   "median_rel_ari": 0.5345859970864002,
+   "median_eps_star_nm": 38.715,
+   "median_valley_nm": 88.02259834528961
+  },
+  "f=0.1 locs=60": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 2.784216377668416,
+   "median_ratio_to_sep_star": 2.3339086831921865,
+   "median_rel_ari": 0.7527541838845018,
+   "median_eps_star_nm": 25.12,
+   "median_valley_nm": 74.14461289487389
+  },
+  "f=0.1 locs=150": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 2.7558382195146525,
+   "median_ratio_to_sep_star": 2.4878957057587767,
+   "median_rel_ari": 0.7238133330295708,
+   "median_eps_star_nm": 18.83,
+   "median_valley_nm": 57.21608077904637
+  },
+  "f=0.3 locs=10": {
+   "valley_found": "3/12",
+   "median_ratio_to_eps_star": 0.9318427767142232,
+   "median_ratio_to_sep_star": 0.9871825741063064,
+   "median_rel_ari": 0.9859765738183087,
+   "median_eps_star_nm": 77.33,
+   "median_valley_nm": 74.1374113153836
+  },
+  "f=0.3 locs=25": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 2.228524230813223,
+   "median_ratio_to_sep_star": 2.3782445898759703,
+   "median_rel_ari": 0.7743692946903861,
+   "median_eps_star_nm": 37.6,
+   "median_valley_nm": 88.47335122156002
+  },
+  "f=0.3 locs=60": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 2.2475904037166083,
+   "median_ratio_to_sep_star": 2.2190872911573023,
+   "median_rel_ari": 0.8805486758685537,
+   "median_eps_star_nm": 25.865000000000002,
+   "median_valley_nm": 57.8740919930773
+  },
+  "f=0.3 locs=150": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 2.0137761435576254,
+   "median_ratio_to_sep_star": 2.0521604570605136,
+   "median_rel_ari": 0.9003484277850045,
+   "median_eps_star_nm": 21.13,
+   "median_valley_nm": 42.35925398894401
+  },
+  "f=0.5 locs=10": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 1.0543949852092593,
+   "median_ratio_to_sep_star": 0.8597013907100113,
+   "median_rel_ari": 0.9337806826068205,
+   "median_eps_star_nm": 75.1,
+   "median_valley_nm": 74.78694412016563
+  },
+  "f=0.5 locs=25": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 1.989358486873483,
+   "median_ratio_to_sep_star": 1.9255067009741484,
+   "median_rel_ari": 0.8878915886492993,
+   "median_eps_star_nm": 35.5,
+   "median_valley_nm": 70.97068449215493
+  },
+  "f=0.5 locs=60": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 1.8124419494711468,
+   "median_ratio_to_sep_star": 1.7549145012340468,
+   "median_rel_ari": 0.9389601185757943,
+   "median_eps_star_nm": 25.12,
+   "median_valley_nm": 46.24970190303367
+  },
+  "f=0.5 locs=150": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 1.663410941803097,
+   "median_ratio_to_sep_star": 1.5693441817677507,
+   "median_rel_ari": 0.9627193765823443,
+   "median_eps_star_nm": 19.384999999999998,
+   "median_valley_nm": 32.906815406684274
+  },
+  "f=0.7 locs=10": {
+   "valley_found": "9/12",
+   "median_ratio_to_eps_star": 0.8574443773748853,
+   "median_ratio_to_sep_star": 0.7212691490357991,
+   "median_rel_ari": 0.9731983828572682,
+   "median_eps_star_nm": 67.04,
+   "median_valley_nm": 55.8899650579544
+  },
+  "f=0.7 locs=25": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 1.649918537624143,
+   "median_ratio_to_sep_star": 1.4491565575113499,
+   "median_rel_ari": 0.9256135386458635,
+   "median_eps_star_nm": 31.63,
+   "median_valley_nm": 55.483290139588185
+  },
+  "f=0.7 locs=60": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 1.5927540799674285,
+   "median_ratio_to_sep_star": 1.3150087448001408,
+   "median_rel_ari": 0.9574284320318902,
+   "median_eps_star_nm": 21.13,
+   "median_valley_nm": 34.90038658005959
+  },
+  "f=0.7 locs=150": {
+   "valley_found": "12/12",
+   "median_ratio_to_eps_star": 1.3096257776982303,
+   "median_ratio_to_sep_star": 1.1582745985897849,
+   "median_rel_ari": 0.9807746668024133,
+   "median_eps_star_nm": 16.78,
+   "median_valley_nm": 22.685302520975785
+  }
+ },
+ "valley_ratio_to_sep_star_median_q10_q90": [
+  1.8196628572056237,
+  0.9769637304586026,
+  2.531216974421204
+ ],
+ "controls_kneedle_nm": [
+  154.37258745079552,
+  153.14108045460895,
+  148.45662272211428,
+  68.48789241808294,
+  68.8172549782066,
+  66.76732888292013,
+  30.28091093537938,
+  30.89582762020135,
+  30.146141480239347
+ ],
+ "valley_interval_covers_eps_star": 0.03571428571428571,
+ "valley_inside_good_eps_range": 0.5059523809523809,
+ "controls_background_only": {
+  "n_runs": 9,
+  "valley_found": 0.0,
+  "reasons": [
+   "the dip between the two main modes is within the estimate's noise (0.0 standard errors, 1.96 needed): no valley",
+   "the dip between the two main modes is within the estimate's noise (0.1 standard errors, 1.96 needed): no valley",
+   "the dip between the two main modes is within the estimate's noise (0.3 standard errors, 1.96 needed): no valley",
+   "the dip between the two main modes is within the estimate's noise (0.6 standard errors, 1.96 needed): no valley",
+   "the dip between the two main modes is within the estimate's noise (0.7 standard errors, 1.96 needed): no valley",
+   "the dip between the two main modes is within the estimate's noise (0.9 standard errors, 1.96 needed): no valley",
+   "the dip between the two main modes is within the estimate's noise (1.0 standard errors, 1.96 needed): no valley",
+   "the k-distance density has a single mode: no valley"
+  ]
+ }
+}
+249 runs in 114 s -> docs/sims/kdist/sim_kdist_valley_results.json

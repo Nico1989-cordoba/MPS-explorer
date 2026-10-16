@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
+from tools import mps_kdistance as _kdist
 from tools import mps_zcalibration as _zcal
 from tools.cluster_quality import describe_roi, good_cluster_labels
 from tools.mps_analysis import AxonAnalysis
@@ -88,8 +89,13 @@ from tools.results_table import cell_text
 # after the z calibration, so that no earlier column moves
 # (AXIAL_MIXTURE_COLUMNS): main_peak_mode, z_peak_density_nm,
 # z_peak_weight_nm, slab_foreign_fraction, delta_z_se_nm.
+# v8 (2026-10-14, P-R58): how eps was chosen (EPS_CHOICE_COLUMNS), written
+# once at the very end of the row, after SCI-6's axial mixture: the
+# published default, typed, the k-distance valley accepted or a click on
+# the k-distance graph, with k, the valley and its interval, the share left
+# unclustered and the file the graph was drawn on (docs/eps_kdistance.md).
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v7"
+TABLE_VERSION = "axon tables v8"
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
@@ -182,6 +188,10 @@ AXIAL_MIXTURE_COLUMNS: Tuple[str, ...] = (
     "main_peak_mode", "z_peak_density_nm", "z_peak_weight_nm",
     "slab_foreign_fraction", "delta_z_se_nm")
 
+# How eps was chosen (P-R58, tools.mps_kdistance), written once, last. The
+# discard cannot change it.
+EPS_CHOICE_COLUMNS: Tuple[str, ...] = _kdist.EPS_CHOICE_COLUMNS
+
 # Columns of the axoplasm panel's row that the axon row already holds, and
 # that must not be written a second time under another name.
 _AXOPLASM_DROPPED: Tuple[str, ...] = (
@@ -204,7 +214,8 @@ _FOUR_DECIMALS = frozenset({"ks_statistic", "contour_tour_over_hull",
                             "contour_length_in_long_edges", "ks_null_mean",
                             "nn_regularity_index", "nn_regularity_null_mean",
                             "nn_regularity_null_lo", "nn_regularity_null_hi",
-                            "randomization_packing_fraction"})
+                            "randomization_packing_fraction",
+                            "eps_kdist_unclustered_fraction"})
 # Not measurements: what the analysis was RUN with is written exactly as
 # it was given, however many digits that takes.
 _SETTINGS: frozenset = frozenset({
@@ -351,6 +362,7 @@ def axon_row(
     axoplasm: Optional[Dict[str, Any]] = None,
     exported_at: Optional[str] = None,
     z_calibration: Optional[Dict[str, Any]] = None,
+    eps_choice: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     One axon as one row: who it is, what state it is in, the analysis of
@@ -363,6 +375,10 @@ def axon_row(
     ``axoplasm`` is the panel's own row (``mps_axoplasm.summary_row``).
     ``z_calibration`` is ``tools.mps_zcalibration.export_columns`` of the
     file's calibration state; None writes the columns blank.
+    ``eps_choice`` is the settings' record of how eps was chosen on the
+    k-distance graph (``MPSSettings.eps_choice``); it is written only when
+    it describes the eps this analysis ran with, and otherwise -- or when
+    None -- eps reads as the published default or as typed.
     """
     if measured.discard_applied:
         raise ValueError(
@@ -455,6 +471,10 @@ def axon_row(
     # --- the axial mixture (SCI-6), after everything else ----------------
     for name in AXIAL_MIXTURE_COLUMNS:
         row[name] = _rounded(name, record.get(name))
+    # --- how eps was chosen (P-R58), last --------------------------------
+    chosen = _kdist.export_columns(eps_choice or {}, float(measured.eps_nm))
+    for name in EPS_CHOICE_COLUMNS:
+        row[name] = _rounded(name, chosen.get(name))
     return row
 
 
@@ -806,6 +826,7 @@ def build_tables(
     y_nm: Optional[NDArray[np.float64]] = None,
     z_nm: Optional[NDArray[np.float64]] = None,
     z_calibration: Optional[Dict[str, Any]] = None,
+    eps_choice: Optional[Dict[str, Any]] = None,
 ) -> AxonTables:
     """
     Build the axon's row, and the tables that were asked for, from one
@@ -818,7 +839,7 @@ def build_tables(
     stamp = _now()
     row = axon_row(measured, identity=identity, discard=discard,
                    axoplasm=axoplasm, exported_at=stamp,
-                   z_calibration=z_calibration)
+                   z_calibration=z_calibration, eps_choice=eps_choice)
     tables = AxonTables(axon=row)
     tables.warnings.extend(
         w for w in (identity.warnings() if identity is not None else []))

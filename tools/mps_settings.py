@@ -175,11 +175,30 @@ class MPSSettings:
     # which means the tour is on, no window's tour has been seen and the
     # cards are in Spanish. Nothing in it touches an analysis.
     beginner_tour: Dict[str, Any] = field(default_factory=dict)
+    # How the channel-1 eps in use was chosen on the k-distance graph
+    # (decision P-R58, tools.mps_kdistance.choice_record): the source
+    # (published default, valley suggestion accepted, click on the graph),
+    # the eps it chose, k, the valley with its bootstrap interval, the share
+    # left unclustered and the file the graph was drawn on. Empty when eps
+    # was never chosen there. It describes ONE value: once eps is set some
+    # other way it is cleared, and an export reads eps as typed or as the
+    # published default (tools.mps_kdistance.export_columns).
+    eps_choice: Dict[str, Any] = field(default_factory=dict)
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
         defaults for anything nonsensical. A corrupted settings file must
         never be able to inject an impossible parameter into an analysis."""
+        # A file written when eps could be typed as "auto" may hold a word
+        # here: the word is not a radius, so the default is used, and the
+        # rest of the file is kept (a TypeError would drop it all).
+        try:
+            self.eps_nm = float(self.eps_nm)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Stored eps_nm=%r is not a number; using %s", self.eps_nm,
+                DEFAULT_EPS_NM)
+            self.eps_nm = DEFAULT_EPS_NM
         if not (0 < self.eps_nm <= 1000):
             logger.warning(
                 "Stored eps_nm=%r out of range; using %s", self.eps_nm,
@@ -326,6 +345,14 @@ class MPSSettings:
                     "expression (%s); no input will be flagged",
                     self.uncalibrated_labels, exc)
                 self.uncalibrated_labels = ""
+        # The record of how eps was chosen: dropped when it is not one, and
+        # when it no longer describes the eps in use.
+        from tools.mps_kdistance import clean_record
+
+        record = clean_record(self.eps_choice)
+        if record and abs(record["eps_nm"] - float(self.eps_nm)) > 1e-6:
+            record = {}
+        self.eps_choice = record
         self.beginner_tour = clean_tour_state(self.beginner_tour)
         return self
 
