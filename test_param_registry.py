@@ -68,15 +68,20 @@ APPENDIX_C: Dict[str, Any] = {
     "curation.dbcv_threshold": ("derived", "none", False),
     "contour.two_opt_starts": ("derived", "none", False),
     "occupancy.mahalanobis": ("paper", "strip", True),
-    "occupancy.sigma_cap_fraction": ("paper", "none", False),
-    "randomization.band_half_width_nm": ("paper", "none", False),
-    "randomization.iterations": ("paper", "none", False),
-    "randomization.seed": ("derived", "none", False),
-    "randomization.smoothing": ("ad hoc", "none", False),
-    "randomization.incomplete_iterations": ("ad hoc", "none", False),
-    "randomization.max_attempts_factor": ("derived", "none", False),
-    "randomization.grid_spacing_nm": ("derived", "none", False),
-    "randomization.cdf_crossing_floor": ("ad hoc", "none", False),
+    # SCI-3: the sigma cap and the randomization become editable (the strip's dialogs); B = 999 (derived), the
+    # smoothing and the incomplete iterations settled (derived), the CDF band replaces the 15 % floor
+    "occupancy.sigma_cap_fraction": ("paper", "strip", True),
+    "randomization.band_half_width_nm": ("paper", "strip", True),
+    "randomization.iterations": ("derived", "strip", True),
+    "randomization.seed": ("derived", "strip", True),
+    "randomization.smoothing": ("derived", "strip", True),
+    "randomization.incomplete_iterations": ("derived", "strip", True),
+    "randomization.max_attempts_factor": ("derived", "strip", True),
+    "randomization.grid_spacing_nm": ("derived", "strip", True),
+    "randomization.cdf_band_alpha": ("derived", "strip", True),
+    "randomization.hard_core": ("paper", "strip", True),
+    "batch.icc_percentile": ("derived", "none", False),
+    "batch.icc_labels": ("derived", "none", False),
     "reference.nn1_median_nm": ("paper", "none", False),
     "reference.clusters_per_um": ("paper", "none", False),
     "reference.cluster_area_nm2": ("paper", "none", False),
@@ -97,6 +102,11 @@ APPENDIX_C: Dict[str, Any] = {
     "measurement.z_magnification": ("blank", "measurement", True),
     "measurement.bead_stack": ("blank", "measurement", True),
 }
+# SCI-3: the values its two dialogs edit (the strip's Randomization and Occupancy groups)
+SCI3_EDITABLE = ["occupancy.sigma_cap_fraction", "randomization.band_half_width_nm", "randomization.iterations",
+                 "randomization.seed", "randomization.smoothing", "randomization.incomplete_iterations",
+                 "randomization.max_attempts_factor", "randomization.grid_spacing_nm", "randomization.cdf_band_alpha",
+                 "randomization.hard_core"]
 # 12.9: the entries reserved for the DBSCAN batch (B6), now filled from it
 TODO_B6_RESERVED = ("dbscan.eps_nm", "dbscan.min_samples", "curation.edge_criterion", "curation.dbcv_threshold",
                     "contour.two_opt_starts", "contour.health.deep_vertex_fraction",
@@ -297,24 +307,26 @@ def main() -> int:
         assert reg.info("dbscan.min_samples").documented_range == (2.0, 50.0)
         strip = sorted(e.key for e in reg.by_home("strip"))
         assert strip == sorted(["slab.centre", "slab.half_width_nm", "slab.typed_range", "dbscan.eps_nm",
-                                "dbscan.min_samples", "occupancy.mahalanobis"]), strip
+                                "dbscan.min_samples", "occupancy.mahalanobis"] + SCI3_EDITABLE), strip
         return (f"{len(APPENDIX_C)} Appendix-C entries as designed; {len(b6)} entries change in SCI-B6; "
-                f"{len(paint)} in the paint.* namespace; the strip edits exactly the six values of revision 2")
+                f"{len(paint)} in the paint.* namespace; the strip edits the six values of revision 2 and the "
+                f"{len(SCI3_EDITABLE)} of SCI-3's dialogs")
 
     def no_new_editable() -> str:
         # Rule E (12.4): no value becomes newly editable in stage 2; SCI-1 enables the three measurement inputs
-        # of the z calibration (a chosen record, a typed m, a bead stack), and nothing else.
+        # of the z calibration (a chosen record, a typed m, a bead stack); SCI-3 the randomization's values and the
+        # sigma cap (the strip's dialogs); SCI-5 the viability's values (Z quality's Criteria dialog); SCI-6 the rings
+        # window's correlation frame and its handling of unmeasured bins; nothing else.
         editable = sorted(e.key for e in reg.entries() if e.editable)
         assert editable == sorted(["slab.centre", "slab.half_width_nm", "slab.typed_range", "dbscan.eps_nm",
                                    "dbscan.min_samples", "occupancy.mahalanobis", "rings.mode", "rings.guard_nm",
                                    "axoplasm.threshold", "axoplasm.smoothing_px", "axoplasm.margin_nm",
                                    "measurement.z_calibration", "measurement.z_magnification",
-                                   "measurement.bead_stack"]), editable
+                                   "measurement.bead_stack", "rings.frame", "rings.empty_bins"] + SCI3_EDITABLE
+                                  # SCI-5: the viability's values, edited in the Z quality window's Criteria dialog
+                                  + [e.key for e in reg.by_home("zquality")]), editable
         rule_e = ("curation.edge_criterion", "curation.dbcv_threshold", "contour.two_opt_starts",
-                  "occupancy.sigma_cap_fraction", "randomization.band_half_width_nm", "randomization.iterations",
-                  "randomization.seed", "randomization.smoothing", "randomization.incomplete_iterations",
-                  "randomization.max_attempts_factor", "randomization.grid_spacing_nm",
-                  "rings.valley_depth_colour")
+                  "rings.valley_depth_colour", "batch.icc_percentile", "batch.icc_labels")
         for key in rule_e:
             assert re.match(r"e[1-5]", reg.info(key).not_editable_because), key
         return "only the editors of revision 2 (and the rings/axoplasm windows' own) are editable"
@@ -373,10 +385,14 @@ def main() -> int:
 
     def more_lines() -> str:
         rnd = reg.more_line("randomization")
-        assert rnd == ("band +/-50 nm [paper; 20-150] - 1,000 iterations [paper; later: 999] - seed 0 [derived] - "
-                       "smoothing s = K, open contour [ad hoc; changed later] - incomplete iterations kept "
-                       "[ad hoc; changed later] - "
-                       "attempts 20 x n [derived; 5-100] - grid 5 nm [derived; 1-20]"), rnd
+        assert rnd == ("band +/-50 nm [paper; 20-150] - 999 iterations [derived; 199 / 399 / 999 / 1999] - seed 0 "
+                       "[derived] - smoothing 1 nm RMS, contour closed [derived; 0-50] - incomplete iterations "
+                       "re-drawn and excluded [derived] - attempts 20 x n [derived; 5-100] - grid 5 nm [derived; "
+                       "1-20] - CDF band alpha 0.05 [derived; 0.01-0.10] - hard core: observed minimum [paper]"), rnd
+        # the values in use: a departing value is "user" and flagged outside its range, never clamped
+        used = reg.more_line("randomization", {"randomization.band_half_width_nm": 200.0,
+                                               "randomization.iterations": 999})
+        assert used.startswith("band +/-200 nm [user; outside 20-150] - 999 iterations [derived;"), used
         assert reg.more_line("occupancy") == "sigma capped at d_max/3 [paper; 0.2-1.0]", reg.more_line("occupancy")
         dbs = reg.more_line("dbscan")
         assert "edge criterion on [ad hoc; changed later]" in dbs and "2-opt from every start [derived]" in dbs, dbs
@@ -416,7 +432,7 @@ def main() -> int:
                 assert e.change_note, (e.key, "a science PR changes it: say what, in words")
         shown += [reg.more_line(g) for g in reg.MORE_GROUPS] + [reg.reset_tooltip()]
         from tools import mps_results_window as rw
-        shown += [rw.PAPER_HEADER_TIP, rw.KS_P_TIP, rw.CROSSING_TIP]
+        shown += [rw.PAPER_HEADER, rw.PAPER_HEADER_TIP, rw.KS_TIP, rw.MC_P_TIP, rw.CROSSING_TIP]
         hits = [t for t in shown if ids.search(t)]
         assert not hits, hits[:3]
         return f"{len(shown)} texts a user reads: no internal id"

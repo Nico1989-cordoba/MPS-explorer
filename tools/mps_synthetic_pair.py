@@ -272,8 +272,8 @@ def ring_pair(
     occupied_b : which of the n_clusters positions the partner occupies.
     phase : the partner's axial offset as a fraction of the period.
     n_per_cluster_b : localizations per partner cluster; None is
-        spectrin's. Ten times more is how a channel oversampled per
-        resolution cell, as the real adducin files are, is modelled.
+        spectrin's. Ten times more is how a channel sampled more densely
+        (another dye, more switching cycles per molecule) is modelled.
     angular_jitter : per-cluster angular scatter, radians, drawn
         independently for each channel. 0 makes every answer analytic.
     b_is_a : the partner IS spectrin, localization for localization.

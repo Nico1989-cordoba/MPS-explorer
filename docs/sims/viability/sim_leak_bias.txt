@@ -1,0 +1,31 @@
+K = 20: p0 = 0.557, sd* = 0.1070 (binomial approx 0.1111)
+  c =  0.00 % ( 0 copies): zeta -0.073 +/- 0.064   predicted shift +0.000
+  c =  2.50 % ( 1 copies): zeta +0.249 +/- 0.054   predicted shift +0.207
+  c =  5.00 % ( 2 copies): zeta +0.310 +/- 0.061   predicted shift +0.414
+  c =  7.50 % ( 3 copies): zeta +0.544 +/- 0.053   predicted shift +0.621
+  c = 10.00 % ( 4 copies): zeta +0.625 +/- 0.051   predicted shift +0.827
+  c = 15.00 % ( 6 copies): zeta +0.924 +/- 0.050   predicted shift +1.241
+  c = 20.00 % ( 8 copies): zeta +1.245 +/- 0.046   predicted shift +1.655
+  slope dzeta/dc: measured 6.20, predicted 8.27  (per 1 % copies: 0.062 / 0.083 sd)
+  c_max predicted (0.25 / 0.5 sd): {'0.25': '3.02 %', '0.5': '6.04 %'}  measured-slope: {'0.25': '4.03 %', '0.5': '8.07 %'}
+K = 40: p0 = 0.552, sd* = 0.0778 (binomial approx 0.0786)
+  c =  0.00 % ( 0 copies): zeta +0.003 +/- 0.059   predicted shift +0.000
+  c =  1.25 % ( 1 copies): zeta +0.111 +/- 0.056   predicted shift +0.144
+  c =  2.50 % ( 2 copies): zeta +0.300 +/- 0.055   predicted shift +0.288
+  c =  3.75 % ( 3 copies): zeta +0.403 +/- 0.054   predicted shift +0.432
+  c =  5.00 % ( 4 copies): zeta +0.570 +/- 0.052   predicted shift +0.576
+  c =  7.50 % ( 6 copies): zeta +0.793 +/- 0.052   predicted shift +0.863
+  c = 10.00 % ( 8 copies): zeta +1.088 +/- 0.049   predicted shift +1.151
+  slope dzeta/dc: measured 10.83, predicted 11.51  (per 1 % copies: 0.108 / 0.115 sd)
+  c_max predicted (0.25 / 0.5 sd): {'0.25': '2.17 %', '0.5': '4.34 %'}  measured-slope: {'0.25': '2.31 %', '0.5': '4.62 %'}
+K = 80: p0 = 0.550, sd* = 0.0550 (binomial approx 0.0556)
+  c =  0.00 % ( 0 copies): zeta -0.017 +/- 0.060   predicted shift +0.000
+  c =  0.62 % ( 1 copies): zeta +0.209 +/- 0.055   predicted shift +0.102
+  c =  1.25 % ( 2 copies): zeta +0.199 +/- 0.063   predicted shift +0.204
+  c =  1.88 % ( 3 copies): zeta +0.286 +/- 0.056   predicted shift +0.307
+  c =  2.50 % ( 4 copies): zeta +0.346 +/- 0.058   predicted shift +0.409
+  c =  3.75 % ( 6 copies): zeta +0.518 +/- 0.052   predicted shift +0.613
+  c =  5.00 % ( 8 copies): zeta +0.736 +/- 0.056   predicted shift +0.817
+  slope dzeta/dc: measured 13.54, predicted 16.35  (per 1 % copies: 0.135 / 0.163 sd)
+  c_max predicted (0.25 / 0.5 sd): {'0.25': '1.53 %', '0.5': '3.06 %'}  measured-slope: {'0.25': '1.85 %', '0.5': '3.69 %'}
+16.5 s

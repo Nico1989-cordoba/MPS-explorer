@@ -13,8 +13,8 @@ What it is not
 --------------
 A store. The registry holds no value of its own: every default is read, at call time, from where the program keeps it
 - a module constant (``tools.mps_settings.DEFAULT_EPS_NM``), a function's keyword default (``random_seed=0`` of
-``analyze_axon``), or, for the few values written inline in the code (the 0.15 floor of the CDF crossing, the 0.10
-colour level of the rings window), the code itself, matched by a pattern that fails loudly when the code changes. The
+``analyze_axon``), or, for the few values written inline in the code (the 0.10 colour level of the rings window),
+the code itself, matched by a pattern that fails loudly when the code changes. The
 one value of each parameter is still the settings object of the main window (design 6.2). A test patches each
 constant and checks that the registry follows (``test_param_registry.py``).
 
@@ -71,7 +71,7 @@ BADGE_MEANING: Dict[str, str] = {
     "ad hoc": "today's value has no written derivation; a science PR replaces it",
     "unreviewed": "no verified research record yet",
 }
-HOMES: Tuple[str, ...] = ("strip", "rings", "axoplasm", "measurement", "main", "none")
+HOMES: Tuple[str, ...] = ("strip", "rings", "axoplasm", "measurement", "main", "zquality", "none")
 # The publication the "paper" badges name.
 PAPER = "Gazal et al. 2026 (preprint v1)"
 # What a badge widget shows for an origin (manual test 2, item 10): "paper" is shown as the publication it names,
@@ -199,26 +199,50 @@ def _e(**kw: Any) -> ParamInfo:
     return ParamInfo(**kw)
 
 
+# The public methods page of the axial mixture, the ring boundaries, the axon axis and the ring correlation: named
+# in the tooltip of every value it documents.
+AXIAL_RINGS_DOC = "docs/axial_mixture_and_rings.md"
+_AXIAL_RINGS_KEYS = frozenset({
+    "slab.centre", "slab.half_width_nm", "rings.mode", "rings.guard_nm", "rings.valley_depth_colour", "rings.frame",
+    "rings.empty_bins", "rings.n_bins", "rings.min_samples_per_bin", "rings.n_rotations",
+    "rings.valley_shift_warning_nm", "rings.depth_reference", "rings.posterior_model", "rings.posterior_min",
+    "axial.components", "axial.n_init", "axial.random_state", "slab.main_peak_mode", "slab.foreign_fraction_warn",
+    "reference.delta_z_periods", "axis.min_locs", "axis.max_slope_error_deg", "axis.loss", "axis.tilt_warning_deg",
+    "axis.z_usable_nm", "axis.delta_beta_warning_deg", "axis.sharpness_search", "axis.stage_tol_deg",
+    "axis.max_stages", "axis.candidate_disagreement_deg", "axis.stage_posterior_min", "axis.judge",
+    "acr.search_window", "acr.min_periods"})
+
+
 _S = "tools.mps_settings"
 _R = "tools.mps_randomization"
+_AP = "tools.mps_axial_precision"
+
+
+def _vp(field_name: str) -> Reader:
+    """The default of one ``ViabilityParams`` field (the dataclass's keyword default)."""
+    return _keyword(_AP, "ViabilityParams", field_name)
 
 _ENTRIES: Tuple[ParamInfo, ...] = (
     # ---------------------------------------------------------------- axial slab
     _e(key="slab.centre", label="Axial slab: centre", unit="nm", home="strip",
        default=_keyword("tools.mps_analysis", "analyze_axon", "main_peak_override_nm"),
        origin="derived", value_text="automatic: the density peak (mode) of the fitted mixture",
-       origin_note="convention: the slab is centred on the mode of the Gaussian mixture fitted to the ROI's z; "
-                   "'user' when a component or a range is chosen",
-       shown_as="parameter strip (Axial slab)", records=("main-peak-density",), changes_in="SCI-6",
-       change_note="a later version offers the density mode or the weight mode as the centre, and shows the share "
-                   "of the slab that belongs to other components", editable=True),
+       origin_note="convention: the slab is centred on the mode of the Gaussian mixture fitted to the ROI's z, the "
+                   "program's reading of 'the main peak of the axial localization distribution' (Gazal et al. "
+                   "2026, who do not say how it was located; a mixture's modes are its critical points, Ray and "
+                   "Lindsay 2005); the mean of the heaviest component is kept beside it, and the share of the slab "
+                   "the mixture expects from other components is shown; 'user' when a component or a range is "
+                   "chosen",
+       shown_as="parameter strip (Axial slab); results table (foreign fraction); the axial details",
+       records=("main-peak-density", "main-peak-weight", "ambiguous-main-peak-warning"), editable=True),
     _e(key="slab.half_width_nm", label="Slab half-width", unit="nm", home="strip",
        default=_const(_S, "DEFAULT_SLAB_HALF_WIDTH_NM"), origin="paper",
-       origin_note=f"the published 180 nm analysis window, {PAPER}; bounds inclusive",
-       shown_as="parameter strip; batch label; rings parameter line",
+       origin_note=f"the published 180 nm analysis window, {PAPER}; bounds inclusive; half the measured ring "
+                   "period is shown beside it as the alternative; the two readings of the main peak are reported "
+                   "as disagreeing when they are further apart than the half-width in use",
+       shown_as="parameter strip; batch label; rings parameter line; the axial details (half the period)",
        documented_range=(40.0, 200.0), range_text="40-200",
-       records=("slab-inclusive-bounds", "main-peak-disagreement-warning"), changes_in="SCI-6",
-       change_note="a later version offers half the ring period beside it", editable=True),
+       records=("slab-inclusive-bounds", "main-peak-disagreement-warning"), editable=True),
     _e(key="slab.typed_range", label="Typed axial range", unit="nm", home="strip", default=None, origin="blank",
        origin_note="no range is typed by default, and nothing is left uncomputed: the slab is then found "
                    "automatically; 'user' when one is typed (it then decides the slab)",
@@ -297,22 +321,45 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        change_note="a later version removes the automatic switch to HDBSCAN (DBSCAN always; HDBSCAN only when "
                    "chosen) and "
                    "ties the automatic eps to the (min samples - 1)-th neighbour, shown as a graph to read"),
-    _e(key="channel2.eps_nm", label="channel 2: eps", unit="nm", home="main", default=None, origin="blank",
-       value_text="typed per folder, or 'auto'",
-       origin_note="standard method: a second channel is never clustered with channel 1's parameters (Ester et al. "
-                   "1996): its own value is typed once per acquisition folder",
+    _e(key="channel2.eps_nm", label="channel 2: eps", unit="nm", home="main", default=None, origin="derived",
+       value_text="derived per folder from both channels' NeNA, pre-filled and editable; empty with the reason "
+                  "when the second channel's NeNA cannot be measured",
+       origin_note="derived: eps_2 = eps_1 x NeNA_2 / NeNA_1, NeNA (Endesfelder et al. 2014) measured on each "
+                   "channel's whole-field, unlinked file; a second channel is never clustered with channel 1's "
+                   "parameters (Ester et al. 1996); edited, it is 'user' (docs/channel2_parameters.md)",
        range_text="1-5 x the channel's NeNA precision",
-       records=("dbscan-channel2-own-parameters",), changes_in="SCI-B6",
-       change_note="a later version writes a suggestion beside the empty field, never pre-filled: eps_2 = eps_1 x "
-                   "sigma_2 / sigma_1 from each channel's NeNA"),
+       records=("dbscan-channel2-own-parameters",)),
     _e(key="channel2.min_samples", label="channel 2: min samples", unit="", home="main", default=None,
-       origin="blank", value_text="typed per folder, or 'auto'",
-       origin_note="standard method: channel 2's own DBSCAN count, typed once per acquisition folder",
+       origin="derived", value_text="derived per folder from the second channel's NeNA and its dye, pre-filled and editable; "
+                                    "empty with the reason when either is missing",
+       origin_note="derived: round(1 + (n_loc,mol - 1) x (1 - exp(-eps_2^2 / (4 NeNA_2^2)))), the expected "
+                   "number of one molecule's localizations within eps_2 of one of them, itself included (Ester et "
+                   "al. 1996); n_loc,mol from the dye table (Dempsey et al. 2011), a lower bound; edited, it is "
+                   "'user' (docs/channel2_parameters.md)",
        documented_range=(2.0, 50.0), range_text="2-50",
-       records=("dbscan-channel2-own-parameters",), changes_in="SCI-B6",
-       change_note="a later version writes a suggestion beside the empty field, never pre-filled: the expected "
-                   "number of one "
-                   "molecule's localizations within eps_2 of one of them"),
+       records=("dbscan-channel2-own-parameters",)),
+    _e(key="channel2.nena_reference_nm", label="channel 1's NeNA when not measured", unit="nm", home="none",
+       default=_const("tools.mps_channel_params", "GAZAL_NENA_NM"), origin="paper",
+       origin_note=f"the global NeNA precision of the published pipeline ({PAPER}), used for the ratio of eps_2 "
+                   "only when channel 1's own NeNA cannot be measured, and said so",
+       records=("dbscan-channel2-own-parameters",), not_editable_because="e1"),
+    _e(key="channel2.dye_cycles", label="switching cycles per molecule (dye table)", unit="", home="main",
+       default=None, origin="paper", value_text="chosen per folder: dye and buffer",
+       origin_note="mean switching cycles per molecule by dye and buffer (Dempsey et al. 2011, Table 1): a lower "
+                   "bound of the localizations per labelled molecule until the label is calibrated",
+       records=("dbscan-channel2-own-parameters",)),
+    _e(key="crosschannel.sampling_radius", label="sampling density radius", unit="nm", home="none", default=None,
+       origin="derived", value_text="each channel's own eps",
+       origin_note="the localizations within the channel's own eps of a localization: the count DBSCAN's core "
+                   "condition tests (Ester et al. 1996); a diagnostic, never used to cluster",
+       records=("channel2-resolution-cell-20nm",), not_editable_because="e1"),
+    _e(key="crosschannel.oversampling_warn", label="sampling-density ratio warning", unit="", home="none",
+       default=_const("tools.mps_crosschannel", "OVERSAMPLING_WARN"), origin="derived",
+       origin_note="convention with a written derivation: beyond this ratio either way, the same parameters put "
+                   "a Gaussian cluster's detected boundary about a fifth farther out in the denser channel; a "
+                   "warning only, never used to scale min samples (it holds the partner's abundance)",
+       documented_range=(1.5, 10.0), range_text="1.5-10",
+       records=("cc-oversampling-warn-3",), not_editable_because="e1"),
     # ---------------------------------------------------------------- occupancy
     _e(key="occupancy.mahalanobis", label="Mahalanobis", unit="", home="strip",
        default=_const(_S, "DEFAULT_MAHALANOBIS_THRESHOLD"), origin="paper",
@@ -320,85 +367,123 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
                    "research documents no range for it: it is recorded in every exported row (98.9 % of an "
                    "isotropic Gaussian cluster lies within 3 standard deviations)",
        shown_as="parameter strip; batch label; rings parameter line; captions", editable=True),
-    _e(key="occupancy.sigma_cap_fraction", label="sigma cap", unit="", home="none",
+    _e(key="occupancy.sigma_cap_fraction", label="sigma cap", unit="", home="strip",
        default=_const("tools.mps_occupancy", "SIGMA_CAP_FRACTION"), origin="paper",
        words=lambda v: f"sigma capped at d_max/{1.0 / v:.3g}",
-       origin_note=f"each cluster's Gaussian is constrained: sigma <= d_max / 3 ({PAPER})",
-       shown_as="Occupancy 'More' line; the contour caption", documented_range=(0.2, 1.0), range_text="0.2-1.0",
+       origin_note=f"each cluster's Gaussian is constrained: sigma <= d_max / 3 ({PAPER}), so the 3-sigma ellipse "
+                   "never reaches beyond the cluster's farthest localization. The paper gives no derivation; on "
+                   "synthetic Gaussian clusters the cap binds in nearly every cluster below about twenty "
+                   "localizations and in about half at a hundred, and then reduces the claimed footprint by up to "
+                   "40 %, so occupancy depends on the number of localizations per cluster (this project's "
+                   "simulation); the number of capped ellipses is exported",
+       shown_as="Occupancy editor and 'More' line; the contour caption; axon table",
+       documented_range=(0.2, 1.0), range_text="0.2-1.0",
        range_note="at 1.0 the cap never binds for Gaussian clusters", records=("occupancy-sigma-cap-one-third",),
-       changes_in="SCI-3", change_note="a later version makes it editable, within 0.2-1.0",
-       not_editable_because="e1", fmt=".3g"),
-    # ---------------------------------------------------------------- randomization (read-only in stage 2)
-    _e(key="randomization.band_half_width_nm", label="band", unit="nm", home="none",
+       editable=True, fmt=".3g"),
+    # ---------------------------------------------------------------- randomization (editable)
+    _e(key="randomization.band_half_width_nm", label="band", unit="nm", home="strip",
        default=_const(_R, "DEFAULT_ANNULUS_HALF_WIDTH_NM"), origin="paper",
-       origin_note=f"random centres are drawn within this distance of the smoothed contour ({PAPER})",
-       shown_as="Randomization 'More' line; CDF details", documented_range=(20.0, 150.0), range_text="20-150",
-       records=("rand-annulus-half-width-50nm",),
-       changes_in="SCI-3", change_note="a later version makes it editable and adds an export column",
-       not_editable_because="e1, e2: not an analyze_axon argument, not in the axon table"),
-    _e(key="randomization.iterations", label="iterations", unit="", home="none",
-       default=_const(_R, "DEFAULT_N_RANDOMIZATIONS"), origin="paper",
-       origin_note=f"the number of randomizations ({PAPER})", shown_as="Randomization 'More' line; CDF details",
+       origin_note=f"random centres are confined to a band around the smoothed contour, the width used by {PAPER}, "
+                   "who describe the band as approximating the accessible membrane surface; with the cluster-centre "
+                   "error model the position error of a membrane-anchored centre is about 16 nm per axis for a "
+                   "cluster carried by a single antibody (Fruh et al. 2021), so the half-width is at least about "
+                   "three standard deviations",
+       shown_as="Randomization editor and 'More' line; CDF details; axon table",
+       documented_range=(20.0, 150.0), range_text="20-150",
+       records=("rand-annulus-half-width-50nm",), editable=True),
+    _e(key="randomization.iterations", label="iterations", unit="", home="strip",
+       default=_const(_R, "DEFAULT_N_RANDOMIZATIONS"), origin="derived",
+       origin_note="convention with a written derivation: a Monte Carlo p-value (1 + b) / (B + 1) is exact at a "
+                   "level alpha when alpha (B + 1) is an integer (Besag and Diggle 1977; Phipson and Smyth 2010); "
+                   f"{PAPER} used one more",
+       shown_as="Randomization editor and 'More' line; CDF details",
        allowed=(199.0, 399.0, 999.0, 1999.0), range_text="199 / 399 / 999 / 1999",
        range_note="a Monte Carlo p-value is exact at a level alpha when alpha (B + 1) is an integer",
-       changes_in="SCI-3", change_note="a later version uses 999", extra={"later": "999"},
-       not_editable_because="e5: the research changes the default", fmt=",.0f"),
-    _e(key="randomization.seed", label="seed", unit="", home="none",
+       records=("rand-ks-pvalue", "rand-random-seed-0"), editable=True, fmt=",.0f"),
+    _e(key="randomization.seed", label="seed", unit="", home="strip",
        default=_keyword("tools.mps_analysis", "analyze_axon", "random_seed"), origin="derived",
-       origin_note="convention: a fixed seed so that a run can be repeated", shown_as="Randomization 'More' line",
-       range_text="any integer", records=("rand-random-seed-0",), changes_in="SCI-3",
-       change_note="a later version shows it as an advanced setting",
-       not_editable_because="e4: Batch and the next session would need a settings field"),
-    _e(key="randomization.smoothing", label="smoothing", unit="", home="none",
-       default=_keyword(_R, "smooth_contour_bspline", "smoothing"), origin="ad hoc",
-       value_text="s = K, open contour",
-       origin_note="s = K (K the number of contour points) is kept by the research: with unit weights it bounds the "
-                   "RMS residual at 1 nm per point, i.e. near-interpolation, as the paper's 'B-spline interpolation'; "
-                   "fitting the open contour with a periodic spline has no derivation (the badge is for that)",
-       shown_as="Randomization 'More' line", range_text="RMS residual 0-50 nm",
-       records=("rand-bspline-smoothing-s-equals-K",), changes_in="SCI-3",
-       change_note="a later version closes the contour before the fit and keeps s = K",
-       not_editable_because="e1"),
-    _e(key="randomization.incomplete_iterations", label="incomplete iterations", unit="", home="none",
-       default=None, origin="ad hoc", value_text="kept in the pool",
-       origin_note="an iteration that could not place every centre is still pooled",
-       shown_as="Randomization 'More' line; CDF details", records=("rand-placement-sequential-rejection",),
-       changes_in="SCI-3", change_note="a later version excludes such an iteration and draws it again",
-       not_editable_because="e1"),
-    _e(key="randomization.max_attempts_factor", label="attempts", unit="", home="none",
-       default=_keyword(_R, "place_with_min_distance", "max_attempts_factor"), origin="derived",
-       words=lambda v: f"attempts {v} x n", origin_note="convention: at most this many draws per centre to place",
-       shown_as="Randomization 'More' line", documented_range=(5.0, 100.0), range_text="5-100",
-       records=("rand-max-attempts-factor-20",), changes_in="SCI-3",
-       change_note="a later version shows it as an advanced setting and prints the packing fraction in the warning",
-       not_editable_because="e1"),
-    _e(key="randomization.grid_spacing_nm", label="grid", unit="nm", home="none",
+       origin_note="convention: a fixed seed so that a run can be repeated; the Monte Carlo error is set by the "
+                   "number of iterations, sqrt(p (1 - p) / B) (Marriott 1979)",
+       shown_as="Randomization editor and 'More' line; axon table", range_text="any integer",
+       records=("rand-random-seed-0",), editable=True),
+    _e(key="randomization.smoothing", label="smoothing (RMS residual)", unit="nm", home="strip",
+       default=_const(_R, "DEFAULT_SMOOTHING_RMS_NM"), origin="derived",
+       words=lambda v: f"smoothing {v:g} nm RMS, contour closed",
+       origin_note="convention with a written derivation: a periodic cubic B-spline (FITPACK; Dierckx 1993) fitted "
+                   "to the CLOSED contour with s = K x rms^2 under unit weights, a summed squared residual of at "
+                   "most K rms^2: at 1 nm the curve nearly interpolates the cluster centres, consistent with the "
+                   f"'B-spline interpolation' of {PAPER}, who state no degree or smoothing factor; the value is the "
+                   "project's choice, not a published rule",
+       shown_as="Randomization editor and 'More' line; axon table", documented_range=(0.0, 50.0),
+       range_text="0-50", records=("rand-bspline-smoothing-s-equals-K",), editable=True),
+    _e(key="randomization.incomplete_iterations", label="incomplete iterations", unit="", home="strip",
+       default=_const(_R, "DEFAULT_EXCLUDE_INCOMPLETE"), origin="derived",
+       words=lambda v: ("incomplete iterations re-drawn and excluded" if v else "incomplete iterations kept"),
+       origin_note="standard method: random centres are placed by simple sequential inhibition (Diggle, Besag and "
+                   "Gleaves 1976; random sequential adsorption, Evans 1993); an iteration that cannot place every "
+                   "cluster is drawn again (up to ten times) and, if it still cannot, counted and left out of the "
+                   "null, because pooling sparser patterns biases the null toward longer distances; the packing "
+                   "fraction of the constraint is reported",
+       shown_as="Randomization editor and 'More' line; CDF details; axon table",
+       records=("rand-placement-sequential-rejection",), editable=True),
+    _e(key="randomization.max_attempts_factor", label="attempts", unit="", home="strip",
+       default=_const(_R, "DEFAULT_MAX_ATTEMPTS_FACTOR"), origin="derived",
+       words=lambda v: f"attempts {v} x n",
+       origin_note="convention with a written derivation: at most this many candidates per centre; the cap only "
+                   "binds near the jamming limit of sequential placement, where no placement exists",
+       shown_as="Randomization editor and 'More' line; axon table", documented_range=(5.0, 100.0),
+       range_text="5-100", records=("rand-max-attempts-factor-20",), editable=True),
+    _e(key="randomization.grid_spacing_nm", label="grid", unit="nm", home="strip",
        default=_const(_R, "DEFAULT_GRID_SPACING_NM"), origin="derived",
-       origin_note="convention: the candidate positions lie on a grid of this spacing",
-       shown_as="Randomization 'More' line", documented_range=(1.0, 20.0), range_text="1-20",
-       records=("rand-grid-spacing-5nm",), changes_in="SCI-3",
-       change_note="a later version shows it as an advanced setting", not_editable_because="e1"),
-    _e(key="randomization.cdf_crossing_floor", label="CDF crossing floor", unit="", home="none",
-       default=_in_code("tools/mps_randomization.py", r"floor = ([0-9.]+) \* max_abs"), origin="ad hoc",
-       words=lambda v: f"{100.0 * v:.0f} % of the largest gap between the curves",
-       origin_note="a sign change of observed minus randomized counts as a crossing only beyond this floor",
-       shown_as="the CDF-crossing cell's tooltip", records=("rand-cdf-crossing-floor-015",), changes_in="SCI-3",
-       change_note="a later version reports a crossing only where the curves leave the band the randomizations "
-                   "themselves give", fmt=".2f"),
+       origin_note=f"convention with a written derivation: candidate positions form a regular grid ('a dense grid', "
+                   f"{PAPER}, spacing unstated); the largest displacement a 5 nm grid imposes is 3.5 nm, negligible "
+                   "against spacings of hundreds of nanometres",
+       shown_as="Randomization editor and 'More' line; axon table", documented_range=(1.0, 20.0),
+       range_text="1-20", records=("rand-grid-spacing-5nm",), editable=True),
+    _e(key="randomization.cdf_band_alpha", label="CDF band level", unit="", home="strip",
+       default=_const(_R, "DEFAULT_CDF_BAND_ALPHA"), origin="derived",
+       words=lambda v: f"CDF band alpha {v:g}",
+       origin_note="first principles: a sign change of the CDF difference is reported only where it leaves the "
+                   "band the randomizations themselves give (the central 1 - alpha of F_i - F_pool); it is "
+                   "significant when its strength (the smaller of the excess before it and the deficit after it) "
+                   "is beyond what the randomizations reach, a Monte Carlo rank test at alpha (Besag and Diggle "
+                   "1977), the exact version of the sampling bound of K distances sqrt(ln(2 / alpha) / (2K)) "
+                   "(Dvoretzky-Kiefer-Wolfowitz, Massart 1990), which is shown beside it; the earlier relative "
+                   "floor had no sampling basis",
+       shown_as="Randomization editor and 'More' line; the CDF-crossing cell; axon table",
+       documented_range=(0.01, 0.10), range_text="0.01-0.10",
+       records=("rand-cdf-crossing-level", "rand-cdf-crossing-floor-015"), editable=True, fmt=".2f"),
+    _e(key="randomization.hard_core", label="hard core", unit="", home="strip",
+       default=_const(_R, "DEFAULT_HARD_CORE"), origin="paper",
+       origin_note=f"the minimum separation of the null is the smallest observed 1NN ({PAPER}); the bias-corrected "
+                   "alternative (K^2 d_min - P) / (K (K - 1)) removes the excess of short distances that rule "
+                   "builds in; both are approximate, because the hard core is estimated from the same data (Dao and "
+                   "Genton 2014)",
+       shown_as="Randomization editor and 'More' line; axon table",
+       range_text="observed minimum / bias-corrected", records=("rand-ks-pvalue",), editable=True),
+    _e(key="randomization.null_r_level", label="null r interval", unit="", home="none",
+       default=_const(_R, "NULL_R_LEVEL"), origin="derived",
+       words=lambda v: f"central {100.0 * v:g} % of the randomizations' r",
+       origin_note="convention: this axon's null regularity index is the mean and the central share of r_i = "
+                   "median 1NN_i x K / P over the randomizations (same K and P as the observed r); the random level "
+                   "of r depends on the minimum separation and the band, so no fixed number stands for it; its "
+                   "two-sided test is the Monte Carlo p of the median",
+       shown_as="results table (regularity row); NN details; axon table", records=("nn1-discrepancy-vs-paper",),
+       not_editable_because="e1: a reporting level, not an analysis parameter", fmt=".2f"),
     # ---------------------------------------------------------------- reference values (paper)
     _e(key="reference.nn1_median_nm", label="1NN median", unit="nm", home="none",
        default=_const("tools.mps_spatial", "PAPER_MEDIAN_OF_MEDIANS_NM"), origin="paper",
-       origin_note=f"{PAPER}: another dataset and another pipeline; agreeing with it is not a validation "
-                   "criterion",
-       shown_as="1NN reference layer (off by default); results table", changes_in="SCI-3",
-       change_note="a later version renames the column and moves the comparison to the documentation",
+       origin_note=f"{PAPER}, the median of per-axon medians: another dataset and another pipeline; the 1NN depends "
+                   "on how many clusters a pipeline detects per micrometre, so agreeing with it is not a "
+                   "validation criterion; compare the clusters per micrometre and the regularity index",
+       shown_as="1NN reference layer (off by default); results table", records=("nn1-discrepancy-vs-paper",),
        fmt=",.0f"),
     _e(key="reference.clusters_per_um", label="clusters per um", unit="1/um", home="none",
        default=_consts("tools.mps_geometry", ("PAPER_SLOPE_CLUSTERS_PER_UM", "PAPER_INTERCEPT_CLUSTERS")),
        origin="paper", words=lambda v: f"the slope of N = {v[0]:g} P - {abs(v[1]):g}",
-       origin_note=f"{PAPER}: the regression of the cluster count N on the perimeter P", shown_as="results table",
-       changes_in="SCI-3",
-       change_note="a later version adds the regularity index r = median 1NN / (P / K) beside it"),
+       origin_note=f"{PAPER}: the regression of the cluster count N on the perimeter P; the first thing to compare, "
+                   "since the 1NN scales with it; the regularity index r = median 1NN x K / P stands beside it",
+       shown_as="results table", records=("nn1-discrepancy-vs-paper",)),
     _e(key="reference.cluster_area_nm2", label="cluster area (median)", unit="nm^2", home="none",
        default=_const("tools.mps_geometry", "PAPER_MEDIAN_CLUSTER_AREA_NM2"), origin="paper",
        origin_note=f"{PAPER}: another dataset and another pipeline; not a validation criterion",
@@ -413,42 +498,308 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        shown_as="results table"),
     _e(key="reference.ks", label="KS D", unit="", home="none", default=_const(_R, "PAPER_KS_D"), origin="paper",
        words=lambda v: f"D = {v:g}",
-       origin_note=f"{PAPER}; the paper also gives a p, not repeated here: the aggregation level of its test is not "
-                   "stated, and a KS p on these samples has no valid reading", shown_as="results table",
-       changes_in="SCI-3",
-       change_note="a later version gives D its own null (the D of each randomization against the pool), so that "
-                   "it can be compared between axons", fmt=".3f"),
+       origin_note=f"{PAPER}; the aggregation level of that test is not stated (presumably pooled over its axons), "
+                   "so a per-axon D is not comparable with it: D's size under the null falls as about 0.87 / "
+                   "sqrt(K); the paper's p is not repeated, a KS p on these samples has no valid reading",
+       shown_as="results table", records=("rand-pooled-sample-and-ks-statistic", "rand-ks-pvalue"), fmt=".3f"),
     _e(key="reference.cdf_crossing", label="CDF crossing", unit="", home="none",
        default=_const(_R, "PAPER_CDF_CROSSING"), origin="paper",
-       origin_note=f"{PAPER}: another dataset and another pipeline; not a validation criterion",
-       shown_as="results table", changes_in="SCI-3",
-       change_note="a later version reports a crossing only where the curves leave the band the randomizations "
-                   "themselves give", fmt=".2f"),
+       origin_note=f"{PAPER}, read on data pooled over its axons: another dataset and another pipeline; a single "
+                   "axon with tens of clusters often cannot resolve the crossing",
+       shown_as="results table", records=("rand-cdf-crossing-level",), fmt=".2f"),
+    # ---------------------------------------------------------------- batch statistics
+    _e(key="batch.icc_percentile", label="ICC chance level percentile", unit="", home="none",
+       default=_keyword("tools.mps_batch", "intraclass_correlation", "percentile"), origin="derived",
+       origin_note="first principles: the ICC a design of the same group sizes reaches by chance, the percentile "
+                   "of the clamped one-way estimator under a true ICC of zero, (F_p(k - 1, N - k) - 1) / (F_p + n0 "
+                   "- 1) (McGraw and Wong 1996; Donner 1986), exact for balanced normal data",
+       shown_as="batch window (nesting column)", documented_range=(90.0, 99.0), range_text="90-99",
+       records=("hecl-batch-icc-null",), not_editable_because="e1: the batch window has no editor for it"),
+    _e(key="batch.icc_labels", label="ICC labels", unit="", home="none",
+       default=_keyword("tools.mps_batch", "intraclass_correlation", "labels"), origin="derived",
+       words=lambda v: ("labels small / medium / large on" if v else "no labels: the design effect is read"),
+       origin_note="convention: an ICC above its chance level is reported with the design effect 1 + (m - 1) ICC "
+                   "and the effective sample size (Killip et al. 2004); optional words use the clustered-data "
+                   "convention 0.05 / 0.10 / 0.15 for small, medium and large (Zyzanski et al. 2004, after Hox "
+                   "2002)",
+       shown_as="batch window (nesting column)", records=("hecl-batch-icc-severity",),
+       not_editable_because="e1: the batch window has no switch for it"),
     # ---------------------------------------------------------------- rings window
     _e(key="rings.mode", label="slab boundaries", unit="", home="rings",
        default=_in_code("MPS_explorer.py", r'def run_ring_analysis\(\s*self, show_window: bool = True, '
                                            r'mode: str = "(\w+)"', str),
-       origin="derived", origin_note="convention: cut at the density minimum between two components",
-       shown_as="rings window (combo)", range_text="paper / partition / valley",
-       records=("segment-mode-valley",), changes_in="SCI-6",
-       change_note="a later version adds a 'bayes' mode: the boundary where the two neighbouring components are "
-                   "equally probable", editable=True),
+       origin="derived", origin_note="convention (the recorded primary choice): cut at the antimode of the "
+                                     "fitted density between two components; 'bayes' cuts where the two are equally "
+                                     "probable, the minimum-misassignment boundary of a fitted mixture (Kittler and "
+                                     "Illingworth 1986; McLachlan and Peel 2000); no published MPS analysis defines a "
+                                     "boundary between rings, and every boundary's midpoint, Bayes and valley "
+                                     "positions are reported",
+       shown_as="rings window (combo); the pairs table", range_text="paper / partition / valley / bayes",
+       records=("segment-mode-valley", "density-valleys"), editable=True),
     _e(key="rings.guard_nm", label="guard", unit="nm", home="rings",
        default=_in_code("MPS_explorer.py", r'def run_ring_analysis\(\s*self, show_window: bool = True, '
                                            r'mode: str = "\w+",\s*guard_nm: float = ([0-9.]+)'),
-       origin="derived", origin_note="convention: no guard band between consecutive slabs (total width)",
-       shown_as="rings window (spin)", documented_range=(0.0, 100.0), range_text="0-100 (total)",
-       records=("guard-nm-0",), changes_in="SCI-6",
-       change_note="a later version gives it in units of the rings' own width",
+       origin="derived", origin_note="convention: the total width of a dead zone centred on each boundary (half "
+                                     "on each side); none in the primary analysis, 60 nm the recorded sensitivity; "
+                                     "shown in units of the rings' effective axial width s_eff with the leak it "
+                                     "leaves, 1 - Phi((h + g/2) / s_eff), and capped where a ring guarded at both "
+                                     "boundaries keeps less than half of itself (g/2 <= h - 0.67 s_eff)",
+       shown_as="rings window (spin, and its s_eff line)", documented_range=(0.0, 100.0), range_text="0-100 (total)",
+       records=("guard-nm-0",),
        editable=True),
-    _e(key="rings.valley_depth_colour", label="boundary colour level", unit="", home="none",
-       default=_in_code("tools/mps_rings_window.py", r"depth >= ([0-9.]+) else _C_WARN"), origin="derived",
-       origin_note="convention: a valley at least this deep is drawn as resolved (two equal Gaussian rings about "
-                   "2.5 widths apart); the analysis warning still uses 0.05",
-       shown_as="the rings boundary table's tooltip", documented_range=(0.02, 0.30), range_text="0.02-0.30",
-       records=("rings-window-valley-depth-colour-0.10",), changes_in="SCI-6",
-       change_note="a later version uses one level, 0.10, for this colour and for the analysis warning",
-       not_editable_because="e5: the research changes the analysis level", fmt=".2f"),
+    _e(key="rings.valley_depth_colour", label="valley depth level (colour and warning)", unit="", home="none",
+       default=_const("tools.mps_periodicity", "VALLEY_DEPTH_LEVEL"), origin="derived",
+       origin_note="convention, one level for the rings window's colour and the analysis warning: the relative depth "
+                   "of the dip between two rings, referred to the two adjacent peaks; for two equal Gaussian rings "
+                   "this level is a spacing of about 2.45 widths, and any dip at all needs more than 2 (Behboodian "
+                   "1970; Schilling et al. 2002)",
+       shown_as="the rings boundary table's colour and tooltip; the analysis warning",
+       documented_range=(0.02, 0.30), range_text="0.02-0.30",
+       records=("rings-window-valley-depth-colour-0.10", "valley-shallow-warning", "valley-relative-depth"),
+       not_editable_because="e1: no editor yet (a module constant)", fmt=".2f"),
+    _e(key="rings.frame", label="ring correlation frame", unit="", home="rings",
+       default=_keyword("tools.mps_gaps", "analyze_rings", "frame"), origin="derived",
+       origin_note="standard method: consecutive segments are compared by arc length along one common membrane "
+                   "curve (the pooled centroid membrane of the column analysis; cf. elliptic Fourier descriptors, "
+                   "Kuhl and Giardina 1982), which needs no star-shaped contour; the angle about the pooled centre "
+                   "is kept as an exploratory frame, with the share of perimeter samples whose angle runs backwards",
+       shown_as="rings window (combo); the pairs CSV (correlation_frame)", range_text="arc / angle",
+       records=("gaps-shared-angular-centre",), editable=True),
+    _e(key="rings.empty_bins", label="bins no perimeter sample reaches", unit="", home="rings",
+       default=_keyword("tools.mps_gaps", "analyze_rings", "empty_bins"), origin="derived",
+       origin_note="masked out of the correlation by default (an unmeasured stretch read as zero would be a gap "
+                   "that was never measured, and one interpolated in both profiles is shared structure the rotation "
+                   "null cannot remove: with a tenth of the bins so filled the false-positive rate at a nominal "
+                   "five per cent was about 45 per cent on synthetic independent profiles, measured by the public "
+                   "null validator); interpolation from the neighbours stays an option, warned; their number is "
+                   "exported either way",
+       shown_as="rings window (combo); the pairs CSV (n_empty_bins_a, n_empty_bins_b)",
+       range_text="interpolate / mask", records=("gaps-interpolated-empty-bins",), editable=True),
+    _e(key="rings.n_bins", label="profile bins", unit="", home="none",
+       default=_const("tools.mps_gaps", "DEFAULT_N_THETA"), origin="derived",
+       origin_note="software default: one bin is 1/3600 of the perimeter, 1-11 nm of arc on perimeters of 5-40 um, "
+                   "below the lateral localization precision and far below a patch (tens of nm, from the ~25 nm "
+                   "effective cluster radius of Gazal et al. 2026)",
+       shown_as="the pairs CSV (n_bins)", documented_range=(360.0, 7200.0), range_text="360-7200",
+       records=("gaps-n-theta-3600",), not_editable_because="e1: no editor yet (a keyword of analyze_rings)"),
+    _e(key="rings.min_samples_per_bin", label="perimeter samples per bin", unit="", home="none",
+       default=_const("tools.mps_gaps", "DEFAULT_MIN_SAMPLES_PER_BIN"), origin="derived",
+       origin_note="software default: the perimeter is re-sampled to this many equally spaced samples per bin, "
+                   "which resolves per-bin coverage in steps of its inverse; it never changes which perimeter is "
+                   "occupied",
+       shown_as="-", documented_range=(2.0, 32.0), range_text="2-32", records=("gaps-min-samples-per-bin-8",),
+       not_editable_because="e1: no editor yet (a keyword of analyze_rings)"),
+    _e(key="rings.n_rotations", label="rotations of the null", unit="", home="none",
+       default=_const("tools.mps_gaps", "DEFAULT_N_ROTATIONS"), origin="derived",
+       origin_note="standard method: the toroidal-shift test on the circle (Lotwick and Silverman 1982; Harms et "
+                   "al. 2001; Alexander-Bloch et al. 2018), rotations drawn without replacement, decoupled from the "
+                   "bins, p = (1 + b) / (1 + n) counting the unrotated profile (Phipson and Smyth 2010), one-sided; "
+                   "the effectively independent rotations (perimeter over the mean patch length) are exported; its "
+                   "false-positive rate on synthetic independent profiles is measured by a public validator",
+       shown_as="rings window (p column and plot title); the pairs CSV (n_rotations, n_effective_rotations)",
+       documented_range=(360.0, 7200.0), range_text="360-7200", records=("gaps-rotation-null-pvalue",),
+       not_editable_because="e1: no editor yet (a keyword of analyze_rings)"),
+    _e(key="rings.valley_shift_warning_nm", label="valley shift warning", unit="nm", home="none",
+       default=_keyword("tools.mps_periodicity", "density_valleys", "shift_warning_nm"), origin="blank",
+       value_text="none: the shift of every boundary is reported, never judged",
+       origin_note="left blank for you: a valley sits off the midpoint whenever two rings differ in weight or width "
+                   "(the Bayes boundary moves by sigma^2 ln(w_a / w_b) / P and the valley further), so a shift is "
+                   "reported per boundary (from the midpoint and from the Bayes boundary, positive toward the "
+                   "lighter ring) without a threshold",
+       shown_as="the pairs CSV (boundary_valley_shift_from_midpoint_nm, boundary_valley_shift_from_bayes_nm)",
+       documented_range=(0.0, 100.0), range_text="0-100 or none", records=("valley-shift-warning",),
+       not_editable_because="e1: no editor yet (a keyword of density_valleys)"),
+    _e(key="rings.depth_reference", label="valley depth referred to", unit="", home="none",
+       default=_keyword("tools.mps_periodicity", "density_valleys", "depth_reference"), origin="derived",
+       origin_note="convention: 1 - f(antimode) / min(f(mode_a), f(mode_b)), the dip referred to the two peaks "
+                   "adjacent to it, so that 0 means exactly 'no second mode'; the density at the two component "
+                   "means is the alternative (it under-reads shallow valleys)",
+       shown_as="the pairs table and CSV (boundary_relative_depth)", range_text="peaks / means",
+       records=("valley-relative-depth", "density-valleys"),
+       not_editable_because="e1: no editor yet (a keyword of density_valleys)"),
+    _e(key="rings.posterior_model", label="posterior membership model", unit="", home="none",
+       default=_keyword("tools.mps_columns", "RingsParams", "posterior_model"), origin="derived",
+       origin_note="convention: the posterior is that of the complete fitted mixture, the same model the valleys "
+                   "are located in (McLachlan and Peel 2000); a localization most probably from a discarded "
+                   "low-weight component belongs to no ring; the dominant components alone are the alternative",
+       shown_as="the column analysis (axis stages, posterior control)", range_text="full / dominant",
+       records=("valley-uses-all-components", "posterior-min"),
+       not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="rings.posterior_min", label="posterior control", unit="", home="none",
+       default=_keyword("tools.mps_columns", "RingsParams", "posterior_min"), origin="derived",
+       value_text="off in the primary analysis",
+       origin_note="a reject option (Chow 1970): localizations whose maximum posterior is below the threshold are "
+                   "left out of the per-ring analysis when the control is on; for two equal rings of width sigma "
+                   "at spacing P it removes (sigma^2 / P) ln(p / (1 - p)) on each side of a boundary",
+       shown_as="the column analysis' parameters file", documented_range=(0.5, 0.99), range_text="0.5-0.99",
+       range_note="0.85 is the suggested control value", records=("posterior-min",),
+       not_editable_because="e1: a field of the pre-specified parameters file"),
+    # ---------------------------------------------------------------- the axial mixture (SCI-6)
+    _e(key="axial.components", label="mixture: candidate component counts", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "gmm_components"), origin="paper",
+       origin_note=f"the published method chooses 2 or 3 components by BIC ({PAPER}; Schwarz 1978; Fraley and "
+                   "Raftery 2002); 1 to 4 are offered, since BIC approximates the density rather than counting "
+                   "rings (Baudry et al. 2010)",
+       shown_as="the axial details (the BIC of each candidate)", range_text="1-4",
+       records=("z-gmm-model",), not_editable_because="e1: no editor yet (a keyword of the analysis)"),
+    _e(key="axial.n_init", label="mixture: EM restarts", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "gmm_n_init"), origin="derived",
+       origin_note="convention: the best of this many EM starts is kept (Dempster et al. 1977); with each start "
+                   "finding the best optimum with probability 0.3 or more, all miss it with probability below 3 %",
+       shown_as="-", documented_range=(1.0, 50.0), range_text="1-50", records=("z-gmm-determinism",),
+       not_editable_because="e1: no editor yet (a keyword of the analysis)"),
+    _e(key="axial.random_state", label="mixture: seed", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "gmm_random_state"), origin="derived",
+       origin_note="convention: a fixed seed, so the same region always yields the same mixture",
+       shown_as="-", records=("z-gmm-determinism",),
+       not_editable_because="e1: no editor yet (a keyword of the analysis)"),
+    _e(key="slab.main_peak_mode", label="main peak reading", unit="", home="none",
+       default=_keyword("tools.mps_analysis", "analyze_axon", "main_peak_mode"), origin="derived",
+       origin_note="convention: the mode of the fitted density, or the mean of the heaviest component; the two "
+                   "coincide when the rings are resolved (Behboodian 1970), both are exported, and they are "
+                   "reported as disagreeing when further apart than the slab half-width",
+       shown_as="the axon table (main_peak_mode, z_peak_density_nm, z_peak_weight_nm); the axial details",
+       range_text="density / weight", records=("main-peak-density", "main-peak-weight",
+                                               "main-peak-disagreement-warning"),
+       not_editable_because="e1: no editor yet (a keyword of the analysis)"),
+    _e(key="slab.foreign_fraction_warn", label="foreign fraction warning", unit="", home="none",
+       default=_const("tools.mps_periodicity", "FOREIGN_FRACTION_WARN"), origin="derived",
+       origin_note="suggestion with a derivation: the share of the slab the fitted mixture expects from other "
+                   "components; a neighbouring ring's clusters start to reach min samples localizations inside "
+                   "the slab once that share times the cluster size reaches min samples (3-10 % for clusters of "
+                   "100-300 localizations at min samples 10)",
+       shown_as="results table (foreign fraction of the slab); the axon table (slab_foreign_fraction)",
+       documented_range=(0.01, 0.20), range_text="0.01-0.20", records=("ambiguous-main-peak-warning",),
+       not_editable_because="e1: no editor yet (a keyword of the analysis)", fmt=".2f"),
+    _e(key="reference.delta_z_periods", label="published periods", unit="", home="none", default=None,
+       origin="paper", value_text="the reference table: sciatic nerve along z, sciatic nerve laterally, cultured "
+                                  "neurons",
+       origin_note="the region's mean Delta-Z, with its own standard error, is compared with each published "
+                   f"period as a signed distance in units of its spread ({PAPER}; D'Este et al. 2016; Xu et al. "
+                   "2013; Unsain et al. 2018; Zhong et al. 2014); a spread of pooled spacings is not a tolerance, "
+                   "so no pass or fail label is attached",
+       shown_as="results table (Delta-Z note); the axial details; the periodicity validator",
+       records=("delta-z-paper-check", "validate-periodicity-pooled")),
+    # ---------------------------------------------------------------- the axon axis (SCI-6)
+    _e(key="axis.min_locs", label="axis: localizations per ring plane", unit="", home="none",
+       default=_const("tools.mps_axis", "DEFAULT_MIN_LOCS"), origin="derived",
+       origin_note="convention: a ring votes for the axis with its own plane only with this many localizations; "
+                   "the slope error of such a plane is sigma_z / (sqrt(n) s) (Draper and Smith 1998), reported for "
+                   "every ring, and a gate by that predicted error is available instead",
+       shown_as="the column analysis (frame)", documented_range=(20.0, 2000.0), range_text="20-2000",
+       records=("axis-min-locs-200", "axis-plane-per-ring"),
+       not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="axis.max_slope_error_deg", label="axis: gate by predicted slope error", unit="deg", home="none",
+       default=_keyword("tools.mps_columns", "RingsParams", "axis_max_slope_error_deg"), origin="derived",
+       value_text="off (the count decides)",
+       origin_note="optional: a ring whose plane's predicted slope error exceeds the gate does not vote; the "
+                   "suggested gate is a third of a degree, off until a synthetic validation",
+       shown_as="-", documented_range=(0.05, 1.0), range_text="0.05-1",
+       records=("axis-min-locs-200",), not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="axis.loss", label="axis: robust loss of the ring planes", unit="", home="none",
+       default=_const("tools.mps_axis", "DEFAULT_LOSS"), origin="derived",
+       origin_note="standard method: least squares refined with SciPy's soft-L1 loss (Huber 1964; Triggs et al. "
+                   "2000); on synthetic rings with background inside the window it recovers the tilt as well as "
+                   "plain least squares and without bias: a safeguard against heavy-tailed axial outliers",
+       shown_as="-", range_text="linear / soft_l1 / huber / cauchy / arctan", records=("axis-plane-per-ring",),
+       not_editable_because="e1: no editor yet (a keyword of fit_axon_frame)"),
+    _e(key="axis.tilt_warning_deg", label="axis: tilt warning", unit="deg", home="none",
+       default=_const("tools.mps_axis", "TILT_WARNING_DEG"), origin="derived",
+       origin_note=f"convention (no published threshold; the reference pipeline discards visibly oblique fields by "
+                   f"eye, {PAPER}); two derived checks say what the tilt does to each axon: D tan(beta) against the "
+                   "period and against the usable depth of the z calibration minus the period",
+       shown_as="the column analysis' warnings", documented_range=(1.0, 15.0), range_text="1-15",
+       records=("axis-tilt-warning-5deg", "axis-rodrigues-frame"),
+       not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="axis.z_usable_nm", label="axis: usable depth of the z calibration", unit="nm", home="none",
+       default=_const("tools.mps_axis", "DEFAULT_Z_USABLE_NM"), origin="paper",
+       origin_note=f"used by the second tilt check when the measurement's calibration gives none: about 800 nm of "
+                   f"the bead stack is accessible in the reference setup ({PAPER}); Huang et al. 2008 worked within "
+                   "about 600 nm",
+       shown_as="the column analysis' tilt check", documented_range=(300.0, 1500.0), range_text="300-1500",
+       records=("axis-tilt-warning-5deg",), not_editable_because="e1: no editor yet (a field of RingsParams)",
+       fmt=",.0f"),
+    _e(key="axis.delta_beta_warning_deg", label="axis: ring disagreement warning", unit="deg", home="none",
+       default=_const("tools.mps_axis", "DELTA_BETA_WARNING_DEG"), origin="derived",
+       origin_note="convention with a derivation: warned above the larger of this and three times the fit-noise "
+                   "floor of delta_beta, sqrt(2 (k - 1) / k) sigma_z / (sqrt(n) s) (Draper and Smith 1998), which "
+                   "is reported with the noise-corrected value; at the MPS period one degree shifts consecutive "
+                   "rings laterally by about 3 nm, P tan(delta_beta), small against the cluster radius",
+       shown_as="the column analysis' warnings", documented_range=(0.2, 5.0), range_text="0.2-5",
+       records=("axis-delta-beta-warning-1deg", "axis-delta-beta", "axis-lateral-shift"),
+       not_editable_because="e1: no editor yet (a keyword of fit_axon_frame)"),
+    _e(key="axis.sharpness_search", label="axis: sharpness search (range, coarse, fine)", unit="deg", home="none",
+       default=_consts("tools.mps_axis", ("SHARPNESS_MAX_TILT_DEG", "SHARPNESS_COARSE_STEP_DEG",
+                                          "SHARPNESS_FINE_STEP_DEG")),
+       origin="derived",
+       words=lambda v: f"+/-{v[0]:g} deg, coarse {v[1]:g} deg, fine {v[2]:g} deg",
+       origin_note="convention with a derivation: the collision probability of the axial profile (Simpson 1949; "
+                   "Renyi 1961) is halved by a residual tilt once D tan(delta) is about 5.7 sigma_z, so its peak is "
+                   "wider than the coarse step, and the fine step lands inside the basin of the per-ring "
+                   "refinement; the range is at least the tilt warning plus three degrees",
+       shown_as="-", records=("axis-sharpness-search", "axis-sharpness-statistic"),
+       not_editable_because="e1: no editor yet (keywords of the sharpness search)"),
+    _e(key="axis.stage_tol_deg", label="axis: stage tolerance", unit="deg", home="none",
+       default=_const("tools.mps_columns", "AXIS_STAGE_TOL_DEG"), origin="derived",
+       origin_note="convention with a derivation: the stages stop once one rotates by less than this, the "
+                   "per-slope error of a plane at the reference geometry (Draper and Smith 1998); the larger of it "
+                   "and the stage's own noise floor, sqrt(2) sigma_z / (sqrt(N) s), is an option, off because on "
+                   "synthetic half rings the stages still converge below that floor; a frame that runs out of "
+                   "stages is labelled noise-limited or not converged by the floor",
+       shown_as="the column analysis (frame)", documented_range=(0.01, 0.5), range_text="0.01-0.5",
+       records=("axis-stages-tol-0.05",), not_editable_because="e1: no editor yet (a field of RingsParams)",
+       fmt=".2f"),
+    _e(key="axis.max_stages", label="axis: maximum stages", unit="", home="none",
+       default=_const("tools.mps_columns", "AXIS_MAX_RING_STAGES"), origin="ad hoc",
+       origin_note="the alternation of segmentation and plane fits resembles classification EM (Celeux and Govaert "
+                   "1992) without its convergence guarantee; the count assumes a contraction of about 30 % of the "
+                   "residual per stage, from a development run not yet reproduced by a validator",
+       shown_as="-", documented_range=(3.0, 30.0), range_text="3-30", records=("axis-stages-tol-0.05",),
+       changes_in="SCI-9",
+       change_note="a later version re-measures the contraction per stage with a synthetic validator before the "
+                   "number is called derived",
+       not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    _e(key="axis.candidate_disagreement_deg", label="axis: start disagreement warning", unit="deg", home="none",
+       default=_const("tools.mps_columns", "AXIS_CANDIDATE_DISAGREEMENT_DEG"), origin="derived",
+       origin_note="convention with a derivation: three to ten times the slope noise of one plane at the reference "
+                   "geometry; a multiple of the measured noise floor is the per-axon alternative; both candidate "
+                   "tilts and the judge's values are recorded with every result",
+       shown_as="the column analysis' warnings", documented_range=(0.1, 2.0), range_text="0.1-2",
+       records=("axis-candidate-disagreement-0.5",),
+       not_editable_because="e1: no editor yet (a field of RingsParams)", fmt=".2f"),
+    _e(key="axis.stage_posterior_min", label="axis: stage posterior", unit="", home="none",
+       default=_const("tools.mps_columns", "AXIS_STAGE_POSTERIOR_MIN"), origin="derived",
+       origin_note="convention (a reject option, Chow 1970, reused from the posterior control): only localizations "
+                   "the mixture assigns to a ring with at least this posterior vote for the axis; final ring "
+                   "membership is unaffected; the benefit is to be quantified by the synthetic half-ring validator",
+       shown_as="-", documented_range=(0.5, 0.99), range_text="0.5-0.99",
+       records=("axis-stage-posterior-0.85",), not_editable_because="e1: no editor yet (a field of RingsParams)",
+       fmt=".2f"),
+    _e(key="axis.judge", label="axis: judge between the starts", unit="", home="none",
+       default=_keyword("tools.mps_columns", "RingsParams", "axis_judge"), origin="derived",
+       origin_note="convention validated on synthetic axons only: the start whose last segmentation has the larger "
+                   "SUM of valley depths wins (stacking half rings onto a third removes a boundary, which lowers the "
+                   "sum); the mean depth and the mixture BIC at a fixed number of components are the alternatives "
+                   "(Hartigan and Hartigan 1985 and Celeux and Govaert 1992 for the textbook comparisons)",
+       shown_as="the column analysis (frame)", range_text="sum / mean / bic",
+       records=("axis-judge-valley-depth",), not_editable_because="e1: no editor yet (a field of RingsParams)"),
+    # ---------------------------------------------------------------- autocorrelation (SCI-6)
+    _e(key="acr.search_window", label="autocorrelation: first-peak window", unit="", home="none",
+       default=_const("tools.mps_autocorrelation", "DEFAULT_SEARCH_WINDOW"), origin="derived",
+       origin_note="convention with a derivation: the first peak is searched within this fraction of the reference "
+                   "period (110-230 nm at 170 nm), covering the published periods of cultured neurons (Xu et al. "
+                   "2013) and sciatic nerve (Gazal et al. 2026) to about three standard deviations while excluding "
+                   "the valleys at P/2 and 3P/2 (Han et al. 2017); the peak must be a local maximum",
+       shown_as="-", documented_range=(0.1, 0.5), range_text="0.10-0.50",
+       records=("acr-search-window-050",), not_editable_because="e1: no editor (a keyword of the function)",
+       fmt=".2f"),
+    _e(key="acr.min_periods", label="autocorrelation: shortest profile", unit="periods", home="none",
+       default=_const("tools.mps_autocorrelation", "DEFAULT_MIN_PERIODS"), origin="derived",
+       origin_note="first principles: the first peak (lag P) and the second valley (up to 2P) need one period of "
+                   "overlap at lag 2P, so the profile must hold three expected periods (Zhong et al. 2014 for the "
+                   "amplitude)",
+       shown_as="-", documented_range=(2.0, 5.0), range_text="2-5",
+       records=("acr-min-profile-length-8",), not_editable_because="e1: no editor (a keyword of the function)"),
     # ---------------------------------------------------------------- axoplasm window
     _e(key="axoplasm.threshold", label="threshold", unit="", home="axoplasm",
        default=_keyword("tools.mps_axoplasm", "otsu_threshold", "bins"), origin="derived",
@@ -494,8 +845,7 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
                    "multiplied every z by the record's magnification factor (Huang et al. 2008)",
        shown_as="Measurement panel; provenance line 2; the axial titles; Data quality's axial coverage; the axon "
                 "table (z_calibration_source, z_calibration_file, z_calibrated_*, z_calibration_match)",
-       records=("axial-coverage", "z-gmm-model"), changes_in="SCI-6",
-       change_note="a later version shows the record's scale beside every axial period and boundary",
+       records=("axial-coverage", "z-gmm-model"),
        editable=True),
     _e(key="measurement.z_magnification", label="magnification factor m", unit="", home="measurement",
        default=None, origin="blank", value_text="- (not recorded)",
@@ -539,6 +889,118 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        origin_note="convention: interior knots of the cubic B-spline of the shift with depth (Carlini et al. 2015), "
                    "closer than one ring period so that the shift between two rings is resolved",
        shown_as="Measurement panel: bead stack", records=("hecl-sigma-d",), not_editable_because="e1"),
+    # ---------------------------------------------------------------- ring-pair viability (the Z quality window's
+    # Criteria dialog; one store, MPSSettings.viability_params, read by Z quality, the viability explorer, the column
+    # review and the batch)
+    _e(key="viability.p_ref_nm", label="reference period P_ref", unit="nm", home="zquality",
+       default=_const(_AP, "P_REF_DEFAULT_NM"), origin="paper",
+       origin_note="the mean inter-peak distance along z reported for mouse sciatic nerve axons (Gazal et al. 2026, "
+                   "170 +/- 15 nm); presets: sciatic nerve lateral STED 186 nm (D'Este et al. 2016, mean), cultured "
+                   "neurons 182 nm (Xu et al. 2013) and about 190 nm (Zhong et al. 2014). The external yardstick of "
+                   "the merge flags (a ring wider than half of it, a gap over 1.3 of it), which must not depend on the "
+                   "axon they check; the period-scaled quantities use the axon's own measured period and fall back "
+                   "to this one",
+       documented_range=(150.0, 210.0), range_text="150-210",
+       shown_as="Z quality: Criteria dialog and header; the pair verdicts' merge flags",
+       records=("p-ref-default-170-8", "leak-axon-period", "lf-axial-resolution-def"), editable=True, fmt=".0f"),
+    _e(key="viability.h_over_p", label="SiZer bandwidth h / P", unit="", home="zquality", default=_vp("h_over_p"),
+       origin="derived",
+       origin_note="convention with a written derivation: bounded above by the resolution condition "
+                   "sqrt(sigma^2 + h^2) < P/2 of an equal pair (Schilling et al. 2002) and below by the slope "
+                   "variance, proportional to 1 / (n h^3) (Chaudhuri and Marron 1999); on synthetic clustered "
+                   "profiles 0.10 P found the valley more often than 0.20 P; P is the axon's own period; the map "
+                   "over 0.05-0.25 P is shown beside the verdict",
+       documented_range=(0.05, 0.25), range_text="0.05-0.25", shown_as="Z quality: Criteria dialog, pair table",
+       records=("sizer-h-over-p-0.10",), editable=True, fmt=".2f"),
+    _e(key="viability.peak_window_over_p", label="peak window / P", unit="", home="zquality",
+       default=_vp("peak_window_over_p"), origin="derived",
+       origin_note="convention with a written derivation: below P/2 so the windows of neighbouring rings do not "
+                   "overlap, above a few standard deviations of the peak position of a kernel density mode "
+                   "(Parzen 1962)",
+       documented_range=(0.2, 0.5), range_text="0.20-0.50", shown_as="Z quality: Criteria dialog",
+       records=("v2-peak-window-P-over-3",), editable=True, fmt=".3f"),
+    _e(key="viability.d_viable", label="separation d (viable)", unit="", home="zquality", default=_vp("d_viable"),
+       origin="simulation",
+       origin_note="a suggestion from a simulation study whose generator was parameterised on a pilot acquisition; "
+                   "no column statistic of a real axon entered it. Two equal Gaussian rings are bimodal only above "
+                   "d = sqrt 2 (Schilling et al. 2002); the dialog shows the equivalent sigma / P and valley depth",
+       documented_range=(1.41, 3.0), range_text="1.41-3.0", shown_as="Z quality: Criteria dialog",
+       records=("zq-d-viable", "zq-verdict-rule", "d39-thresholds-provenance-claim"), editable=True, fmt=".2f"),
+    _e(key="viability.d_marginal", label="separation d (marginal)", unit="", home="zquality",
+       default=_vp("d_marginal"), origin="simulation",
+       origin_note="a sensitivity tier from the same simulation study, bounded below by the bimodality floor "
+                   "sqrt 2 and above by the viable threshold",
+       documented_range=(1.41, 3.0), range_text="1.41-3.0", shown_as="Z quality: Criteria dialog",
+       records=("zq-d-marginal",), editable=True, fmt=".2f"),
+    _e(key="viability.delta_viable_sd", label="tolerated copy bias (viable)", unit="null sd", home="zquality",
+       default=_vp("delta_viable_sd"), origin="derived",
+       origin_note="first principles: a leak copy in register with its source adds a match unless the source was "
+                   "matched by chance, so a copy fraction c shifts the standardised excess by about 2 c (1 - p0) / "
+                   "sd* (toroidal-shift null, Lotwick and Silverman 1982); the pair tolerates c = delta sd* / "
+                   "(2 (1 - p0)), with p0 and sd* from its own cluster counts, ring lengths and the column test's "
+                   "tolerance",
+       documented_range=(0.1, 0.5), range_text="0.1-0.5", shown_as="Z quality: Criteria dialog, pair table",
+       records=("lf-leak-status", "leak-tiers-2-5"), editable=True, fmt=".2f"),
+    _e(key="viability.delta_marginal_sd", label="tolerated copy bias (marginal)", unit="null sd", home="zquality",
+       default=_vp("delta_marginal_sd"), origin="derived",
+       origin_note="the same per-pair tolerance at the marginal tier",
+       documented_range=(0.25, 1.0), range_text="0.25-1.0", shown_as="Z quality: Criteria dialog, pair table",
+       records=("zq-spur-marginal",), editable=True, fmt=".2f"),
+    _e(key="viability.copy_tiers_suggestion", label="fixed copy tiers (suggestion)", unit="", home="none",
+       default=_consts(_AP, ("V2_SPUR_VIABLE", "V2_SPUR_MARGINAL")), origin="simulation",
+       origin_note="shown only when a pair's own tolerance cannot be computed (cluster counts, ring lengths or the "
+                   "column test's tolerance unknown): a fixed fraction matches a fixed bias for one ring size only",
+       shown_as="Z quality: pair table", records=("leak-tiers-2-5",), not_editable_because="e1: a suggestion",
+       fmt=".2f"),
+    _e(key="viability.recall_tolerance", label="count floor: cluster recall", unit="", home="zquality",
+       default=_vp("recall_tolerance"), origin="derived",
+       origin_note="convention with a written derivation: random loss of clusters does not bias the toroidal-shift "
+                   "test but costs power, so the tolerance is a power convention (compare Cohen 1992); the same "
+                   "value is the cluster-count criterion of the cluster-level variant, since under random "
+                   "localization loss the count ratio is the recall",
+       documented_range=(0.80, 0.95), range_text="0.80-0.95", shown_as="Z quality: Criteria dialog",
+       records=("v2-fmin-recall-tolerance-0.90", "v2c-k-min-0.89", "v2-fmin-formula"), editable=True, fmt=".2f"),
+    _e(key="viability.count_floor_line", label="count floor: fitted line", unit="", home="none",
+       default=_consts(_AP, ("FMIN_INTERCEPT", "FMIN_SLOPE_PER_LN_X")), origin="simulation",
+       origin_note="a line fitted to a simulation study, shown as a suggestion until the count floor is calibrated "
+                   "on the axon by Bernoulli thinning of its reference ring's clusters (the DBSCAN core condition, "
+                   "Ester et al. 1996); valid only inside the simulated span of cluster brightness",
+       shown_as="Z quality: pair table and limiting factors", records=("v2-fmin-formula", "v2-fmin-x-range"),
+       not_editable_because="e1: replaced by the per-axon calibration"),
+    _e(key="viability.group_z_scale", label="3D groups: z scale", unit="", home="zquality",
+       default=_vp("group_z_scale"), origin="derived",
+       value_text="the file's lateral over axial precision; the suggestion without precisions",
+       origin_note="first principles: the variance groups are 3D DBSCAN clusters (eps and min samples of Gazal et "
+                   "al. 2026) with the axial coordinate scaled by the acquisition's lateral-to-axial precision "
+                   "ratio, so the neighbourhood is isotropic in precision units; astigmatic axial precision is "
+                   "typically 2-3x the lateral (Huang et al. 2008), hence one half as the suggestion",
+       documented_range=(0.25, 1.0), range_text="0.25-1.0", shown_as="Z quality: Criteria dialog",
+       records=("sizer-groups-3d", "v2c-variant-b-noise-left-out"), editable=True, fmt=".2f"),
+    _e(key="viability.keep_floor", label="copy count: slab retention floor", unit="", home="zquality",
+       default=_vp("keep_floor"), origin="derived",
+       origin_note="a numerical safeguard: the recovered original cluster size is capped at twenty times the "
+                   "detected one (an inclusion-probability correction, Horvitz and Thompson 1952); it does not act "
+                   "on realistic data",
+       documented_range=(0.01, 0.2), range_text="0.01-0.2", shown_as="Z quality: Criteria dialog (advanced)",
+       records=("zq-expected-copies", "v2c-floors"), editable=True, fmt=".2f"),
+    _e(key="viability.v2c_h_over_p", label="cluster-level SiZer bandwidth h / P", unit="", home="zquality",
+       default=_vp("v2c_h_over_p"), origin="derived",
+       origin_note="the same bandwidth as the localization profile for comparability, with the map across "
+                   "0.10-0.30 P: a profile of about a hundred cluster centres carries about one hundredth of the "
+                   "slope information of ten thousand localizations at that scale",
+       documented_range=(0.10, 0.30), range_text="0.10-0.30", shown_as="Z quality: Criteria dialog",
+       records=("v2c-h-over-p-0.10", "v2c-definition"), editable=True, fmt=".2f"),
+    _e(key="viability.v2c_cut_flag_over_h", label="slab-gap flag width / h", unit="", home="zquality",
+       default=_vp("v2c_cut_flag_over_h"), origin="derived",
+       origin_note="convention with a written derivation: the kernel spreads the edges of a slab gap by about one "
+                   "bandwidth, about twice the location noise of a valley among a hundred cluster centres",
+       documented_range=(0.5, 2.0), range_text="0.5-2.0", shown_as="Z quality: Criteria dialog",
+       records=("v2c-cut-flag-15nm",), editable=True, fmt=".2f"),
+    _e(key="viability.v2c_sigma_floor_nm", label="cluster-level leak: width floor", unit="nm", home="zquality",
+       default=_vp("v2c_sigma_floor_nm"), origin="derived",
+       origin_note="a numerical safeguard far below any astigmatic axial precision (Huang et al. 2008)",
+       documented_range=(1.0, 20.0), range_text="1-20", shown_as="Z quality: Criteria dialog (advanced)",
+       records=("v2c-floors", "tnfix-cluster-leak"), editable=True, fmt=".0f"),
     # ---------------------------------------------------------------- DNA-PAINT (the TODO-B9 hook, 12.9; filled by
     # B9). The DNA-PAINT window is not a stage-2 window: these entries are metadata for SCI-B9 and stage 3.
     _e(key="paint.link_radius_precisions", label="linking radius", unit="x precision", home="none",
@@ -594,6 +1056,8 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
 )
 
 _BY_KEY: Dict[str, ParamInfo] = {e.key: e for e in _ENTRIES}
+for _key in _AXIAL_RINGS_KEYS:
+    _BY_KEY[_key].extra["methods"] = AXIAL_RINGS_DOC
 
 
 # --------------------------------------------------------------------------- lookups
@@ -769,56 +1233,96 @@ def tooltip(key: str, value: Any = UNSET) -> str:
         # In words: the science PR's id is internal (``changes_in``); a reader cannot resolve it.
         note = e.change_note or "a later version changes it"
         lines.append(note[0].upper() + note[1:] + ".")
+    page = methods_page(key)
+    if page:
+        lines.append(f"Methods: {page}")
+    if e.extra.get("methods"):
+        lines.append(f"Methods: {e.extra['methods']}.")
     if e.unreviewed_because:
         lines.append("Unreviewed: " + ("not inventoried by the research yet." if e.unreviewed_because ==
                                        NOT_INVENTORIED else f"its research batch ({e.unreviewed_because}) is pending."))
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------- public methods pages
+# The page of the public repository that documents a group of values (origin, derivation, calibration, decisions).
+METHODS_PAGES: Tuple[Tuple[str, str], ...] = (
+    ("randomization.", "docs/randomization_and_ks.md"),
+    ("reference.ks", "docs/randomization_and_ks.md"),
+    ("reference.cdf_crossing", "docs/randomization_and_ks.md"),
+    ("reference.nn1_median_nm", "docs/randomization_and_ks.md"),
+    ("reference.clusters_per_um", "docs/randomization_and_ks.md"),
+    ("batch.", "docs/randomization_and_ks.md"),
+    ("occupancy.sigma_cap_fraction", "docs/randomization_and_ks.md"),
+)
+
+
+def methods_page(key: str) -> str:
+    """The public methods page of a value, or "" when it has none yet."""
+    for prefix, page in METHODS_PAGES:
+        if key == prefix or (prefix.endswith(".") and key.startswith(prefix)):
+            return page
+    return ""
+
+
 # --------------------------------------------------------------------------- the "More" lines (12.4)
 MORE_GROUPS: Dict[str, Tuple[str, ...]] = {
     "randomization": ("randomization.band_half_width_nm", "randomization.iterations", "randomization.seed",
                       "randomization.smoothing", "randomization.incomplete_iterations",
-                      "randomization.max_attempts_factor", "randomization.grid_spacing_nm"),
+                      "randomization.max_attempts_factor", "randomization.grid_spacing_nm",
+                      "randomization.cdf_band_alpha", "randomization.hard_core"),
     "occupancy": ("occupancy.sigma_cap_fraction",),
     "dbscan": ("curation.edge_criterion", "curation.dbcv_threshold", "contour.two_opt_starts"),
 }
 
-_MORE_WORDS: Dict[str, Callable[[], str]] = {
-    "randomization.band_half_width_nm": lambda: f"band +/-{format_value('randomization.band_half_width_nm')}",
-    "randomization.iterations": lambda: f"{format_value('randomization.iterations')} iterations",
-    "randomization.seed": lambda: f"seed {format_value('randomization.seed')}",
-    "randomization.smoothing": lambda: "smoothing s = K, open contour",
-    "randomization.incomplete_iterations": lambda: "incomplete iterations kept",
-    "randomization.max_attempts_factor": lambda: format_value("randomization.max_attempts_factor"),
-    "randomization.grid_spacing_nm": lambda: f"grid {format_value('randomization.grid_spacing_nm')}",
-    "occupancy.sigma_cap_fraction": lambda: format_value("occupancy.sigma_cap_fraction"),
-    "curation.edge_criterion": lambda: "curation: edge criterion on",
-    "curation.dbcv_threshold": lambda: format_value("curation.dbcv_threshold"),
-    "contour.two_opt_starts": lambda: format_value("contour.two_opt_starts"),
+def _words(key: str, value: Any) -> str:
+    """An entry's value in its own words (``ParamInfo.words``), or as format_value writes it."""
+    words = info(key).words
+    return words(value) if words is not None else format_value(key, value)
+
+
+_MORE_WORDS: Dict[str, Callable[[Any], str]] = {
+    "randomization.band_half_width_nm": lambda v: f"band +/-{format_value('randomization.band_half_width_nm', v)}",
+    "randomization.iterations": lambda v: f"{format_value('randomization.iterations', v)} iterations",
+    "randomization.seed": lambda v: f"seed {format_value('randomization.seed', v)}",
+    "randomization.smoothing": lambda v: _words("randomization.smoothing", v),
+    "randomization.incomplete_iterations": lambda v: _words("randomization.incomplete_iterations", v),
+    "randomization.max_attempts_factor": lambda v: f"attempts {v} x n",
+    "randomization.grid_spacing_nm": lambda v: f"grid {format_value('randomization.grid_spacing_nm', v)}",
+    "randomization.cdf_band_alpha": lambda v: f"CDF band alpha {v:g}",
+    "randomization.hard_core": lambda v: f"hard core: {v}",
+    "occupancy.sigma_cap_fraction": lambda v: f"sigma capped at d_max/{1.0 / float(v):.3g}",
+    "curation.edge_criterion": lambda v: "curation: edge criterion on",
+    "curation.dbcv_threshold": lambda v: format_value("curation.dbcv_threshold"),
+    "contour.two_opt_starts": lambda v: format_value("contour.two_opt_starts"),
 }
 
 
-def more_items(group: str) -> List[Tuple[str, str, str, str]]:
-    """(key, words, badge, bracket) for each read-only value of a strip group's "More" line, e.g.
-    ("randomization.iterations", "1,000 iterations", "paper", "paper; later: 999")."""
+def more_items(group: str, values: Optional[Dict[str, Any]] = None) -> List[Tuple[str, str, str, str]]:
+    """(key, words, badge, bracket) for each value of a strip group's "More" line, e.g.
+    ("randomization.iterations", "999 iterations", "derived", "derived; 199 / 399 / 999 / 1999"). ``values``
+    gives the values in use where they depart from the defaults (their badge is then "user")."""
     out: List[Tuple[str, str, str, str]] = []
+    values = values or {}
     for key in MORE_GROUPS[group]:
         e = info(key)
-        parts = [e.origin]
-        if e.origin in TRANSITIONAL and e.changes_in:
+        value = values.get(key, UNSET)
+        shown = e.default_value() if value is UNSET else value
+        b = badge(key, value)
+        parts = [b]
+        if b in TRANSITIONAL and e.changes_in:
             parts.append("changed later")
         elif e.changes_in and e.extra.get("later"):
             parts.append(f"later: {e.extra['later']}")
         elif e.documented_range is not None or e.allowed:
-            parts.append(e.range_text)
-        out.append((key, _MORE_WORDS[key](), e.origin, "; ".join(parts)))
+            parts.append(range_hint(key, value))
+        out.append((key, _MORE_WORDS[key](shown), b, "; ".join(parts)))
     return out
 
 
-def more_line(group: str) -> str:
+def more_line(group: str, values: Optional[Dict[str, Any]] = None) -> str:
     """The collapsed "More" line of a strip group, every value with its badge and range (12.4)."""
-    return " - ".join(f"{words} [{bracket}]" for _k, words, _b, bracket in more_items(group))
+    return " - ".join(f"{words} [{bracket}]" for _k, words, _b, bracket in more_items(group, values))
 
 
 # --------------------------------------------------------------------------- Reset to defaults (12.5)

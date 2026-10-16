@@ -16,16 +16,16 @@ and the user decides.
 
 The conventions (observed in the lab's folders, names only):
 
-A (2026-04-30, Picasso 0.9.10)
-    The session folder (``30.4.26``) holds the whole-field SR folder
-    (``26.04.30_bIIspt_50ms_90mW_TIRF_3con5_1``) with the chain
+A (Picasso 0.9.10)
+    The session folder (a date, e.g. ``17.3.25``) holds the whole-field SR
+    folder (e.g. ``25.03.17_bIIspt_50ms_TIRF_1``) with the chain
     ``<stem>.ome_locs[_undrift][_filter][_permisive|_render|_linked...].hdf5``
     and the picked files ``<stem>.ome_locs<chain>_picked(_axonN|N|N_M).hdf5``;
     its widefield images sit in sibling folders ``WF_spec_{n}`` and
     ``WF_tub_{n}`` whose index n is the SR folder's trailing ``_{n}`` (an
     inference, said so).
-B (2026-06-09)
-    ``20260609-3DSTORM_add{WT|KO}_b2spec_41_ROI{n}_1``; widefield siblings
+B
+    ``YYYYMMDD-3DSTORM_add{WT|KO}_b2spec_41_ROI{n}_1``; widefield siblings
     in the same genotype folder named ``ROI{n}_WF`` / ``ROI{n}_wf`` /
     ``ROI{n} wf`` / ``ROI{n}_WF_1`` (spectrin) and ``ROI{n}_t`` (tubulin) -
     which token is which is not confirmed, and the proposal says so.
@@ -131,7 +131,7 @@ class MatchResult:
 
 # ----------------------------------------------------------------------------------------------- helpers
 def date_key(name: str) -> Optional[Tuple[int, int, int]]:
-    """The date a name carries, as its three numbers sorted (26.04.30, 26.4.30, 26_4_30, 30.4.26 and 20260430 are
+    """The date a name carries, as its three numbers sorted (25.03.17, 25.3.17, 25_3_17, 17.3.25 and 20250317 are
     the same date), or None. Sorting makes day-month-year and year-month-day folders comparable; it is a matching
     hint, not a calendar date."""
     m = _DATE_COMPACT.search(name)

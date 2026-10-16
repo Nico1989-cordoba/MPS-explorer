@@ -1,0 +1,41 @@
+{
+ "rows": [
+  {
+   "K": 20,
+   "variant": "X",
+   "n_rep": 150,
+   "B": 199,
+   "reject_MC_median": 0.06,
+   "reject_scipy": 0.18,
+   "mean_frac_obs_below_null_min": 0.0006666666666666668
+  },
+  {
+   "K": 20,
+   "variant": "P",
+   "n_rep": 150,
+   "B": 199,
+   "reject_MC_median": 0.06666666666666667,
+   "reject_scipy": 0.20666666666666667,
+   "mean_frac_obs_below_null_min": 0.10033333333333332
+  },
+  {
+   "K": 50,
+   "variant": "X",
+   "n_rep": 150,
+   "B": 199,
+   "reject_MC_median": 0.04,
+   "reject_scipy": 0.16666666666666666,
+   "mean_frac_obs_below_null_min": 0.0002666666666666667
+  },
+  {
+   "K": 50,
+   "variant": "P",
+   "n_rep": 150,
+   "B": 199,
+   "reject_MC_median": 0.04,
+   "reject_scipy": 0.08666666666666667,
+   "mean_frac_obs_below_null_min": 0.04
+  }
+ ],
+ "elapsed_s": 85.67708100000164
+}

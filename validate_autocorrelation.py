@@ -6,6 +6,9 @@ average of the two first valleys of the autocorrelation curve".
 
 The valleys are located independently here, as the first local minima
 before and after the first peak, and the module's amplitude has to match.
+SCI-6: the first peak is searched within +/-35 % of the reference period
+(170 nm) and must be a local maximum, so an unstructured profile gives no
+period; profiles shorter than three expected periods give no amplitude.
 
 Run:  python validate_autocorrelation.py
 """
@@ -89,10 +92,30 @@ def main() -> int:
 
     def another_period_in_the_window():
         amp, period, ac = autocorrelation_amplitude(
-            profile(period_nm=170.0), PIXEL_NM)
-        assert period == 170.0, period
+            profile(period_nm=200.0), PIXEL_NM)
+        assert period == 200.0, period
         assert abs(amp - by_definition(ac, period)) < 1e-12
-        return "170 nm found while looking around 190 nm"
+        return "200 nm found while looking around 170 nm (+/-35 %)"
+
+    def smooth_without_repeat():
+        # A smooth, non-periodic profile: its autocorrelation decays without
+        # a repeat, and the edge of the window is no peak.
+        rng = np.random.default_rng(0)
+        walk = np.cumsum(rng.normal(size=600))
+        smooth = np.convolve(walk, np.ones(25) / 25, mode="same")
+        amp, period, _ = autocorrelation_amplitude(smooth, PIXEL_NM)
+        assert amp is None and period is None, (amp, period)
+        return "a smooth random walk returns no period (local maximum required)"
+
+    def three_periods_minimum():
+        from tools.mps_autocorrelation import min_profile_samples
+        need = min_profile_samples(PIXEL_NM)
+        assert need == int(np.ceil(3 * 170.0 / PIXEL_NM)), need
+        too_short = profile(n=need - 1)
+        enough = profile(n=need)
+        assert autocorrelation_amplitude(too_short, PIXEL_NM)[0] is None
+        assert autocorrelation_amplitude(enough, PIXEL_NM)[1] is not None
+        return f"{need} samples (3 periods at 10 nm) are the shortest profile measured"
 
     def no_structure():
         flat = autocorrelation_amplitude(np.ones(400), PIXEL_NM)
@@ -122,6 +145,8 @@ def main() -> int:
     check("a period away from the expected one, within the window",
           another_period_in_the_window)
     check("no structure, no amplitude", no_structure)
+    check("a smooth profile without a repeat gives no period", smooth_without_repeat)
+    check("profiles shorter than three periods give no amplitude", three_periods_minimum)
     check("missing samples", missing_samples)
     check("the period is a multiple of the sampling step", sampling_step)
 
