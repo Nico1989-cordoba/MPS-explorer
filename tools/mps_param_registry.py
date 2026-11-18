@@ -299,9 +299,10 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
                    "leaves unclustered; the same constant as the analysis default",
        shown_as="k-distance graph (eps = auto)", not_editable_because="e1"),
     _e(key="curation.edge_criterion", label="curation: edge criterion", unit="", home="none",
-       default=_in_code("tools/mps_analysis.py", r"edge_margin_nm=(eps_nm)", str), origin="ad hoc",
-       value_text="on: a cluster within eps of the ROI edge is removed",
-       origin_note="a cluster cut by the drawn ROI's edge is removed (margin eps); the rule is switched off for a "
+       default=_in_code("tools/mps_analysis.py", r"edge_margin_nm=(edge_margin)", str), origin="ad hoc",
+       value_text="on: a cluster within the method's scale (eps for DBSCAN) of the ROI edge is removed",
+       origin_note="a cluster cut by the drawn ROI's edge is removed (margin = the clustering method's own scale, "
+                   "eps for DBSCAN; Phase D); the rule is switched off for a "
                    "ROI where it would remove more than half of the clusters, a safeguard with no written "
                    "derivation yet",
        shown_as="DBSCAN 'More' line", records=("edge-runaway-guard-50pct", "edge-reference-convex-hull-fallback"),

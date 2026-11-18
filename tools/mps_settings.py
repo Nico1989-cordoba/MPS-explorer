@@ -29,7 +29,7 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from tools.mps_identity import check_patterns
 
@@ -192,6 +192,18 @@ class MPSSettings:
     # (pick_files). A NeNA that is not one is dropped, never clamped.
     cut_clusters_by_folder: Dict[str, Dict[str, Any]] = field(
         default_factory=dict)
+    # Phase D (D0, 2026-10-16). ``cluster_method``: a name of
+    # tools.clustering_strategies.STRATEGY_REGISTRY; "DBSCAN" is the
+    # compatibility path (eps_nm / min_samples above). ``cluster_params``:
+    # that method's parameters (JSON object), ignored for DBSCAN.
+    # ``experimental_methods_enabled``: the 'Experimental clustering
+    # methods' box (D10; off hides every method but DBSCAN).
+    # ``cluster_methods_compared``: the methods the user compared before
+    # choosing (D12), written to the export; [] when none.
+    cluster_method: str = "DBSCAN"
+    cluster_params: Dict[str, Any] = field(default_factory=dict)
+    experimental_methods_enabled: bool = False
+    cluster_methods_compared: List[str] = field(default_factory=list)
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -366,6 +378,34 @@ class MPSSettings:
             record = {}
         self.eps_choice = record
         self.beginner_tour = clean_tour_state(self.beginner_tour)
+        # Phase D: an unknown method (a newer file, a typo) falls back to
+        # the compatibility path rather than failing the analysis.
+        from tools.clustering_strategies import registry_names
+
+        names = registry_names(include_experimental=True, available_only=False)
+        if not isinstance(self.cluster_method, str) or self.cluster_method not in names:
+            if self.cluster_method != "DBSCAN":
+                logger.warning("Stored cluster_method=%r is not a registered method; using DBSCAN",
+                               self.cluster_method)
+            self.cluster_method = "DBSCAN"
+        # A registered method whose optional package is missing on this
+        # machine (a settings file from another one): the analysis would
+        # fail with ImportError while the combo shows DBSCAN (review m4).
+        # Its parameters belong to it, so they go with it.
+        from tools.clustering_strategies import strategy_registry
+
+        info = strategy_registry().get(self.cluster_method)
+        if info is not None and not info.available:
+            logger.warning("Stored cluster_method=%r needs a package that is not installed; using DBSCAN",
+                           self.cluster_method)
+            self.cluster_method = "DBSCAN"
+            self.cluster_params = {}
+        if not isinstance(self.cluster_params, dict):
+            self.cluster_params = {}
+        self.experimental_methods_enabled = bool(self.experimental_methods_enabled)
+        if not isinstance(self.cluster_methods_compared, list):
+            self.cluster_methods_compared = []
+        self.cluster_methods_compared = [str(m) for m in self.cluster_methods_compared if str(m) in names]
         return self
 
 

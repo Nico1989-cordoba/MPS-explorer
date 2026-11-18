@@ -307,6 +307,14 @@ pytest test_mps_explorer.py -v
   exploratory check, through its **k-distance... (exploratory)** button, that never writes to its boxes. The
   algorithm selector's "Auto" is now "Adaptive (exploratory)". Method and validation:
   [docs/eps_kdistance.md](docs/eps_kdistance.md).
+- **Clustering methods (Phase D).** DBSCAN 25/10 stays the default and the **Compatibility 25/10** mode; OPTICS,
+  FOCAL, HDBSCAN, Voronoi (SR-Tesseler / ClusterViSu), ToMATo and GraphCommunity appear behind **Experimental
+  clustering methods** in the parameter strip, each with its parameters and their origin. Nothing runs on load:
+  **Compare methods...** runs only what you tick and shows the readouts beside the synthetic benchmark's verdict
+  (non-inferiority to DBSCAN 25/10, Δ = 5 points); **Use this method** saves the choice, written to the export
+  (`cluster_method`, `cluster_params`, `cluster_scale_nm`, `cluster_methods_compared`; axon tables v10). Catalogue,
+  criterion and benchmark: [docs/clustering_methods.md](docs/clustering_methods.md),
+  [docs/clustering_benchmark.md](docs/clustering_benchmark.md).
 - **Origin of every value.** Each parameter of the MPS analysis, Rings and Axoplasm windows, and each published
   reference value, carries a badge from one registry (`tools/mps_param_registry.py`); the other windows (columns
   review, Z quality, Data quality, Two channels, DNA-PAINT, the simulated null) get theirs when they are rebuilt. The

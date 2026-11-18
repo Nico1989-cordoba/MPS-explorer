@@ -1463,7 +1463,8 @@ def _edge_suspects(an: AxonAnalysis) -> Set[int]:
     if an.roi is not None and np.asarray(an.labels).size:
         flagged |= find_edge_touching_clusters(
             np.asarray(an.x_slab, dtype=np.float64), np.asarray(an.y_slab, dtype=np.float64),
-            np.asarray(an.labels, dtype=np.int64), an.roi, edge_margin_nm=float(an.eps_nm))
+            np.asarray(an.labels, dtype=np.int64), an.roi,
+            edge_margin_nm=float(an.cluster_edge_margin_nm if an.cluster_edge_margin_nm else an.eps_nm))
     return flagged
 
 

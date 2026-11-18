@@ -758,6 +758,16 @@ class MPS_explorer(QtWidgets.QMainWindow):
             s.eps_nm = new_eps
         if "min_samples" in values:
             s.min_samples = int(values["min_samples"])
+        # Phase D (D0): the method chosen in the strip or in 'Compare
+        # methods'; validate() falls back to DBSCAN for an unknown name.
+        if "cluster_method" in values:
+            s.cluster_method = str(values["cluster_method"])
+        if "cluster_params" in values:
+            s.cluster_params = dict(values["cluster_params"] or {})
+        if "experimental_methods_enabled" in values:
+            s.experimental_methods_enabled = bool(values["experimental_methods_enabled"])
+        if "cluster_methods_compared" in values:
+            s.cluster_methods_compared = [str(m) for m in values["cluster_methods_compared"]]
         if "slab_half_width_nm" in values:
             s.slab_half_width_nm = float(values["slab_half_width_nm"])
         if "mahalanobis_threshold" in values:
@@ -3317,6 +3327,16 @@ class MPS_explorer(QtWidgets.QMainWindow):
                                     "not applied to this one.")
                 self._guide_note_runs = 0
 
+        # Phase D (D0): the saved method, only where it departs from
+        # DBSCAN (rule K: the compatibility path passes nothing).
+        method = str(overrides.pop("cluster_method", s.cluster_method))
+        method_params = overrides.pop("cluster_params", s.cluster_params)
+        compared = overrides.pop("cluster_methods_compared", s.cluster_methods_compared)
+        if method != "DBSCAN":
+            params["cluster_method"] = method
+            params["cluster_params"] = dict(method_params or {})
+        if compared:
+            params["cluster_methods_compared"] = list(compared)
         self.logger.info(
             f"MPS analysis: {len(x_in):,} ROI localizations "
             f"(axial range {'manual' if 'slab_override' in params else 'automatic'}), "
@@ -3621,6 +3641,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
                             float(self.mps_settings.mahalanobis_threshold)),
             store=self._store_params,
             slab_state=self._slab_state,
+            method_state=lambda: (str(self.mps_settings.cluster_method),
+                                  dict(self.mps_settings.cluster_params),
+                                  bool(self.mps_settings.experimental_methods_enabled),
+                                  list(self.mps_settings.cluster_methods_compared)),
             apply_typed=self._apply_typed_range,
             root_name=self.get_root_filename,
             z_calibration=self._z_calibration_words,

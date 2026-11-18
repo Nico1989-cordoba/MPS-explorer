@@ -42,13 +42,13 @@ can be run and tested headlessly (see validate_full_pipeline.py).
 from __future__ import annotations
 
 import dataclasses
+import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy.spatial import ConvexHull
-from sklearn.cluster import DBSCAN
 
 from tools.cluster_quality import (
     BadClusterReport,
@@ -107,6 +107,9 @@ from tools.mps_spatial import (
 )
 from tools import mps_cut_clusters as cut_rule
 from tools.mps_settings import DEFAULT_DBCV_THRESHOLD
+from tools.clustering_strategies import (
+    COMPAT_METHOD, ClusteringStrategy, DBSCANStrategy, make_strategy,
+    strategy_params_json)
 from tools.results_table import cell_text
 
 # Paper defaults (Gazal et al. 2026)
@@ -250,6 +253,23 @@ class AxonAnalysis:
     # cut, and whether they were left out. None: no boundary was given to
     # the analysis (the table then says "boundary unknown: not evaluated").
     cut: Optional[cut_rule.CutReport] = None
+
+    # --- which clustering method produced the labels (Phase D, D0) --------
+    # ``cluster_method`` is a name of tools.clustering_strategies.
+    # STRATEGY_REGISTRY ("DBSCAN" = the compatibility path, bit for bit the
+    # analysis before Phase D); ``cluster_params`` the parameters it ran
+    # with (JSON-safe); ``cluster_scale_nm`` the method's own length scale
+    # (DBSCAN: eps; informative, exported); ``cluster_edge_margin_nm`` the
+    # edge-curation margin actually used (DBSCAN: eps; other methods:
+    # ClusteringStrategy.edge_margin_nm, never below the compatibility eps;
+    # not exported);
+    # ``cluster_methods_compared`` the methods the user compared in the
+    # 'Compare methods' dialog before choosing this one (D12), or empty.
+    cluster_method: str = COMPAT_METHOD
+    cluster_params: Dict[str, Any] = field(default_factory=dict)
+    cluster_scale_nm: Optional[float] = None
+    cluster_methods_compared: Tuple[str, ...] = ()
+    cluster_edge_margin_nm: Optional[float] = None
 
     # ---------------- convenience accessors for the panel ----------------
 
@@ -567,6 +587,22 @@ class AxonAnalysis:
                    f"the smoothed contour")),
         ]
         return rows
+
+    def cluster_method_record(self) -> Dict[str, Any]:
+        """The four Phase D columns (axon tables v10, written last by
+        axon_export.axon_row, like the other trailing blocks): which method
+        made the clusters, its parameters as JSON, its scale and the methods
+        compared before choosing it. DBSCAN rows carry eps / min_samples
+        here and in the old columns on purpose: the old columns keep their
+        meaning for every table written so far."""
+        return {
+            "cluster_method": self.cluster_method,
+            "cluster_params": json.dumps(self.cluster_params, sort_keys=True),
+            "cluster_scale_nm": _round_or_none(self.cluster_scale_nm, 3),
+            # "|", never ";": a ";" inside a cell is what Excel splits a row on
+            # where the decimal mark is a comma (see _joined, cell_text).
+            "cluster_methods_compared": "|".join(self.cluster_methods_compared),
+        }
 
     def export_dict(self) -> Dict[str, Any]:
         """Flat record for CSV export -- one row per analysed axon.
@@ -949,6 +985,10 @@ def analyze_axon(
     foreign_fraction_warn: float = FOREIGN_FRACTION_WARN,
     cut_context: Optional[cut_rule.CutContext] = None,
     exclude_cut_clusters: bool = False,
+    cluster_method: str = COMPAT_METHOD,
+    cluster_params: Optional[Dict[str, Any]] = None,
+    cluster_methods_compared: Sequence[str] = (),
+    strategy: Optional[ClusteringStrategy] = None,
 ) -> AxonAnalysis:
     """
     Run the full per-axon pipeline on one ROI's localizations.
@@ -1105,6 +1145,23 @@ def analyze_axon(
         sigma_cap_fraction=float(sigma_cap_fraction),
     )
 
+    # ---------------- which method (Phase D) ----------------------------
+    # DBSCAN (the compatibility path) is built from eps_nm / min_samples so
+    # the strip's two spinboxes stay the single source of those numbers;
+    # any other method takes its parameters from cluster_params over the
+    # registry defaults. Nothing here runs more than the one chosen method
+    # (D12: the comparison is a separate, explicit action).
+    if strategy is None:
+        if cluster_method == COMPAT_METHOD:
+            strategy = DBSCANStrategy(eps=float(eps_nm), min_samples=int(min_samples))
+        else:
+            strategy = make_strategy(cluster_method, cluster_params)
+    method_params = strategy_params_json(strategy)
+    method_record: Dict[str, Any] = dict(
+        cluster_method=cluster_method, cluster_params=method_params,
+        cluster_methods_compared=tuple(str(m) for m in cluster_methods_compared),
+    )
+
     if xs.size < min_samples:
         warnings_.append(
             f"Only {xs.size} localizations inside the axial slab "
@@ -1121,12 +1178,16 @@ def analyze_axon(
             cut=(None if cut_context is None else cut_rule.evaluate(
                 xs, ys, np.full(xs.size, -1, dtype=np.int64), [], cut_context,
                 exclude=exclude_cut_clusters)),
-            **settings, **base,
+            **settings, **base, **method_record,
         )
 
-    # ---------------- step 1: DBSCAN + automatic curation ---------------
+    # ---------------- step 1: clustering + automatic curation -----------
     pts = np.column_stack([xs, ys])
-    labels = DBSCAN(eps=eps_nm, min_samples=min_samples).fit(pts).labels_
+    labels, edge_margin = cluster_slab(pts, strategy, fallback_scale_nm=float(eps_nm))
+    scale = strategy.scale_nm()
+    method_record["cluster_scale_nm"] = (float(scale) if scale is not None and np.isfinite(scale)
+                                         and scale > 0 else None)
+    method_record["cluster_edge_margin_nm"] = edge_margin
     n_raw = len({int(l) for l in labels} - {-1})
 
     # When no explicit ROI shape is supplied, approximate the boundary with
@@ -1143,9 +1204,14 @@ def analyze_axon(
                       else "convex hull" if roi_for_edges is not None
                       else "none")
 
+    # The edge margin: eps for DBSCAN (unchanged from the reference
+    # pipeline); for the other methods ClusteringStrategy.edge_margin_nm,
+    # max(eps, the method's separation scale) -- never their intra-cluster
+    # scale_nm (median core distance, Voronoi cell spacing), which is
+    # 10-15 nm and would curate less than DBSCAN does.
     report = identify_bad_clusters(
         xs, ys, labels, roi_for_edges,
-        edge_margin_nm=eps_nm, dbcv_threshold=dbcv_threshold,
+        edge_margin_nm=edge_margin, dbcv_threshold=dbcv_threshold,
     )
     if report.edge_criterion_disabled:
         warnings_.append(report.edge_criterion_disabled)
@@ -1193,8 +1259,38 @@ def analyze_axon(
         upstream_warnings=list(warnings_),
         edge_reference=edge_reference,
         cut=cut,
-        **settings, **base, **base_cluster,
+        **settings, **base, **base_cluster, **method_record,
     )
+
+
+def cluster_slab(
+    xy: NDArray[np.float64],
+    strategy: ClusteringStrategy,
+    fallback_scale_nm: float = DEFAULT_EPS_NM,
+) -> Tuple[NDArray[np.int64], float]:
+    """Cluster the slab's (n, 2) coordinates with ``strategy``.
+
+    Returns the labels (-1 = noise, as every strategy of the registry
+    promises) and the edge-curation margin in nm:
+    ``strategy.edge_margin_nm(fallback_scale_nm)`` after the fit, i.e. eps
+    for DBSCAN and max(fallback, the method's separation scale) for the
+    others; ``fallback_scale_nm`` [literature: DBSCAN's eps, the margin of
+    the reference pipeline, Gazal et al. 2026] when that is not a positive
+    number.
+
+    With ``DBSCANStrategy(eps, min_samples)`` this is bit for bit
+    ``DBSCAN(eps, min_samples).fit(xy).labels_`` with margin eps: the
+    compatibility path of Phase D.
+    """
+    labels = np.asarray(strategy.fit(xy), dtype=np.int64)
+    if labels.shape != (xy.shape[0],):
+        raise ValueError(
+            f"{strategy.get_strategy_name()}: expected {xy.shape[0]} labels, "
+            f"got shape {labels.shape}")
+    margin = strategy.edge_margin_nm(float(fallback_scale_nm))
+    if margin is None or not np.isfinite(margin) or margin <= 0:
+        margin = float(fallback_scale_nm)
+    return labels, float(margin)
 
 
 @dataclass

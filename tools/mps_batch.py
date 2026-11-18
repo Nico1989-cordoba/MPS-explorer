@@ -157,6 +157,7 @@ COMPARABLE_COLUMNS: Dict[str, str] = {
 # difference between groups can then be a difference in method.
 GUARD_COLUMNS: Tuple[str, ...] = (
     "table_version", "pixel_size_source", "eps_nm", "min_samples",
+    "cluster_method", "cluster_scale_nm",
     "dbcv_threshold", "edge_reference", "slab_half_width_nm", "slab_source",
     "mahalanobis_threshold", "ellipse_mode", "contour_2opt",
     "randomization_requested",
@@ -253,6 +254,11 @@ class BatchSettings:
     # How eps was chosen on the k-distance graph (P-R58), when it was: the
     # settings' record, written beside every row (on another file's graph).
     eps_choice: Dict[str, Any] = field(default_factory=dict)
+    # Phase D: the method saved in the settings (D12: only the chosen one
+    # runs; the comparison is a separate box in the batch window).
+    cluster_method: str = "DBSCAN"
+    cluster_params: Dict[str, Any] = field(default_factory=dict)
+    cluster_methods_compared: List[str] = field(default_factory=list)
 
     @classmethod
     def from_settings(cls, settings: Any) -> "BatchSettings":
@@ -278,11 +284,16 @@ class BatchSettings:
                    sigma_cap_fraction=float(getattr(settings, "occupancy_sigma_cap_fraction",
                                                     SIGMA_CAP_FRACTION)),
                    eps_choice=dict(record) if isinstance(record, dict)
-                   else {})
+                   else {},
+                   cluster_method=str(getattr(settings, "cluster_method", "DBSCAN") or "DBSCAN"),
+                   cluster_params=dict(getattr(settings, "cluster_params", {}) or {}),
+                   cluster_methods_compared=list(getattr(settings, "cluster_methods_compared", []) or []))
 
 
     def describe(self) -> str:
-        return (f"DBSCAN eps {self.eps_nm:g} nm, min samples "
+        method = ("" if self.cluster_method == "DBSCAN"
+                  else f"clustering method {self.cluster_method} {self.cluster_params}; ")
+        return (f"{method}DBSCAN eps {self.eps_nm:g} nm, min samples "
                 f"{self.min_samples}; axial slab +/-"
                 f"{self.slab_half_width_nm:g} nm around the main peak, "
                 f"found per axon; Mahalanobis threshold "
@@ -428,6 +439,9 @@ def analyse_file(item: BatchFile, settings: BatchSettings,
             pixel_size_nm=loc.pixel_size_nm,
             pixel_size_source=loc.pixel_size_source,
             eps_nm=settings.eps_nm, min_samples=settings.min_samples,
+            cluster_method=settings.cluster_method,
+            cluster_params=settings.cluster_params,
+            cluster_methods_compared=settings.cluster_methods_compared,
             slab_half_width_nm=settings.slab_half_width_nm,
             dbcv_threshold=settings.dbcv_threshold,
             mahalanobis_threshold=settings.mahalanobis_threshold,
@@ -472,6 +486,99 @@ def run_batch(
         if on_done is not None:
             on_done(index, record)
     return records
+
+
+# ---------------------------------------------------------------------------
+# Phase D (D0): the optional comparison of methods, a table apart
+# ---------------------------------------------------------------------------
+COMPARISON_COLUMNS: Tuple[str, ...] = (
+    "source", "axon_id", "cluster_method", "cluster_params", "cluster_scale_nm",
+    "clusters_per_um", "median_1nn_nm", "median_r_eff_nm", "occupancy_percent",
+    "n_clusters_kept", "time_s", "error")
+COMPARISON_FILE = "batch_methods_comparison.csv"
+
+
+def methods_to_compare(settings: BatchSettings) -> List[str]:
+    """The methods the batch's 'Compare methods (slow)' box runs (D12, review of D0 M4).
+
+    Exactly the ones the user compared and chose in the axon window's
+    'Compare methods...' (``cluster_methods_compared`` of the settings), in
+    that order, with DBSCAN first as the reference when it is not among
+    them; names the registry no longer has, and 'External labels', are left
+    out. Nothing chosen yet: an empty list, and the box stays disabled. It
+    never adds a method on its own, so with 'Experimental clustering
+    methods' off no experimental method runs unless the user chose it.
+    """
+    from tools.clustering_strategies import COMPAT_METHOD, strategy_registry
+    reg = strategy_registry()
+    chosen: List[str] = []
+    for m in settings.cluster_methods_compared or []:
+        name = str(m).strip()
+        if name and name in reg and name != "External labels" and name not in chosen:
+            chosen.append(name)
+    if not chosen:
+        return []
+    return chosen if COMPAT_METHOD in chosen else [COMPAT_METHOD] + chosen
+
+
+def compare_methods(
+    items: Sequence[BatchFile],
+    settings: BatchSettings,
+    methods: Sequence[str],
+    *,
+    cancelled: Optional[Callable[[], bool]] = None,
+    z_store: Optional[Dict[str, Any]] = None,
+    on_done: Optional[Callable[[int, int], None]] = None,
+) -> List[Dict[str, Any]]:
+    """Every file by every method in ``methods``, one row each (D12: only
+    when the batch window's 'Compare methods (slow)' box is ticked).
+
+    Each method runs with the registry defaults (the saved parameters for
+    the saved method); the file is loaded again per method [ad hoc: simple,
+    and the box is declared slow]. ``on_done(file_index, method_index)``
+    after each run. Never raises: a failed run is a row with ``error``.
+    """
+    import dataclasses
+    import time as _time
+    from tools.clustering_strategies import strategy_registry
+    rows: List[Dict[str, Any]] = []
+    reg = strategy_registry()
+    for i, item in enumerate(items):
+        for j, method in enumerate(methods):
+            if cancelled is not None and cancelled():
+                return rows
+            info = reg.get(method)
+            params = (dict(settings.cluster_params) if method == settings.cluster_method
+                      else {} if info is None else {k: info.defaults[k]["value"] for k in info.numeric_params()})
+            per = dataclasses.replace(settings, cluster_method=method, cluster_params=params,
+                                      cluster_methods_compared=list(methods))
+            t0 = _time.perf_counter()
+            rec = analyse_file(item, per, z_store)
+            row: Dict[str, Any] = {c: rec.row.get(c) for c in COMPARISON_COLUMNS}
+            row["source"] = rec.source
+            row["cluster_method"] = method
+            row["time_s"] = round(_time.perf_counter() - t0, 3)
+            row["error"] = rec.error or ""
+            rows.append(row)
+            if on_done is not None:
+                on_done(i, j)
+    return rows
+
+
+def comparison_path(table_path: str) -> str:
+    """``batch_methods_comparison.csv`` beside the axon table."""
+    return os.path.join(os.path.dirname(os.path.abspath(table_path)), COMPARISON_FILE)
+
+
+def write_methods_comparison(rows: Sequence[Dict[str, Any]], path: str) -> int:
+    """Write the comparison rows (COMPARISON_COLUMNS) to ``path``; returns the count."""
+    import csv
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(COMPARISON_COLUMNS), extrasaction="ignore")
+        w.writeheader()
+        for r in rows:
+            w.writerow({c: ("" if r.get(c) is None else r.get(c)) for c in COMPARISON_COLUMNS})
+    return len(rows)
 
 
 # ============================================================================

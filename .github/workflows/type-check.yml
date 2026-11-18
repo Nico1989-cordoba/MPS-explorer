@@ -71,6 +71,11 @@ jobs:
             tools/figure_export_ui.py \
             tools/clustering.py \
             tools/clustering_strategies.py \
+            tools/cluster_density.py \
+            tools/cluster_tessellation.py \
+            tools/cluster_topological.py \
+            tools/spatial_stats.py \
+            tools/cluster_benchmark.py \
             tools/parallel_clustering.py \
             tools/parameter_cache.py \
             config_loader.py \

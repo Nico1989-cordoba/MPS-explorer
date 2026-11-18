@@ -252,8 +252,9 @@ def export_columns() -> str:
     a = analyze_axon(d["x"], d["y"], d["z"], cut_context=ctx, **kw)
     row = axon_export.axon_row(a, exported_at="2026-10-14T00:00:00Z")
     names = list(row)
-    assert names[-len(axon_export.CUT_COLUMNS):] == list(axon_export.CUT_COLUMNS), names[-14:]
-    assert row["table_version"] == "axon tables v9"   # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59
+    n_cm = len(axon_export.CLUSTER_METHOD_COLUMNS)   # v10 (Phase D): the method's four columns come after the cut's
+    assert names[-len(axon_export.CUT_COLUMNS) - n_cm:-n_cm] == list(axon_export.CUT_COLUMNS), names[-18:]
+    assert row["table_version"] == "axon tables v10"  # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59, v10 Phase D
     assert row["cut_status"] == "evaluated" and row["cut_nena_nm"] == 8.0 and row["cut_margin_nm"] == 8.0
     assert row["cut_nena_multiple"] == 1.0 and row["cut_excluded"] is False
     assert row["n_clusters_cut"] == a.cut.k and row["n_clusters_cut_of"] == a.n_clusters_kept
@@ -273,7 +274,7 @@ def export_columns() -> str:
     row_ex = axon_export.axon_row(ex, exported_at="2026-10-14T00:00:00Z")
     assert row_ex["cut_excluded"] is True and row_ex["n_clusters_removed"] >= a.cut.k
     assert not any(r["cut_by_pick"] for r in axon_export.cluster_table(ex))
-    return (f"{len(axon_export.CUT_COLUMNS)} cut_ columns last, cut_by_pick last in the clusters table; "
+    return (f"{len(axon_export.CUT_COLUMNS)} cut_ columns before the method's, cut_by_pick last in the clusters table; "
             f"'{row0['cut_status'][:32]}...' without a boundary")
 
 
