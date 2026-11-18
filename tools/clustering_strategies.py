@@ -711,7 +711,8 @@ def _merge_defaults(defaults: Dict[str, Any], origins: Dict[str, str]) -> Dict[s
 def strategy_registry() -> Dict[str, StrategyInfo]:
     """Build (once) and return the registry: DBSCAN (compatibility, not
     experimental), HDBSCAN (the ``hdbscan`` package, optional D9), the density,
-    tessellation and topological families, and external labels.
+    tessellation and topological families, external labels, and the
+    model-based Emitters (BaGoL-like reimplementation).
 
     The families are imported here, not at module level, because they import
     :class:`ClusteringStrategy` from this module.
@@ -763,6 +764,14 @@ def strategy_registry() -> Dict[str, StrategyInfo]:
             {"csv_path": {"value": "", "origin": "user: file chosen in the interface"},
              "scale_nm": {"value": 25.0, "origin": "user: declared scale; default = DBSCAN eps [ad hoc]"},
              "tol_nm": {"value": 1e-3, "origin": "ad hoc: exact round trips"}})
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        from tools.cluster_emitters import emitters_family
+        for name, e in emitters_family().items():
+            reg[name] = StrategyInfo(name, e["cls"], "model-based", e["description"],
+                                     _merge_defaults(e["defaults"], e.get("origins", {})),
+                                     citation=e.get("citation", ""))
     except ImportError:  # pragma: no cover
         pass
     return reg

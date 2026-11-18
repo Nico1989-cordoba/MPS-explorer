@@ -46,6 +46,7 @@ from tools.cluster_quality import (
     points_in_roi,
 )
 from tools.mps_analysis import analyze_axon
+from tools import mps_perimeter_cost as perimeter_cost
 from tools.mps_periodicity import fit_z_periodicity
 from tools import mps_file_drop, mps_io, mps_pixel_size
 from tools.mps_picasso_tools import PicassoTools
@@ -468,6 +469,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # analysis whose re-run failed (design 6.3).
         self._pending_recut: bool = False
         self._rerun_failed_for: Any = None
+        # Why the last analysis returned nothing, when the user cancelled
+        # it before a long perimeter (tools.mps_perimeter_cost).
+        self._perimeter_cancelled = ""
         # The same analysis with all its clusters and without the ones the
         # axoplasm panel found inside the axon (a _HeldDiscard), or None.
         self.mps_discard: Optional[Any] = None
@@ -1749,6 +1753,18 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.mps_settings.last_export_dir = os.path.dirname(paths["axon"])
         save_settings(self.mps_settings)
         note = written(paths, counts, decision == export_ui.REPLACE)
+        # BaGoL F5: with the Emitters layer, its emitters and the labels in
+        # the 'External labels' format, one pair of files per axon.
+        if getattr(measured, "emitters", None) is not None:
+            try:
+                from tools.emitters_layer import write_emitter_files
+                files = write_emitter_files(measured, paths["axon"],
+                                            str(tables.axon.get("axon_id", "")))
+                if files:
+                    note += ("\n\nEmitters (BaGoL-like reimplementation): "
+                             + ", ".join(os.path.basename(f) for f in files))
+            except OSError as error:
+                self.logger.warning(f"Could not write the emitter files: {error}")
         # What every column means, beside the tables: a table of 159
         # columns is otherwise readable only by whoever exported it, and
         # only while they remember.
@@ -3230,7 +3246,62 @@ class MPS_explorer(QtWidgets.QMainWindow):
         **overrides : forwarded to ``analyze_axon`` -- main_peak_override_nm,
             slab_half_width_nm, eps_nm, min_samples, dbcv_threshold,
             custom_contour_order.
+
+        F5d: with a slow method (``tools.cluster_method_ui.is_slow``), an
+        interactive call without overrides ('cluster Ch1', the 'MPS
+        analysis' button, the window's banner) hands the run to the MPS
+        analysis window, which runs it in the background with a Cancel
+        button, and returns None. Offscreen (the golden reference, the
+        tests) and with overrides (the window's own synchronous re-run)
+        it runs here, as before.
         """
+        if not overrides and self._mps_run_in_background():
+            return None
+        if self.mps_window is not None and getattr(self.mps_window, "busy", lambda: False)():
+            QtWidgets.QMessageBox.information(
+                self, "MPS analysis",
+                "An analysis is running in the background in the MPS analysis window. "
+                "Wait until it ends, or press Cancel there, and try again.")
+            return None
+        job = self._prepare_mps_analysis(overrides)
+        if job is None:
+            return None
+        x_in, y_in, z_in, params = job.x_in, job.y_in, job.z_in, job.params
+        from tools import emitters_layer as _el
+        from tools import emitters_precision_ui
+        from tools.perimeter_cost_ui import make_gate
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self._perimeter_cancelled = ""
+        try:
+            # A perimeter expected to take long (docs/perimeter_time.md) and
+            # an Emitters run whose precisions look under-reported (check T4,
+            # docs/emitters.md) are asked about first; the gates show nothing
+            # offscreen or off the GUI thread, and pass no keyword to the
+            # analysis.
+            with perimeter_cost.asking(make_gate(self)), \
+                    _el.asking_precision(emitters_precision_ui.make_gate(self)):
+                analysis = analyze_axon(x_in, y_in, z_in, **params)
+        except (perimeter_cost.PerimeterCancelled, _el.EmittersCancelled) as exc:
+            QtWidgets.QApplication.restoreOverrideCursor()
+            self._perimeter_cancelled = str(exc)
+            self.logger.info(str(exc))
+            return None
+        except Exception as exc:                          # noqa: BLE001
+            QtWidgets.QApplication.restoreOverrideCursor()
+            self.logger.error(f"MPS analysis failed: {exc}", exc_info=True)
+            QtWidgets.QMessageBox.critical(
+                self, "MPS analysis failed", f"{exc}")
+            return None
+        QtWidgets.QApplication.restoreOverrideCursor()
+        return self._finish_mps_analysis(job, analysis, show_window)
+
+    def _prepare_mps_analysis(self, overrides: Dict[str, Any]) -> Optional[Any]:
+        """The first half of ``run_mps_analysis`` (GUI thread): the inputs and
+        the keywords of ``analyze_axon`` from the selection, the settings and
+        ``overrides`` (popped as they are used), or None after saying why
+        nothing can run. Nothing here computes the analysis (F5d: the
+        background run calls it, then runs ``analyze_axon`` in a worker)."""
+        import types
         if self.xroi is None or self.zroi is None or len(self.xroi) == 0:
             QtWidgets.QMessageBox.warning(
                 self, "No ROI selected",
@@ -3335,25 +3406,46 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if method != "DBSCAN":
             params["cluster_method"] = method
             params["cluster_params"] = dict(method_params or {})
+        if method == "emitters_bagol_like" and "localization_sigma_nm" not in overrides:
+            # BaGoL F5: the Emitters model takes every localization's own
+            # precision (lpx, lpy) of the selection it is given (rule K:
+            # passed only for that method).
+            sigma = self._selection_precisions(x_in)
+            if sigma is not None:
+                params["localization_sigma_nm"] = sigma
+            frames = self._selection_frames(x_in)
+            if frames is not None and "localization_frame" not in overrides:
+                params["localization_frame"] = frames
         if compared:
             params["cluster_methods_compared"] = list(compared)
+        if method == "emitters_bagol_like":
+            from tools import emitters_layer as el
+            try:
+                buffer = el.layer_source(params.get("cluster_params"))[1]
+            except ValueError:
+                buffer = None
+            if buffer is None:
+                # F5c: no default buffer; the box of the MPS analysis window is where it is chosen.
+                QtWidgets.QMessageBox.warning(
+                    self, "Emitters: imaging buffer",
+                    f"{el.BUFFER_MISSING}: in the MPS analysis window, Events -> Emitters box, "
+                    f"'imaging buffer'. Nothing was run.")
+                return None
         self.logger.info(
             f"MPS analysis: {len(x_in):,} ROI localizations "
             f"(axial range {'manual' if 'slab_override' in params else 'automatic'}), "
             f"eps={params['eps_nm']:g}, min_samples={params['min_samples']}"
         )
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        try:
-            analysis = analyze_axon(x_in, y_in, z_in, **params)
-        except Exception as exc:                          # noqa: BLE001
-            QtWidgets.QApplication.restoreOverrideCursor()
-            self.logger.error(f"MPS analysis failed: {exc}", exc_info=True)
-            QtWidgets.QMessageBox.critical(
-                self, "MPS analysis failed", f"{exc}")
-            return None
-        QtWidgets.QApplication.restoreOverrideCursor()
+        return types.SimpleNamespace(x_in=x_in, y_in=y_in, z_in=z_in, params=params,
+                                     overrides=overrides, method=method)
 
+    def _finish_mps_analysis(self, job: Any, analysis: Any, show_window: bool) -> Any:
+        """The second half of ``run_mps_analysis`` (GUI thread): keep the
+        analysis computed from ``job`` and bring the panels up to date."""
+        overrides = job.overrides
+        x_in, z_in = job.x_in, job.z_in
         self.mps_analysis = analysis
+        self._keep_applied_se_adjust(analysis)
         # The contour drawn by hand travels with the file and the ROI it was
         # drawn for (B11); the analysis says whether it was used.
         guide = getattr(analysis, "contour_guide", None)
@@ -3414,6 +3506,162 @@ class MPS_explorer(QtWidgets.QMainWindow):
         if show_window:
             self._show_mps_window(analysis)
         return analysis
+
+    # ------------------------------------------------------------------
+    # F5d: a slow method in the background (tools/mps_background_run.py)
+    # ------------------------------------------------------------------
+    def _selection_token(self) -> Tuple[Any, ...]:
+        """What a background run checks at its end: the same file name (compared by value) and the same selection
+        arrays and localization table (compared by identity: a new ROI, cut or file replaces them)."""
+        return (self.ui.lineEdit_filename.text(), self.xroi, self.xroi_unfiltered, self.locs1)
+
+    def _mps_run_in_background(self) -> bool:
+        """An interactive analysis with a slow method goes to the MPS analysis window, which runs it in the
+        background (True: handed over, or refused because one is running). False: run it here."""
+        from tools.cluster_method_ui import is_slow
+        from tools.perimeter_cost_ui import interactive
+        if not interactive() or not is_slow(str(self.mps_settings.cluster_method)):
+            return False
+        if self.xroi is None or self.zroi is None or len(self.xroi) == 0:
+            return False                                  # the synchronous path says why
+        if self.mps_window is None:
+            self.mps_window = self._make_mps_window(self.mps_analysis)
+        window = self.mps_window
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        if window.busy():
+            QtWidgets.QMessageBox.information(
+                window, "MPS analysis",
+                "An analysis is already running in the background in this window. "
+                "Wait until it ends, or press Cancel, and try again.")
+            return True
+        window.start_background({}, "MPS analysis failed", "The MPS analysis could not run")
+        return True
+
+    def _background_mps_run(self, **kw: Any) -> Optional[Any]:
+        """The MPS analysis window's hook for a slow method (GUI thread): the keywords of its re-run (or none:
+        the stored settings), prepared here; the computation for its worker; the endings back here. None when
+        nothing can run (said why already)."""
+        from tools import emitters_layer as _el
+        from tools import emitters_precision_ui
+        from tools import mps_cancel
+        from tools.mps_background_run import PreparedRun
+        from tools.perimeter_cost_ui import make_gate
+        recut, self._pending_recut = self._pending_recut, False
+        before = self.mps_analysis
+        token = self._selection_token()
+        job = self._prepare_mps_analysis(dict(kw))
+        if job is None:
+            self._rerun_failed_for = before
+            if recut:
+                self._notify_cut(windows=False)
+            return None
+        self._perimeter_cancelled = ""
+
+        def compute() -> Any:
+            # worker thread: arrays and keywords taken above; no widget, no state of this window
+            return analyze_axon(job.x_in, job.y_in, job.z_in, **job.params)
+
+        def finish(analysis: Any) -> Any:
+            now = self._selection_token()
+            if now[0] != token[0] or any(a is not b for a, b in zip(now[1:], token[1:])):
+                self._rerun_failed_for = before
+                if recut:
+                    self._notify_cut(windows=False)
+                raise RuntimeError("The file or the selection changed while the analysis ran in the background: "
+                                   "its result was not used. Run the analysis again.")
+            result = self._finish_mps_analysis(job, analysis, show_window=False)
+            if recut:
+                self._notify_cut(windows=False)
+            return result
+
+        def fail(exc: BaseException) -> None:
+            if isinstance(exc, (perimeter_cost.PerimeterCancelled, _el.EmittersCancelled,
+                                mps_cancel.AnalysisCancelled)):
+                self._perimeter_cancelled = str(exc)
+                self.logger.info(str(exc))
+            else:
+                self.logger.error(f"MPS analysis failed: {exc}")
+            self._rerun_failed_for = before
+            if recut:
+                self._notify_cut(windows=False)
+
+        words = str(job.method)
+        if words == "emitters_bagol_like":
+            from tools.cluster_emitters import PUBLIC_LABEL
+            words = PUBLIC_LABEL
+        return PreparedRun(
+            compute=compute, finish=finish, fail=fail,
+            gates=((perimeter_cost.asking, make_gate(self)),
+                   (_el.asking_precision, emitters_precision_ui.make_gate(self))),
+            words=f"{words} on {len(job.x_in):,} ROI localizations")
+
+    def _forget_emitters_buffer(self) -> None:
+        """A new file: the Emitters layer's imaging buffer is chosen again (F5c; a source of F5b that implied a
+        buffer becomes 'literature'). Nothing changes for a method without a buffer."""
+        from tools import emitters_layer as el
+        s = self.mps_settings
+        params = dict(getattr(s, "cluster_params", None) or {})
+        forgotten = el.forget_buffer(params)
+        if forgotten != params:
+            s.cluster_params = forgotten
+        window = self.mps_window
+        if window is not None and hasattr(window, "method_panel"):
+            window.method_panel.clear_buffer()
+
+    def _keep_applied_se_adjust(self, analysis: Any) -> None:
+        """After 'Apply and run' at the precision pre-check (F5c), the se_adjust_nm the analysis ran with is the
+        one value of the Emitters parameters, so the strip and the next re-run use it too."""
+        if getattr(analysis, "cluster_method", "") != "emitters_bagol_like":
+            return
+        used = (getattr(analysis, "cluster_params", None) or {}).get("se_adjust_nm")
+        s = self.mps_settings
+        params = dict(getattr(s, "cluster_params", None) or {})
+        if used is None or params.get("se_adjust_nm") == used or not used:
+            return
+        params["se_adjust_nm"] = float(used)
+        s.cluster_params = params
+
+    def _selection_index(self, x_in: Any) -> Optional[Any]:
+        """Indices into channel 1's table of the localizations handed to the analysis, or None."""
+        index = (self.roi_indices_unfiltered if x_in is self.xroi_unfiltered
+                 else self.roi_indices)
+        if index is None:
+            return None
+        index = np.asarray(index, dtype=np.intp)
+        return index if index.size == np.asarray(x_in).size else None
+
+    def _selection_frames(self, x_in: Any) -> Optional[Any]:
+        """Frame numbers (from 0) of the localizations handed to the analysis (BaGoL F5: the Emitters layer
+        links them into events), or None."""
+        loc = self.locs1
+        frame = None if loc is None else loc.frame
+        index = self._selection_index(x_in)
+        if frame is None or index is None:
+            return None
+        return np.asarray(frame)[index]
+
+    def _selection_precisions(self, x_in: Any) -> Optional[Any]:
+        """(n, 2) = (lpx, lpy) in nm of channel 1's localizations handed to
+        the analysis (``x_in``: the selection before or after the axial cut),
+        or None when the file has no precision columns or the selection is
+        out of step with it (BaGoL F5)."""
+        loc = self.locs1
+        if loc is None:
+            return None
+        lpx, lpy = loc.lpx_nm, loc.lpy_nm
+        if lpx is None or lpy is None:
+            return None
+        index = (self.roi_indices_unfiltered if x_in is self.xroi_unfiltered
+                 else self.roi_indices)
+        if index is None:
+            return None
+        index = np.asarray(index, dtype=np.intp)
+        if index.size != np.asarray(x_in).size:
+            return None
+        return np.column_stack([np.asarray(lpx, dtype=float)[index],
+                                np.asarray(lpy, dtype=float)[index]])
 
     # ------------------------------------------------------------------
     # The clusters cut by the Picasso pick (P-R59, docs/cut_clusters.md)
@@ -3571,7 +3819,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 self._notify_cut(windows=False)
             if result is None:
                 raise RuntimeError(
-                    "The analysis could not be re-run with those parameters.")
+                    getattr(self, "_perimeter_cancelled", "")
+                    or "The analysis could not be re-run with those parameters.")
             return result
 
         window = MPSResultsWindow(
@@ -3579,7 +3828,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             rings_callback=self._on_rings_requested,
             discard_callback=self._discard_for,
             export_callback=self.export_axon,
-            links=self._mps_window_links())
+            links=self._mps_window_links(),
+            background=self._background_mps_run)
         window.axon_map.image_changed.connect(self._map_image_changed)
         # a new map starts on its own choice: the panel's selector shows it
         self._map_image_changed(window.axon_map.inputs().image)
@@ -4427,6 +4677,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.mps_window.refresh()
         # The pick of the previous file is not this one's (P-R59).
         self._cut_session = None
+        # The imaging buffer of the Emitters layer is chosen for each file (F5c).
+        self._forget_emitters_buffer()
         # A contour drawn by hand belongs to the previous file (B11).
         if self._guide is not None:
             self._guide = None
@@ -6095,6 +6347,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.logger.warning(f"Could not persist MPS settings: {exc}")
         if self.mps_window is not None:
             self.mps_window.close()
+        # F5d: a run cancelled by that close is waited for (a QThread must not outlive the program's objects)
+        from tools import mps_background_run
+        still = mps_background_run.shutdown()
+        if still:
+            self.logger.warning(f"{still} background analysis thread(s) still running at exit")
         if self.rings_window is not None:
             self.rings_window.close()
         if self.quality_window is not None:

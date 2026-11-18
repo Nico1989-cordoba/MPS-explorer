@@ -339,9 +339,13 @@ Still ad hoc after the verification: GraphCommunity's 25 nm, ToMATo's σ = r/2 a
 and the k range of StormGraph (only the preprint was read), FOCAL's minC and 4-connectivity, the 100-nm grid of the
 occupied region, D11's Δ = 5 points, 10× and 10 replicates, and HDBSCAN's 5 / 10 (benchmark-specific).
 
-Methods that need a trained model (CAML, MIRO) or a calibrated event distribution per emitter (BaGoL, G5M, DDC) are
+Methods that need a trained model (CAML, MIRO) or a calibrated event distribution per emitter (G5M, DDC) are
 only offered through external labels: the calibration they require does not exist yet for the buffers and labels in
-use *(inference)*. No strategy other than DBSCAN 25/10 changes a default result: the benchmark labels (section 7) guide
+use *(inference)*. The exception is BaGoL, reimplemented in Python as the experimental, slow method
+**Emitters (BaGoL-like reimplementation)** (`emitters_bagol_like`, not the authors' code): its event distribution
+per emitter, ξ, is taken from the literature (Dempsey et al. 2011), learned from the axon or typed from a control,
+and the emitters are linked into clusters within r_mol; see [`emitters.md`](emitters.md) and
+[`emitters_xi.md`](emitters_xi.md). No strategy other than DBSCAN 25/10 changes a default result: the benchmark labels (section 7) guide
 the choice in 'Compare methods', and the default stays DBSCAN 25/10 until the user decides otherwise.
 
 ## 6. How to choose and report

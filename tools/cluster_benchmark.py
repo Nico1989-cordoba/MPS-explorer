@@ -40,7 +40,7 @@ import time
 import warnings
 import zlib
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -68,6 +68,124 @@ FALSE_BG_SHARE = 0.5          # [ad hoc] a cluster is "false" when more than hal
 MISSED_SHARE = 0.5            # [ad hoc] a molecule is "missed" when less than half of its locs are in any cluster
 EPS_NM_DEFAULT, MIN_SAMPLES_DEFAULT = 25.0, 10  # [literature] Gazal et al. 2026 / project DBSCAN defaults
 
+# Emitter-level truth (phase F2 of the BaGoL plan). An "emitter" is a fluorescent label stack (one secondary antibody
+# with its dyes), never a protein (Fazel et al. 2022: "an 'emitter' as the fluorescently tagged molecule").
+ELE_DEFAULT = 0.65            # [literature] Thevathasan et al. 2019 (Nat Methods 16:1045): effective labelling
+                              # efficiency ~65 % for indirect immunofluorescence, as quoted in the project's clustering
+                              # report (section 3); page not re-checked here
+N_SECONDARY_PMF = (0.554, 0.327, 0.119)  # P(1, 2, 3 secondaries per primary) [derivation + ad hoc]: 1 + Poisson(0.59)
+                              # truncated at 3 (mean 1.57), close to the ~1.59 secondaries per primary of Ehmann et al.
+                              # 2014; the truncated-Poisson shape and the cap at 3 are ad hoc (task range 1-3)
+DOL_MEAN_DEFAULT = 1.5        # [literature] Dempsey et al. 2011 Online Methods (PDF p. 13): ~1.5 Alexa 647 per bovine
+                              # anti-goat secondary; Poisson number of dyes per secondary [ad hoc: random lysine
+                              # conjugation]. The lab's Invitrogen secondaries have no published DOL.
+SIGMA_LAYER_NM = 6.5          # [literature] Jimenez, Friedl & Leterrier 2020 (Methods 174:100, PDF p. 10): "s.d. ~6.5 nm"
+                              # per antibody layer, read here as per-axis s.d. [assumption]. Two layers give 9.2 nm per
+                              # axis, close to SIGMA_LINK_NM; Zwettler et al. 2020 report ~17.5 nm as the geometric
+                              # primary + secondary offset (a shell radius, not a dispersion; ADDENDUM_biologia B)
+DYE_SPREAD_NM = 3.0           # [derivation] dyes anywhere on an IgG of ~10-15 nm (ADDENDUM_biologia B): uniform in a
+                              # ball of radius ~6.5 nm has per-axis s.d. r / sqrt(5) ~ 2.9 nm
+CYCLES_MEAN_DEFAULT = 14.0    # [literature] Dempsey et al. 2011 Table 1: Alexa Fluor 647, 10 mM MEA, 14 switching cycles
+                              # (a lower bound by the authors' own statement)
+EMITTER_MATCH_FACTOR = 3.0    # [literature] Fazel et al. 2022 (Nat Commun 13:7152, Fig. 4 and Methods): a true and a
+                              # found emitter are a pair when within 3 sigma, pairs chosen by the Hungarian algorithm
+CYCLE_DISTS = ("geometric", "gamma", "poisson")
+
+
+@dataclass
+class EmitterModel:
+    """Antibody-stack labelling of every molecule, with truth per emitter (BaGoL plan, phase F2).
+
+    Hierarchy: molecule -> 2 epitopes (EPITOPE_SEP_NM apart) -> a primary IgG on each epitope with probability
+    ``ele`` (offset N(0, ``sigma_primary_nm``) per axis) -> ``n_secondary`` secondaries on that primary, each offset
+    N(0, ``sigma_secondary_nm``) from it -> ``dol`` dyes per secondary, each offset N(0, ``dye_spread_nm``) from it ->
+    switching cycles per dye (``cycles_dist`` with mean ``cycles_mean``) -> 1-3 localizations per cycle (ON_FRAMES).
+
+    One secondary with its dyes is a **stack** (``stack_id``): its dyes sit closer than the localization precision,
+    so a BaGoL-like method sees one emitter per stack when stacks are more than ~sigma apart. Emitters are
+    fluorescent label stacks, not proteins. Non-specific (background) labels are stacks too, with dyes drawn from the
+    same DOL distribution.
+
+    ``n_secondary``: an int (fixed number) or a sequence of probabilities of 1, 2, 3, ... secondaries.
+    ``dol_dist``: "poisson" (mean ``dol``; 0 dyes = a dark secondary) or "fixed" (exactly ``int(dol)`` dyes).
+    ``cycles_dist``: "geometric" (>= 1 cycle, mean ``cycles_mean``; the legacy model), "gamma" (Poisson-gamma
+    mixture with shape ``cycles_shape`` and mean ``cycles_mean``; 0 allowed: a dye that never switches) or
+    "poisson" (mean ``cycles_mean``). Defaults and their origins: module constants. ``EmitterModel.legacy(sc)``
+    gives the parameters that reproduce the generator of 26a1cd4 bit for bit.
+    """
+
+    ele: float = ELE_DEFAULT
+    n_secondary: Union[int, Tuple[float, ...]] = N_SECONDARY_PMF
+    dol: float = DOL_MEAN_DEFAULT
+    dol_dist: str = "poisson"
+    sigma_primary_nm: float = SIGMA_LAYER_NM
+    sigma_secondary_nm: float = SIGMA_LAYER_NM
+    dye_spread_nm: float = DYE_SPREAD_NM
+    cycles_dist: str = "geometric"
+    cycles_mean: float = CYCLES_MEAN_DEFAULT
+    cycles_shape: float = 1.0      # [literature] Fazel et al. 2022 Methods: exponential (gamma k = 1) blinking counts
+    origin: str = "BaGoL plan F2: antibody stacks (constants of tools.cluster_benchmark)"
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= float(self.ele) <= 1.0:
+            raise ValueError(f"ele must be in [0, 1], got {self.ele}")
+        if isinstance(self.n_secondary, (int, np.integer)):
+            if int(self.n_secondary) < 1:
+                raise ValueError(f"n_secondary must be >= 1, got {self.n_secondary}")
+        else:
+            pmf = np.asarray(self.n_secondary, dtype=float)
+            if pmf.ndim != 1 or pmf.size == 0 or np.any(pmf < 0) or not pmf.sum() > 0:
+                raise ValueError(f"n_secondary must be an int or a probability vector, got {self.n_secondary!r}")
+            self.n_secondary = tuple(float(p) for p in pmf)
+        if self.dol_dist not in ("poisson", "fixed"):
+            raise ValueError(f"dol_dist must be 'poisson' or 'fixed', got {self.dol_dist!r}")
+        if self.dol_dist == "fixed" and (float(self.dol) != int(self.dol) or int(self.dol) < 1):
+            raise ValueError(f"a fixed dol must be an integer >= 1, got {self.dol}")
+        if not float(self.dol) > 0:
+            raise ValueError(f"dol must be > 0, got {self.dol}")
+        if self.cycles_dist not in CYCLE_DISTS:
+            raise ValueError(f"cycles_dist must be one of {CYCLE_DISTS}, got {self.cycles_dist!r}")
+        if self.cycles_dist == "geometric" and not float(self.cycles_mean) >= 1.0:
+            raise ValueError(f"a geometric cycle count has mean >= 1, got {self.cycles_mean}")
+        if not (float(self.cycles_mean) > 0 and float(self.cycles_shape) > 0):
+            raise ValueError("cycles_mean and cycles_shape must be > 0")
+        for k in ("sigma_primary_nm", "sigma_secondary_nm", "dye_spread_nm"):
+            if not float(getattr(self, k)) >= 0.0:
+                raise ValueError(f"{k} must be >= 0")
+
+    @classmethod
+    def legacy(cls, sc: "Scenario") -> "EmitterModel":
+        """The labelling of the generator of 26a1cd4: one label per labelled epitope (p_label), one linkage draw of
+        ``sc.sigma_link`` per label, geometric cycles of mean ``sc.c_label``. Same random draws, same samples."""
+        return cls(ele=sc.p_label, n_secondary=1, dol=1, dol_dist="fixed", sigma_primary_nm=0.0,
+                   sigma_secondary_nm=sc.sigma_link, dye_spread_nm=0.0, cycles_dist="geometric",
+                   cycles_mean=sc.c_label, origin="legacy: one label per epitope (generator of 26a1cd4)")
+
+    @classmethod
+    def from_prior(cls, prior: Any, loc_per_cycle: Optional[float] = None, **overrides: Any) -> "EmitterModel":
+        """Switching cycles from a xi prior (duck-typed: ``tools.emitters_prior.EmitterPrior`` of phase F1, or any
+        object with ``mean``, ``shape`` and optionally ``k``, ``switching_cycles``, ``loc_per_cycle``).
+
+        The cycle mean is ``prior.switching_cycles`` when present, else ``prior.mean / loc_per_cycle`` with
+        ``loc_per_cycle`` from the argument, the prior, or the mean of ON_FRAMES (2) in this order. A gamma prior
+        gives ``cycles_dist="gamma"`` with its shape k; a Poisson prior gives "poisson"."""
+        cyc = getattr(prior, "switching_cycles", None)
+        if cyc is None:
+            lpc = loc_per_cycle if loc_per_cycle is not None else getattr(prior, "loc_per_cycle", None)
+            lpc = float(lpc) if lpc else float(np.mean(ON_FRAMES))
+            cyc = float(prior.mean) / lpc
+        shape = str(getattr(prior, "shape", "gamma"))
+        kw: Dict[str, Any] = {"cycles_mean": float(cyc)}
+        if shape == "poisson":
+            kw["cycles_dist"] = "poisson"
+        else:
+            kw["cycles_dist"] = "gamma"
+            kw["cycles_shape"] = float(getattr(prior, "k", None) or 1.0)
+        src = getattr(prior, "origin", "") or getattr(prior, "source", "")
+        kw["origin"] = f"cycles from xi prior ({src})" if src else "cycles from xi prior"
+        kw.update(overrides)
+        return cls(**kw)
+
 
 @dataclass
 class Scenario:
@@ -88,9 +206,15 @@ class Scenario:
     sigma_link: float = SIGMA_LINK_NM
     pair_sep: Tuple[float, float] = PAIR_SEP_NM
     origin: str = "simulation: SIM_CLUSTERING_REPORT.md section 2.1"
+    emitters: Optional[EmitterModel] = None   # None: the legacy labelling (p_label, sigma_link, c_label), exactly
+                                              # as in 26a1cd4; an EmitterModel replaces those three fields
 
     def as_dict(self) -> Dict[str, Any]:
-        return {k: (list(v) if isinstance(v, tuple) else v) for k, v in asdict(self).items()}
+        d: Dict[str, Any] = {k: (list(v) if isinstance(v, tuple) else v) for k, v in asdict(self).items()}
+        em = d.pop("emitters", None)             # legacy scenarios keep the keys (and the configs) of 26a1cd4
+        if isinstance(em, dict):
+            d["emitters"] = {k: (list(v) if isinstance(v, tuple) else v) for k, v in em.items()}
+        return d
 
 
 def _preset(name: str, **kw: Any) -> Scenario:
@@ -132,10 +256,28 @@ class SyntheticSample:
     mol_n_labels: NDArray[np.int64]    # labels per molecule
     arc_length_nm: float               # perimeter (ring) or 4 x side (window), for "per um" readouts
     params: Dict[str, Any] = field(default_factory=dict)
+    # Emitter-level truth (BaGoL plan F2). A label (``label_id``) is one dye; a stack (``stack_id``) is one secondary
+    # antibody with its dyes, i.e. one emitter. In the legacy model every label is its own stack (stack_id == label_id).
+    stack_id: NDArray[np.int64] = field(default_factory=lambda: np.empty(0, np.int64))        # per localization;
+                                                                                            # -1 isolated background
+    label_xy: NDArray[np.float64] = field(default_factory=lambda: np.empty((0, 2)))         # (n_labels, 2) dye positions
+    label_stack: NDArray[np.int64] = field(default_factory=lambda: np.empty(0, np.int64))   # stack of every dye
+    stack_xy: NDArray[np.float64] = field(default_factory=lambda: np.empty((0, 2)))         # (n_stacks, 2) centroid of
+                                                                                            # the stack's dyes
+    stack_molecule: NDArray[np.int64] = field(default_factory=lambda: np.empty(0, np.int64))  # >= 0 molecule, <= -2
+                                                                                            # non-specific stack
+    stack_epitope: NDArray[np.int64] = field(default_factory=lambda: np.empty(0, np.int64))   # index into the 2K
+                                                                                            # epitopes; -1 background
 
     @property
     def is_background(self) -> NDArray[np.bool_]:
         return self.molecule_id < 0
+
+    @property
+    def stack_n_locs(self) -> NDArray[np.int64]:
+        """Localizations per stack (0 for dark stacks: no dye, or no dye that switched inside the movie)."""
+        sid = self.stack_id[self.stack_id >= 0]
+        return np.bincount(sid, minlength=self.stack_xy.shape[0]).astype(np.int64)
 
     @property
     def oracle_labels(self) -> NDArray[np.int64]:
@@ -252,25 +394,39 @@ def generate(sc: Scenario, rng: np.random.Generator, L_nm: Optional[float] = Non
     else:
         raise ValueError(f"unknown geometry {sc.geometry!r}")
     K = mol_xy.shape[0]
-    # epitopes: 2 per molecule, 5-10 nm apart, random orientation; each labelled with p_label
+    # The legacy model is the EmitterModel with one label per epitope: same draws in the same order (no draw is made
+    # for a fixed n_secondary, a fixed DOL, a zero primary offset or a zero dye spread), so the samples of 26a1cd4
+    # are reproduced bit for bit (test_cluster_benchmark_emitters.py).
+    em = sc.emitters if sc.emitters is not None else EmitterModel.legacy(sc)
+    # epitopes: 2 per molecule, 5-10 nm apart, random orientation; each carries a primary with probability ele
     ang_e = rng.uniform(0, 2 * np.pi, K)
     half = 0.5 * np.asarray(rng.uniform(*EPITOPE_SEP_NM, K), dtype=float)
     u = np.column_stack([np.cos(ang_e), np.sin(ang_e)])
     epi = np.concatenate([mol_xy + half[:, None] * u, mol_xy - half[:, None] * u])
     epi_mol = np.concatenate([np.arange(K), np.arange(K)])
-    labelled = rng.uniform(size=2 * K) < sc.p_label
-    lab_pos = epi[labelled] + rng.normal(0.0, sc.sigma_link, (int(labelled.sum()), 2))
-    lab_mol = epi_mol[labelled].astype(np.int64)
-    mol_n_labels = np.bincount(lab_mol, minlength=K).astype(np.int64)
+    labelled = rng.uniform(size=2 * K) < em.ele
+    epi_idx = np.flatnonzero(labelled).astype(np.int64)
+    st_pos, st_parent = _draw_stacks(rng, em, epi[labelled])
+    st_mol = epi_mol[labelled].astype(np.int64)[st_parent]
+    st_epi = epi_idx[st_parent]
+    n_spec = st_pos.shape[0]
+    dye_stack = np.repeat(np.arange(n_spec, dtype=np.int64), _draw_dol(rng, em, n_spec))
+    lab_pos = _spread_dyes(rng, em, st_pos, dye_stack)
+    mol_n_labels = np.bincount(st_mol[dye_stack], minlength=K).astype(np.int64)
     # background labels (non-specific stacks that blink like a label)
     n_bg_lab = int(rng.poisson(n_bg_lab_mean))
     if n_bg_lab:
         bg_pos = _background_positions(rng, con, arc_nm, sc.window_um, n_bg_lab)
-        lab_pos = np.concatenate([lab_pos, bg_pos])
-        lab_mol = np.concatenate([lab_mol, -2 - np.arange(n_bg_lab)])
+        bg_dye_stack = np.repeat(np.arange(n_bg_lab, dtype=np.int64), _draw_dol(rng, em, n_bg_lab))
+        lab_pos = np.concatenate([lab_pos, _spread_dyes(rng, em, bg_pos, bg_dye_stack)])
+        dye_stack = np.concatenate([dye_stack, n_spec + bg_dye_stack])
+        st_pos = np.concatenate([st_pos, bg_pos])
+        st_mol = np.concatenate([st_mol, -2 - np.arange(n_bg_lab, dtype=np.int64)])
+        st_epi = np.concatenate([st_epi, np.full(n_bg_lab, -1, dtype=np.int64)])
+    lab_mol = st_mol[dye_stack]
     n_lab = lab_pos.shape[0]
-    # blinking: geometric number of cycles per label, each 1-3 consecutive frames
-    n_cyc = rng.geometric(1.0 / sc.c_label, n_lab).astype(np.int64)
+    # blinking: number of cycles per label (geometric in the legacy model), each 1-3 consecutive frames
+    n_cyc = _draw_cycles(rng, em, n_lab)
     cyc_label = np.repeat(np.arange(n_lab), n_cyc)
     n_cyc_tot = int(n_cyc.sum())
     start = rng.integers(0, N_FRAMES, n_cyc_tot)
@@ -286,6 +442,7 @@ def generate(sc: Scenario, rng: np.random.Generator, L_nm: Optional[float] = Non
     sig = sc.sigma_loc * np.exp(rng.normal(-0.5 * lv, math.sqrt(lv), n))
     xy = lab_pos[loc_label] + rng.normal(size=(n, 2)) * sig[:, None]
     mol = lab_mol[loc_label]
+    loc_stack = dye_stack[loc_label]
     event = loc_cyc.astype(np.int64)
     # isolated background localizations
     n_bg_loc = int(rng.poisson(sc.bg_locs_per_um2 * bg_region_um2))
@@ -294,16 +451,76 @@ def generate(sc: Scenario, rng: np.random.Generator, L_nm: Optional[float] = Non
         frame = np.concatenate([frame, rng.integers(0, N_FRAMES, n_bg_loc)])
         mol = np.concatenate([mol, np.full(n_bg_loc, -1)])
         loc_label = np.concatenate([loc_label, np.full(n_bg_loc, -1)])
+        loc_stack = np.concatenate([loc_stack, np.full(n_bg_loc, -1, dtype=np.int64)])
         event = np.concatenate([event, n_cyc_tot + np.arange(n_bg_loc)])
         sig = np.concatenate([sig, np.full(n_bg_loc, sc.sigma_loc)])
     order = np.argsort(frame, kind="stable")
     params = sc.as_dict()
     params.update({"realised_L_nm": arc_nm, "n_molecules": int(K), "n_molecules_labelled": int((mol_n_labels > 0).sum()),
                    "n_background_labels": n_bg_lab, "n_background_locs": n_bg_loc, "n_locs": int(xy.shape[0])})
+    # The centre of a stack is the centroid of its dyes (what an emitter fit converges to); with no dye spread (and
+    # in the legacy model) it is the secondary's own position, untouched.
+    stack_xy = st_pos.copy()
+    if em.dye_spread_nm > 0 and dye_stack.size:
+        n_d = np.bincount(dye_stack, minlength=st_pos.shape[0])
+        has = n_d > 0
+        stack_xy[has, 0] = np.bincount(dye_stack, weights=lab_pos[:, 0], minlength=st_pos.shape[0])[has] / n_d[has]
+        stack_xy[has, 1] = np.bincount(dye_stack, weights=lab_pos[:, 1], minlength=st_pos.shape[0])[has] / n_d[has]
+    if sc.emitters is not None:
+        loc_st = loc_stack[loc_stack >= 0]
+        params.update({"n_stacks": int(st_pos.shape[0]), "n_dyes": int(n_lab),
+                       "n_stacks_visible": int(np.unique(loc_st).size)})
     return SyntheticSample(xy=xy[order], frame=frame[order].astype(np.int64), molecule_id=mol[order].astype(np.int64),
                            label_id=loc_label[order].astype(np.int64), event_id=event[order].astype(np.int64),
                            sigma=sig[order], mol_xy=mol_xy, mol_n_labels=mol_n_labels, arc_length_nm=arc_nm,
-                           params=params)
+                           params=params, stack_id=loc_stack[order].astype(np.int64), label_xy=lab_pos,
+                           label_stack=dye_stack.astype(np.int64), stack_xy=stack_xy,
+                           stack_molecule=st_mol.astype(np.int64), stack_epitope=st_epi.astype(np.int64))
+
+
+def _draw_stacks(rng: np.random.Generator, em: EmitterModel,
+                 epi_pos: NDArray[np.float64]) -> Tuple[NDArray[np.float64], NDArray[np.int64]]:
+    """Secondary-antibody stacks on the labelled epitopes: their positions and the index of their epitope.
+
+    Draw order (fixed, part of the bit-for-bit contract): number of secondaries (only if not a fixed int), primary
+    offsets (only if ``sigma_primary_nm`` > 0), secondary offsets (always, as the legacy linkage draw)."""
+    n_epi = int(epi_pos.shape[0])
+    if isinstance(em.n_secondary, (int, np.integer)):
+        n2: NDArray[np.int64] = np.full(n_epi, int(em.n_secondary), dtype=np.int64)
+    else:
+        pmf = np.asarray(em.n_secondary, dtype=float)
+        n2 = 1 + rng.choice(pmf.size, n_epi, p=pmf / pmf.sum()).astype(np.int64)
+    prim = epi_pos + rng.normal(0.0, em.sigma_primary_nm, (n_epi, 2)) if em.sigma_primary_nm > 0 else epi_pos
+    parent = np.repeat(np.arange(n_epi, dtype=np.int64), n2)
+    pos = prim[parent] + rng.normal(0.0, em.sigma_secondary_nm, (int(parent.size), 2))
+    return pos, parent
+
+
+def _draw_dol(rng: np.random.Generator, em: EmitterModel, n: int) -> NDArray[np.int64]:
+    """Dyes per stack: fixed (no draw) or Poisson(dol)."""
+    if em.dol_dist == "fixed":
+        return np.full(int(n), int(em.dol), dtype=np.int64)
+    return rng.poisson(float(em.dol), int(n)).astype(np.int64)
+
+
+def _spread_dyes(rng: np.random.Generator, em: EmitterModel, stack_pos: NDArray[np.float64],
+                 dye_stack: NDArray[np.int64]) -> NDArray[np.float64]:
+    """Dye positions: the stack's position plus N(0, dye_spread_nm) per axis (no draw when the spread is 0)."""
+    pos = stack_pos[dye_stack]
+    if em.dye_spread_nm > 0:
+        pos = pos + rng.normal(0.0, em.dye_spread_nm, (int(dye_stack.size), 2))
+    return np.asarray(pos, dtype=float).reshape(-1, 2)
+
+
+def _draw_cycles(rng: np.random.Generator, em: EmitterModel, n: int) -> NDArray[np.int64]:
+    """Switching cycles per dye. geometric: support >= 1, mean ``cycles_mean`` (the legacy draw, unchanged);
+    gamma: Poisson(Gamma(k, mean / k)), support >= 0 (a negative binomial with mean ``cycles_mean``); poisson."""
+    if em.cycles_dist == "geometric":
+        return rng.geometric(1.0 / em.cycles_mean, int(n)).astype(np.int64)
+    if em.cycles_dist == "gamma":
+        lam = rng.gamma(float(em.cycles_shape), float(em.cycles_mean) / float(em.cycles_shape), int(n))
+        return rng.poisson(lam).astype(np.int64)
+    return rng.poisson(float(em.cycles_mean), int(n)).astype(np.int64)
 
 
 def _background_positions(rng: np.random.Generator, con: Optional[_Contour], arc_nm: float, window_um: float,
@@ -571,8 +788,253 @@ def evaluate(labels: NDArray[np.int64], sample: SyntheticSample, oracle_readouts
     return res
 
 
+# --------------------------------------------------------------------------- emitter metrics (BaGoL plan F2)
+def emitter_truth(sample: SyntheticSample, min_locs: int = 1,
+                  include_background: bool = True) -> Tuple[NDArray[np.float64], NDArray[np.int64]]:
+    """True emitters of a sample: positions and stack ids of the stacks with at least ``min_locs`` localizations
+    (a stack that never switched cannot be recovered by any method). ``include_background`` keeps the non-specific
+    stacks, which are real fluorescent marks for an emitter method."""
+    n_loc = sample.stack_n_locs
+    keep = n_loc >= int(min_locs)
+    if not include_background:
+        keep &= sample.stack_molecule >= 0
+    ids = np.flatnonzero(keep).astype(np.int64)
+    return sample.stack_xy[ids].reshape(-1, 2), ids
+
+
+def oracle_emitters(sample: SyntheticSample, min_locs: int = 1, include_background: bool = True) -> NDArray[np.float64]:
+    """An oracle that returns the true position of every visible stack (scores JAC = 1, RMSE = 0)."""
+    return emitter_truth(sample, min_locs, include_background)[0]
+
+
+def _match_hungarian(est: NDArray[np.float64], true: NDArray[np.float64],
+                     radius: NDArray[np.float64]) -> Tuple[NDArray[np.int64], NDArray[np.int64], NDArray[np.float64]]:
+    """One-to-one pairs (estimate i, truth j) with |est_i - true_j| <= radius_i that maximise the number of pairs
+    and, among those, minimise the summed distance (Hungarian algorithm on each connected component of the
+    "within radius" graph, so the cost matrices stay small)."""
+    from scipy.optimize import linear_sum_assignment
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    n_e, n_t = est.shape[0], true.shape[0]
+    empty = (np.empty(0, np.int64), np.empty(0, np.int64), np.empty(0))
+    if n_e == 0 or n_t == 0:
+        return empty
+    r_max = float(np.max(radius))
+    cand = cKDTree(est).query_ball_tree(cKDTree(true), r_max)
+    ei: List[int] = []
+    tj: List[int] = []
+    for i, js in enumerate(cand):
+        for j in js:
+            if float(np.hypot(*(est[i] - true[j]))) <= float(radius[i]):
+                ei.append(i)
+                tj.append(j)
+    if not ei:
+        return empty
+    e_arr, t_arr = np.asarray(ei, np.int64), np.asarray(tj, np.int64)
+    g = coo_matrix((np.ones(e_arr.size), (e_arr, n_e + t_arr)), shape=(n_e + n_t, n_e + n_t))
+    _, comp = connected_components(g, directed=False)
+    d_all = np.hypot(est[e_arr, 0] - true[t_arr, 0], est[e_arr, 1] - true[t_arr, 1])
+    out_e: List[int] = []
+    out_t: List[int] = []
+    big = 1e9          # a forbidden pair costs more than any sum of allowed distances
+    for c in np.unique(comp[e_arr]):
+        sel = comp[e_arr] == c
+        es, ts = np.unique(e_arr[sel]), np.unique(t_arr[sel])
+        cost = np.full((es.size, ts.size), big)
+        cost[np.searchsorted(es, e_arr[sel]), np.searchsorted(ts, t_arr[sel])] = d_all[sel]
+        r, k = linear_sum_assignment(cost)
+        ok = cost[r, k] < big
+        out_e.extend(es[r[ok]].tolist())
+        out_t.extend(ts[k[ok]].tolist())
+    oe, ot = np.asarray(out_e, np.int64), np.asarray(out_t, np.int64)
+    return oe, ot, np.hypot(est[oe, 0] - true[ot, 0], est[oe, 1] - true[ot, 1])
+
+
+def emitter_metrics(est_xy: Any, sample: SyntheticSample, est_sigma: Any = None,
+                    match_factor: float = EMITTER_MATCH_FACTOR, min_locs: int = 1, include_background: bool = True,
+                    details: bool = False) -> Dict[str, Any]:
+    """Recovered emitters against the true stacks of ``sample``, as in Fazel et al. 2022 (Fig. 4, Methods).
+
+    ``est_xy`` (M, 2) are estimated emitter positions in nm. A true stack and an estimate are a pair when the truth
+    falls within ``match_factor`` x sigma of the estimate; sigma is ``est_sigma`` (per estimate, or one number: the
+    precision of each estimate, as in the paper) or, when not given, the nominal localization precision of the
+    scenario (``params['sigma_loc']``) [ad hoc: the lenient choice for dSTORM, where an emitter's precision is
+    unknown before a fit]. Pairs come from the Hungarian algorithm (most pairs, then least summed distance).
+
+    Returns (fractions in 0-1, distances in nm):
+      n_true, n_est, tp, fp, fn, jac = tp / (tp + fp + fn), recall, precision, rmse_nm (root mean square distance
+      of the pairs), mean_dist_nm (Fazel's "mean of the differences"), match_radius_nm (median radius used);
+      over-grouping: ``n_true_absorbed`` / ``frac_true_absorbed`` -- unmatched true stacks with an estimate within
+      the radius (the estimate went to a neighbour: two stacks merged into one emitter);
+      under-grouping: ``n_est_split`` / ``frac_est_split`` -- unmatched estimates within the radius of a true stack
+      (an extra emitter for a stack already found);
+      per molecule (labelled molecules with >= 1 visible specific stack): every estimate goes to the molecule of
+      its nearest visible true stack within its radius (not one-to-one); ``k_true_mean`` and ``k_est_mean`` (stacks
+      and estimates per molecule), ``k_bias_mean`` (mean of K_est - K_true), ``frac_k_exact``, ``frac_k_under``
+      (K_est < K_true: fusion or loss) and ``frac_k_over`` (K_est > K_true: splitting).
+    With ``details`` the per-pair and per-molecule arrays are added (``pairs_est``, ``pairs_true_stack``,
+    ``pairs_dist_nm``, ``molecule_ids``, ``k_true``, ``k_est``).
+    """
+    est = np.asarray(est_xy, dtype=float).reshape(-1, 2)
+    true_xy, true_ids = emitter_truth(sample, min_locs, include_background)
+    if est_sigma is None:
+        sig: NDArray[np.float64] = np.full(est.shape[0], float(sample.params.get("sigma_loc", float(np.median(sample.sigma)))))
+    else:
+        sig = np.broadcast_to(np.asarray(est_sigma, dtype=float), (est.shape[0],)).astype(float)
+    radius = float(match_factor) * sig
+    pe, pt, d = _match_hungarian(est, true_xy, radius)
+    n_t, n_e, tp = int(true_ids.size), int(est.shape[0]), int(pe.size)
+    fp, fn = n_e - tp, n_t - tp
+    res: Dict[str, Any] = {
+        "n_true": float(n_t), "n_est": float(n_e), "tp": float(tp), "fp": float(fp), "fn": float(fn),
+        "jac": float(tp / (tp + fp + fn)) if (tp + fp + fn) else float("nan"),
+        "recall": float(tp / n_t) if n_t else float("nan"), "precision": float(tp / n_e) if n_e else float("nan"),
+        "rmse_nm": float(np.sqrt(np.mean(d ** 2))) if tp else float("nan"),
+        "mean_dist_nm": float(np.mean(d)) if tp else float("nan"),
+        "match_radius_nm": float(np.median(radius)) if n_e else float("nan"),
+    }
+    # over- and under-grouping
+    matched_t = np.zeros(n_t, bool)
+    matched_t[pt] = True
+    matched_e = np.zeros(n_e, bool)
+    matched_e[pe] = True
+    if n_e and n_t:
+        tree_t = cKDTree(true_xy)
+        d_nn, j_nn = tree_t.query(est, k=1)
+        near_e = d_nn <= radius                                  # estimate within its radius of some true stack
+        absorbed = np.zeros(n_t, bool)
+        tree_e = cKDTree(est)
+        for j in np.flatnonzero(~matched_t):
+            for i in tree_e.query_ball_point(true_xy[j], float(np.max(radius))):
+                if float(np.hypot(*(est[i] - true_xy[j]))) <= float(radius[i]):
+                    absorbed[j] = True
+                    break
+        n_abs = int(absorbed.sum())
+        n_split = int((~matched_e & near_e).sum())
+    else:
+        near_e = np.zeros(n_e, bool)
+        j_nn = np.zeros(n_e, np.int64)
+        n_abs, n_split = 0, 0
+    res.update({"n_true_absorbed": float(n_abs), "frac_true_absorbed": float(n_abs / n_t) if n_t else float("nan"),
+                "n_est_split": float(n_split), "frac_est_split": float(n_split / n_e) if n_e else float("nan")})
+    # emitters per molecule
+    t_mol = sample.stack_molecule[true_ids]
+    spec = t_mol >= 0
+    mols = np.unique(t_mol[spec])
+    k_true = np.array([int(np.sum(t_mol == m)) for m in mols], dtype=np.int64)
+    est_mol = np.where(near_e, t_mol[j_nn] if n_t else -1, -1) if n_e else np.empty(0, np.int64)
+    k_est = np.array([int(np.sum(est_mol == m)) for m in mols], dtype=np.int64)
+    if mols.size:
+        res.update({"n_molecules_visible": float(mols.size), "k_true_mean": float(k_true.mean()),
+                    "k_est_mean": float(k_est.mean()), "k_bias_mean": float(np.mean(k_est - k_true)),
+                    "frac_k_exact": float(np.mean(k_est == k_true)), "frac_k_under": float(np.mean(k_est < k_true)),
+                    "frac_k_over": float(np.mean(k_est > k_true))})
+    else:
+        res.update({k: float("nan") for k in ("k_true_mean", "k_est_mean", "k_bias_mean", "frac_k_exact",
+                                              "frac_k_under", "frac_k_over")})
+        res["n_molecules_visible"] = 0.0
+    if details:
+        res.update({"pairs_est": pe, "pairs_true_stack": true_ids[pt], "pairs_dist_nm": d, "molecule_ids": mols,
+                    "k_true": k_true, "k_est": k_est})
+    return res
+
+
+# --------------------------------------------------------------------------- SMD export (BaGoL input)
+SMD_COLUMNS = ("X", "Y", "X_SE", "Y_SE", "FrameNum")
+"""Columns of the SMD structure read by BaGoL (LidkeLab/BaGoL README: X, Y, X_SE, Y_SE, FrameNum, in nm)."""
+
+
+def event_table(sample: SyntheticSample) -> Dict[str, NDArray[Any]]:
+    """Localizations merged per switching event (``event_id``): inverse-variance weighted position, standard error
+    1 / sqrt(sum 1 / sigma^2), first frame, and the truth of the event (one stack and one molecule per event).
+    This is what a perfect frame connection returns; BaGoL expects frame-connected input."""
+    ev, inv = np.unique(sample.event_id, return_inverse=True)
+    w = 1.0 / sample.sigma ** 2
+    sw = np.bincount(inv, weights=w)
+    x = np.bincount(inv, weights=w * sample.xy[:, 0]) / sw
+    y = np.bincount(inv, weights=w * sample.xy[:, 1]) / sw
+    first = np.full(ev.size, np.iinfo(np.int64).max, dtype=np.int64)
+    np.minimum.at(first, inv, sample.frame)
+    pick = np.zeros(ev.size, dtype=np.int64)
+    pick[inv] = np.arange(inv.size)             # any localization of the event carries the event's truth
+    return {"event_id": ev.astype(np.int64), "x": x, "y": y, "se": 1.0 / np.sqrt(sw), "frame": first,
+            "n_locs": np.bincount(inv).astype(np.int64), "stack_id": sample.stack_id[pick],
+            "molecule_id": sample.molecule_id[pick], "label_id": sample.label_id[pick]}
+
+
+def export_smd_csv(sample: SyntheticSample, path: str, level: str = "localization", frame_base: int = 1,
+                   truth: bool = False) -> int:
+    """Write the sample as an SMD table for the MATLAB reference (BaGoL plan F3'): columns X, Y, X_SE, Y_SE,
+    FrameNum, positions and errors in nm (6 decimals, i.e. 1e-6 nm). ``level`` "localization" writes every
+    localization (X_SE = Y_SE = its sigma); "event" writes one row per switching event (:func:`event_table`).
+    ``frame_base`` 1 writes MATLAB-style frame numbers starting at 1 [ad hoc: SMITE numbers frames from 1; to verify
+    against the reference run]. ``truth`` appends StackID, MoleculeID and LabelID (synthetic truth; drop them before
+    handing the file to a method). Returns the number of rows."""
+    if level == "localization":
+        x, y = sample.xy[:, 0], sample.xy[:, 1]
+        se, fr = sample.sigma, sample.frame
+        st, mo, la = sample.stack_id, sample.molecule_id, sample.label_id
+    elif level == "event":
+        t = event_table(sample)
+        x, y, se, fr = t["x"], t["y"], t["se"], t["frame"]
+        st, mo, la = t["stack_id"], t["molecule_id"], t["label_id"]
+    else:
+        raise ValueError(f"level must be 'localization' or 'event', got {level!r}")
+    cols = list(SMD_COLUMNS) + (["StackID", "MoleculeID", "LabelID"] if truth else [])
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(cols)
+        for i in range(x.size):
+            row = [f"{x[i]:.6f}", f"{y[i]:.6f}", f"{se[i]:.6f}", f"{se[i]:.6f}", str(int(fr[i]) + int(frame_base))]
+            if truth:
+                row += [str(int(st[i])), str(int(mo[i])), str(int(la[i]))]
+            w.writerow(row)
+    return int(x.size)
+
+
+def write_stack_truth_csv(sample: SyntheticSample, path: str) -> int:
+    """One row per stack: StackID, X, Y (centroid of its dyes, nm), MoleculeID (<= -2 non-specific), EpitopeID,
+    NDyes, NLocs. The truth file that goes next to an SMD export."""
+    n_d = np.bincount(sample.label_stack, minlength=sample.stack_xy.shape[0])
+    n_l = sample.stack_n_locs
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["StackID", "X", "Y", "MoleculeID", "EpitopeID", "NDyes", "NLocs"])
+        for j in range(sample.stack_xy.shape[0]):
+            w.writerow([j, f"{sample.stack_xy[j, 0]:.6f}", f"{sample.stack_xy[j, 1]:.6f}",
+                        int(sample.stack_molecule[j]), int(sample.stack_epitope[j]), int(n_d[j]), int(n_l[j])])
+    return int(sample.stack_xy.shape[0])
+
+
+def emitter_scenario(name: str, base: Optional[str] = None, model: Optional[EmitterModel] = None,
+                     **scenario_kw: Any) -> Scenario:
+    """A scenario with antibody stacks: a copy of preset ``base`` (or a default Scenario) with ``emitters`` set to
+    ``model`` (default EmitterModel(): ELE 0.65, 1-3 secondaries, Poisson DOL 1.5, AF647-MEA cycles)."""
+    sc = copy.deepcopy(PRESETS[base]) if base else Scenario(name=name)
+    sc.name = name
+    for k, v in scenario_kw.items():
+        setattr(sc, k, v)
+    sc.emitters = model if model is not None else EmitterModel()
+    sc.origin = f"BaGoL plan F2: {('preset ' + base) if base else 'default scenario'} with antibody stacks"
+    return sc
+
+
+EMITTER_PRESETS: Dict[str, Scenario] = {
+    # Not part of PRESETS: --all-scenarios and the D11 verdicts keep running on the legacy presets only.
+    "sparse_emitters": emitter_scenario("sparse_emitters", base="sparse_lab2"),
+    "sparse_emitters_bme": emitter_scenario("sparse_emitters_bme", base="sparse_lab2",
+                                            model=EmitterModel(cycles_mean=26.0)),   # [literature] Dempsey 2011
+                                                                                     # Table 1: AF647 in bME, 26
+    "sparse_emitters_af568": emitter_scenario("sparse_emitters_af568", base="sparse_lab2",
+                                              model=EmitterModel(cycles_mean=7.0)),  # [literature] Dempsey 2011
+                                                                                     # Table 1: AF568 in MEA, 7
+    "sparse_emitters_dol1": emitter_scenario("sparse_emitters_dol1", base="sparse_lab2",
+                                             model=EmitterModel(n_secondary=1, dol=1, dol_dist="fixed")),
+}
+
+
 # --------------------------------------------------------------------------- runner
-METRIC_KEYS = ("exact", "merge", "split", "missed", "false", "ari", "iou_mean", "frac_locs_clustered", "n_clusters",
+METRIC_KEYS =("exact", "merge", "split", "missed", "false", "ari", "iou_mean", "frac_locs_clustered", "n_clusters",
                "clusters_per_um", "median_1nn_nm", "median_r_eff_nm", "median_n_loc",
                "bias_clusters_per_um_pct", "bias_median_1nn_nm_pct", "bias_median_r_eff_nm_pct", "time_s")
 
@@ -958,15 +1420,40 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                                                         "measured under load)")
     ap.add_argument("--strategies-json", default="", help="JSON file with a list of specs (for specs with commas, "
                                                           "e.g. reg:OPTICS:xi=0.1,max_eps=100); overrides --strategies")
+    ap.add_argument("--export-smd", action="store_true",
+                    help="write each replicate of each --scenario (legacy or emitter preset) as an SMD CSV (X, Y, "
+                         "X_SE, Y_SE, FrameNum in nm) plus a per-stack truth CSV into --out, and exit")
+    ap.add_argument("--smd-level", choices=("localization", "event"), default="localization",
+                    help="SMD rows: every localization, or one per switching event (perfect frame connection)")
     a = ap.parse_args(argv)
     if a.list:
         for k, sc in PRESETS.items():
             print(f"{k:22s} geometry={sc.geometry} spacing={sc.spacing_nm:g} p_label={sc.p_label:g} c_label={sc.c_label:g} "
                   f"sigma={sc.sigma_loc:g} bg={sc.bg_labels_per_um:g}/um,{sc.bg_locs_per_um2:g}/um2  [{sc.origin}]")
+        print("emitter presets (antibody stacks; for --export-smd, not in --all-scenarios):")
+        for k, sc in EMITTER_PRESETS.items():
+            em = sc.emitters
+            assert em is not None
+            print(f"{k:22s} spacing={sc.spacing_nm:g} sigma={sc.sigma_loc:g} ele={em.ele:g} n2={em.n_secondary} "
+                  f"dol={em.dol:g} ({em.dol_dist}) cycles={em.cycles_mean:g} ({em.cycles_dist})  [{sc.origin}]")
         return 0
     names = list(PRESETS) if a.all_scenarios else list(a.scenario)
     if not names:
         ap.error("give --scenario NAME (repeatable) or --all-scenarios")
+    if a.export_smd:
+        pool = {**PRESETS, **EMITTER_PRESETS}
+        unknown = [n for n in names if n not in pool]
+        if unknown:
+            ap.error(f"unknown scenario(s) {unknown}; see --list")
+        os.makedirs(a.out, exist_ok=True)
+        for n in names:
+            for rep in range(int(a.replicates)):
+                s = generate(pool[n], np.random.default_rng([int(a.seed), scenario_seed(n), rep]))
+                base = os.path.join(a.out, f"{n}_seed{a.seed}_rep{rep}")
+                n_rows = export_smd_csv(s, base + "_smd.csv", level=a.smd_level)
+                write_stack_truth_csv(s, base + "_stacks.csv")
+                print(f"{base}_smd.csv: {n_rows} rows ({a.smd_level}); truth: {base}_stacks.csv")
+        return 0
     unknown = [n for n in names if n not in PRESETS]
     if unknown:
         ap.error(f"unknown scenario(s) {unknown}; see --list")

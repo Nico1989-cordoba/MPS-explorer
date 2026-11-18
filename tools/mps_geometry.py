@@ -137,6 +137,8 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.spatial import ConvexHull, QhullError
 
+from tools import mps_cancel
+
 # Paper reference values, for comparison in the results panel.
 PAPER_MEDIAN_CLUSTER_AREA_NM2 = 1965.0
 PAPER_MEDIAN_R_EFF_NM = 25.0
@@ -1046,6 +1048,8 @@ def reconstruct_perimeter(
         lengths = np.empty(k)
         best: Optional[Tuple[float, NDArray[np.intp], int]] = None
         for start in range(k):
+            # F5d: a cancelled run of the MPS analysis window stops here (a no-op elsewhere, tools.mps_cancel)
+            mps_cancel.check("perimeter, 2-opt from every start")
             tour, n_imp = _two_opt_fast(centroids, np.roll(order, -start))
             lengths[start] = _tour_length(centroids, tour)
             # Strictly shorter, so ties go to the earliest start and the

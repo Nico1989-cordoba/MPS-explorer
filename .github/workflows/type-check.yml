@@ -76,6 +76,16 @@ jobs:
             tools/cluster_topological.py \
             tools/spatial_stats.py \
             tools/cluster_benchmark.py \
+            tools/emitters_prior.py \
+            tools/calibration_xi.py \
+            tools/cluster_emitters.py \
+            tools/emitters_layer.py \
+            tools/mps_perimeter_cost.py \
+            tools/perimeter_cost_ui.py \
+            tools/emitters_precision_ui.py \
+            tools/mps_cancel.py \
+            tools/mps_background_run.py \
+            tools/mps_window_scroll.py \
             tools/parallel_clustering.py \
             tools/parameter_cache.py \
             config_loader.py \
