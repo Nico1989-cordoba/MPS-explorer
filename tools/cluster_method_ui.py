@@ -78,6 +78,10 @@ PIPELINE_PER_KLOC = 0.3
 # dialog says the figure is a lower bound.
 SCALING_EXPONENT: Dict[str, float] = {"OPTICS": 1.5, "voronoi_csr": 1.2}
 NO_BENCHMARK = "no benchmark"
+# Where the picture of a method is, for the methods that draw one (shown under its parameters).
+VORONOI_HINT = ("The cells are drawn on the axon map: tick 'Cells in clusters' or 'Cells outside clusters' in its "
+                "group 'Voronoi cells' (off by default; built when ticked).")
+METHOD_HINTS: Dict[str, str] = {"voronoi_factor": VORONOI_HINT, "voronoi_csr": VORONOI_HINT}
 
 
 def is_slow(method: str) -> bool:
@@ -173,6 +177,13 @@ class MethodPanel(QtWidgets.QWidget):
         lay.addWidget(self.lbl_slow, 5, 0, 1, 2)
         self._build_layer_box()
         lay.addWidget(self.layer_box, 6, 0, 1, 2)
+        # Where a method's own picture is (manual test of 2026-10-20: "I choose Voronoi and do not see the
+        # tessellation"): one line under the parameters, for the methods that have one.
+        self.lbl_hint = QtWidgets.QLabel("")
+        self.lbl_hint.setObjectName("method_hint")
+        self.lbl_hint.setWordWrap(True)
+        self.lbl_hint.setVisible(False)
+        lay.addWidget(self.lbl_hint, 7, 0, 1, 2)
 
         self.chk_experimental.toggled.connect(self._fill_combo)
         self.combo.currentIndexChanged.connect(self._on_method)
@@ -520,6 +531,9 @@ class MethodPanel(QtWidgets.QWidget):
                   "results; the window stays usable meanwhile."
                 + (EMITTERS_SLOW_NOTE if name == EMITTERS_METHOD else ""))
         self._show_layer(name)
+        hint = METHOD_HINTS.get(name, "")
+        self.lbl_hint.setText(hint)
+        self.lbl_hint.setVisible(bool(hint))
         if info is None or name == COMPAT_METHOD:
             return
         saved = self._params.get(name, {})
@@ -701,7 +715,9 @@ class _Worker(QtCore.QThread):
     """Runs the ticked methods one after another.
 
     It never touches a widget: it calls ``run_fn`` and emits plain values
-    (a method name and a dict of floats / ints / strings). ``cancelled`` is
+    (a method name and a dict of floats / ints / strings), plus, under
+    "analysis", the object ``run_fn`` returned: the worker never touches it
+    again, and the dialog keeps it for "Overlay on the map". ``cancelled`` is
     read before each method, so Cancel stops before the next method; the one
     running finishes first (the clustering functions cannot be interrupted).
     """
@@ -725,6 +741,7 @@ class _Worker(QtCore.QThread):
                     an = self.run_fn(method, params)
                     row = readouts_of(an)
                     row["error"] = ""
+                    row["analysis"] = an
                 except Exception as exc:                  # noqa: BLE001
                     row = {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
                 row["seconds"] = float(time.perf_counter() - t0)
@@ -766,6 +783,10 @@ COLUMNS: Tuple[Tuple[str, str], ...] = (
 )
 
 CANCEL_NOTE = "Cancel stops before the next method; the one running finishes first."
+OVERLAY_TIP = ("Draw the selected method's clusters over the analysis shown, on the axon map: each kept cluster\n"
+               "outlined by the convex hull of its localizations, the analysis' own solid, this one dotted, with a\n"
+               "count of the clusters split, merged and without a partner. Display only: the analysis shown and\n"
+               "the method in use do not change (docs/clustering_methods.md, 'Overlaying a second method').")
 
 
 def _fmt(v: Any) -> str:
@@ -813,6 +834,10 @@ class CompareMethodsDialog(QtWidgets.QDialog):
         self.params_for = params_for
         self.verdicts = load_verdicts() if verdicts is None else verdicts
         self.rows: Dict[str, Dict[str, Any]] = {}
+        # what each method's run returned (an AxonAnalysis), for "Overlay on the map"
+        self.analyses: Dict[str, Any] = {}
+        self.current = str(current)
+        self.overlay_method: Optional[str] = None
         self.chosen: List[str] = []
         self.ran: List[str] = []
         self.errors: List[str] = []
@@ -827,7 +852,8 @@ class CompareMethodsDialog(QtWidgets.QDialog):
             "speed; the clusters cut by the Picasso pick are kept even if the analysis leaves them out).\n"
             "The verdict columns come from the synthetic benchmark only (D11), never from this axon;\n"
             "'(provisional)' means the benchmark judged the methods at initial defaults that are still\n"
-            "pending scientific verification (docs/clustering_benchmark.md).\n" + CANCEL_NOTE))
+            "pending scientific verification (docs/clustering_benchmark.md).\n" + CANCEL_NOTE + "\n"
+            "To see two methods on the map: select another method's row and press 'Overlay on the map'."))
         self.checks: Dict[str, QtWidgets.QCheckBox] = {}
         grid = QtWidgets.QGridLayout()
         names = [n for n in registry_names(include_experimental=experimental) if n != "External labels"]
@@ -867,16 +893,22 @@ class CompareMethodsDialog(QtWidgets.QDialog):
             "Save the method of the selected row for the analyses that follow (D12). With several rows\n"
             "selected, the first one is the method used; all the methods that ran are recorded as compared.")
         self.btn_use.setEnabled(False)
+        self.btn_overlay = QtWidgets.QPushButton("Overlay on the map")
+        self.btn_overlay.setObjectName("btn_overlay")
+        self.btn_overlay.setToolTip(OVERLAY_TIP)
+        self.btn_overlay.setEnabled(False)
         self.btn_close = QtWidgets.QPushButton("Close")
         self.btn_close.setToolTip("Close. While methods are running, it cancels them first and closes\n"
                                   "when the method running finishes.")
-        for b in (self.btn_run, self.btn_cancel, self.btn_use, self.btn_close):
+        for b in (self.btn_run, self.btn_cancel, self.btn_use, self.btn_overlay, self.btn_close):
             btns.addWidget(b)
         lay.addLayout(btns)
         self.btn_run.clicked.connect(self.start)
         self.btn_cancel.clicked.connect(self.cancel)
         self.btn_use.clicked.connect(self._use)
+        self.btn_overlay.clicked.connect(self._overlay)
         self.btn_close.clicked.connect(self.reject)
+        self.table.itemSelectionChanged.connect(self._sync_overlay)
         self._update_estimate()
 
     def ticked(self) -> List[str]:
@@ -907,6 +939,7 @@ class CompareMethodsDialog(QtWidgets.QDialog):
         self.errors = []
         self.table.setRowCount(0)
         self.rows = {}
+        self.analyses = {}
         self.progress.setRange(0, len(jobs))
         self.progress.setValue(0)
         self.lbl_status.setText(f"Running {len(jobs)} method(s)... {CANCEL_NOTE}")
@@ -928,6 +961,36 @@ class CompareMethodsDialog(QtWidgets.QDialog):
         self.btn_run.setEnabled(not on and bool(self.ticked()))
         self.btn_cancel.setEnabled(on and not (self._worker is not None and self._worker.cancelled))
         self.btn_use.setEnabled(not on and self.table.rowCount() > 0)
+        self._sync_overlay()
+
+    def overlay_candidate(self) -> Tuple[Optional[str], str]:
+        """The method 'Overlay on the map' would draw (one selected row, run without error, not the method of the
+        analysis shown), or (None, why not)."""
+        if self._worker is not None:
+            return None, "the methods are still running"
+        chosen = self.selected_methods()
+        if len(chosen) != 1:
+            return None, "select one row (another method than the one shown)"
+        name = chosen[0]
+        if name == self.current:
+            return None, f"{name} is the method of the analysis shown: select another row"
+        an = self.analyses.get(name)
+        if an is None or getattr(an, "labels", None) is None:
+            return None, f"{name}'s run left nothing to draw"
+        return name, ""
+
+    def _sync_overlay(self) -> None:
+        name, why = self.overlay_candidate()
+        self.btn_overlay.setEnabled(name is not None)
+        self.btn_overlay.setToolTip(OVERLAY_TIP + ("" if name is not None else f"\n\nNot now: {why}."))
+
+    def _overlay(self) -> None:
+        name, why = self.overlay_candidate()
+        if name is None:
+            QtWidgets.QMessageBox.information(self, "Compare methods", why[:1].upper() + why[1:] + ".")
+            return
+        self.overlay_method = name
+        self.accept()
 
     def cancel(self) -> None:
         w = self._worker
@@ -938,6 +1001,9 @@ class CompareMethodsDialog(QtWidgets.QDialog):
         self.lbl_status.setText("Cancelling: the method running finishes first, then nothing else runs.")
 
     def _on_one(self, method: str, row: Dict[str, Any]) -> None:
+        an = row.pop("analysis", None)
+        if an is not None:
+            self.analyses[method] = an
         self.rows[method] = row
         r = self.table.rowCount()
         self.table.insertRow(r)

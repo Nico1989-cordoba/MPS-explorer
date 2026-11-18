@@ -73,8 +73,8 @@ def group_caption_style(dark: bool) -> str:
 class Swatch:
     """How a row's icon is drawn: like the plot draws the layer.
 
-    kind     "symbol" (a marker: ``symbol`` filled with ``colour``, outlined with ``pen``), "line" (solid, or dashed
-             when ``dash``), "bar" (a filled square) or "image" (a grey gradient square).
+    kind     "symbol" (a marker: ``symbol`` filled with ``colour``, outlined with ``pen``), "line" (solid, dashed
+             when ``dash``, dotted when ``dot``), "bar" (a filled square) or "image" (a grey gradient square).
     colour   a colour pyqtgraph understands ("#rrggbb", a QColor, an (r, g, b[, a]) tuple...).
     pen      the marker's outline colour (None: the neutral line colour of a dark plot).
     hollow   a marker drawn as an outline only, in ``colour`` (the Rings window's segments).
@@ -87,6 +87,7 @@ class Swatch:
     symbol: str = "o"
     pen: Any = None
     dash: bool = False
+    dot: bool = False
     hollow: bool = False
     width: float = 2.0
     size: float = 0.0
@@ -129,6 +130,8 @@ def swatch_icon(sw: Swatch, size: int = 16) -> QtGui.QIcon:
         pen = QtGui.QPen(ink, sw.width)
         if sw.dash:
             pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+        elif sw.dot:
+            pen.setStyle(QtCore.Qt.PenStyle.DotLine)
         painter.setPen(pen)
         painter.drawLine(a, b)
     elif sw.kind == "bar":

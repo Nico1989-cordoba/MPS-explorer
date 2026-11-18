@@ -175,6 +175,46 @@ the background. A threshold of 1× or 2× the random mean density is a criterion
 a molecule: with several localizations per fluorophore, every isolated fluorophore is already a Voronoi cluster
 *(inference)*.
 
+#### The Voronoi layer of the axon map
+
+When the analysis shown was made with `voronoi_factor` or `voronoi_csr`, the axon map of the MPS analysis window has
+a group **Voronoi cells (method)** with two rows, both off by default:
+
+* **Cells in clusters**: the cell of every localization the method put in a cluster, filled by its density class,
+  opaque, with a thin outline in the plot's neutral colour.
+* **Cells outside clusters**: the cells of the other localizations, on the same scale, faint and without an outline.
+  A dense cell here belongs to a group of dense cells smaller than `min_cluster_points`.
+
+Under the rows, a scale shows the classes from sparse (left) to dense (right) with a white tick at the threshold the
+method applied, and the densities at its ends and at the tick in localizations per µm²; the group's caption repeats
+the threshold, its rule (`factor`, `first crossing` or `quantile fallback`) and its ratio to the mean density of the
+occupied region.
+
+What it shows, exactly:
+
+* **The method's own cells.** The analysis keeps the method's diagnostics (density per localization, clip window,
+  threshold); the polygons are those the fit kept (`keep_polygons=True`) or are rebuilt from the same unique points and
+  the same clip window with the same function the fit called, and their areas are checked against the fit's own
+  before anything is drawn. Nothing is clustered again and no number of the analysis changes (the labels are identical
+  with and without `keep_polygons`; `test_voronoi_layer.py`).
+* **The density the method thresholded**: first-rank density for `voronoi_factor` (its default `density_rank = 1`),
+  1/area for `voronoi_csr` (rank 0), whatever `density_rank` was set to.
+* **Eight classes of log density** [ad hoc]: four equal steps from the 1 % quantile of the cells up to the threshold
+  and four from the threshold up to the 99 % quantile, so that above or below the cut is read from the colour alone;
+  cells beyond the quantiles take the end colours. If the threshold lies outside that range (no finite threshold,
+  or none inside the data), the eight classes span the range and the scale says so.
+* **In a cluster** means the method's own label, *before* the analysis' edge curation: the layer shows what the
+  tessellation did; the localization rows show what the curation kept.
+* **Colours**: viridis sampled at 0.25-1.0 (its darkest quarter is near-black on the map's black), a sequential map
+  whose lightness rises with density under normal vision and the three dichromacies (checked by
+  `validate_plot_colours.py`, which also lists the marks drawn over the cells and what tells each from the fill).
+  Cells of a cluster and the others are told apart by opacity and the outline, never by hue.
+
+Cost [simulation (project), 2026-10-20, synthetic rings, the user's notebook]: the cells are built the first time a
+row is ticked, one path per class rather than one item per cell: 0.3 s for 5,128 localizations and 1.3-1.5 s for
+20,290; drawing a frame takes 8 / 25 ms. Above 50,000 cells the rows are disabled and say why [ad hoc limit, ~3-4 s
+by the same measurement].
+
 ### 3.3 Graph and topological: ToMATo, StormGraph
 
 ToMATo replaces the global threshold by the persistence of density modes: every local maximum of the density is a
@@ -450,6 +490,43 @@ as a margin, curated less than DBSCAN does.
   construction (k-distance graph, axial groups, sizer, bead finder). Their outputs do not carry `cluster_method`.
 - `analysis_id` gains the method and its parameters only for a method other than DBSCAN; it changes from v9 to v10
   for every row anyway, because the table version is part of it (as at every version).
+
+### Overlaying a second method on the map
+
+'Compare methods...' fills a table; it does not change the plot. To SEE where two methods part ways, select one
+row of the table (a method other than the one of the analysis shown) and press **Overlay on the map**. The dialog
+closes and the axon map gets a group **Second method: B over A** at the top of its layers, with two rows, both
+ticked:
+
+* **A clusters (solid)**: every cluster the analysis shown kept (after its edge curation), outlined by the convex
+  hull of its localizations, thin and solid in the sky blue of its own localizations;
+* **B clusters (dotted)**: the same for the method of the selected row, run on the same slab, dotted in reddish
+  purple (the map's only dotted line).
+
+A cluster of A cut by two dotted loops is a split; one dotted loop around two solid ones is a fusion; a loop with
+no partner is a cluster the other method does not have. Clusters of fewer than three distinct localizations have no
+outline. The group's caption counts these with the synthetic benchmark's matching rules
+(`tools.cluster_benchmark.molecule_metrics`, with A's clusters in the role of the molecules and A's unclustered
+localizations in the role of the background; `tools/method_overlay.py`):
+
+| count | rule (all thresholds the benchmark's, ad hoc) |
+|---|---|
+| one-to-one | B clusters whose majority A cluster holds ≥ 80 % of the B cluster, and the B cluster ≥ 80 % of it |
+| split | A clusters with ≥ 20 % of their localizations in each of two or more B clusters |
+| merge | B clusters in which two or more A clusters are present (≥ 20 % each) |
+| A without a partner | A clusters with < 50 % of their localizations in any B cluster |
+| B mostly on A's unclustered localizations | B clusters with > 50 % of their localizations in no A cluster |
+| ARI | adjusted Rand index of the two labellings on the localizations both put in a cluster |
+
+The roles are not symmetric ("split" and "merge" are read from A's side). It is display only: neither analysis
+changes, the method in use stays A, and nothing is exported. The overlay belongs to the analysis it was drawn on:
+any re-run, another selection or another file drops it, and **Clear the overlay** under its rows removes it. Its
+rows are disabled while the centres are coloured by the two widefield images (the spectrin rows use the same
+purple) and with the segments' source. Two methods at most: the analysis shown and one other (to compare B with C,
+make B the method in use first).
+
+`B` runs as every comparison does (same slab, ROI and contour; randomization off; the clusters cut by the pick kept,
+see above), so its outline set is the one its table row describes.
 
 ## References
 

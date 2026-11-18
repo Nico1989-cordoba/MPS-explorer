@@ -95,6 +95,15 @@ ROW_STYLES: Dict[str, Style] = {
     # map: the Picasso pick (clusters cut by its edge, P-R59)
     "c_cut": Style("cut", 255, "cased hollow hexagon", "h", 16.0, width=1.5, cased=True, hollow=True),
     "pick_boundary": Style("cut", 255, "cased dashed line", width=1.5, pen="dash", cased=True),
+    # map: the Voronoi cells of a voronoi_factor / voronoi_csr analysis (tools.voronoi_layer). "ramp": each cell in
+    # the colour of its density class (tools.mps_plot_style.DENSITY_RAMP), a quantity and not a role; the cells of a
+    # cluster opaque with a thin neutral outline, the others faint without one.
+    "vor_in": Style("ramp", 235, "filled cells with a thin neutral outline", width=1.0, outline="neutral"),
+    "vor_out": Style("ramp", 140, "faint filled cells, no outline"),
+    # map: a second method over the analysis shown (tools.method_overlay): each kept cluster's convex hull, the
+    # analysis' own (A) thin and solid in its localizations' colour, the other method's (B) dotted
+    "ov_a": Style("locs", 255, "thin solid hull", width=1.0),
+    "ov_b": Style("method_b", 255, "dotted hull", width=2.0, pen="dot"),
     # axial view
     "roi_in": Style("locs", 170, "bars"),
     "roi_out": Style("dim", 100, "bars"),
@@ -366,7 +375,8 @@ OVER_IMAGE_REASON = "grey on the grey image: use the axoplasm classes"
 # Rows disabled with the segments' source (3.5): the five segment colours are five roles' colours.
 SEGMENT_COLOUR_REASON = "the segments use these colours"
 SEGMENTS_DISABLE: Tuple[str, ...] = ("c_kept", "c_discarded", "c_both", "c_tubulin", "c_spectrin", "occupied",
-                                     "tubulin_edge", "spectrin_edge", "c_cut", "pick_boundary")
+                                     "tubulin_edge", "spectrin_edge", "c_cut", "pick_boundary", "vor_in", "vor_out",
+                                     "ov_a", "ov_b")
 # What may be drawn over the segments (validator: "segments against the map's overlays").
 SEGMENTS_ALLOW: Tuple[str, ...] = ("contour", "contour_all", "centre", "centre_all", "centres_mean", "rand_band",
                                    "c_neither", "image", "ring_origin")
@@ -401,6 +411,7 @@ class MapInputs:
     colour_by: str = "status"
     image: str = "tubulin"
     selection_n: Optional[int] = None               # the plain selection, with no axoplasm panel
+    overlay: Any = None                             # tools.method_overlay.MethodOverlay on this analysis, or None
 
     def shown_analysis(self) -> Any:
         if self.analysis is None:
@@ -778,12 +789,121 @@ def _pick_rows(inp: MapInputs) -> Group:
     return g
 
 
+VORONOI_TIP_IN = ("The Voronoi cell of every localization the method put in a cluster: each localization owns the part "
+                  "of the plane closer to it than to any other, and the method calls a cell dense from its area. "
+                  "Filled by the cell's density class (the scale under the rows; the threshold the method applied is "
+                  "the white tick), opaque, with a thin outline. The cells are the method's own, read from its fit: "
+                  "nothing is clustered again (docs/clustering_methods.md, 'The Voronoi layer').")
+VORONOI_TIP_OUT = ("The Voronoi cells of the localizations in no cluster: faint, no outline, on the same scale. A dense "
+                   "cell here belongs to a group of dense cells smaller than min_cluster_points.")
+VORONOI_SLOW_NOTE = "drawn when ticked (thousands of cells)"
+
+
+def _voronoi_group(inp: MapInputs) -> Optional[Group]:
+    """The cells of a Voronoi analysis (voronoi_factor / voronoi_csr), by density; None for any other method. The
+    rows carry the analysis' own diagnostics; the widget builds the polygons only when a row is ticked."""
+    from tools import voronoi_layer as V
+    a = inp.analysis
+    if a is None or not V.has_tessellation(a):
+        return None
+    method = str(a.cluster_method)
+    g = Group("voronoi", f"Voronoi cells ({method})")
+    diag = getattr(a, "cluster_diagnostics", None)
+    rows = (("vor_in", "Cells in clusters", VORONOI_TIP_IN), ("vor_out", "Cells outside clusters", VORONOI_TIP_OUT))
+    if diag is None:
+        g.caption = "the cells of the tessellation"
+        g.enabled, g.reason = False, "this analysis kept no tessellation (re-run it)"
+        g.layers = [Layer(k, label, g.key, "voronoi", {}, None, tip) for k, label, tip in rows]
+        return g
+    scale = V.density_scale(diag)
+    x, y = np.asarray(a.x_slab, float), np.asarray(a.y_slab, float)
+    labels = np.asarray(a.labels)
+    if scale is None or x.size != np.asarray(diag.density).size:
+        why = ("no cell has a positive density" if scale is None else
+               "the tessellation does not match the slab's localizations")
+        g.caption = "the cells of the tessellation"
+        g.enabled, g.reason = False, why
+        g.layers = [Layer(k, label, g.key, "voronoi", {}, None, tip) for k, label, tip in rows]
+        return g
+    thr_um2 = scale.threshold * V.PER_UM2
+    mean_um2 = scale.mean_density * V.PER_UM2
+    ratio = (f" = {scale.threshold / scale.mean_density:.3g} x the mean density {V.density_words(mean_um2)}"
+             if scale.mean_density > 0 and np.isfinite(scale.threshold) else "")
+    rank = int(getattr(a, "cluster_params", {}).get("density_rank", 1 if method == "voronoi_factor" else 0))
+    g.caption = (f"{method}: the method's cells, read from its fit; threshold {V.density_words(thr_um2)} loc/um^2 "
+                 f"({scale.rule}){ratio}; colour = log density ({'first-rank' if rank == 1 else '1/area'}), "
+                 f"{len(scale.colours)} classes, the threshold on the class edge marked in the scale"
+                 + (f" ({scale.note}: the classes span the drawn range)" if scale.note else "")
+                 + f"; in a cluster = the method's label, before the edge curation; {VORONOI_SLOW_NOTE}")
+    n_in, n_out = V.cell_counts(diag, x, y, labels)
+    data = {"x": x, "y": y, "labels": labels, "diag": diag, "scale": scale}
+    g.layers = [Layer("vor_in", "Cells in clusters", g.key, "voronoi", dict(data, in_clusters=True), n_in,
+                      VORONOI_TIP_IN),
+                Layer("vor_out", "Cells outside clusters", g.key, "voronoi", dict(data, in_clusters=False), n_out,
+                      VORONOI_TIP_OUT)]
+    n_cells = n_in + n_out
+    if n_cells > V.MAX_DRAWN_CELLS:
+        for layer in g.layers:
+            layer.enabled = False
+            layer.reason = f"{n_cells:,} cells, more than the {V.MAX_DRAWN_CELLS:,} this layer draws"
+    return g
+
+
+OVERLAY_TIP = ("A second clustering method, chosen in 'Compare methods...' with 'Overlay on the map', over the analysis "
+               "shown: each kept cluster outlined by the convex hull of its localizations, the analysis' own thin and "
+               "solid, the other method's dotted. Where they part ways - a cluster cut in two, two joined, one the "
+               "other method does not have - is read off the map; the caption counts them with the benchmark's "
+               "matching rules (docs/clustering_methods.md, 'Overlaying a second method'). Display only: neither "
+               "analysis changes.")
+
+
+# The second method's outlines share the reddish purple of the spectrin image's rows, as the pick's do: they are
+# disabled with the colouring that draws the spectrin squares (validate_plot_colours.py).
+OVERLAY_DISABLED_WITH_IMAGES = ("the betaII-spectrin rows of this colouring use the same purple: colour the centres "
+                                "by status to see the second method")
+
+
+def _overlay_group(inp: MapInputs) -> Optional[Group]:
+    """Method B's clusters over the analysis shown (A), when an overlay was asked for on this analysis."""
+    from tools import method_overlay as MO
+    ov = inp.overlay
+    a = inp.analysis
+    if ov is None or a is None or ov.base is not a:
+        return None
+    g = Group("overlay", f"Second method: {ov.method_b} over {ov.method_a}")
+    if not ov.ok:
+        g.caption = f"{ov.method_b} over {ov.method_a}"
+        g.enabled, g.reason = False, ov.note or "no overlay"
+        g.layers = [Layer("ov_a", f"{ov.method_a} clusters (solid)", g.key, "outlines", {}, None, OVERLAY_TIP),
+                    Layer("ov_b", f"{ov.method_b} clusters (dotted)", g.key, "outlines", {}, None, OVERLAY_TIP)]
+        return g
+    g.caption = (ov.summary.words(ov.method_a, ov.method_b) + "; each analysis' kept clusters, outlined by their "
+                 "convex hulls (clusters of fewer than three distinct localizations have none); counted with the "
+                 "benchmark's matching rules")
+    for key, method, hulls, how in (("ov_a", ov.method_a, ov.hulls_a, "solid"),
+                                    ("ov_b", ov.method_b, ov.hulls_b, "dotted")):
+        x, y, connect = MO.joined_outlines(hulls)
+        g.layers.append(Layer(key, f"{method} clusters ({how})", g.key, "outlines",
+                              {"x": x, "y": y, "connect": connect}, len(hulls), OVERLAY_TIP))
+    if inp.colour_by == "images":
+        for layer in g.layers:
+            layer.enabled, layer.reason = False, OVERLAY_DISABLED_WITH_IMAGES
+    return g
+
+
 def build_map(inp: MapInputs) -> List[Group]:
     """Every group of the map for these inputs, with the rows of the chosen source and colouring only, each with
     its availability and reason (3.3, 3.4, 3.5)."""
     shown = inp.shown_analysis()
     groups = [_localization_group(inp, shown), _centres_group(inp, shown), _contour_group(inp, shown),
               _pick_group(inp), _image_group(inp), _rings_group(inp)]
+    vor = _voronoi_group(inp)
+    if vor is not None:
+        groups.insert(3, vor)
+    ov = _overlay_group(inp)
+    if ov is not None:
+        # first: the user has just asked for it, it opens above the fold
+        groups.insert(0, ov)
     if inp.source == "segments":
         for g in groups:
             for layer in g.layers:
@@ -823,6 +943,19 @@ def map_title(inp: MapInputs, ticked: Set[str]) -> str:
         parts.append("centres by status in the analysis")
     elif ticked & {"c_both", "c_tubulin", "c_spectrin", "c_neither"} and inp.colour_by == "images":
         parts.append("centres by the two widefield images")
+    ov = inp.overlay
+    if ov is not None and ov.base is inp.analysis and ov.ok and ticked & {"ov_a", "ov_b"}:
+        drawn = [f"{m} {how}" for k, m, how in (("ov_a", ov.method_a, "solid"), ("ov_b", ov.method_b, "dotted"))
+                 if k in ticked]
+        parts.append("cluster outlines: " + ", ".join(drawn))
+    diag = getattr(inp.analysis, "cluster_diagnostics", None)
+    if ticked & {"vor_in", "vor_out"} and diag is not None:
+        which = ("cells in and outside clusters" if {"vor_in", "vor_out"} <= ticked
+                 else "cells in clusters" if "vor_in" in ticked else "cells outside clusters")
+        from tools.voronoi_layer import PER_UM2, density_words
+        parts.append(f"Voronoi {which} by density, threshold "
+                     f"{density_words(float(diag.threshold_density) * PER_UM2)} loc/um^2 "
+                     f"({inp.analysis.cluster_method})")
     cut = getattr(inp.analysis, "cut", None)
     if "c_cut" in ticked and cut is not None and cut.evaluated:
         parts.append(f"clusters cut by the pick (hexagons): {cut.count_words()} at {cut.multiple:g} NeNA")
