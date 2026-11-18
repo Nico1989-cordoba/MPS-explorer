@@ -1,0 +1,96 @@
+{
+ "scenario": "null",
+ "method": "HDBSCAN",
+ "closure": "n_locs",
+ "hard_core_nm": null,
+ "origin": "simulation (synthetic only), docs/sims/pipeline_null/calibration_null.py",
+ "B": 49,
+ "n_axons": 30,
+ "n_refused": 0,
+ "rejections_at_0.05": {
+  "ripley1d_p_global": 5,
+  "ripley2d_p_global": 3,
+  "p_mc_k_per_um": 4,
+  "p_mc_nn_median": 3,
+  "p_mc_reff_median": 7,
+  "p_mc_occupancy": 10,
+  "p_mc_regularity": 1
+ },
+ "tested": {
+  "ripley1d_p_global": 30,
+  "ripley2d_p_global": 30,
+  "p_mc_k_per_um": 30,
+  "p_mc_nn_median": 30,
+  "p_mc_reff_median": 30,
+  "p_mc_occupancy": 30,
+  "p_mc_regularity": 30
+ },
+ "rejection_rate": {
+  "ripley1d_p_global": 0.1667,
+  "ripley2d_p_global": 0.1,
+  "p_mc_k_per_um": 0.1333,
+  "p_mc_nn_median": 0.1,
+  "p_mc_reff_median": 0.2333,
+  "p_mc_occupancy": 0.3333,
+  "p_mc_regularity": 0.0333
+ },
+ "wilson95": {
+  "ripley1d_p_global": [
+   0.0734,
+   0.3356
+  ],
+  "ripley2d_p_global": [
+   0.0346,
+   0.2562
+  ],
+  "p_mc_k_per_um": [
+   0.0531,
+   0.2968
+  ],
+  "p_mc_nn_median": [
+   0.0346,
+   0.2562
+  ],
+  "p_mc_reff_median": [
+   0.1179,
+   0.4093
+  ],
+  "p_mc_occupancy": [
+   0.1923,
+   0.5122
+  ],
+  "p_mc_regularity": [
+   0.0059,
+   0.1667
+  ]
+ },
+ "pointwise_exceedances": {
+  "pointwise1d_exceeds": 16,
+  "pointwise2d_exceeds": 16
+ },
+ "pointwise_rate": {
+  "pointwise1d_exceeds": 0.5333,
+  "pointwise2d_exceeds": 0.5333
+ },
+ "pointwise_wilson95": {
+  "pointwise1d_exceeds": [
+   0.3614,
+   0.6977
+  ],
+  "pointwise2d_exceeds": [
+   0.3614,
+   0.6977
+  ]
+ },
+ "interpretable": 20,
+ "closure_ratio_median": 0.9996,
+ "closure_ratio_range": [
+  0.9971,
+  1.0023
+ ],
+ "seconds_per_replicate_median": 0.638,
+ "k_obs_median": 28.5,
+ "not_interpretable_reasons": [
+  "The simulated axons do not resemble this axon (radial scatter of the centres (nm"
+ ]
+}

@@ -261,9 +261,10 @@ def test_axon_row_v12_puts_the_emitters_block_last(emitters_analysis):
     from tools import axon_export
     from tools.column_dictionary import describe, known_columns, missing
     a, _ = emitters_analysis
-    assert axon_export.TABLE_VERSION == "axon tables v12"
+    assert axon_export.TABLE_VERSION == "axon tables v14"
     row = axon_export.axon_row(a, exported_at="t")
-    names = list(row)
+    n13 = len(axon_export.integration_columns())     # v13: the clustering integration's block after the emitters'
+    names = list(row)[:-n13]
     n = len(el.EMITTERS_COLUMNS)
     assert names[-n:] == list(el.EMITTERS_COLUMNS)
     assert names[-n - len(axon_export.CLUSTER_METHOD_COLUMNS):-n] == list(axon_export.CLUSTER_METHOD_COLUMNS)
@@ -275,7 +276,7 @@ def test_axon_row_v12_puts_the_emitters_block_last(emitters_analysis):
                                                "emitters_precision_flag"]
     assert json.loads(row["cluster_params"])["xi_source"] == "literature"
     assert json.loads(row["cluster_params"])["buffer"] == "MEA"
-    assert known_columns()[-n:] == list(el.EMITTERS_COLUMNS)
+    assert known_columns()[:-n13][-n:] == list(el.EMITTERS_COLUMNS)
     assert not missing(list(el.EMITTERS_COLUMNS))
     for c in el.EMITTERS_COLUMNS:
         assert describe(c), c

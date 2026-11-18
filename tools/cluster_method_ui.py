@@ -41,23 +41,10 @@ from tools.clustering_strategies import (
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERDICTS_PATH = os.path.join(REPO_ROOT, "docs", "sims", "clustering_benchmark", "verdicts.json")
-# Seconds per 1000 slab localizations for the estimate shown before Run
-# [simulation: measured 2026-10-16 on the synthetic ring of
-# test_phase_d_integration._ring_axon, 834 localizations, one run each; the
-# clustering alone]. PIPELINE_PER_KLOC [ad hoc] adds the rest of the per-axon
-# pipeline (curation, contour, occupancy) on top of the clustering.
-SECONDS_PER_KLOC: Dict[str, float] = {
-    "DBSCAN": 0.003, "HDBSCAN": 0.012, "OPTICS": 0.56, "FOCAL": 0.002, "HDBSCAN (scikit-learn)": 0.010,
-    "voronoi_factor": 0.05, "voronoi_csr": 7.6, "ToMATo": 0.03, "GraphCommunity": 0.06,
-    # Emitters (BaGoL-like reimplementation), a LOWER BOUND [simulation, BaGoL F5b: the golden's simulated axon A,
-    # 4,314 slab localizations -> 2,821 events in 602 pre-clusters, xi literature MEA, Dirichlet allocation,
-    # 2000 + 3000 steps: 140 s with 1 process = 32.5 s per 1000, the layer alone; with 2 processes (the registry
-    # default) about 19 s per 1000, from the 1.7 x speed-up measured in F3 session 2 (47.6 s -> 27.5 s on a dense
-    # field of 9,842 localizations in 122 pre-clusters, 2.8 s per 1000 with 2 processes)]. The cost goes with
-    # the number of pre-clusters x steps (a Python loop per pre-cluster) more than with the localizations, so a
-    # dense field costs less per localization than an axon; the rest of the analysis comes on top (PIPELINE).
-    "emitters_bagol_like": 19.0,
-}
+# The per-method costs and the slow rule live in tools.method_costs (no Qt; the clustering integration moved
+# them there so that the computing modules need not import this panel); re-exported here under their names.
+from tools.method_costs import (  # noqa: E402
+    PIPELINE_PER_KLOC, SCALING_EXPONENT, SECONDS_PER_KLOC, estimate_seconds, is_slow)
 # The parameters of the Emitters method that the 'Events -> Emitters' box sets from the xi source, and so are not
 # offered as free fields (tools.emitters_layer.DERIVED_KEYS).
 LAYER_HIDDEN: Tuple[str, ...] = ("xi_kind", "xi_mean", "xi_shape", "hierarchical")
@@ -69,25 +56,19 @@ EMITTERS_METHOD = "emitters_bagol_like"
 EMITTERS_SLOW_NOTE = (" The figure is a lower bound measured on a simulated axon: the cost grows with the number of "
                       "pre-clusters (sparse data) and with the events per pre-cluster (dense data), and when the "
                       "emitters leave many small clusters the rest of the analysis can take ten minutes or more.")
-PIPELINE_PER_KLOC = 0.3
-# Methods whose cost grows faster than linearly with the localizations:
-# seconds = SECONDS_PER_KLOC * (n/1000) ** exponent [simulation: OPTICS
-# 1.1 / 3.2 / 7.4 s at 2k / 4k / 8k localizations, review of D0 r6, gives
-# ~1.4-1.5; voronoi_csr ad hoc, same order as OPTICS (one Voronoi
-# tessellation per CSR iteration)]. The others are scaled linearly and the
-# dialog says the figure is a lower bound.
-SCALING_EXPONENT: Dict[str, float] = {"OPTICS": 1.5, "voronoi_csr": 1.2}
 NO_BENCHMARK = "no benchmark"
 # Where the picture of a method is, for the methods that draw one (shown under its parameters).
 VORONOI_HINT = ("The cells are drawn on the axon map: tick 'Cells in clusters' or 'Cells outside clusters' in its "
                 "group 'Voronoi cells' (off by default; built when ticked).")
 METHOD_HINTS: Dict[str, str] = {"voronoi_factor": VORONOI_HINT, "voronoi_csr": VORONOI_HINT}
-
-
-def is_slow(method: str) -> bool:
-    """A method whose analysis the MPS analysis window runs in the background with a Cancel button (F5d): about
-    0.5 s or more per 1000 localizations, or growing faster than linearly [ad hoc threshold, review of D0 m7]."""
-    return SECONDS_PER_KLOC.get(method, 0.0) >= 0.5 or method in SCALING_EXPONENT
+# Where the 'Compare methods...' dialog's size is kept (tools.mps_ui_layout).
+COMPARE_SIZE_KEY = "compare_dialog.size"
+# How many "name: value" pairs share one line of the method's parameters (manual test of 2026-10-23: one pair per
+# line made the strip ~390 px tall at 1920 x 1020 with empty space on both sides) [ad hoc: three pairs of ~300 px
+# fit a 1366-px window, where the method's controls take a line of their own].
+PARAM_COLUMNS = 3
+# Every row of the panel spans these grid columns (label, combo, the box, the two buttons, the collapse arrow).
+_SPAN = 6
 
 
 def load_verdicts(path: str = VERDICTS_PATH) -> Dict[str, Any]:
@@ -115,6 +96,61 @@ def verdict_words(verdicts: Dict[str, Any], method: str, regime: str) -> str:
 
 
 # ------------------------------------------------------------------ panel
+COLLAPSE_TIP = ("Shrink the clustering method's controls to one line, to give the rest of the window room.\n"
+                "A run in progress keeps running; its state and Cancel stay on that line.")
+EXPAND_TIP = ("Show the clustering method's controls again. Collapsing or expanding never stops,\n"
+              "restarts or re-runs an analysis.")
+
+
+class MethodCollapsedBar(QtWidgets.QFrame):
+    """The clustering method's panel collapsed to one line (F4, manual test of 2026-10-22): the method's name (a
+    button that expands the panel again), the state of a run in progress and its Cancel.
+
+    It only shows; the window feeds it (``set_method``, ``set_status``) and listens to ``expand_requested`` and
+    ``cancel_requested``. Collapsing hides the panel's widgets: they keep their values, and a run that is going
+    on is not told anything."""
+
+    expand_requested = QtCore.pyqtSignal()
+    cancel_requested = QtCore.pyqtSignal()
+
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("method_collapsed_bar")
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.btn_expand = QtWidgets.QToolButton()
+        self.btn_expand.setObjectName("btn_method_expand")
+        self.btn_expand.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_expand.setArrowType(QtCore.Qt.ArrowType.DownArrow)
+        self.btn_expand.setAutoRaise(True)
+        self.btn_expand.setToolTip(EXPAND_TIP)
+        self.btn_expand.clicked.connect(self.expand_requested)
+        lay.addWidget(self.btn_expand)
+        self.lbl_status = QtWidgets.QLabel("")
+        self.lbl_status.setObjectName("method_collapsed_status")
+        self.lbl_status.setToolTip("The analysis running in the background, if any (the same line as above the "
+                                   "results).")
+        lay.addWidget(self.lbl_status, 1)
+        self.btn_cancel = QtWidgets.QPushButton("Cancel")
+        self.btn_cancel.setObjectName("btn_method_collapsed_cancel")
+        self.btn_cancel.setToolTip("Stop the analysis running in the background (as the Cancel above the results).")
+        self.btn_cancel.clicked.connect(self.cancel_requested)
+        self.btn_cancel.setVisible(False)
+        lay.addWidget(self.btn_cancel)
+        self.set_method("DBSCAN")
+
+    def set_method(self, name: str) -> None:
+        self.btn_expand.setText(f"Clustering method: {name}")
+
+    def set_status(self, text: str, running: bool, cancelling: bool = False) -> None:
+        """The run's line (elapsed time, stage), or '' when nothing runs."""
+        short = text if len(text) <= 90 else text[:87] + "..."
+        self.lbl_status.setText(short)
+        self.lbl_status.setToolTip(text or "No analysis is running.")
+        self.btn_cancel.setVisible(bool(running))
+        self.btn_cancel.setEnabled(bool(running) and not cancelling)
+
+
 class MethodPanel(QtWidgets.QWidget):
     """The 'Clustering method' row of the parameter strip."""
 
@@ -124,6 +160,8 @@ class MethodPanel(QtWidgets.QWidget):
     layer_run_requested = QtCore.pyqtSignal()
     compat_requested = QtCore.pyqtSignal()
     compare_requested = QtCore.pyqtSignal()
+    # F4 (manual test of 2026-10-22): the user asked to shrink the panel while looking at the rest.
+    collapse_requested = QtCore.pyqtSignal()
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
@@ -145,7 +183,7 @@ class MethodPanel(QtWidgets.QWidget):
         self.chk_experimental.setObjectName("chk_experimental")
         self.chk_experimental.setToolTip("Lists the density, tessellation and topological methods of\n"
                                          "docs/clustering_methods.md. Off: only DBSCAN (D10).")
-        lay.addWidget(self.chk_experimental, 1, 0, 1, 2)
+        lay.addWidget(self.chk_experimental, 0, 2)
         self.btn_compat = QtWidgets.QPushButton("Compatibility 25/10")
         self.btn_compat.setObjectName("btn_compat")
         self.btn_compat.setToolTip("DBSCAN with eps 25 nm and min samples 10: the published pipeline\n"
@@ -154,36 +192,44 @@ class MethodPanel(QtWidgets.QWidget):
         self.btn_compare.setObjectName("btn_compare")
         self.btn_compare.setToolTip("Run the methods you tick on this axon and see their readouts side\n"
                                     "by side with the synthetic benchmark's verdict (D11, D12).")
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(self.btn_compat)
-        row.addWidget(self.btn_compare)
-        row.addStretch(1)
-        lay.addLayout(row, 2, 0, 1, 2)
+        # One line with the method, its box and the two buttons (they were three lines before 2026-10-23).
+        lay.addWidget(self.btn_compat, 0, 3)
+        lay.addWidget(self.btn_compare, 0, 4)
+        lay.setColumnStretch(_SPAN - 1, 1)
         self.params_box = QtWidgets.QWidget()
         self.params_box.setObjectName("method_params")
         self.params_layout = QtWidgets.QGridLayout(self.params_box)
         self.params_layout.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(self.params_box, 3, 0, 1, 2)
+        lay.addWidget(self.params_box, 1, 0, 1, _SPAN + 1)
         self.lbl_invalid = QtWidgets.QLabel("")
         self.lbl_invalid.setObjectName("method_params_invalid")
         self.lbl_invalid.setWordWrap(True)
         self.lbl_invalid.setStyleSheet("color: #d55e00;")
         self.lbl_invalid.setVisible(False)
-        lay.addWidget(self.lbl_invalid, 4, 0, 1, 2)
+        lay.addWidget(self.lbl_invalid, 2, 0, 1, _SPAN + 1)
         self.lbl_slow = QtWidgets.QLabel("")
         self.lbl_slow.setObjectName("method_slow_note")
         self.lbl_slow.setWordWrap(True)
         self.lbl_slow.setVisible(False)
-        lay.addWidget(self.lbl_slow, 5, 0, 1, 2)
+        lay.addWidget(self.lbl_slow, 3, 0, 1, _SPAN + 1)
         self._build_layer_box()
-        lay.addWidget(self.layer_box, 6, 0, 1, 2)
+        lay.addWidget(self.layer_box, 4, 0, 1, _SPAN + 1)
         # Where a method's own picture is (manual test of 2026-10-20: "I choose Voronoi and do not see the
         # tessellation"): one line under the parameters, for the methods that have one.
         self.lbl_hint = QtWidgets.QLabel("")
         self.lbl_hint.setObjectName("method_hint")
         self.lbl_hint.setWordWrap(True)
         self.lbl_hint.setVisible(False)
-        lay.addWidget(self.lbl_hint, 7, 0, 1, 2)
+        lay.addWidget(self.lbl_hint, 5, 0, 1, _SPAN + 1)
+
+        # F4: collapse the panel to one line (MethodCollapsedBar); nothing runs, stops or restarts.
+        self.btn_collapse = QtWidgets.QToolButton()
+        self.btn_collapse.setObjectName("btn_method_collapse")
+        self.btn_collapse.setArrowType(QtCore.Qt.ArrowType.UpArrow)
+        self.btn_collapse.setAutoRaise(True)
+        self.btn_collapse.setToolTip(COLLAPSE_TIP)
+        self.btn_collapse.clicked.connect(self.collapse_requested)
+        lay.addWidget(self.btn_collapse, 0, _SPAN)
 
         self.chk_experimental.toggled.connect(self._fill_combo)
         self.combo.currentIndexChanged.connect(self._on_method)
@@ -580,8 +626,10 @@ class MethodPanel(QtWidgets.QWidget):
             none_note = (f"\nThe lowest step, '{spec.none_text}', is None: the method's own default."
                          if spec.none_text else "")
             editor.setToolTip(f"{key} = {spec.default!r}\nOrigin: {info.defaults[key]['origin']}{none_note}")
-            self.params_layout.addWidget(QtWidgets.QLabel(f"{key}:"), r, 0)
-            self.params_layout.addWidget(editor, r, 1)
+            # PARAM_COLUMNS pairs per line, read left to right then down (the registry's order)
+            line, pair = divmod(r, PARAM_COLUMNS)
+            self.params_layout.addWidget(QtWidgets.QLabel(f"{key}:"), line, 2 * pair)
+            self.params_layout.addWidget(editor, line, 2 * pair + 1)
             self._spins[key] = editor
             r += 1
         self.params_box.setToolTip(info.description + ("\n" + info.citation if info.citation else ""))
@@ -797,23 +845,6 @@ def _fmt(v: Any) -> str:
     return str(v)
 
 
-def estimate_seconds(methods: Sequence[str], n_locs: int) -> float:
-    """Rough seconds for ``methods`` on ``n_locs`` slab localizations.
-
-    ``SECONDS_PER_KLOC`` was measured at ~1000 localizations; methods in
-    ``SCALING_EXPONENT`` grow faster than linearly [simulation: OPTICS 1.1 /
-    3.2 / 7.4 s at 2k / 4k / 8k localizations, review of D0 r6 -> exponent
-    ~1.4-1.5]. Methods not measured beyond 1000 localizations are scaled
-    linearly, so for them the figure is a lower bound.
-    """
-    k = max(int(n_locs), 0) / 1000.0
-    total = 0.0
-    for n in methods:
-        c = SECONDS_PER_KLOC.get(n, 0.5)
-        total += c * k ** SCALING_EXPONENT.get(n, 1.0) + PIPELINE_PER_KLOC * k
-    return total
-
-
 class CompareMethodsDialog(QtWidgets.QDialog):
     """Tick methods, run them on the axon shown, read the table, choose one (D12).
 
@@ -865,6 +896,29 @@ class CompareMethodsDialog(QtWidgets.QDialog):
             self.checks[name] = cb
             grid.addWidget(cb, i // 3, i % 3)
         lay.addLayout(grid)
+        # Manual test of 2026-10-23: Emitters ticked with no imaging buffer chosen ran and came back with no
+        # result. Said here before Run, with the buffer to choose for this comparison.
+        self._params_for_strip = self.params_for
+        self.params_for = self._params_with_buffer
+        from tools import emitters_layer as el
+        buf_row = QtWidgets.QHBoxLayout()
+        self.lbl_emitters_buffer = QtWidgets.QLabel(el.BUFFER_MISSING + ": Emitters will not run without it.")
+        self.lbl_emitters_buffer.setObjectName("lbl_compare_emitters_buffer")
+        self.lbl_emitters_buffer.setWordWrap(True)
+        self.lbl_emitters_buffer.setStyleSheet("color: #d55e00;")
+        self.combo_compare_buffer = QtWidgets.QComboBox()
+        self.combo_compare_buffer.setObjectName("combo_compare_emitters_buffer")
+        self.combo_compare_buffer.addItem("(choose the imaging buffer)", None)
+        for buf in el.known_buffers():
+            self.combo_compare_buffer.addItem(el.buffer_words(buf), buf)
+        self.combo_compare_buffer.setToolTip("The imaging buffer of this file, for Emitters in this comparison (the "
+                                             "strip's 'Events -> Emitters' box keeps its own). No default.")
+        buf_row.addWidget(self.lbl_emitters_buffer, 1)
+        buf_row.addWidget(self.combo_compare_buffer)
+        lay.addLayout(buf_row)
+        if EMITTERS_METHOD in self.checks:
+            self.checks[EMITTERS_METHOD].toggled.connect(lambda _on: self._sync_emitters_buffer())
+        self.combo_compare_buffer.currentIndexChanged.connect(lambda _i: self._sync_emitters_buffer())
         self.lbl_estimate = QtWidgets.QLabel()
         self.lbl_estimate.setToolTip(
             "Per-method constants measured at ~1000 localizations; OPTICS and voronoi_csr are scaled\n"
@@ -900,7 +954,16 @@ class CompareMethodsDialog(QtWidgets.QDialog):
         self.btn_close = QtWidgets.QPushButton("Close")
         self.btn_close.setToolTip("Close. While methods are running, it cancels them first and closes\n"
                                   "when the method running finishes.")
-        for b in (self.btn_run, self.btn_cancel, self.btn_use, self.btn_overlay, self.btn_close):
+        # F6: the table is not a plot; it is written as an image at print resolution (figure_export.write_widget)
+        self.btn_table_image = QtWidgets.QPushButton("Export table image...")
+        self.btn_table_image.setObjectName("btn_compare_table_image")
+        self.btn_table_image.setToolTip("Write this table as a PNG at 300 dpi, on white, for a figure or a slide; an "
+                                        "existing file is never overwritten (a _2, _3... is added). The methods' "
+                                        "clusters themselves are on the axon map ('Methods on the map'), whose "
+                                        "'Export image...' writes them with a legend.")
+        self.btn_table_image.clicked.connect(self._export_table_image)
+        for b in (self.btn_run, self.btn_cancel, self.btn_use, self.btn_overlay, self.btn_table_image,
+                  self.btn_close):
             btns.addWidget(b)
         lay.addLayout(btns)
         self.btn_run.clicked.connect(self.start)
@@ -910,9 +973,73 @@ class CompareMethodsDialog(QtWidgets.QDialog):
         self.btn_close.clicked.connect(self.reject)
         self.table.itemSelectionChanged.connect(self._sync_overlay)
         self._update_estimate()
+        self._sync_emitters_buffer()
+        from tools import ui_search
+        ui_search.install(self)                       # F3: Ctrl+F (a modal dialog: the main window's does not reach it)
+        # Manual test of 2026-10-23: maximize / resize buttons and a size grip; it opens at the size the user left
+        # it (mps_ui_layout.json), else at most of the screen; the table's last column takes the spare width.
+        from tools.mps_ui_layout import open_sized
+        self.table.horizontalHeader().setStretchLastSection(True)
+        open_sized(self, COMPARE_SIZE_KEY)
 
     def ticked(self) -> List[str]:
-        return [n for n, cb in self.checks.items() if cb.isChecked()]
+        """The methods that will run: Emitters is left out while no imaging buffer is chosen (said in red)."""
+        return [n for n, cb in self.checks.items()
+                if cb.isChecked() and not (n == EMITTERS_METHOD and self.emitters_buffer_missing())]
+
+    def _params_with_buffer(self, name: str) -> Dict[str, Any]:
+        params = dict(self._params_for_strip(name) or {})
+        chosen = self.combo_compare_buffer.currentData() if hasattr(self, "combo_compare_buffer") else None
+        if name == EMITTERS_METHOD and chosen is not None:
+            params["buffer"] = chosen
+        return params
+
+    def emitters_buffer_missing(self) -> bool:
+        """Emitters is ticked and neither the strip nor this dialog gives it an imaging buffer."""
+        cb = self.checks.get(EMITTERS_METHOD)
+        if cb is None or not cb.isChecked():
+            return False
+        from tools import emitters_layer as el
+        try:
+            return el.layer_source(self.params_for(EMITTERS_METHOD))[1] is None
+        except ValueError:
+            return True
+
+    def _sync_emitters_buffer(self) -> None:
+        cb = self.checks.get(EMITTERS_METHOD)
+        ticked = cb is not None and cb.isChecked()
+        missing = self.emitters_buffer_missing()
+        self.lbl_emitters_buffer.setVisible(missing)
+        # the choice stays in sight while Emitters is ticked and the strip gave no buffer
+        try:
+            from tools import emitters_layer as el
+            strip_has = el.layer_source(self._params_for_strip(EMITTERS_METHOD))[1] is not None
+        except ValueError:
+            strip_has = False
+        self.combo_compare_buffer.setVisible(ticked and not strip_has)
+        self.btn_run.setText("Run (Emitters left out: no imaging buffer)" if missing else "Run")
+        self._update_estimate()
+
+    def export_table_image(self, path: str, dpi: int = 300) -> str:
+        """F6: write the table as a PNG (figure_export.write_widget); the path written (never an existing file)."""
+        from tools import figure_export
+        return figure_export.write_widget(self.table, path, dpi=dpi, white=True)
+
+    def _export_table_image(self) -> None:
+        from tools import figure_export
+        if self.table.rowCount() == 0:
+            QtWidgets.QMessageBox.information(self, "Export table image", "Run at least one method first.")
+            return
+        start = figure_export.free_path(os.path.join(os.path.expanduser("~"), "compare_methods_table.png"))
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export table image", start, "PNG image (*.png)")
+        if not path:
+            return
+        try:
+            written = self.export_table_image(path)
+        except Exception as error:                               # noqa: BLE001
+            QtWidgets.QMessageBox.critical(self, "Export failed", f"Could not write the image:\n\n{error}")
+            return
+        QtWidgets.QMessageBox.information(self, "Image written", written)
 
     def running(self) -> bool:
         return self._worker is not None

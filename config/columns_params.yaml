@@ -1,15 +1,19 @@
 # Pre-specified parameters of the column analysis (MPS Explorer, H2).
-# tau0_nm is the median pair tolerance measured once on one exploratory axon
-# of unpublished pilot data (D-03, D-05): a pilot-derived suggestion, frozen
-# here, not fixed before any data were seen; the other keys are what build_rings and the
-# H3+ steps must run with so that both agree (rings_params_from).
-# Written by tools.mps_columns.write_columns_params; read it back with
-# load_columns_params, which rejects unknown keys. Frozen once committed.
-# The measurement record of tau0_nm (its provenance) is kept with the research notes.
-tau0_nm: 80.57564059152288
+# tau0_nm is the scalar eclipse tolerance along the membrane, DERIVED, not measured on any data (P-R61, 2026-10-22):
+# tau0 = 1.96 * sqrt(2) * sigma_c = 2.77 * 11.3 nm = 31 nm, where 11.3 nm is the per-axis centre error of a typical
+# cluster [own simulation, docs/eclipse_tolerance.md: three labels on a 25 nm footprint (Gazal et al. 2026), linkage
+# 10 nm per axis (Fruh et al. 2021), localization precision 10 nm (Huang et al. 2008), geometric event counts] and
+# 1.96 * sqrt(2) holds 95 % of the difference of two such centres. It is the PRIMARY rule until the per-pair
+# tolerance (tools/mps_eclipse_tolerance.py) can be calibrated (c_label, P-R75).
+# tau_sensitivity_nm: tau0 itself, 2 * tau0 = 62 nm (the structural column jitter sensitivity, P-R3) and 100 nm
+# [ad hoc, kept from the earlier list as a wide value]; any other value is typed in the review as "Free".
+# The other keys are what build_rings and the H3+ steps must run with so that both agree (rings_params_from).
+# Read it back with tools.mps_columns.load_columns_params, which rejects unknown keys. Frozen once committed;
+# changing a value is a deviation from the pre-specification and must be recorded.
+tau0_nm: 31.0
 tau_grid_nm: [20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0,
   160.0, 170.0, 180.0, 190.0, 200.0]
-tau_sensitivity_nm: [30.0, 80.57564059152288, 100.0]
+tau_sensitivity_nm: [31.0, 62.0, 100.0]
 n_null: 1999
 random_seed: 0
 min_shift_fraction: 0.5

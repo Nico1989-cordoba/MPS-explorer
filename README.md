@@ -378,6 +378,16 @@ pytest test_mps_explorer.py -v
   a worker thread with the time elapsed and a Cancel button; the window keeps responding, and its parameter strip
   scrolls instead of growing past a laptop screen (the Emitters box is scrolled into sight when the method is
   chosen). DBSCAN, the batch and the exports are unchanged: [docs/emitters.md](docs/emitters.md), section 5.
+- **Every analysis, for every clustering method.** 'Compare methods...' runs the analyses (events and probable
+  fusions, eclipse tolerance, apparent size; the sweep on request) on every method, DBSCAN 25/10 first as the
+  reference, and the DBSCAN rule of the file beside it; the Working scale panel and the Perimeter arrangement tab
+  (the per-axon null of each method, re-running that method, with the regularity reading) complete it; the axon
+  table is v14: [docs/clustering_integration.md](docs/clustering_integration.md).
+- **What to report.** A checklist for a thesis or a paper: each item (algorithm and version, eps and min_samples
+  with the NeNA and c_label, linking, the global test, the sweep, precision, density, unassigned fraction, d50,
+  flagged clusters, controls, the experimental unit, the expected bias of each readout) with the column or file it
+  comes from and whether the program or the author supplies it; the occupancy also as the fraction of the contour
+  within 25 nm of a cluster centre (P-R103): [docs/reporting_checklist.md](docs/reporting_checklist.md).
 
 ---
 
@@ -438,8 +448,12 @@ Power grids are YAML files written by the user; none is shipped.
 `config/columns_params.yaml` holds the pre-specified parameters of the column analysis (the pair tolerance `tau0_nm`
 and its grid, the null size and seed, the DBSCAN `eps_nm` / `min_samples`, the event linking). It is loaded strictly
 (an unknown key is an error); changing a value is a deviation from the pre-specification and should be recorded.
-`tau0_nm` is a pilot-derived suggestion: it was measured once on one exploratory axon of unpublished pilot data and
-then frozen in this file. It was not fixed before any data were seen, so results on that pilot data are exploratory.
+`tau0_nm` = 31 nm is DERIVED, not measured on any data: 1.96·√2 × 11.3 nm, where 11.3 nm is the per-axis centre
+error of a typical cluster (three labels on a 25 nm footprint, 10 nm linkage, 10 nm localization precision; own
+simulation) and 1.96·√2 holds 95 % of the difference of two such centres (P-R61; `docs/eclipse_tolerance.md`). Beside
+it, every result also carries the EXPLORATORY per-pair tolerance t_ij = 1.96·√(σ_c,i² + σ_c,j²) computed from each
+cluster's own localizations and events (`tools/mps_eclipse_tolerance.py`), which becomes the primary rule only once
+the events per antibody stack (c_label) are calibrated.
 
 Optional site setting: inputs from an acquisition known to lie outside the calibrated range can be flagged (never
 blocked) by a regular expression matched against the file label / path, written as `"uncalibrated_labels"` in the

@@ -19,6 +19,7 @@ from __future__ import annotations
 import csv
 import os
 import threading
+import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -58,6 +59,17 @@ class _Relay(QtCore.QObject):
 
     done = QtCore.pyqtSignal(int, object)
     finished = QtCore.pyqtSignal()
+    # F1: where the worker is (unit of the bar, check point, done, total), and the scan's estimates.
+    stage = QtCore.pyqtSignal(int, str, object, object)
+    scanned = QtCore.pyqtSignal(object)
+
+
+# F1: the bar counts each file (and each method run of the comparison) as this many steps, so it moves inside a
+# file too (tools.mps_progress.file_fraction).
+UNIT_STEPS = 1000
+# The worker tells the window where it is at most this often, unless the stage changes [ad hoc: the bar is read
+# by a person; 4 updates a second look continuous].
+STAGE_EVERY_S = 0.25
 
 
 def _item(text: str, editable: bool = False,
@@ -177,6 +189,13 @@ class SetFieldDialog(QtWidgets.QDialog):
         return str(self.edit.text()).strip()
 
 
+# The batch's per-axon null (the clustering integration): B replicates [user decision 2026-10-22, A9 / P-R78: 199;
+# 999 on demand in the axon window], and the slab size the estimate before Run assumes [ad hoc: the order of a
+# sciatic axon's slab; a lower bound for denser files].
+NULL_REPLICATES = 199
+NULL_TYPICAL_SLAB_LOCS = 5000
+
+
 class BatchWindow(QtWidgets.QMainWindow):
     """Analyse a folder of axons at once, and compare groups."""
 
@@ -214,6 +233,11 @@ class BatchWindow(QtWidgets.QMainWindow):
         self._relay = _Relay(self)
         self._relay.done.connect(self._on_done)
         self._relay.finished.connect(self._on_finished)
+        self._relay.stage.connect(self._on_stage)
+        self._relay.scanned.connect(self._on_scanned)
+        # F1: what the run in preparation or in progress needs between its phases (scan -> question -> batch).
+        self._pending: Dict[str, Any] = {}
+        self._phase = ""
 
         tabs = QtWidgets.QTabWidget()
         tabs.addTab(self._build_run_tab(), "Analyse a folder")
@@ -224,6 +248,8 @@ class BatchWindow(QtWidgets.QMainWindow):
         tabs.currentChanged.connect(self._refresh_comparison)
         self.setCentralWidget(tabs)
         self._refresh_buttons()
+        from tools import ui_search
+        ui_search.install(self)                       # F3: Ctrl+F
 
     # ------------------------------------------------------------------
     # Tab 1: the folder
@@ -354,15 +380,37 @@ class BatchWindow(QtWidgets.QMainWindow):
             "Off: a file saved with that method is reported as not analysed, with the reason,\n"
             "and 'Compare methods (slow)' leaves it out. docs/emitters.md")
         row.addWidget(self.check_slow_methods)
+        # The clustering integration (A9 sec. 5, regularity PR 4): the per-axon pipeline null of every file's own
+        # method, with B replicates [user decision 2026-10-22: 199], and the regularity reading on it (stage 2 at
+        # the pipeline level). Off by default and not remembered: it multiplies the batch's time by about B.
+        # A slow method's null is refused unless 'Slow methods' is ticked too (open question A2).
+        self.check_null = QtWidgets.QCheckBox(f"Null per axon (B = {NULL_REPLICATES})")
+        self.check_null.setObjectName("check_null_per_axon")
+        self.check_null.setChecked(False)
+        self.check_null.setToolTip(
+            "Also run the per-axon pipeline null of every file: molecules at random on its membrane, with this\n"
+            "file's blinking and precision, analysed by the SAME method, curation and contour (B simulated\n"
+            "axons), and the two-stage regularity reading on that null. About B times the time of the batch\n"
+            "(the estimate is shown when ticked). A slow method's null is refused unless 'Slow methods' is\n"
+            "ticked. Conclusions on the arrangement are read per animal (z), not per axon.\n"
+            "Methods: docs/null_and_scale.md, docs/regularity.md")
+        self.check_null.toggled.connect(self._show_null_estimate)
+        row.addWidget(self.check_null)
         self.comparison_rows: List[Dict[str, Any]] = []
+        self.comparison_results: List[Any] = []
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
         self.btn_cancel.setToolTip(
             "Stop after the axon being analysed. What was analysed is "
-            "kept and can be written.")
+            "kept and can be written. While the clusters are counted\n"
+            "before the batch, stop that count: nothing is analysed.")
         self.btn_cancel.clicked.connect(self.cancel)
         row.addWidget(self.btn_cancel)
         self.progress = QtWidgets.QProgressBar()
         self.progress.setTextVisible(True)
+        self.progress.setToolTip(
+            "Moves inside each file too: loading, clustering, the perimeter (start by start\n"
+            "when it is built from every start), the occupancy and the randomization\n"
+            "(iteration by iteration). The text says which file and which stage.")
         row.addWidget(self.progress, 1)
         self.btn_export = QtWidgets.QPushButton("Write to a table...")
         self.btn_export.setToolTip(
@@ -381,6 +429,28 @@ class BatchWindow(QtWidgets.QMainWindow):
         self._show_settings()
         return page
 
+    def _show_null_estimate(self, on: bool = False) -> None:
+        """The null's cost, said before Run: B simulated axons per file, at the table's per-method estimate for a
+        typical slab (a lower bound: an axon with many more localizations costs more)."""
+        if not on:
+            self.check_null.setToolTip(self.check_null.toolTip().split("\n\nEstimate:")[0])
+            return
+        from tools.method_costs import estimate_seconds, words_seconds
+        try:
+            method = mb.BatchSettings.from_settings(self.settings).cluster_method
+        except (AttributeError, TypeError, ValueError):
+            method = "DBSCAN"
+        # manual test of 2026-10-23: it said "for 1 file(s)" with two files in the table (computed before the
+        # table was filled, and floored at 1); the ticked files of the table, updated as the table changes
+        n_files = len(self.ticked_rows()) if self.plan is not None else 0
+        per_axon = estimate_seconds([method], NULL_TYPICAL_SLAB_LOCS) * (NULL_REPLICATES + 8)
+        total = (f"{words_seconds(per_axon * n_files)} for the {n_files} ticked file(s)" if n_files
+                 else "no file ticked in the table yet")
+        text = (f"Estimate: about {words_seconds(per_axon)} per file for {method} on a slab of "
+                f"{NULL_TYPICAL_SLAB_LOCS:,} localizations, {total} -- a lower bound.")
+        self.check_null.setToolTip(self.check_null.toolTip().split("\n\nEstimate:")[0] + "\n\n" + text)
+        self.label_status.setText(text)
+
     def _compare_methods_list(self) -> List[str]:
         """What 'Compare methods (slow)' would run with the settings in force (mb.methods_to_compare)."""
         try:
@@ -394,9 +464,10 @@ class BatchWindow(QtWidgets.QMainWindow):
         box.setEnabled(bool(methods) and not self.running)
         if not methods:
             box.setChecked(False)
-            box.setToolTip("Elegí métodos en Compare methods… primero.\n"
-                           "(Choose methods in the axon window's 'Compare methods...' first: this box\n"
-                           "runs only the methods compared there, never all of them.)")
+            box.setToolTip("Run 'Compare methods...' in the axon's MPS analysis window first: this box runs\n"
+                           "only the methods compared there (closing that dialog after a run is enough).\n"
+                           "Corré «Compare methods…» en la ventana MPS analysis del axón primero: esta casilla\n"
+                           "corre sólo los métodos comparados ahí (alcanza con cerrar el diálogo tras correrlos).")
             return
         box.setToolTip(
             "After the batch, cluster every ticked file with the methods you compared in\n"
@@ -528,6 +599,7 @@ class BatchWindow(QtWidgets.QMainWindow):
                                 + os.path.basename(repeated[item.path]))
             self.table.setItem(row, COL_RESULT, _item(result))
         self.table.blockSignals(False)
+        self._show_null_estimate(self.check_null.isChecked())
 
     def _fill_identity(self, row: int) -> None:
         assert self.plan is not None
@@ -547,6 +619,8 @@ class BatchWindow(QtWidgets.QMainWindow):
         column = cell.column()
         if self.plan is None:
             return
+        if column == COL_USE:
+            self._show_null_estimate(self.check_null.isChecked())
         if not COL_FIRST_FIELD <= column < COL_FIRST_FIELD + len(FIELDS):
             return
         name = FIELDS[column - COL_FIRST_FIELD]
@@ -701,9 +775,15 @@ class BatchWindow(QtWidgets.QMainWindow):
                                 f"Every lateral distance scales with it.")
 
     def run(self, ask: Optional[Callable[..., Optional[float]]] = None,
-            ask_buffer: Optional[Callable[..., Optional[str]]] = None) -> None:
+            ask_buffer: Optional[Callable[..., Optional[str]]] = None,
+            ask_perimeter: Optional[Callable[..., str]] = None) -> None:
         """Analyse the ticked files in a worker thread. A run that will run Emitters asks the imaging buffer
-        once first (``ask_buffer``, the dialog by default; F5c): without it nothing starts."""
+        once first (``ask_buffer``, the dialog by default; F5c): without it nothing starts.
+
+        F1: before the batch, the files are clustered and their kept clusters counted; when any file reaches the
+        perimeter warning, ``ask_perimeter(parent, over, n_files, compared, scanned)`` is asked once for the whole
+        batch (tools.perimeter_cost_ui.ask_batch by default, only in an interactive session) and answers
+        "every start", "one start" or "cancel"."""
         if self.running or self.plan is None:
             return
         rows = self.ticked_rows()
@@ -717,6 +797,7 @@ class BatchWindow(QtWidgets.QMainWindow):
         settings = mb.BatchSettings.from_settings(self.settings)
         allow_slow = bool(self.check_slow_methods.isChecked())
         compare_list = mb.methods_to_compare(settings) if self.check_compare_methods.isChecked() else []
+        null_b = NULL_REPLICATES if self.check_null.isChecked() else 0
         emitters_buffer: Optional[str] = None
         if mb.needs_emitters_buffer(settings, allow_slow, compare_list):
             emitters_buffer = (ask_buffer or ask_emitters_buffer)(self)
@@ -729,6 +810,122 @@ class BatchWindow(QtWidgets.QMainWindow):
                                None) or {})
         self._show_settings()
         items = [self.plan.files[row] for row in rows]
+        compare_kw: Dict[str, Any] = {} if emitters_buffer is None else {"emitters_buffer": emitters_buffer}
+        self._pending = dict(rows=list(rows), items=items, settings=settings, z_store=z_store,
+                             allow_slow=allow_slow, compare_list=list(compare_list), compare_kw=compare_kw,
+                             null_b=null_b)
+        self._cancel.clear()
+        # F1: a file with many clusters builds its perimeter for minutes. Before the batch, each file is clustered
+        # and its kept clusters counted (mb.scan_perimeter_costs); when any reaches the threshold of the axon
+        # window's question, one question is asked for the whole batch. With no one to ask (offscreen, the
+        # tests) nothing is scanned or asked and the batch runs from every start, as it always did.
+        from tools import perimeter_cost_ui
+        asker = ask_perimeter or (perimeter_cost_ui.ask_batch if perimeter_cost_ui.interactive() else None)
+        self._pending["asker"] = asker
+        if asker is None or not self._method_runs(settings, allow_slow):
+            self._start_analysis(None)
+        elif self._too_slow_to_scan(settings):
+            self._decide_perimeter(asker, [], scanned=False)
+        else:
+            self._start_scan()
+
+    @staticmethod
+    def _method_runs(settings: mb.BatchSettings, allow_slow: bool) -> bool:
+        """The saved method will cluster the files (Emitters without 'Slow methods' is refused file by file)."""
+        return allow_slow or settings.cluster_method not in mb.BATCH_SLOW_METHODS
+
+    @staticmethod
+    def _too_slow_to_scan(settings: mb.BatchSettings) -> bool:
+        """A method the axon window runs in the background (tools.cluster_method_ui.is_slow): clustering every
+        file twice would cost minutes per file, so its clusters are not counted first."""
+        from tools.cluster_method_ui import is_slow
+        return bool(is_slow(settings.cluster_method))
+
+    # -- F1: the scan, the question, the batch -----------------------------------------------------------------
+
+    def _stage_relay(self, unit: Callable[[], int]) -> Callable[[str, Optional[int], Optional[int]], None]:
+        """An observer for the worker (tools.mps_progress): posts where it is, at most every STAGE_EVERY_S unless
+        the stage or the file changes."""
+        last: Dict[str, Any] = {"key": None, "t": 0.0}
+
+        def observe(where: str, done: Optional[int], total: Optional[int]) -> None:
+            key = (unit(), where)
+            now = time.monotonic()
+            if key != last["key"] or now - last["t"] >= STAGE_EVERY_S:
+                last["key"], last["t"] = key, now
+                self._relay.stage.emit(key[0], where, done, total)
+        return observe
+
+    def _set_bar(self, units: int, phase: str) -> None:
+        self._phase = phase
+        self._units = max(1, int(units))
+        self.progress.setRange(0, self._units * UNIT_STEPS)
+        self.progress.setValue(0)
+        self.progress.setFormat("%p%")
+
+    def _start_scan(self) -> None:
+        pend = self._pending
+        items = pend["items"]
+        self._set_bar(len(items), "scan")
+        self.label_status.setText(
+            f"Counting the clusters of {len(items)} file(s) before the batch, to estimate the perimeter's time "
+            f"(one reading and one clustering per file)...")
+        current = [0]
+
+        def done(i: int, _e: Any) -> None:
+            current[0] = i + 1
+
+        def body() -> None:
+            estimates: List[mb.PerimeterEstimate] = []
+            try:
+                estimates = mb.scan_perimeter_costs(
+                    items, pend["settings"], z_store=pend["z_store"], allow_slow=pend["allow_slow"],
+                    cancelled=self._cancel.is_set, on_done=done, observer=self._stage_relay(lambda: current[0]))
+            finally:
+                self._relay.scanned.emit(estimates)
+
+        self._thread = threading.Thread(target=body, daemon=True)
+        self._thread.start()
+        self._refresh_buttons()
+
+    def _on_scanned(self, estimates: List[mb.PerimeterEstimate]) -> None:
+        self._thread = None
+        pend = self._pending
+        if self._cancel.is_set() or len(estimates) < len(pend.get("items", [])):
+            self.progress.setValue(0)
+            self.progress.setFormat("%p%")
+            self.label_status.setText("Cancelled before the batch started: nothing was analysed.")
+            self._refresh_buttons()
+            if self._close_when_done:
+                self.close()
+            return
+        over = [(os.path.basename(e.source), int(e.n_clusters)) for e in estimates if e.n_clusters is not None]
+        if not over:
+            self._start_analysis(None)
+            return
+        self._decide_perimeter(pend["asker"], over, scanned=True)
+
+    def _decide_perimeter(self, asker: Callable[..., str], over: List[Tuple[str, int]], scanned: bool) -> None:
+        from tools import mps_perimeter_cost as cost
+        pend = self._pending
+        answer = asker(self, over, len(pend["items"]), bool(pend["compare_list"]), scanned)
+        if answer not in (cost.EVERY_START, cost.ONE_START):
+            self.progress.setValue(0)
+            self.progress.setFormat("%p%")
+            self.label_status.setText("Not started: the batch was cancelled at the perimeter question.")
+            self._refresh_buttons()
+            return
+        self._start_analysis(answer)
+
+    def _start_analysis(self, perimeter_choice: Optional[str]) -> None:
+        """The batch itself, in the worker thread. ``perimeter_choice``: the answer for the whole batch (installed
+        as the gate of tools.mps_perimeter_cost), or None: no gate, every start, as before F1."""
+        assert self.plan is not None
+        pend = self._pending
+        rows, items, settings = pend["rows"], pend["items"], pend["settings"]
+        z_store, allow_slow = pend["z_store"], pend["allow_slow"]
+        compare_list, compare_kw = pend["compare_list"], pend["compare_kw"]
+        null_b = int(pend.get("null_b", 0))
         self._rows = list(rows)
         self.not_analysed = {
             self.plan.files[row].path: "unticked"
@@ -736,29 +933,68 @@ class BatchWindow(QtWidgets.QMainWindow):
         for row in rows:
             self.records.pop(row, None)
             self.table.item(row, COL_RESULT).setText("waiting")
-        self.progress.setRange(0, len(rows))
-        self.progress.setValue(0)
-        self._cancel.clear()
-        self.label_status.setText(f"Analysing {len(rows)} file(s)...")
+        self._set_bar(len(rows) * (1 + len(compare_list)), "batch")
+        self._n_files = len(rows)
+        self._compare_names = list(compare_list)
+        self.label_status.setText(f"Analysing {len(rows)} file(s)..."
+                                  + ("" if perimeter_choice is None
+                                     else f" Long perimeters: {perimeter_choice}."))
 
         self.comparison_rows = []
-        compare_kw: Dict[str, Any] = {} if emitters_buffer is None else {"emitters_buffer": emitters_buffer}
+        self.comparison_results = []
+        batch_kw: Dict[str, Any] = {} if not null_b else {"null_replicates": null_b}
+        current = [0]
+        n_files = len(items)
+        n_methods = max(1, len(compare_list))
+
+        def file_done(i: int, r: mb.AxonRecord) -> None:
+            current[0] = i + 1
+            self._relay.done.emit(i, r)
+
+        def run_done(i: int, j: int) -> None:
+            current[0] = n_files + i * n_methods + j + 1
 
         def body() -> None:
+            from tools import mps_perimeter_cost as cost
+            from tools import mps_progress
+            observer = self._stage_relay(lambda: current[0])
             try:
-                mb.run_batch(items, settings,
-                             on_done=lambda i, r: self._relay.done.emit(i, r),
-                             cancelled=self._cancel.is_set, z_store=z_store, allow_slow=allow_slow)
-                if compare_list and not self._cancel.is_set():
-                    self.comparison_rows = mb.compare_methods(
-                        items, settings, compare_list, cancelled=self._cancel.is_set, z_store=z_store,
-                        allow_slow=allow_slow, **compare_kw)
+                with cost.asking(None if perimeter_choice is None else mb.perimeter_policy_gate(perimeter_choice)), \
+                        mps_progress.observing(observer):
+                    mb.run_batch(items, settings,
+                                 on_done=file_done,
+                                 cancelled=self._cancel.is_set, z_store=z_store, allow_slow=allow_slow, **batch_kw)
+                    if compare_list and not self._cancel.is_set():
+                        self.comparison_rows = mb.compare_methods(
+                            items, settings, compare_list, cancelled=self._cancel.is_set, z_store=z_store,
+                            on_done=run_done, allow_slow=allow_slow, results_out=self.comparison_results,
+                            **compare_kw)
             finally:
                 self._relay.finished.emit()
 
         self._thread = threading.Thread(target=body, daemon=True)
         self._thread.start()
         self._refresh_buttons()
+
+    def _on_stage(self, unit: int, where: str, done: Any, total: Any) -> None:
+        """GUI thread: move the bar inside the file being analysed and say which stage it is in."""
+        from tools import mps_progress
+        frac, words = mps_progress.file_fraction(where, done, total)
+        if frac is not None and unit < getattr(self, "_units", 1):
+            self.progress.setValue(max(self.progress.value(), unit * UNIT_STEPS + int(UNIT_STEPS * frac)))
+        if self._phase == "scan":
+            n = len(self._pending.get("items", []))
+            head = f"Counting clusters, file {min(unit + 1, n)} of {n}"
+        else:
+            n = getattr(self, "_n_files", 0)
+            if unit < n:
+                head = f"File {unit + 1} of {n}"
+            else:
+                names = getattr(self, "_compare_names", []) or ["?"]
+                k = unit - n
+                i, j = divmod(k, len(names))
+                head = f"Comparing methods, file {min(i + 1, n)} of {n}, {names[min(j, len(names) - 1)]}"
+        self.progress.setFormat(f"{head}: {words} - %p%")
 
     def cancel(self) -> None:
         if self.running:
@@ -767,11 +1003,18 @@ class BatchWindow(QtWidgets.QMainWindow):
                 "Stopping after the axon being analysed...")
 
     def wait(self, timeout: float = 3600.0) -> None:
-        """Block until the batch finishes (for scripts and tests)."""
-        if self._thread is not None:
-            self._thread.join(timeout)
-        QtWidgets.QApplication.processEvents()
-        QtWidgets.QApplication.processEvents()
+        """Block until the batch finishes (for scripts and tests), through its phases (F1: the scan, then the
+        batch the question starts)."""
+        deadline = time.monotonic() + float(timeout)
+        while True:
+            thread = self._thread
+            if thread is not None:
+                thread.join(max(0.0, deadline - time.monotonic()))
+            QtWidgets.QApplication.processEvents()
+            QtWidgets.QApplication.processEvents()
+            # done, or out of time; a new thread (the batch after the scan) is waited for in turn
+            if self._thread is None or time.monotonic() >= deadline:
+                break
 
     def _on_done(self, index: int, record: mb.AxonRecord) -> None:
         row = self._rows[index]
@@ -789,10 +1032,13 @@ class BatchWindow(QtWidgets.QMainWindow):
         else:
             cell.setText(marked("bad", record.error or "failed"))
             cell.setToolTip(record.error or "")
-        self.progress.setValue(index + 1)
+        self.progress.setValue(max(self.progress.value(), (index + 1) * UNIT_STEPS))
 
     def _on_finished(self) -> None:
         self._thread = None
+        self.progress.setFormat("%p%")
+        if not self._cancel.is_set():
+            self.progress.setValue(self.progress.maximum())
         done = set(self.records)
         assert self.plan is not None
         for row in getattr(self, "_rows", []):
@@ -851,6 +1097,8 @@ class BatchWindow(QtWidgets.QMainWindow):
         if self.comparison_rows:
             try:
                 mb.write_methods_comparison(self.comparison_rows, mb.comparison_path(path))
+                # the clustering integration (A4): the long table, the agreement and the summary beside it
+                mb.write_methods_comparison_long(self.comparison_results, path)
             except OSError as error:
                 QtWidgets.QMessageBox.warning(self, "Comparison not written", str(error))
         left_out = {r.source: "the table already holds this file, exported "
@@ -879,6 +1127,17 @@ class BatchWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Not written", str(error))
             return None
 
+        regularity_rows = [dict(r.row, animal=r.identity.animal, genotype=r.identity.genotype)
+                           for r in records if r.ok and r.row.get("regularity_reading")]
+        if regularity_rows:
+            # regularity PR 4: per animal z with Holm, the P-R83 lattice criterion per genotype, the calibre model
+            from tools import clustering_integration as ci
+            try:
+                summary = ci.regularity_batch_summary(regularity_rows)
+                written = ci.write_regularity_summary(path, summary)
+                done += "\n\nRegularity: " + written.get("lines", "") + "\n" + "\n".join(summary["lines"][:6])
+            except (OSError, ValueError) as error:
+                done += f"\n\nRegularity summary not written: {error}"
         note = done
         if left_out:
             note += (f"\n\n{len(left_out)} file(s) left out: the table "

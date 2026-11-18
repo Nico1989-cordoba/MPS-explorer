@@ -119,6 +119,9 @@ PLOT_AREA = "Cluster area"
 PLOT_NN = "Nearest neighbours"
 PLOT_CDF = "1NN CDF"
 PLOT_SCATTER = "Scatter off the outline"
+# F6: the plots with a layer panel, whose exported figure can carry a legend of the rows drawn (the 1NN CDF draws
+# its own legend inside the plot).
+LEGEND_PLOTS = (PLOT_MAP, PLOT_AXIAL, PLOT_NN)
 
 # Tooltips of the results table (rev 3, 12.8): what each reference value is,
 # and the two cells whose number is this program's heuristic or has no
@@ -184,6 +187,10 @@ MAP_SHARE = 0.80
 # window's height.
 TABS_MIN_PX = 230
 MAP_MIN_OF_WINDOW = 0.56
+# Manual test of 2026-10-23 (1920 x 1020): the map ended at ~200 px under ~600 px of tabs, and with its aspect
+# locked a short map shows x = -20000..20000 nm around a dot of an axon. Until the user drags the divider, a map
+# below this share of the plot column is given MAP_SHARE back [ad hoc].
+MAP_FLOOR_SHARE = 0.5
 # The table column's width when the window opens: wide enough for the name,
 # "Measured" and the reference column (1366 px screens; the user's divider
 # wins afterwards). On a wider screen it takes LEFT_SHARE of the window, never
@@ -201,6 +208,11 @@ LEFT_SHARE = 0.25
 STRIP_MAX_SHARE = 0.5
 # How long the line "Cancelled ... the analysis shown is the previous one" stays after a cancelled run [ad hoc].
 CANCELLED_NOTE_MS = 15000
+# F5: how many methods' rows start ticked after 'Compare methods...' [ad hoc: two or three loops per cluster are
+# still readable; the rest are one tick away].
+METHODS_TICKED = 3
+# F4: where the window remembers that the clustering method's panel was collapsed (mps_ui_layout.json).
+METHOD_COLLAPSED_KEY = "mps_window.method_panel_collapsed"
 # How many warnings the button's tooltip previews, and how long each line.
 WARNINGS_PREVIEW = 5
 WARNINGS_PREVIEW_CHARS = 180
@@ -281,6 +293,14 @@ def _no_cut_state() -> Tuple[bool, str]:
     return False, ""
 
 
+def _no_nena() -> Tuple[Optional[float], str]:
+    return None, "no NeNA measured for this file"
+
+
+def _no_rule_inputs() -> Optional[Any]:
+    return None
+
+
 @dataclass
 class WindowLinks:
     """The providers and callbacks the main window gives this window (Appendix B). Every default is the standalone
@@ -314,6 +334,11 @@ class WindowLinks:
     pick_boundary: Optional[Callable[[], Any]] = None
     nn_bins: int = L.NN_DEFAULT_BINS
     nn_range: Tuple[float, float] = (0.0, 800.0)
+    # The clustering integration (2026-10-22): the file's NeNA and where it came from (the working scale, the event
+    # layer, the DBSCAN rule, the null), and the localizations per cycle measured on the whole file (open question
+    # B3; a tools.mps_events.LocsPerCycle, or None for the rule's labelled fallback).
+    nena: Callable[[], Tuple[Optional[float], str]] = field(default=_no_nena)
+    rule_inputs: Callable[[], Optional[Any]] = field(default=_no_rule_inputs)
 
 
 def beside_position(anchor: QtCore.QRect, size: QtCore.QSize,
@@ -392,6 +417,15 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # A second method drawn over this analysis on the map ('Compare methods' -> 'Overlay on the map';
         # tools.method_overlay.MethodOverlay), dropped when another analysis is shown.
         self._overlay: Any = None
+        # The clustering integration: the last 'Compare methods...' of the analysis shown
+        # (tools.clustering_integration.ComparisonResult), the event layer's probable fusions on the map (cached per
+        # analysis) and the c_label of the Working scale panel.
+        self.method_comparison: Any = None
+        self.method_comparison_files: Dict[str, str] = {}   # the comparison's tables, when 'Export tables...' ran
+        self._fusion_cache: Tuple[Any, Any] = (None, None)
+        # F5: every method 'Compare methods...' ran on this analysis, each a row of the map
+        # (tools.method_overlay.MethodLayers), dropped with the analysis as the overlay is.
+        self._methods: Any = None
         # Black on screen; white while a figure is being written.
         self.dark = True
         # The selection as the main window last described it, whether the
@@ -452,6 +486,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self._persistent.append(PersistentSplitter(sp, key))
         self._restored = False
         self._make_text_copyable()
+        from tools.mps_ui_layout import load_flag
+        self.set_method_collapsed(load_flag(METHOD_COLLAPSED_KEY), save=False)
+        from tools import ui_search
+        ui_search.install(self)                       # F3: Ctrl+F
 
         self.refresh()
 
@@ -601,13 +639,26 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # Phase D (D0): which method makes the clusters. DBSCAN (above) is
         # the default and the compatibility path; the rest sit behind the
         # 'Experimental' box (D10). Nothing here runs on its own (D12).
+        # Manual test of 2026-10-23: the method's controls are an item of the strip of their own (they sat inside
+        # the DBSCAN line, which made that line as tall as the method's parameters, with empty space on both
+        # sides); the flow puts them on a line of their own when the window is narrow.
         from tools.cluster_method_ui import MethodPanel
+        g_method, lm = group("", "group_method")
         self.method_panel = MethodPanel()
-        ld.addWidget(self.method_panel, 3, 0, 1, 2)
+        lm.addWidget(self.method_panel)
         self.method_panel.method_changed.connect(self._on_method_changed)
         self.method_panel.layer_run_requested.connect(self._on_layer_run_requested)
         self.method_panel.compat_requested.connect(self._on_compat)
         self.method_panel.compare_requested.connect(self._on_compare)
+        # F4 (manual test of 2026-10-22): the panel collapses to one line and back; a run is never touched.
+        from tools.cluster_method_ui import MethodCollapsedBar
+        self.method_bar = MethodCollapsedBar()
+        self.method_bar.setVisible(False)
+        lm.addWidget(self.method_bar)
+        self.method_panel.collapse_requested.connect(lambda: self.set_method_collapsed(True))
+        self.method_bar.expand_requested.connect(lambda: self.set_method_collapsed(False))
+        self.method_bar.cancel_requested.connect(self.cancel_background)
+        self.method_panel.combo.currentTextChanged.connect(lambda name: self.method_bar.set_method(name or "DBSCAN"))
 
         # A "DBCV thr." spin box stood here until 2026-09-20. On real axons
         # the per-cluster score falls with the cluster's extent, and in
@@ -698,6 +749,17 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         actions.setContentsMargins(0, 0, 0, 0)
         actions.setSpacing(4)
 
+        # The clustering integration (A9 sec. 4.2): the per-axon pipeline null, among the axon's actions
+        # (beside the strip's Randomization it took a third line of the strip at 1366 px); it opens the 'Perimeter arrangement' tab and runs there (in the background, with Cancel).
+        self.btn_null_shortcut = QtWidgets.QPushButton("Null (per axon)...")
+        self.btn_null_shortcut.setObjectName("btn_null_shortcut")
+        self.btn_null_shortcut.setToolTip(
+            "The per-axon pipeline null: molecules at random on this axon's membrane, with this file's blinking and "
+            "precision, analysed by the same method, curation and contour, B = 199 times (999 on demand), for the "
+            "method shown and every method compared. Opens the 'Perimeter arrangement' tab, which shows the time "
+            "it will take before it runs. Not the paper's randomization (that is the switch on the left).")
+        self.btn_null_shortcut.clicked.connect(self._on_null_shortcut)
+        actions.addWidget(self.btn_null_shortcut)
         self.btn_rings = QtWidgets.QPushButton("Rings...")
         self.btn_rings.setToolTip(
             "Analyse EVERY axial segment of this axon, not just this slab,\n"
@@ -744,6 +806,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 w.setEnabled(False)
         for spin in (self.spin_half, self.spin_eps, self.spin_min, self.spin_maha):
             spin.valueChanged.connect(lambda *_a: self._sync_reset())
+        # The method's controls last in the flow: the one-line items pack the lines above them, and the taller
+        # method item takes the last line (one line less at 1366 px; manual test of 2026-10-23).
+        self.strip_flow.removeWidget(g_method)
+        self.strip_flow.addWidget(g_method)
 
         return box
 
@@ -752,6 +818,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         carry values can be selected and copied (Ctrl+C or the context menu)."""
         copyable_table(self.table)
         copyable_table(self.details_area.table)
+        # manual test of 2026-10-23: a plot's title is drawn, not a label: 'Copy title' in its context menu
+        from tools.copyable import copy_title_action
+        for plot in self._plots().values():
+            copy_title_action(plot)
         selectable_labels([self.lbl_slab_mode, self.label_export, self.banner.label, self.axon_map.lbl_line1,
                            self.axon_map.lbl_line2, self.nn.lbl_note, self.label_shown])
 
@@ -773,12 +843,37 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         scroll.set_cap(int(STRIP_MAX_SHARE * central.height()))
         scroll.fit()
 
+    def method_collapsed(self) -> bool:
+        """F4: the clustering method's panel is collapsed to its one-line bar."""
+        return not self.method_bar.isHidden()
+
+    def set_method_collapsed(self, on: bool, save: bool = True) -> None:
+        """F4: collapse the clustering method's panel to one line (its name, a run's state and Cancel), or expand
+        it. Only widgets are hidden or shown: a run in the background goes on, nothing is re-run, and the state is
+        kept for the next session (mps_ui_layout.json, beside the settings; not an analysis setting)."""
+        on = bool(on)
+        self.method_bar.set_method(self.method_panel.current_method())
+        self.method_panel.setVisible(not on)
+        self.method_bar.setVisible(on)
+        if save:
+            from tools.mps_ui_layout import save_flag
+            save_flag(METHOD_COLLAPSED_KEY, on)
+        self._strip_relayout()
+        if not on:
+            self._reveal_method_box()
+
     def _reveal_method_box(self) -> None:
         """The user chose a method: its slow-method note and its Emitters box are scrolled into sight."""
         p = self.method_panel
-        if not p.lbl_slow.isHidden() or not p.layer_box.isHidden():
+        if not p.layer_box.isHidden():
             # the note first; the box's title and first rows (the imaging buffer to choose) win on a short screen
             self.strip_scroll.reveal(p.lbl_slow, p.layer_box)
+        elif not p.lbl_hint.isHidden():
+            # F2 (manual test of 2026-10-22): the hint of a method with its own picture (Voronoi: where the cells
+            # are drawn) sits under the parameters, out of a 1366 x 700 viewport; the slow note first, the hint wins
+            self.strip_scroll.reveal(p.lbl_slow if not p.lbl_slow.isHidden() else p.lbl_hint, p.lbl_hint)
+        elif not p.lbl_slow.isHidden():
+            self.strip_scroll.reveal(p.lbl_slow)
 
     # ------------------------------------------------------------------
     # the strip and the one value (design 6.2, 6.3, 12.5)
@@ -913,30 +1008,18 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _compare_run(self, method: str, params: Dict[str, Any]) -> Any:
         """One method on the slab of the analysis shown, in the worker
-        thread: the same slab (slab_override), ROI, eps / min samples,
-        occupancy threshold and contour (2-opt from every start, the
-        default since 2026-09-19, and the same contour guide), so the
-        DBSCAN row is the analysis shown; randomization off for speed
-        [ad hoc]. The clusters cut by the Picasso pick are not left out
-        (review m3: said in the dialog)."""
-        from tools.mps_analysis import analyze_axon
+        thread (``tools.multimethod.analyze_like``, the clustering
+        integration): the same slab (slab_override), ROI, curation,
+        occupancy threshold, contour (2-opt from every start and the same
+        contour guide), pick-boundary rule, and the slab's precisions and
+        frames; DBSCAN takes eps / min samples from ``params`` (the
+        analysis' own when absent), so the DBSCAN row is the analysis shown
+        and DBSCAN 25/10 is the reference; randomization off for speed
+        [ad hoc]."""
+        from tools.multimethod import analyze_like
         a = self.analysis
         assert a is not None
-        return analyze_axon(
-            np.asarray(a.x_slab, dtype=np.float64), np.asarray(a.y_slab, dtype=np.float64),
-            np.asarray(a.z_slab, dtype=np.float64),
-            source_name=a.source_name, pixel_size_nm=a.pixel_size_nm,
-            pixel_size_source=a.pixel_size_source, eps_nm=float(a.eps_nm),
-            min_samples=int(a.min_samples), slab_half_width_nm=float(a.slab_half_width_nm),
-            roi=a.roi, slab_override=(float(a.slab_zmin_nm), float(a.slab_zmax_nm)),
-            dbcv_threshold=float(a.dbcv_threshold), mahalanobis_threshold=float(a.mahalanobis_threshold),
-            ellipse_mode=a.ellipse_mode, run_randomization=False,
-            contour_guide=a.contour_guide,
-            sigma_cap_fraction=float(a.sigma_cap_fraction),
-            cluster_method=method, cluster_params=params,
-            # the slab's own precisions, for a method that models them (Emitters, BaGoL F5)
-            localization_sigma_nm=a.localization_sigma_slab,
-            localization_frame=a.localization_frame_slab)
+        return analyze_like(a, a.x_slab, a.y_slab, a.z_slab, method, params)
 
     def _on_compare(self) -> None:
         """'Compare methods...': the dialog; only what it ticks runs, only
@@ -945,30 +1028,131 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if self.analysis is None or self.analysis.x_slab is None:
             QtWidgets.QMessageBox.information(self, "Compare methods", "Run an analysis first.")
             return
-        from tools.cluster_method_ui import CompareMethodsDialog
         from tools.clustering_strategies import strategy_registry
+        from tools.compare_analyses_ui import CompareAnalysesDialog
         panel = self.method_panel
+        a = self.analysis
 
         def params_for(name: str) -> Dict[str, Any]:
+            if name == "DBSCAN":
+                # the analysis' own eps / min samples (DBSCAN 25/10, the reference, is added by tools.multimethod)
+                return {"eps": float(a.eps_nm), "min_samples": int(a.min_samples)}
             if name == panel.current_method():
                 return panel.current_params()
             info = strategy_registry().get(name)
             return {} if info is None else {k: info.defaults[k]["value"] for k in info.numeric_params()}
 
-        dlg = CompareMethodsDialog(self._compare_run, int(np.asarray(self.analysis.x_slab).size),
-                                   panel.experimental(), panel.current_method(), params_for, parent=self)
+        nena, _words = self.links.nena()
+        ws = self.working_scale
+        dlg = CompareAnalysesDialog(self._compare_run, int(np.asarray(a.x_slab).size),
+                                    panel.experimental(), panel.current_method(), params_for, parent=self,
+                                    analysis=a, nena_nm=nena, c_label=ws.c_label(), rule=ws.rule, rule26=ws.rule26)
         self._compare_dialog = dlg
-        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+        accepted = dlg.exec_() == QtWidgets.QDialog.Accepted
+        if dlg.comparison_result is not None and self.analysis is a:
+            # every method compared joins the Perimeter arrangement tab, the double table and the export
+            self.method_comparison = dlg.comparison_result
+            self.method_comparison_files = dict(getattr(dlg, "written_tables", {}) or {})
+            self._sync_integration()
+        self._remember_compared(dlg)
+        # F5: every run of the comparison as a row of the map, by the name the dialog shows (the reference 'DBSCAN
+        # 25/10' is left out when it IS the analysis shown, which is drawn as itself)
+        from tools import clustering_integration as _ci
+        shown_is_reference = _ci.run_of(a).is_reference
+        ran = {k: v for k, v in dict(getattr(dlg, "analyses", {}) or {}).items()
+               if not (shown_is_reference and k == _ci.mm.REFERENCE_KEY)}
+        if not accepted:
+            # F5: closed without a choice: every method that ran stays on the map, each a row to tick
+            self.show_methods(ran)
             return
         if dlg.overlay_method:
-            # 'Overlay on the map': drawn over the analysis shown; the method in use does not change
+            # 'Overlay on the map': drawn over the analysis shown; the method in use does not change. The
+            # methods' rows come too, unticked (the overlay draws the pair).
+            self.show_methods(ran, tick=False)
             self.show_overlay(dlg.overlay_method, dlg.analyses.get(dlg.overlay_method))
             return
         if not dlg.chosen:
+            self.show_methods(ran)
             return
         chosen = dlg.chosen[0]
-        panel.set_state(chosen, params_for(chosen), panel.experimental() or chosen != "DBSCAN", dlg.ran)
+        run = dlg.run_for(chosen)
+        method = chosen if run is None else run.method
+        compared = sorted({r.method for r in dlg.comparison_result.runs} if dlg.comparison_result is not None
+                          else set(dlg.ran))
+        if method == "DBSCAN" and run is not None:
+            # a DBSCAN row (the reference, the analysis' own or the rule): its eps / min samples go to the strip
+            for w in (self.spin_eps, self.spin_min):
+                w.blockSignals(True)
+            self.spin_eps.setValue(float(run.params.get("eps", a.eps_nm)))
+            self.spin_min.setValue(int(run.params.get("min_samples", a.min_samples)))
+            for w in (self.spin_eps, self.spin_min):
+                w.blockSignals(False)
+            panel.set_state("DBSCAN", {}, panel.experimental(), compared)
+        else:
+            panel.set_state(method, params_for(method) if run is None else dict(run.params),
+                            panel.experimental() or method != "DBSCAN", compared)
         self._on_param_changed()
+
+    def _remember_compared(self, dlg: Any) -> None:
+        """Manual test of 2026-10-23: the methods that ran in 'Compare methods...' are saved as the compared list
+        (settings.cluster_methods_compared, which the batch's 'Compare methods (slow)' box offers) whenever the
+        dialog closes after a run -- closed, Overlay or Use this method -- not only with Use this method. The
+        method shown is not changed and nothing is re-run."""
+        res = getattr(dlg, "comparison_result", None)
+        ran = sorted({str(r.method) for r in res.runs}) if res is not None else []
+        if not ran:
+            return
+        panel = self.method_panel
+        panel.set_state(panel.current_method(), panel.current_params(), panel.experimental(), ran)
+        if self.links.store is not None:
+            self.links.store({"cluster_methods_compared": ran})
+
+    def _on_null_shortcut(self) -> None:
+        """'Null (per axon)...' in the strip: the Perimeter arrangement tab, with its estimate; it runs from there
+        (the estimate is read first: a null of a slow method takes hours)."""
+        self.tabs.setCurrentWidget(self.arrangement_scroll)
+        self._sync_integration()
+
+    def _sync_integration(self) -> None:
+        """The Working scale panel and the Perimeter arrangement tab follow the analysis shown: its working scale,
+        the DBSCAN rule with the panel's c_label, the double table, and the runs a null can be run for (the
+        analysis shown, then the methods of its last comparison)."""
+        from tools import clustering_integration as ci
+        a = self.analysis
+        nena, words = self.links.nena()
+        ws = getattr(self, "working_scale", None)
+        if ws is None:
+            return
+        ws.show_scale(a, nena, words, self.links.rule_inputs())
+        comp = self.method_comparison
+        if comp is not None and (a is None or not comp.runs or comp.runs[0].analysis is None
+                                 or not np.array_equal(np.asarray(comp.runs[0].analysis.x_slab),
+                                                       np.asarray(a.x_slab))):
+            comp = self.method_comparison = None
+            self.method_comparison_files = {}
+        ws.show_double_table(comp)
+        runs = [] if a is None else [ci.run_of(a, axon_id=str(getattr(a, "source_name", "")))]
+        if comp is not None:
+            import dataclasses
+            # the rule's runs under the name the user knows them by ("DBSCAN rule (c_label 14)")
+            # every run, the failed / refused / cancelled ones too: the tab names them as not included (manual
+            # test of 2026-10-23: Emitters with no imaging buffer vanished from the estimate without a word)
+            runs += [dataclasses.replace(r, key=comp.labels.get(r.key, r.key)) for r in comp.runs]
+        self.arrangement.set_context(a, runs, nena, ws.c_label())
+
+    def integration_columns(self) -> Optional[Dict[str, Any]]:
+        """The v13 block of the axon table for the analysis shown (tools.clustering_integration.axon_columns): the
+        file's NeNA, the panel's c_label, the localizations per cycle, the null of this analysis when it ran and
+        the last comparison. None without an analysis."""
+        from tools import clustering_integration as ci
+        a = self.analysis
+        if a is None:
+            return None
+        nena, words = self.links.nena()
+        return ci.axon_columns(a, nena_nm=nena, nena_source=words, c_label=self.working_scale.c_label(),
+                               locs_per_cycle=self.links.rule_inputs(), null=self.arrangement.outcome_for(a),
+                               comparison=self.method_comparison,
+                               comparison_files=self.method_comparison_files if self.method_comparison else None)
 
     def show_overlay(self, method: str, other: Any) -> bool:
         """Draw ``method``'s run (``other``, an AxonAnalysis of the same slab from 'Compare methods') over the
@@ -985,6 +1169,43 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self.axon_map.layers.set_visible(key, True)
         self._draw_map()
         return True
+
+    def show_methods(self, analyses: Dict[str, Any], tick: bool = True) -> bool:
+        """F5: every method in ``analyses`` (method -> AxonAnalysis of this slab, from 'Compare methods...') and the
+        analysis shown, each a row of the map's 'Methods on the map' group. ``tick``: the first METHODS_TICKED rows
+        start ticked. False when there is nothing to add (no analysis, or no method but the one shown ran)."""
+        from tools.method_overlay import build_method_layers
+        if self.analysis is None or getattr(self.analysis, "x_slab", None) is None:
+            return False
+        others = {m: a for m, a in dict(analyses or {}).items()
+                  if a is not None and m != getattr(self.analysis, "cluster_method", "DBSCAN")}
+        if not others:
+            return False
+        ml = build_method_layers(self.analysis, analyses)
+        self._methods = ml
+        compared = [run for run in ml.runs if not run.is_shown]
+        for run in ml.runs:
+            # Manual test of 2026-10-23: the analysis shown is already on the map as its localizations and centres;
+            # its own outline starts off (a row to tick), so the group adds only the COMPARED methods' outlines.
+            on = tick and not run.note and not run.is_shown and compared.index(run) < METHODS_TICKED
+            self.axon_map.layers.set_visible(run.key, bool(on))
+        self._draw_map()
+        return True
+
+    def clear_methods(self) -> None:
+        """'Clear the methods': the compared methods' rows leave the map."""
+        self._methods = None
+        self._draw_map()
+
+    def _on_method_diagnostics(self) -> None:
+        """'Method diagnostics...': each method's own diagnostic plot (tools.method_diagnostics)."""
+        from tools.method_diagnostics import MethodDiagnosticsDialog
+        ml = self._methods
+        if ml is None or ml.base is not self.analysis:
+            return
+        dlg = MethodDiagnosticsDialog([(r.method, r.analysis) for r in ml.runs if not r.note], parent=self)
+        self._diagnostics_dialog = dlg
+        dlg.show()
 
     def clear_overlay(self) -> None:
         """'Clear the overlay': the second method's outlines leave the map."""
@@ -1145,6 +1366,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.cut_strip.btn_pick.setEnabled(self.links.pick_boundary is not None)
         lay.addWidget(self.cut_strip)
 
+
         # The warnings leave the window (manual test 2, item 5): a button with their count, a preview in its
         # tooltip, and the whole list written to a .txt file on a click (never over an existing file). The
         # user reads them as "Analysis notes" (manual test of SCI-3: "Warnings" sounded like danger, a new
@@ -1187,6 +1409,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.lbl_provenance = self.axon_map.lbl_line1
         self.axon_map.view_changed.connect(self._on_map_view)
         self.axon_map.overlay_clear_requested.connect(self.clear_overlay)
+        self.axon_map.methods_clear_requested.connect(self.clear_methods)
+        self.axon_map.diagnostics_requested.connect(self._on_method_diagnostics)
         self.plot_splitter.addWidget(self.axon_map)
 
         self.tabs = QtWidgets.QTabWidget()
@@ -1227,6 +1451,24 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             left="distance from it [nm]")
         self.plot_scatter.setXRange(0.0, 360.0, padding=0.0)
         self.tabs.addTab(self.plot_scatter, "Scatter off the outline")
+        # The clustering integration: the per-axon null of every method compared, H1 / H2 and the regularity reading
+        # (tools.arrangement_ui).
+        from tools.arrangement_ui import TAB_TITLE, ArrangementPanel, WorkingScalePanel
+        self.arrangement = ArrangementPanel(dark=self.dark)
+        # The working scale of the analysis shown (A9 sec. 4.1; A5 inside it), the editable c_label and the DBSCAN
+        # rule beside 25/10 (D2), at the top of the tab whose tests start at its marks (the left column keeps every
+        # row of the results table in sight at 1366 x 728).
+        self.working_scale = WorkingScalePanel()
+        self.working_scale.c_label_changed.connect(lambda _v: self._sync_integration())
+        self.arrangement.set_header(self.working_scale)
+        # in a scroll area: the tab's controls must not raise the tabs' minimum height and take the map's share
+        self.arrangement_scroll = QtWidgets.QScrollArea()
+        self.arrangement_scroll.setObjectName("arrangement_scroll")
+        self.arrangement_scroll.setWidgetResizable(True)
+        self.arrangement_scroll.setWidget(self.arrangement)
+        self.arrangement_scroll.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred,
+                                              QtWidgets.QSizePolicy.Policy.Ignored)
+        self.tabs.addTab(self.arrangement_scroll, TAB_TITLE)
         self.plot_splitter.addWidget(self.tabs)
         # The map keeps MAP_SHARE of the plot column through every show and
         # resize, until the user drags the divider (then it stays there).
@@ -1234,6 +1476,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.plot_splitter.setStretchFactor(1, 1)
         self._split_done = False
         self.plot_splitter.splitterMoved.connect(self._on_split_moved)
+        self.tabs.currentChanged.connect(self._guard_map_share)
         return self.plot_splitter
 
     def _on_split_moved(self, _pos: int, _index: int) -> None:
@@ -1280,6 +1523,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def showEvent(self, event: Any) -> None:
         super().showEvent(event)
+        # manual test of 2026-10-23: every informative text selectable (labels built since, too)
+        from tools.copyable import make_labels_selectable
+        make_labels_selectable(self)
         self._fit_strip()
         if not self._split_done:
             self._apply_map_share()
@@ -1311,6 +1557,16 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if not self._split_done:
             QtCore.QTimer.singleShot(0, self._apply_map_share)
 
+    def _guard_map_share(self, *_args: Any) -> None:
+        """The divider was not dragged by the user and the map has less than MAP_FLOOR_SHARE of the column (the
+        tabs grew under it): give the map its share back."""
+        if self._split_done or getattr(self, "_applying_share", False):
+            return
+        sizes = self.plot_splitter.sizes()
+        total = sum(sizes)
+        if total > 0 and sizes[0] < MAP_FLOOR_SHARE * total:
+            QtCore.QTimer.singleShot(0, self._apply_map_share)
+
     # ------------------------------------------------------------------
     # refresh
     # ------------------------------------------------------------------
@@ -1325,6 +1581,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if self._overlay is not None and self._overlay.base is not self.analysis:
             # the second method was run on the previous analysis' slab
             self._overlay = None
+        if self._methods is not None and self._methods.base is not self.analysis:
+            self._methods = None                       # F5: the same rule for every compared method
         self.comparison = self._ask_discard()
         self._read_selection()
         self._sync_controls()
@@ -1337,6 +1595,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._fill_table()
         self._fill_warnings()
         self._update_banner()
+        self._sync_integration()
         self._draw_plots()
 
     def _sync_cut(self) -> None:
@@ -1466,15 +1725,21 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _plots(self) -> "dict":
         """Every plot of this window, by the name the export shows."""
-        return {PLOT_MAP: self.axon_map.plot,
-                PLOT_AXIAL: self.axial.plot,
-                PLOT_AREA: self.plot_area,
-                PLOT_NN: self.nn.plot_nn,
-                PLOT_CDF: self.nn.plot_cdf,
-                PLOT_SCATTER: self.plot_scatter}
+        out = {PLOT_MAP: self.axon_map.plot,
+               PLOT_AXIAL: self.axial.plot,
+               PLOT_AREA: self.plot_area,
+               PLOT_NN: self.nn.plot_nn,
+               PLOT_CDF: self.nn.plot_cdf,
+               PLOT_SCATTER: self.plot_scatter}
+        # the clustering integration: the null's H(r) and the regularity plots (F6's export, as every plot)
+        out.update(self.arrangement.figure_plots())
+        return out
 
     def _tab_of(self, name: str) -> Optional[QtWidgets.QWidget]:
         """The tab a plot sits in (None: the map, always visible)."""
+        if name in self.arrangement.figure_plots():
+            self.arrangement.show_plot(name)
+            return self.arrangement_scroll
         return {PLOT_AXIAL: self.axial, PLOT_AREA: self.area_tab, PLOT_NN: self.nn,
                 PLOT_CDF: self.nn, PLOT_SCATTER: self.plot_scatter}.get(name)
 
@@ -1485,6 +1750,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.axon_map.set_dark(self.dark)
         self.axial.set_dark(self.dark)
         self.nn.set_dark(self.dark)
+        self.arrangement.set_dark(self.dark)
         self._draw_plots()
 
     def _export_message(self, name: str) -> str:
@@ -1513,7 +1779,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # draws the widefield image: a photograph is not redrawn (3.6).
         white = {name for name in plots
                  if name != PLOT_MAP or self.axon_map.offers_white()}
-        request = ask(list(plots), suggested, parent=self, offer_white=white)
+        # F6: each plot's title, editable in the dialog; a legend of the rows drawn for the plots with a layer panel
+        titles = {name: figure_export.plain_title(plot.getPlotItem()) for name, plot in plots.items()}
+        request = ask(list(plots), suggested, parent=self, offer_white=white, titles=titles,
+                      legend=set(LEGEND_PLOTS) & set(plots))
         if request is None:
             return
         plot = plots.get(request.plot)
@@ -1530,7 +1799,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 self.dark = False
                 self._apply_background()
                 QtWidgets.QApplication.processEvents()
-            written = figure_export.write(plot.getPlotItem(), request)
+            legend = self.legend_entries(request.plot) if request.legend else None
+            # the tab's own corner legends step aside: the figure gets Export image's legend only
+            with self.arrangement.legends_hidden():
+                written = figure_export.write(plot.getPlotItem(), request, legend=legend)
             message = self._export_message(request.plot)
         except Exception as error:                        # noqa: BLE001
             QtWidgets.QMessageBox.critical(
@@ -1545,6 +1817,19 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             self, "Image written",
             f"{figure_export.describe(request)}\n\n{written}"
             + (f"\n\n{message}" if message else ""))
+
+    def legend_entries(self, name: str) -> List[Any]:
+        """F6: the legend of plot ``name`` as drawn now: (label, sample) of every row ticked in its layer panel."""
+        from tools.mps_axon_map import legend_entries
+        if name in self.arrangement.figure_plots():
+            return self.arrangement.legend_entries(name)
+        if name == PLOT_MAP:
+            return legend_entries(self.axon_map._layers, self.axon_map.layers, self.dark)
+        if name == PLOT_AXIAL:
+            return legend_entries(self.axial._layers, self.axial.layers, self.dark)
+        if name == PLOT_NN:
+            return legend_entries(self.nn._layers, self.nn.layers, self.dark, keep=lambda k: k.startswith("nn_"))
+        return []
 
     def _shown(self) -> Optional[AxonAnalysis]:
         """The analysis the plots show (None in the empty state)."""
@@ -1977,10 +2262,30 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             source=prev.source, colour_by=prev.colour_by, image=prev.image,
             selection_n=None if sel is None else sel.n_locs,
             overlay=(self._overlay if (a is not None and self._overlay is not None and self._overlay.base is a)
-                     else None))
+                     else None),
+            methods=(self._methods if (a is not None and self._methods is not None and self._methods.base is a)
+                     else None),
+            fusion=self._fusion_state(a))
+
+    def _fusion_state(self, a: Any) -> Any:
+        """The event layer's 'probable fusion' marks of the analysis drawn (tools.mps_axon_map_layers.fusion_state),
+        computed once per analysis and c_label."""
+        if a is None:
+            return None
+        nena, _words = self.links.nena()
+        c = self.working_scale.c_label() if hasattr(self, "working_scale") else 14.0
+        key = (id(a), nena, c)
+        if self._fusion_cache[0] == key:
+            return self._fusion_cache[1]
+        state = L.fusion_state(a, nena, c)
+        self._fusion_cache = (key, state)
+        return state
 
     def _draw_map(self) -> None:
         self.axon_map.set_inputs(self._map_inputs())
+        # the layer panel's group titles are rebuilt at each drawing: selectable again (tools.copyable)
+        from tools.copyable import make_labels_selectable
+        make_labels_selectable(self.axon_map)
         a = self._display_analysis()
         sel = self._sel
         if a is not None:
@@ -2287,7 +2592,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def _run_controls(self) -> List[QtWidgets.QWidget]:
         """Everything that would start another analysis (or write a table of the one about to change)."""
-        return [self.strip_scroll.widget(), self.banner, self.btn_rings, self.btn_export,
+        # F4: the strip, except the clustering method's collapse / expand controls (usable during a run)
+        from tools.mps_background_run import controls_except
+        keep = [self.method_panel.btn_collapse, self.method_bar]
+        return [*controls_except(self.strip_scroll.widget(), keep), self.banner, self.btn_rings, self.btn_export,
                 self.btn_apply_precision, self.btn_reset, self.cut_strip]
 
     def start_background(self, kw: Dict[str, Any], fail_title: str = "Analysis failed",
@@ -2310,6 +2618,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             return False
         run = BackgroundRun(prepared, parent=self)
         run.tick.connect(lambda line: self.run_progress.show_line(line, cancelling=run.cancelled()))
+        run.tick.connect(lambda line: self.method_bar.set_status(line, True, cancelling=run.cancelled()))
         run.ended.connect(lambda status, value, tb: self._on_run_ended(run, status, value, tb, fail_title,
                                                                        fail_text))
         self._run = run
@@ -2337,6 +2646,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if run is not self._run:
             return
         self._run = None
+        self.method_bar.set_status("", False)
         run.deleteLater()        # its worker is not its child: the module keeps that one until it is joined
         restore, self._restore_controls = self._restore_controls, None
         if restore is not None:

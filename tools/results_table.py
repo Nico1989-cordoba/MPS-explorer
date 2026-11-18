@@ -291,3 +291,15 @@ def append_rows(path: str, rows: Sequence[Dict[str, Any]],
             writer.writeheader()
         writer.writerows(rows)
     return append
+
+
+def free_path(path: str) -> str:
+    """``path`` when nothing is there, else the first of ``stem_2.ext``, ``stem_3.ext``, ... that is free: a file
+    is never overwritten (the exports' rule)."""
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    n = 2
+    while os.path.exists(f"{stem}_{n}{ext}"):
+        n += 1
+    return f"{stem}_{n}{ext}"

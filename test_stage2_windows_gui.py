@@ -431,7 +431,8 @@ def main() -> int:
         from tools import figure_export, figure_export_ui
         from tools import mps_results_window as R
         names = [R.PLOT_MAP, R.PLOT_AXIAL, R.PLOT_AREA, R.PLOT_NN, R.PLOT_CDF, R.PLOT_SCATTER]
-        assert list(w._plots()) == names
+        # the clustering integration appends the null's and the regularity's plots after these six
+        assert list(w._plots())[:len(names)] == names
         original = figure_export_ui.ask
         offers: List[Any] = []
         written: List[str] = []
@@ -441,7 +442,7 @@ def main() -> int:
                 path = os.path.join(WORK, "export_" + name.replace(" ", "_") + ext)
 
                 def fake(plots: Any, suggested: str, parent: Any = None, offer_white: Any = True,
-                         _n: str = name, _p: str = path) -> Any:
+                         _n: str = name, _p: str = path, **_kw: Any) -> Any:
                     offers.append(offer_white)
                     return figure_export.FigureRequest(plot=_n, path=_p,
                                                        white=figure_export_ui.offers_white(offer_white, _n))
@@ -472,16 +473,16 @@ def main() -> int:
             pump(app, 0.05)
             assert "image" in w.axon_map.layers.shown_keys(), "the Axoplasm view draws the image"
             offers.clear()
-            figure_export_ui.ask = lambda plots, suggested, parent=None, offer_white=True: (
+            figure_export_ui.ask = lambda plots, suggested, parent=None, offer_white=True, **_kw: (
                 offers.append(offer_white), None)[1]
             w._on_export_image()
             with_image = offers[-1]
             assert isinstance(with_image, (set, frozenset)), with_image
-            assert R.PLOT_MAP not in with_image and set(names) - {R.PLOT_MAP} == set(with_image), with_image
+            assert R.PLOT_MAP not in with_image and set(names) - {R.PLOT_MAP} <= set(with_image) and set(with_image) <= set(w._plots()), with_image   # + the integration's plots
             w.axon_map.set_view("mps")
             pump(app, 0.05)
             w._on_export_image()
-            assert set(offers[-1]) == set(names), offers[-1]
+            assert set(offers[-1]) == set(w._plots()) and set(names) <= set(offers[-1]), offers[-1]
         finally:
             figure_export_ui.ask = original
         # the dialog with a set: chk_white only for the plots in it

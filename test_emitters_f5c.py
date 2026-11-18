@@ -316,12 +316,14 @@ def test_batch_comparison_gives_emitters_the_runs_buffer(monkeypatch, tmp_path):
     from tools import mps_batch as mb
     from tools.mps_identity import AxonIdentity
     seen = {}
+    xs = np.arange(20, dtype=float)
 
-    def fake(item, settings, z_store=None, allow_slow=False):
+    def fake(loc, item, settings):
         seen[settings.cluster_method] = dict(settings.cluster_params)
-        return mb.AxonRecord(source=item.path, row={})
+        raise RuntimeError("only the spy")
 
-    monkeypatch.setattr(mb, "analyse_file", fake)
+    monkeypatch.setattr(mb, "_load", lambda item: (types.SimpleNamespace(x_nm=xs, y_nm=xs, z_nm=xs), None))
+    monkeypatch.setattr(mb, "_analyze_loaded", fake)
     item = mb.BatchFile(path=str(tmp_path / "a.hdf5"), identity=AxonIdentity())
     mb.compare_methods([item], _batch_settings(mb), ["DBSCAN", el.EMITTERS_METHOD], allow_slow=True,
                        emitters_buffer="bME")

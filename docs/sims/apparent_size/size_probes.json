@@ -1,0 +1,309 @@
+{
+ "seed": 20261022,
+ "same_cloud": {
+  "20": {
+   "cloud_sd_nm": 9.93,
+   "hull_area_n15_nm2": 705.3,
+   "r_rare_nm": 14.96,
+   "hull_area_all_nm2": 846.4,
+   "r_hull_all_nm": 16.41
+  },
+  "200": {
+   "cloud_sd_nm": 9.97,
+   "hull_area_n15_nm2": 720.4,
+   "r_rare_nm": 15.01,
+   "hull_area_all_nm2": 2087.9,
+   "r_hull_all_nm": 25.78
+  },
+  "hull_ratio_200_over_20": 2.47
+ },
+ "population": {
+  "labels_1": {
+   "n_clusters": 1869,
+   "spearman_with_n_locs": {
+    "hull_area_all (legacy Cluster area)": 0.886,
+    "cloud_sd (sqrt(trace/2), shipped)": 0.11,
+    "cloud_sd geometric mean of principal SDs": 0.355,
+    "r_disp sqrt(s_t s_n) fixed axes (simulation)": 0.216,
+    "radius_gyration": 0.11,
+    "r_rare (n = 15)": 0.079
+   },
+   "fraction_r_rare_undefined": 0.339,
+   "median_cloud_sd_nm": 10.08
+  },
+  "labels_3": {
+   "n_clusters": 2000,
+   "spearman_with_n_locs": {
+    "hull_area_all (legacy Cluster area)": 0.614,
+    "cloud_sd (sqrt(trace/2), shipped)": -0.046,
+    "cloud_sd geometric mean of principal SDs": -0.007,
+    "r_disp sqrt(s_t s_n) fixed axes (simulation)": -0.027,
+    "radius_gyration": -0.046,
+    "r_rare (n = 15)": -0.047
+   },
+   "fraction_r_rare_undefined": 0.012,
+   "median_cloud_sd_nm": 13.22
+  }
+ },
+ "permutation_diagnostic": {
+  "n_axons": 20,
+  "oracle": {
+   "mean_spearman": 0.007,
+   "mean_z": 0.1,
+   "stouffer_z": 0.43,
+   "fraction_axons_abs_z_gt_1.96": 0.0
+  },
+  "eps20": {
+   "mean_spearman": 0.137,
+   "mean_z": 1.05,
+   "stouffer_z": 4.69,
+   "fraction_axons_abs_z_gt_1.96": 0.15
+  },
+  "eps25": {
+   "mean_spearman": 0.136,
+   "mean_z": 1.08,
+   "stouffer_z": 4.83,
+   "fraction_axons_abs_z_gt_1.96": 0.2
+  },
+  "eps30": {
+   "mean_spearman": 0.175,
+   "mean_z": 1.32,
+   "stouffer_z": 5.92,
+   "fraction_axons_abs_z_gt_1.96": 0.25
+  }
+ },
+ "curvature_400nm": {
+  "ellipse R1400": {
+   "spearman_mean": 0.894,
+   "spearman_min": 0.846,
+   "rmse_kappa_r_mean": 0.177,
+   "concave_found_mean": null
+  },
+  "notched R1400": {
+   "spearman_mean": 0.955,
+   "spearman_min": 0.931,
+   "rmse_kappa_r_mean": 0.186,
+   "concave_found_mean": 1.0
+  },
+  "ellipse R500": {
+   "spearman_mean": 0.918,
+   "spearman_min": 0.889,
+   "rmse_kappa_r_mean": 0.242,
+   "concave_found_mean": null
+  },
+  "notched R500": {
+   "spearman_mean": 0.795,
+   "spearman_min": 0.627,
+   "rmse_kappa_r_mean": 0.402,
+   "concave_found_mean": 0.0
+  }
+ },
+ "footprint_pool": {
+  "labels 2, rho 0 nm, NeNA error +0 nm": {
+   "rho_mean_sd_nm": {
+    "oracle, cut None": [
+     5.4,
+     5.0
+    ],
+    "oracle, cut 1.8": [
+     2.7,
+     4.2
+    ],
+    "oracle, cut 2.5": [
+     4.6,
+     4.1
+    ],
+    "dbscan25, cut None": [
+     15.6,
+     8.3
+    ],
+    "dbscan25, cut 1.8": [
+     3.4,
+     5.4
+    ],
+    "dbscan25, cut 2.5": [
+     6.7,
+     5.9
+    ]
+   },
+   "verdicts_dbscan_cut_2.5": {
+    "footprint measurable": 12
+   }
+  },
+  "labels 2, rho 25 nm, NeNA error +0 nm": {
+   "rho_mean_sd_nm": {
+    "oracle, cut None": [
+     28.1,
+     6.7
+    ],
+    "oracle, cut 1.8": [
+     20.7,
+     5.5
+    ],
+    "oracle, cut 2.5": [
+     25.7,
+     5.2
+    ],
+    "dbscan25, cut None": [
+     34.3,
+     7.6
+    ],
+    "dbscan25, cut 1.8": [
+     16.3,
+     6.8
+    ],
+    "dbscan25, cut 2.5": [
+     23.3,
+     6.4
+    ]
+   },
+   "verdicts_dbscan_cut_2.5": {
+    "footprint measurable": 12
+   }
+  },
+  "labels 3, rho 0 nm, NeNA error +0 nm": {
+   "rho_mean_sd_nm": {
+    "oracle, cut None": [
+     5.4,
+     5.3
+    ],
+    "oracle, cut 1.8": [
+     4.8,
+     4.9
+    ],
+    "oracle, cut 2.5": [
+     5.3,
+     5.1
+    ],
+    "dbscan25, cut None": [
+     17.1,
+     9.1
+    ],
+    "dbscan25, cut 1.8": [
+     2.2,
+     3.5
+    ],
+    "dbscan25, cut 2.5": [
+     6.2,
+     4.8
+    ]
+   },
+   "verdicts_dbscan_cut_2.5": {
+    "footprint measurable": 12
+   }
+  },
+  "labels 3, rho 25 nm, NeNA error +0 nm": {
+   "rho_mean_sd_nm": {
+    "oracle, cut None": [
+     24.9,
+     3.7
+    ],
+    "oracle, cut 1.8": [
+     19.4,
+     4.4
+    ],
+    "oracle, cut 2.5": [
+     24.1,
+     4.1
+    ],
+    "dbscan25, cut None": [
+     39.2,
+     8.6
+    ],
+    "dbscan25, cut 1.8": [
+     16.1,
+     7.1
+    ],
+    "dbscan25, cut 2.5": [
+     23.6,
+     3.9
+    ]
+   },
+   "verdicts_dbscan_cut_2.5": {
+    "footprint measurable": 12
+   }
+  },
+  "labels 3, rho 25 nm, NeNA error -2 nm": {
+   "rho_mean_sd_nm": {
+    "oracle, cut None": [
+     31.8,
+     3.3
+    ],
+    "oracle, cut 1.8": [
+     28.5,
+     3.0
+    ],
+    "oracle, cut 2.5": [
+     31.3,
+     3.4
+    ],
+    "dbscan25, cut None": [
+     41.9,
+     7.1
+    ],
+    "dbscan25, cut 1.8": [
+     26.3,
+     3.6
+    ],
+    "dbscan25, cut 2.5": [
+     31.8,
+     4.5
+    ]
+   },
+   "verdicts_dbscan_cut_2.5": {
+    "footprint measurable": 12
+   }
+  },
+  "labels 3, rho 25 nm, NeNA error +2 nm": {
+   "rho_mean_sd_nm": {
+    "oracle, cut None": [
+     13.0,
+     7.1
+    ],
+    "oracle, cut 1.8": [
+     5.5,
+     5.4
+    ],
+    "oracle, cut 2.5": [
+     12.2,
+     6.5
+    ],
+    "dbscan25, cut None": [
+     29.7,
+     12.5
+    ],
+    "dbscan25, cut 1.8": [
+     1.6,
+     3.4
+    ],
+    "dbscan25, cut 2.5": [
+     10.5,
+     6.8
+    ]
+   },
+   "verdicts_dbscan_cut_2.5": {
+    "footprint measurable": 12
+   }
+  },
+  "labels 1, rho 25 nm, NeNA error +0 nm": {
+   "rho_mean_sd_nm": {
+    "dbscan25, cut None": [
+     5.6,
+     9.6
+    ],
+    "dbscan25, cut 2.5": [
+     0.0,
+     0.0
+    ],
+    "dbscan25, cut 1.8": [
+     0.0,
+     0.0
+    ]
+   },
+   "verdicts_dbscan_cut_2.5": {
+    "content only": 9,
+    "footprint measurable": 3
+   }
+  }
+ }
+}

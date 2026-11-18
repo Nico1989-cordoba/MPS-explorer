@@ -71,7 +71,8 @@ BADGE_MEANING: Dict[str, str] = {
     "ad hoc": "today's value has no written derivation; a science PR replaces it",
     "unreviewed": "no verified research record yet",
 }
-HOMES: Tuple[str, ...] = ("strip", "rings", "axoplasm", "measurement", "main", "zquality", "none")
+# "scale": the Working scale panel of the analysis window (the clustering integration, 2026-10-22).
+HOMES: Tuple[str, ...] = ("strip", "rings", "axoplasm", "measurement", "main", "zquality", "scale", "none")
 # The publication the "paper" badges name.
 PAPER = "Gazal et al. 2026 (preprint v1)"
 # What a badge widget shows for an origin (manual test 2, item 10): "paper" is shown as the publication it names,
@@ -216,6 +217,7 @@ _AXIAL_RINGS_KEYS = frozenset({
 _S = "tools.mps_settings"
 _R = "tools.mps_randomization"
 _AP = "tools.mps_axial_precision"
+_DR = "tools.dbscan_rule"
 
 
 def _vp(field_name: str) -> Reader:
@@ -405,6 +407,94 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
                    "warning only, never used to scale min samples (it holds the partner's abundance)",
        documented_range=(1.5, 10.0), range_text="1.5-10",
        records=("cc-oversampling-warn-3",), not_editable_because="e1"),
+    # ---------------------------------------------------------------- the DBSCAN rule (clustering plan A2)
+    # Computed and shown beside the compatibility values 25/10, never used by default (decision D2): not editable
+    # in stage 2, except c_label, which the integration made editable in the Working scale panel (it feeds the
+    # rule, the fusion mark, the footprint and the null). Methods page: docs/dbscan_rule.md.
+    _e(key="dbscan_rule.eps_factor", label="rule: eps in NeNA", unit="x NeNA", home="none",
+       default=_const(_DR, "EPS_RULE_FACTOR"), origin="simulation",
+       origin_note="eps = min(this x NeNA, the cap); in this project's own clustering simulation the published "
+                   "25 nm was 2.2 to 2.3 NeNA and multiples of 2 to 3 rendered the same, so the rule justifies the "
+                   "published radius rather than changing it",
+       documented_range=(2.0, 3.0), range_text="2-3", range_note="the multiples the simulation compared",
+       not_editable_because="e1: the rule is shown beside the compatibility values, not edited"),
+    _e(key="dbscan_rule.eps_cap_nm", label="rule: eps cap", unit="nm", home="none",
+       default=_const(_DR, "EPS_RULE_CAP_NM"), origin="paper",
+       origin_note=f"the published DBSCAN radius ({PAPER}) caps the rule's eps, so that a poor precision does not "
+                   "widen eps and merge neighbours (own simulation, the coarse-precision row)",
+       not_editable_because="e1: the rule is shown beside the compatibility values, not edited"),
+    _e(key="dbscan_rule.c_label", label="rule: switching cycles per label (c_label)", unit="", home="scale",
+       default=_const(_DR, "C_LABEL_DEFAULT"), origin="paper",
+       origin_note="provisional: mean switching cycles of Alexa Fluor 647 in MEA (Dempsey et al. 2011, Table 1), "
+                   "the laboratory's buffer family; measured on glass, a lower bound, never in this laboratory's "
+                   "buffer; the value in beta-mercaptoethanol is reported beside it as a sensitivity column",
+       documented_range=(14.0, 26.0), range_text="14-26",
+       range_note="Alexa Fluor 647 in MEA and in beta-mercaptoethanol",
+       shown_as="Working scale panel (c_label); the rule, the probable-fusion mark, the footprint and the null",
+       editable=True),
+    _e(key="dbscan_rule.c_label_sensitivity", label="rule: c_label of the sensitivity column", unit="",
+       home="none", default=_const(_DR, "C_LABEL_BME"), origin="paper",
+       origin_note="mean switching cycles of Alexa Fluor 647 in beta-mercaptoethanol (Dempsey et al. 2011, Table "
+                   "1): every rule table and fusion mark is also given with it",
+       not_editable_because="e1: a fixed sensitivity column"),
+    _e(key="dbscan_rule.cycle_quantile", label="rule: quantile of the cycles per label", unit="", home="none",
+       default=_const(_DR, "CYCLE_QUANTILE"), origin="simulation",
+       origin_note="the label at this quantile of a geometric cycle count (Karathanasis et al. 2017) must still "
+                   "form a cluster; the value of this project's own clustering simulation, which halved the loss "
+                   "of singly labelled molecules without raising the fusion",
+       not_editable_because="e1: the rule is shown beside the compatibility values, not edited", fmt=".2f"),
+    _e(key="dbscan_rule.min_samples_floor", label="rule: min samples floor", unit="", home="none",
+       default=_const(_DR, "MIN_SAMPLES_FLOOR"), origin="derived",
+       origin_note="standard method: min samples of at least the dimension plus one (Ester et al. 1996; Schubert "
+                   "et al. 2017), for the two lateral dimensions clustered",
+       not_editable_because="e1: the rule is shown beside the compatibility values, not edited"),
+    _e(key="dbscan_rule.loc_per_cycle_fallback", label="rule: localizations per cycle when not measured",
+       unit="", home="none", default=_const("tools.mps_events", "LOCS_PER_CYCLE_FALLBACK"), origin="ad hoc",
+       origin_note="used only when the file cannot be linked (no frames, no NeNA, too few events): the value this "
+                   "project's own clustering simulation assumed (one to three frames per cycle), always labelled "
+                   "as not measured; the rule otherwise measures it from the file's event lengths",
+       changes_in="SCI-B6",
+       change_note="a later version takes it from a calibration of the laboratory's own movies instead",
+       not_editable_because="e1: a fallback, not a setting"),
+    # ---------------------------------------------------------------- the event layer (clustering plan A3, A4)
+    _e(key="events.link_radius_nena", label="event linking radius", unit="x NeNA", home="none",
+       default=_const("tools.mps_events", "LINK_RADIUS_IN_NENA"), origin="simulation",
+       origin_note="consecutive localizations within this many NeNA are one switching event; the radius this "
+                   "project's own clustering simulation linked with (the same constant as the DNA-PAINT layer); "
+                   "it breaks a fraction exp(-k^2/4) of one event's genuine steps, so it counts slightly more "
+                   "events than cycles (docs/dbscan_rule.md)",
+       documented_range=(3.0, 4.3), range_text="3-4.3",
+       range_note="3 as simulated; 3 x sqrt(2) as the research recommends",
+       not_editable_because="e1: no window links dSTORM events yet"),
+    _e(key="events.max_dark_frames", label="event dark frames", unit="frame(s)", home="none",
+       default=_const("tools.mps_events", "MAX_DARK_FRAMES"), origin="paper",
+       origin_note="frames of darkness bridged inside one event, as in Thevathasan et al. 2019 (at most one dark "
+                   "frame); longer gaps start a new event",
+       not_editable_because="e1: no window links dSTORM events yet"),
+    _e(key="events.min_events", label="fewest events for localizations per cycle", unit="", home="none",
+       default=_const("tools.mps_events", "MIN_EVENTS_FOR_LPC"), origin="derived",
+       origin_note="convention with a written derivation: below this many uncensored events the standard error of "
+                   "the mean event size exceeds a tenth of its spread, and the labelled fallback is used instead",
+       not_editable_because="e1: no window links dSTORM events yet"),
+    _e(key="events.fusion_threshold", label="probable fusion: labels per cluster above", unit="", home="none",
+       default=_const("tools.mps_events", "FUSION_LABELS_THRESHOLD"), origin="simulation",
+       origin_note="a cluster whose events divided by c_label exceed this is marked as a probable fusion of "
+                   "neighbours, a mark only; in this project's own clustering simulation it found nearly every "
+                   "fusion where neighbours are close, but in a sparse arrangement it also marks many clusters "
+                   "that hold one molecule",
+       not_editable_because="e1: a display mark, not a setting"),
+    # ---------------------------------------------------------------- the parameter sweep (clustering plan A1)
+    _e(key="sweep.eps_values_nm", label="sweep: eps values", unit="nm", home="none",
+       default=_const("tools.dbscan_sweep", "DBSCAN_EPS_NM"), origin="simulation",
+       origin_note="the eps axis of the sensitivity grid: the range the clustering research recommends after the "
+                   "SMLM benchmarks (Nieves et al. 2023; Hammer et al. 2025) and the grid of its own simulation, "
+                   "the published value among them",
+       not_editable_because="e1: no window runs the sweep yet"),
+    _e(key="sweep.min_samples_values", label="sweep: min samples values", unit="", home="none",
+       default=_const("tools.dbscan_sweep", "DBSCAN_MIN_SAMPLES"), origin="simulation",
+       origin_note="the min samples axis of the sensitivity grid, as the eps axis; the published value among "
+                   "them",
+       not_editable_because="e1: no window runs the sweep yet"),
     # ---------------------------------------------------------------- occupancy
     _e(key="occupancy.mahalanobis", label="Mahalanobis", unit="", home="strip",
        default=_const(_S, "DEFAULT_MAHALANOBIS_THRESHOLD"), origin="paper",
@@ -1327,6 +1417,9 @@ METHODS_PAGES: Tuple[Tuple[str, str], ...] = (
     ("reference.clusters_per_um", "docs/randomization_and_ks.md"),
     ("batch.", "docs/randomization_and_ks.md"),
     ("occupancy.sigma_cap_fraction", "docs/randomization_and_ks.md"),
+    ("dbscan_rule.", "docs/dbscan_rule.md"),
+    ("events.", "docs/dbscan_rule.md"),
+    ("sweep.", "docs/dbscan_rule.md"),
 )
 
 

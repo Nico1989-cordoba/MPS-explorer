@@ -28,6 +28,8 @@ import contextlib
 import contextvars
 from typing import Callable, Iterator, Optional
 
+from tools import mps_progress
+
 CancelCheck = Callable[[], bool]
 
 _CHECK: contextvars.ContextVar[Optional[CancelCheck]] = contextvars.ContextVar("mps_cancel_check", default=None)
@@ -61,8 +63,13 @@ def requested() -> bool:
     return bool(fn is not None and fn())
 
 
-def check(where: str = "") -> None:
-    """Raise ``AnalysisCancelled`` when the run of this thread was cancelled; else return at once."""
+def check(where: str = "", done: Optional[int] = None, total: Optional[int] = None) -> None:
+    """Raise ``AnalysisCancelled`` when the run of this thread was cancelled; else return at once.
+
+    Every check point is also where the run is (F1, 2026-10-22): ``where``, and ``done`` of ``total`` in a loop,
+    go to the progress observer of this thread when one is installed (``tools.mps_progress``; nothing otherwise).
+    """
+    mps_progress.notify(where, done, total)
     fn = _CHECK.get()
     if fn is not None and fn():
         raise AnalysisCancelled(where)

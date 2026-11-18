@@ -935,6 +935,19 @@ def _num(value: Any) -> Optional[float]:
     return v if math.isfinite(v) else None
 
 
+def eclipse_lines(r: Any) -> List[str]:
+    """P-R61 under the arc test (the clustering integration): the axon's footprint, the c_label warning and the
+    scalar tau beside the per-pair tolerance, each with its role (``tools.mps_eclipse_tolerance.summary_lines`` on
+    the cleaned rings; the per-pair rule's own arc test runs in the multi-method comparison and the export, as it is
+    EXPLORATORY). Never raises: a failure is one line."""
+    try:
+        from tools import mps_eclipse_tolerance as et
+        tol = et.tolerances_from_rings(r.rings, et.ToleranceInputs())
+        return ["   Eclipse tolerance (P-R61; docs/eclipse_tolerance.md):"] + et.summary_lines(tol, r.arc_centroid, None)
+    except Exception as exc:  # noqa: BLE001 - a display line, never a failed review
+        return [f"   eclipse tolerance not computed: {type(exc).__name__}: {exc}"]
+
+
 def _k_text(res: RingsResult) -> str:
     return "/".join(str(len(r.clusters)) for r in sorted(res.rings, key=lambda q: int(q.index)))
 
@@ -2651,6 +2664,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
             lines.append(f"   membrane length {_fmt(ac.length_nm, ',.0f')} nm, knots {_fmt(ac.membrane_knot_spacing_nm, '.0f')} nm,"
                          f" tau {_fmt(ac.tau_nm, '.1f')} nm, rings {ac.rings}")
             lines.extend(pair_lines(ac.adjacent))
+            lines.extend(eclipse_lines(r))
         lines.append("")
         cols = r.columns_2d
         lines.append("2D test (pre-specified, D-24) -- SENSITIVITY (D-29a), selected pairs only")

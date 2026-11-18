@@ -417,6 +417,34 @@ def ripley_k_2d(xy: FloatArray, window_polygon: FloatArray, r_grid: FloatArray, 
                         max_weight_hits=hits, notes=notes)
 
 
+def ripley_k_2d_area(xy: FloatArray, area_nm2: float, r_grid: FloatArray) -> RipleyResult:
+    """Uncorrected Ripley's K(r), L and H = L - r for points in a window known only by its AREA.
+
+    For windows that are not simple polygons -- the +/-50 nm band around an axon's contour, an annulus -- with
+    correction 'none' (w_ij = 1), which is all the A9 band test uses: K is then A / (n (n - 1)) times the count of
+    ordered pairs at d <= r and the window enters through A alone. Biased low near the boundary like any
+    uncorrected K; a Monte Carlo test in the same window cancels it (module docstring, 'none')."""
+    pts = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+    r = np.asarray(r_grid, dtype=np.float64)
+    if r.ndim != 1 or r.size == 0 or np.any(r < 0) or np.any(np.diff(r) < 0):
+        raise ValueError("ripley_k_2d_area: r_grid must be a non-decreasing 1D array of non-negative radii")
+    area = float(area_nm2)
+    n = int(pts.shape[0])
+    expected = math.pi * r ** 2
+    if n < 2 or not area > 0:
+        k = np.full(r.shape, np.nan)
+        return RipleyResult(r=r, k=k, h=k.copy(), expected_k=expected, n=n, measure=area,
+                            intensity=(n / area if area > 0 else float("nan")), correction="none", l=k.copy(),
+                            notes=["fewer than 2 points or empty window"])
+    _i, _j, d = _pairs_2d(pts, float(r[-1]))
+    d_sorted = np.sort(d)
+    counts = np.searchsorted(d_sorted, r, side="right").astype(np.float64)
+    k = area / (n * (n - 1.0)) * counts
+    l = np.sqrt(np.maximum(k, 0.0) / math.pi)
+    return RipleyResult(r=r, k=k, h=l - r, expected_k=expected, n=n, measure=area, intensity=n / area,
+                        correction="none", l=l, n_pairs=int(d.size))
+
+
 # ============================================================================
 # Ripley's K in 1D on an arc
 # ============================================================================
@@ -611,6 +639,22 @@ def csr_envelopes(stat_fn: Callable[[FloatArray], FloatArray], n: int, window: U
         pts = simulate_csr_polygon(n, np.asarray(window, dtype=np.float64), rng) if is_poly else \
             simulate_csr_arc(n, float(window), rng)
         sims[b] = np.asarray(stat_fn(pts), dtype=np.float64)
+    return envelope_from_curves(sims, r, observed=observed, alpha=alpha, r_min=r_min, seed=seed)
+
+
+def envelope_from_curves(sims: FloatArray, r_grid: FloatArray, observed: Optional[FloatArray] = None,
+                         alpha: float = DEFAULT_ALPHA, r_min: float = 0.0, seed: int = 0) -> CsrEnvelope:
+    """The envelopes and the global test of ``csr_envelopes`` for curves simulated by ANY null.
+
+    ``sims`` is (B, len(r_grid)): one curve per replicate of the null (CSR here, or the per-axon pipeline null of
+    ``tools.mps_pipeline_null``, whose replicates are whole simulated axons run through the clustering). Same
+    pointwise envelope, maximum-studentised-deviation global envelope and p_global (Besag & Diggle, 1977; the MAD
+    test of Baddeley et al., 2014), extreme-rank envelope (Myllymaki et al., 2017), r* and h_max as
+    ``csr_envelopes``; ``seed`` is only recorded. A replicate curve with NaN at some r (too few points) is kept: the
+    nan-aware medians and quantiles skip it there."""
+    r = np.asarray(r_grid, dtype=np.float64)
+    sims = np.asarray(sims, dtype=np.float64).reshape(-1, r.size)
+    n_sim = int(sims.shape[0])
     # the studentisation pools the observed curve with the replicates when it is given, so that T_obs and
     # every T_b are computed in exactly the same way and the B + 1 values are exchangeable under the null
     # (the Monte Carlo rank p is then exact: Besag & Diggle, 1977)

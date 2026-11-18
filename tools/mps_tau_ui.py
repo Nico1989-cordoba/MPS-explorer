@@ -67,9 +67,9 @@ __all__ = [
 TAU_LABEL_TEXT = "Tolerance tau:"
 FREE_TEXT = "Free"
 RESET_TEXT = "Back to tau_0"
-TAU_NOTE_TEXT = ("tau is how close (in nm) two clusters of adjacent rings must sit to count as eclipsed. tau_0 is a "
-                 "pilot-derived suggestion: measured on one exploratory axon of unpublished pilot data and frozen "
-                 "before the column tests were run on other axons; any other value is exploratory.")
+TAU_NOTE_TEXT = ("tau is how close (in nm) two clusters of adjacent rings must sit to count as eclipsed. tau_0 = 31 nm "
+                 "is derived, not measured on any data: 2.77 times the centre error of a typical cluster (11.3 nm), "
+                 "so that 95 % of true coincidences fall within it; any other value is exploratory.")
 UNAVAILABLE_NOTE = "The tolerance control is off here ({reason}): the column tests run at the pre-specified tau_0."
 
 
@@ -186,10 +186,11 @@ TAU_UI_TOOLTIPS: Dict[str, str] = {
         "The tolerance tau of the column tests of THIS window: the arc test on the centroid membrane (primary), the "
         "2D test (sensitivity) and the arc test on the localization membrane (diagnostic) all run at the value chosen "
         "here.\n\n"
-        "tau_0 is the pre-specified value, a pilot-derived suggestion: it was measured on the cluster sizes and "
-        "position errors of one exploratory axon of unpublished pilot data and frozen before the column tests were "
-        "run on other axons (not before any data were seen). The other entries are the 2D test's "
-        "pre-specified sensitivity values: chosen here they are exploratory, like a free value. Every result, log "
+        "tau_0 is the pre-specified value, 31 nm, derived and not measured on any data: 1.96 x sqrt(2) times the "
+        "per-axis centre error of a typical cluster (11.3 nm: three antibodies on a 25 nm footprint, 10 nm linkage, "
+        "10 nm precision; own simulation, docs/eclipse_tolerance.md). The other entries are the pre-specified "
+        "sensitivity values (62 nm = 2 tau_0, and 100 nm): chosen here they are exploratory, like a free value. "
+        "Every result, log "
         "row and export computed at another value than tau_0 says EXPLORATORY.\n\n"
         "The batch runner and the simulated null always use tau_0, and the parameters file is never written from "
         "here.",

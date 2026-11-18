@@ -392,9 +392,9 @@ MIN_BOOTSTRAP_DRAWS = 2
 # skips it (a '#' line is a comment to the YAML reader as well).
 COLUMNS_PARAMS_HEADER: Tuple[str, ...] = (
     "# Pre-specified parameters of the column analysis (MPS Explorer, H2).",
-    "# tau0_nm is the median pair tolerance measured once on one exploratory axon",
-    "# of unpublished pilot data (D-03, D-05): a pilot-derived suggestion, frozen",
-    "# here, not fixed before any data were seen; the other keys are what build_rings and the",
+    "# tau0_nm here is the median pair tolerance measured by tau_components on the data",
+    "# its provenance names (D-03, D-05; the inherited recipe, not the derived default of",
+    "# config/columns_params.yaml, P-R61); the other keys are what build_rings and the",
     "# H3+ steps must run with so that both agree (rings_params_from).",
     "# Written by tools.mps_columns.write_columns_params; read it back with",
     "# load_columns_params, which rejects unknown keys. Frozen once committed.",
@@ -1599,6 +1599,8 @@ def build_rings(
     pixel_size_source: str = "unknown",
     n_frames: Optional[int] = None,
     roi: Optional[ROIShape] = None,
+    cluster_method: Optional[str] = None,
+    cluster_params: Optional[Mapping[str, Any]] = None,
 ) -> RingsResult:
     """
     The rings of one axon in its own frame, with events, precisions and
@@ -1648,6 +1650,13 @@ def build_rings(
         drawn in the laboratory frame is displaced by about z' * sin(beta)
         laterally, a few nm at the tilts seen so far, and a warning
         records the tilt when both are in play.
+    cluster_method, cluster_params : optional
+        P-R61 / multi-method comparison: the clustering of every ring with
+        another method of ``tools.clustering_strategies`` (forwarded to
+        ``analyze_axon``); the clusters are then that method's labels, and
+        everything downstream (events, centre errors, the arc test) reads
+        them the same way. None (the default): DBSCAN with
+        ``params.eps_nm`` / ``params.min_samples``, exactly as before.
 
     Returns
     -------
@@ -1780,6 +1789,8 @@ def build_rings(
     # The ROI (H2) is forwarded only when given, so the H1 call is the
     # same call: analyze_all_segments reads the key for its description.
     roi_kwargs: Dict[str, Any] = {} if roi is None else {"roi": roi}
+    if cluster_method is not None:
+        roi_kwargs.update(cluster_method=str(cluster_method), cluster_params=dict(cluster_params or {}))
     ms = analyze_all_segments(
         x_p[used], y_p[used], z_p[used],
         source_name=source_name,

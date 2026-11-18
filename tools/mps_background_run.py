@@ -43,7 +43,7 @@ from typing import Any, Callable, ContextManager, List, Optional, Sequence, Set,
 
 from PyQt5 import QtCore, QtWidgets
 
-from tools import mps_cancel
+from tools import mps_cancel, mps_progress
 
 # (context-manager factory that installs a gate, the gate to run in the GUI thread), e.g.
 # (tools.mps_perimeter_cost.asking, tools.perimeter_cost_ui.make_gate(window)).
@@ -111,18 +111,25 @@ class AnalysisWorker(QtCore.QThread):
         self.compute = compute
         self.gates = list(gates)
         self.cancelled = False
+        # F4: where the run is (tools.mps_progress words), read by the GUI thread at each tick (a str: atomic).
+        self.stage = ""
         self.question.connect(self._answer)           # the worker object lives in the GUI thread: queued
 
     def run(self) -> None:
         try:
             with contextlib.ExitStack() as stack:
                 stack.enter_context(mps_cancel.cancellable(lambda: self.cancelled))
+                stack.enter_context(mps_progress.observing(self._observe))
                 for install, gate in self.gates:
                     stack.enter_context(install(_Relay(self, gate)))
                 result = self.compute()
             self.succeeded.emit(result)
         except BaseException as exc:                   # noqa: BLE001 - reported to the GUI thread
             self.failed.emit(exc, traceback.format_exc())
+
+    def _observe(self, where: str, done: Optional[int], total: Optional[int]) -> None:
+        """Worker thread: remember the stage's words (tools.mps_progress); the tick shows them."""
+        self.stage = mps_progress.file_fraction(where, done, total)[1]
 
     def _answer(self, q: "_Question") -> None:
         """GUI thread: ask the real gate, unless the run was cancelled meanwhile."""
@@ -225,7 +232,8 @@ class BackgroundRun(QtCore.QObject):
         if self.cancelled():
             return (f"Cancelling {self.prepared.words}... (elapsed {t}): it stops at its next check; the step "
                     f"running finishes first. Its result will not be used.")
-        return f"Running {self.prepared.words}... (elapsed {t})"
+        stage = "" if self.worker is None else str(self.worker.stage)
+        return f"Running {self.prepared.words}... (elapsed {t})" + (f": {stage}" if stage else "")
 
     # -- the worker's signals (GUI thread) -------------------------------------------
     def _on_tick(self) -> None:
@@ -287,6 +295,20 @@ class RunProgress(QtWidgets.QFrame):
         self.label.setText(text)
         self.btn_cancel.setEnabled(not cancelling)
         self.setVisible(True)
+
+
+def controls_except(root: QtWidgets.QWidget, keep: Sequence[QtWidgets.QWidget]) -> List[QtWidgets.QWidget]:
+    """The widgets to disable so that everything under ``root`` is disabled except ``keep`` (F4: the clustering
+    method's collapse controls stay usable during a run): ``root`` itself when it holds none of them, else its
+    children, recursively. A disabled parent disables its children whatever they say, hence the walk."""
+    if not any(root is k or root.isAncestorOf(k) for k in keep):
+        return [root]
+    if any(root is k for k in keep):
+        return []
+    out: List[QtWidgets.QWidget] = []
+    for child in root.findChildren(QtWidgets.QWidget, options=QtCore.Qt.FindChildOption.FindDirectChildrenOnly):
+        out.extend(controls_except(child, keep))
+    return out
 
 
 def disabled_while(widgets: Sequence[QtWidgets.QWidget]) -> Callable[[], None]:

@@ -376,20 +376,23 @@ def main() -> int:
         assert w.curve_note.isVisible() and w.curve_note.text() == mtui.CURVE_NOTE_TEXT
         assert w.curve_p_label.text() == mtui.CURVE_NO_RUN_TEXT, w.curve_p_label.text()
         # the presets follow the parameters file (never typed in): a modified copy offers other ones
-        other = dataclasses.replace(cp, tau_sensitivity_nm=[presets[0] + 15.0, TAU0, presets[-1] + 20.0])
+        # a tau_0 that is not a whole nm (the derived 31 nm is one), so that 'Free' (which starts at the current tau
+        # rounded) is another tau
+        T2 = TAU0 + 0.4
+        other = dataclasses.replace(cp, tau0_nm=T2, tau_sensitivity_nm=[presets[0] + 15.0, T2, presets[-1] + 20.0])
         c2 = mtui.TauControl(other)
         items2 = [c2.tau_combo.itemText(i) for i in range(c2.tau_combo.count())]
-        assert items2 == [mtui.tau0_item_text(TAU0), mtui.preset_item_text(presets[0] + 15.0),
+        assert items2 == [mtui.tau0_item_text(T2), mtui.preset_item_text(presets[0] + 15.0),
                           mtui.preset_item_text(presets[-1] + 20.0), mtui.FREE_TEXT], items2
         seen: List[float] = []
         c2.changed.connect(seen.append)
         c2.tau_combo.setCurrentIndex(c2.tau_combo.count() - 1)          # Free: the current tau, rounded
-        assert seen == [float(round(TAU0))] and c2.tau_spin.isEnabled() and not c2.tau_spin.isHidden(), seen
-        assert not c2.tau_badge.isHidden() and c2.tau_spin.value() == int(round(TAU0))
-        c2.tau_spin.setValue(int(round(TAU0)))                          # the same value: no signal
-        assert seen == [float(round(TAU0))]
+        assert seen == [float(round(T2))] and c2.tau_spin.isEnabled() and not c2.tau_spin.isHidden(), seen
+        assert not c2.tau_badge.isHidden() and c2.tau_spin.value() == int(round(T2))
+        c2.tau_spin.setValue(int(round(T2)))                          # the same value: no signal
+        assert seen == [float(round(T2))]
         c2.reset()
-        assert seen[-1] == TAU0 and c2.is_tau0() and c2.tau_badge.isHidden() and not c2.tau_spin.isEnabled()
+        assert seen[-1] == T2 and c2.is_tau0() and c2.tau_badge.isHidden() and not c2.tau_spin.isEnabled()
         assert c2.tau_spin.isHidden()
         c3 = mtui.TauControl(None, unavailable="test")
         assert c3.value() is None and not c3.tau_combo.isEnabled() and "test" in c3.tau_note.text()

@@ -9,14 +9,14 @@ what background.
 from __future__ import annotations
 
 import os
-from typing import AbstractSet, Optional, Sequence, Union
+from typing import AbstractSet, Dict, Optional, Sequence, Union
 
 from PyQt5 import QtWidgets
 
 from tools.mps_plot_style import verdict
 from tools.figure_export import (
     COLUMN_WIDTHS_MM, DEFAULT_DPI, DEFAULT_WIDTH_MM, DPI_CHOICES,
-    KNOWN_EXTENSIONS, FigureRequest, pixels_for,
+    KNOWN_EXTENSIONS, TITLE_LINE_JOIN, FigureRequest, free_path, pixels_for,
 )
 
 # Read on the application's white: the darker of the two dim greys.
@@ -41,11 +41,20 @@ class ExportFigureDialog(QtWidgets.QDialog):
 
     def __init__(self, plots: Sequence[str], suggested: str,
                  parent: Optional[QtWidgets.QWidget] = None,
-                 offer_white: WhiteOffer = True):
+                 offer_white: WhiteOffer = True,
+                 titles: Optional[Dict[str, str]] = None,
+                 legend: WhiteOffer = False):
         super().__init__(parent)
         self.setWindowTitle("Export image")
+        # F6: the proposed file never overwrites one (a _2, _3... is added); a path chosen with Browse..., where
+        # the system asked to confirm an overwrite, is kept as it is.
+        suggested = free_path(suggested)
         self._suggested = suggested
         self._offer_white = offer_white
+        self._titles = dict(titles or {})
+        self._legend = legend
+        self._confirmed = ""
+        self._title_typed = False
 
         layout = QtWidgets.QVBoxLayout(self)
         intro = QtWidgets.QLabel(
@@ -86,7 +95,23 @@ class ExportFigureDialog(QtWidgets.QDialog):
             "widefield image. Below 300 no journal takes it.")
         self.combo_dpi.currentIndexChanged.connect(self._refresh)
         form.addRow("Resolution:", self.combo_dpi)
+        # F6: an editable title (the plot's own, its lines joined by " | "), and the legend of the rows drawn
+        self.edit_title = QtWidgets.QLineEdit(self._titles.get(self.combo_plot.currentText(), ""))
+        self.edit_title.setObjectName("edit_figure_title")
+        self.edit_title.setToolTip("The figure's title, as the plot shows it; edit it for the paper. Lines are "
+                                   f"separated by '{TITLE_LINE_JOIN.strip()}'. Empty: no title. The window keeps "
+                                   "its own title.")
+        self.edit_title.textEdited.connect(self._on_title_typed)
+        form.addRow("Title:", self.edit_title)
         layout.addLayout(form)
+        self.chk_legend = QtWidgets.QCheckBox("Legend of the rows drawn")
+        self.chk_legend.setObjectName("chk_figure_legend")
+        self.chk_legend.setChecked(True)
+        self.chk_legend.setToolTip("Put a legend in the figure: every row ticked in the plot's layer panel (the "
+                                   "methods on the map, the localizations, the contour...) with its mark and line, "
+                                   "as drawn. The panel itself is not in the figure.")
+        self.chk_legend.setVisible(offers_white(legend, self.combo_plot.currentText()))
+        layout.addWidget(self.chk_legend)
 
         self.chk_white = QtWidgets.QCheckBox(
             "Draw it on white, for print")
@@ -117,25 +142,38 @@ class ExportFigureDialog(QtWidgets.QDialog):
     # -- state -----------------------------------------------------------
 
     def request(self) -> FigureRequest:
+        path = self.edit_path.text().strip()
+        if path and os.path.normcase(os.path.abspath(path)) != self._confirmed:
+            path = free_path(path)                     # F6: never over a file the user did not confirm
+        plot = self.combo_plot.currentText()
         return FigureRequest(
-            plot=self.combo_plot.currentText(),
-            path=self.edit_path.text().strip(),
+            plot=plot,
+            path=path,
             width_mm=float(self.combo_width.currentData()),
             dpi=int(self.combo_dpi.currentData()),
             white=(self.chk_white.isChecked()
-                   and offers_white(self._offer_white,
-                                    self.combo_plot.currentText())))
+                   and offers_white(self._offer_white, plot)),
+            title=(self.edit_title.text() if (self._title_typed or plot in self._titles) else None),
+            legend=bool(self.chk_legend.isChecked() and offers_white(self._legend, plot)))
+
+    def _on_title_typed(self, _text: str) -> None:
+        self._title_typed = True
 
     def _browse(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Export image", self.edit_path.text(),
             "PNG image (*.png);;SVG drawing (*.svg)")
         if path:
+            # the system's dialog asked before choosing an existing file: that one may be overwritten
+            self._confirmed = os.path.normcase(os.path.abspath(path))
             self.edit_path.setText(path)
 
     def _plot_changed(self) -> None:
         self.chk_white.setVisible(
             offers_white(self._offer_white, self.combo_plot.currentText()))
+        self.chk_legend.setVisible(offers_white(self._legend, self.combo_plot.currentText()))
+        if not self._title_typed:
+            self.edit_title.setText(self._titles.get(self.combo_plot.currentText(), ""))
         # The proposed name follows the plot chosen, unless the user has
         # typed a path of their own.
         current = self.edit_path.text().strip()
@@ -144,7 +182,7 @@ class ExportFigureDialog(QtWidgets.QDialog):
             safe = "".join(c if c.isalnum() else "_"
                            for c in self.combo_plot.currentText())
             stem = base.rsplit("_", 1)[0] if "_" in base else base
-            self._suggested = f"{stem}_{safe.strip('_').lower()}{ext}"
+            self._suggested = free_path(f"{stem}_{safe.strip('_').lower()}{ext}")
             self.edit_path.setText(self._suggested)
         self._refresh()
 
@@ -161,6 +199,9 @@ class ExportFigureDialog(QtWidgets.QDialog):
             extra = ""
             if request.path and os.path.splitext(request.path)[1].lower() not in KNOWN_EXTENSIONS:
                 extra = " The name has no .png or .svg: '.png' is added."
+            if request.path and request.path != self.edit_path.text().strip():
+                extra += (f" That file exists: it is written as {os.path.basename(request.path)} (nothing is "
+                          f"overwritten).")
             self.label_size.setText(
                 f"{pixels} pixels wide, from {request.width_mm:.0f} mm at "
                 f"{request.dpi} dpi.{extra}")
@@ -170,11 +211,15 @@ class ExportFigureDialog(QtWidgets.QDialog):
 
 def ask(plots: Sequence[str], suggested: str,
         parent: Optional[QtWidgets.QWidget] = None,
-        offer_white: WhiteOffer = True) -> Optional[FigureRequest]:
+        offer_white: WhiteOffer = True,
+        titles: Optional[Dict[str, str]] = None,
+        legend: WhiteOffer = False) -> Optional[FigureRequest]:
     """Show the dialog; None when the user cancels. ``offer_white``: True,
-    False, or the set of plot names a white redraw is offered for."""
+    False, or the set of plot names a white redraw is offered for. F6:
+    ``titles`` the plots' titles to edit, ``legend`` the plots a legend of
+    the rows drawn is offered for (as ``offer_white``)."""
     dialog = ExportFigureDialog(plots, suggested, parent=parent,
-                                offer_white=offer_white)
+                                offer_white=offer_white, titles=titles, legend=legend)
     if dialog.exec_() != QtWidgets.QDialog.Accepted:
         return None
     return dialog.request()

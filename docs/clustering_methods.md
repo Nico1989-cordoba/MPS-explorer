@@ -528,6 +528,106 @@ make B the method in use first).
 `B` runs as every comparison does (same slab, ROI and contour; randomization off; the clusters cut by the pick kept,
 see above), so its outline set is the one its table row describes.
 
+### Every method on the map
+
+The overlay above draws one other method, and only through its button. Since 2026-10-22 every method that ran in
+'Compare methods...' stays on the map when the dialog is closed (with **Close**, or with **Overlay on the map**; not
+with **Use this method**, which re-runs the analysis): a group **Methods on the map** at the top of the layers has
+one row per method, the analysis shown first, each with its own colour AND line pattern, so that any of them can be
+ticked or unticked and two or more seen together or apart (`tools.method_overlay.MethodLayers`):
+
+| slot | line | colour |
+|---|---|---|
+| 1 (the analysis shown) | thin solid | sky blue |
+| 2 | dotted | reddish purple |
+| 3 | dashed | orange |
+| 4 | dash-dot | bluish green |
+| 5 | dash-dot-dot | vermillion |
+| 6 | thin dashed | grey |
+| 7 | thick dashed | sky blue |
+| 8 | thick dash-dot | orange |
+
+Eight slots (a ninth method takes slot 1's style again; the row's label names its line). The map already uses
+every chromatic Okabe-Ito colour, so colour alone cannot tell eight methods apart under colour-vision deficiency:
+two slots whose colours come within 25 CIELAB units under a simulated deuteranopia, protanopia or tritanopia
+differ in line pattern or width (checked by `validate_plot_colours.py`, "every compared method's outlines differ
+by colour or line"). The first three rows start ticked [ad hoc: three loops per cluster are still readable].
+
+The caption counts each method against one reference with the rules of the table above: DBSCAN when it ran (the
+published pipeline, Gazal et al. 2026), else the analysis shown. A compared voronoi_factor or voronoi_csr also
+brings its own **Voronoi cells** group (the same layer as above, rebuilt from that run's own fit), even when the
+analysis shown is another method. **Method diagnostics...** under the rows opens one tab per method with its own
+diagnostic plot where it costs no new clustering or one cheap fit (`tools/method_diagnostics.py`): the k-distance
+graph of DBSCAN with eps [Ester et al. 1996], the histogram of the Voronoi cells' log density with the threshold
+applied [Levet et al. 2015], the persistence diagram of ToMATo with the line birth - death = tau [Chazal et al.
+2013; Pike et al. 2020]. Not offered, and why: OPTICS (its reachability plot needs the slow method to run again),
+both HDBSCAN (the condensed tree is not kept, and scikit-learn's does not expose one), FOCAL (no standard plot),
+GraphCommunity (a stand-in for StormGraph), External labels (labels from outside), Emitters (its own map layer and
+the xi checks are its diagnostics). Each plot exports as a figure. Display only, as the overlay: nothing of the
+analysis shown changes, and a re-run drops the rows (**Clear the methods** removes them).
+
+## 9. Comparing analyses across methods
+
+The question the user asked for (plan of 2026-10-22) is not "which method is right" but **"would the conclusion
+change if another method had made the clusters?"**. `tools/multimethod.py` answers it for every analysis of an axon,
+not only for the four numbers of 'Compare methods...'. It is a computing module (no window); the interface uses it.
+
+**What runs.** Each method chosen runs the whole per-axon analysis on the **same localizations**: the same axial
+slab, ROI, edge-curation settings (DBCV threshold; the compatibility eps as the floor of a method's edge margin, as
+in section 8), pick-boundary rule, occupancy settings and contour construction (2-opt from every start, same contour
+guide). Only the clustering changes, so every difference in the table is the method's. A run whose slab differs from
+the reference's is refused as an error: the comparison is meaningless on other localizations. The randomization
+control is off unless asked for [ad hoc: speed, as in section 8]. A method that fails gives a row with its error; the
+others still run. Slow methods (`tools.cluster_method_ui.is_slow`: Emitters, OPTICS, voronoi_csr) are refused
+unless the user allows them, and the estimated time is shown before anything runs (rough per-method constants
+measured on a synthetic ring, a lower bound with many localizations). Cancel stops before the next method, or inside
+the running one at its next check (`tools/mps_cancel.py`).
+
+**The reference is always there.** DBSCAN eps 25 nm / min samples 10, the published pipeline (Gazal et al. 2026), is
+run first in every comparison, whether or not it was ticked, under the name `DBSCAN 25/10`. Two reasons: every
+published number this program reproduces comes from it, so it is the only method whose readouts can be set beside the
+literature; and a difference between two experimental methods says nothing about the published conclusion unless
+one can also see where each stands against the reference. A DBSCAN with other parameters is a separate run with its
+parameters in its name.
+
+**What is compared.** Three tables, all one row per axon and something:
+
+| table | one row per | what it says |
+|---|---|---|
+| long | axon × method × readout | every readout of every analysis (the four of 'Compare methods...' - K/µm, median 1NN, median r_eff, occupancy - plus clusters kept, the regularity index, and whatever the later analyses add: pipeline null, gap measures, eclipse tolerance, apparent size); the wide view puts one method per row and one readout per column |
+| agreement | axon × pair of methods | how the two partitions correspond: adjusted Rand index (Hubert & Arabie 1985) on the localizations both put in a cluster, and the one-to-one / split / merged / unmatched counts of section 8's overlay (the synthetic benchmark's majority rules; thresholds 80 / 20 / 50 %, ad hoc). The reference is method A of every pair it is in |
+| summary | axon × readout | the smallest and largest value over the methods and which methods give them, the range, and the range relative to the reference's value; for a p-value or a verdict, each method's verdict and whether it agrees with the reference's |
+
+**How to read disagreement.**
+
+* A **number** (K/µm, a median distance, a size) always differs between methods: each method draws the cluster
+  boundary somewhere else, and that is what a method is. Its spread is reported, not judged: `large_spread` flags a
+  range above 10 % of the reference's value [ad hoc: a flag for the eye; no measurement error of these readouts
+  across methods is known yet]. `depends_on_method` says "spread only" for numbers.
+* A **p-value or a verdict** is a conclusion. Each method's p gives "reject" at p ≤ α (0.05 by default [ad hoc:
+  conventional level]; each readout declares its own) or "no evidence". `depends_on_method` is **yes** when at least
+  one method's verdict differs from the reference's, **no** when the reference and at least one other method have a
+  verdict and all agree, **undetermined** otherwise (the reference has none, or no other method does). A "yes" is
+  the finding to report: the conclusion is not robust to the choice of clustering for that axon. A "no" with only
+  methods of the same family (DBSCAN with two eps, say) is weaker than a "no" across families.
+* A low **ARI** with similar readouts means the methods draw different clusters that happen to give the same summary
+  number; a high ARI with different readouts means the curation or the contour amplified a small difference. Read
+  the agreement table before trusting the summary.
+* Over many axons, the summary over axons counts on how many the verdict depends on the method. Pooling verdicts
+  over axons is not a test; the batch statistics (by animal) remain the tests.
+
+**For developers: adding an analysis.** An analysis is a plug-in, `register_analysis(name, fn, readouts)`, where
+`fn(run, context)` is a pure function of one method's result and returns its readouts; a null re-clusters with
+`context.rerun(...)` (same method, same parameters, same curation), draws `context.n_replicates` replicates (199 by
+default, the user's decision of 2026-10-22, 999 on demand; with 199, α(B + 1) is an integer at α = 0.05, Davison &
+Hinkley 1997) and refuses slow methods unless the user allowed them. The contract (readout naming, how a p-value or a verdict declares itself, randomness, cancellation) is the
+module docstring of `tools/multimethod.py`.
+
+**Files.** The long table is written as CSV (comma, decimal point, UTF-8, like every table of the program; the
+"for Excel" copy of `tools.results_table.excel_copy` applies), and a file is never overwritten: when the name is
+taken the next free `name_2.csv`, `name_3.csv`, ... is used. Every column is described in
+`tools.multimethod.MULTIMETHOD_COLUMNS`.
+
 ## References
 
 - Aaron J, Chew T-L (2021). A guide to accurate reporting in digital image processing - can anyone reproduce your
@@ -562,6 +662,7 @@ see above), so its outline set is the one its table row describes.
   doi:10.1145/2733381
 - Chazal F, Guibas LJ, Oudot SY, Skraba P (2013). Persistence-Based Clustering in Riemannian Manifolds. *Journal of
   the ACM* 60(6), Article 41, 1-38. doi:10.1145/2535927
+- Davison AC, Hinkley DV (1997). *Bootstrap Methods and their Application.* Cambridge University Press.
 - Dempsey GT, Vaughan JC, Chen KH, Bates M, Zhuang X (2011). Evaluation of fluorophores for optimal performance in
   localization-based super-resolution imaging. *Nature Methods* 8(12):1027-1036. doi:10.1038/nmeth.1768
 - Diggle PJ (2013). *Statistical Analysis of Spatial and Spatio-Temporal Point Patterns*. Chapman and Hall/CRC.

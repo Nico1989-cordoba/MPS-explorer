@@ -262,6 +262,7 @@ class LayerPanel(QtWidgets.QWidget):
         self._rows.setContentsMargins(0, 0, 0, 0)
         self._rows.setSpacing(2)
         self.scroll_area: Optional[QtWidgets.QScrollArea] = None
+        self._inner_layout: Optional[QtWidgets.QVBoxLayout] = None
         if scroll:
             inner = QtWidgets.QWidget()
             inner.setObjectName("layers_inner")
@@ -269,6 +270,7 @@ class LayerPanel(QtWidgets.QWidget):
             inner_layout.setContentsMargins(0, 0, 0, 0)
             inner_layout.setSpacing(2)
             inner_layout.addLayout(self._rows)
+            self._inner_layout = inner_layout
             inner_layout.addStretch(1)
             area = QtWidgets.QScrollArea()
             area.setObjectName("layers_scroll")
@@ -447,6 +449,14 @@ class LayerPanel(QtWidgets.QWidget):
             self._layers[target].extras.append(holder)
         else:
             self._groups.append(holder)
+
+    def set_preamble(self, widget: QtWidgets.QWidget) -> None:
+        """A widget above the groups, inside the scroll area (scrolls with the rows; never removed by
+        ``clear_layers``). Without a scroll area it goes above the rows."""
+        if self._inner_layout is not None:
+            self._inner_layout.insertWidget(0, widget)
+        else:
+            self._rows.insertWidget(0, widget)
 
     def bind(self, key: str, items: Iterable[Any]) -> None:
         """The items of a new drawing for ``key``: the row's state applies to them at once."""

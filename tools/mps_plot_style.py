@@ -203,6 +203,14 @@ ROLES: Dict[str, str] = {
     # localizations, which tells them from the pick's cased dashed edge and
     # hexagons (validate_plot_colours.py).
     "method_b": OKABE_ITO["reddish_purple"],
+    # --- every method of a comparison on the map (F5, 2026-10-22; tools/method_overlay.MethodLayers)
+    # Up to eight methods at once cannot each have a hue of their own on a map that already uses every chromatic
+    # Okabe-Ito colour: each method's outlines differ from the others by colour AND line pattern (solid, dotted,
+    # dashed, dash-dot, dash-dot-dot), and every one is a thin loop around a group of localizations, which no other
+    # mark of the map is (validate_plot_colours.py: "the axon map with every method's outlines").
+    "method_c": OKABE_ITO["orange"],
+    "method_d": OKABE_ITO["bluish_green"],
+    "method_e": OKABE_ITO["vermillion"],
 }
 
 # What a finding of each kind is prefixed with. Colour says it twice; the

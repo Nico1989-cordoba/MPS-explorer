@@ -38,7 +38,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 __all__ = ["Correspondence", "MethodOverlay", "kept_labels", "cluster_hulls", "correspondence", "build_overlay",
-           "joined_outlines"]
+           "joined_outlines", "MethodRun", "MethodLayers", "build_method_layers", "reference_of", "METHOD_SLOTS"]
 
 
 @dataclass
@@ -171,3 +171,96 @@ def build_overlay(base: Any, other: Any, method_b: str) -> MethodOverlay:
     ov.hulls_b, _ = cluster_hulls(xb, yb, lb)
     ov.summary = correspondence(la, lb)
     return ov
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# F5 (the user's request of 2026-10-22): every method of a comparison on the map at once, each a row to tick
+# ---------------------------------------------------------------------------------------------------------------------
+# "I tried to see the two together and could not": the overlay above draws ONE other method, and only through the
+# 'Overlay on the map' button. MethodLayers keeps every method 'Compare methods...' ran on this analysis' slab, plus the
+# analysis shown, each with its own outline style (tools.mps_axon_map_layers, keys meth<slot>_<name>), so any of them
+# can be ticked or unticked; the correspondence of each with one reference is counted by the same rules as above.
+
+# How many distinct outline styles there are (colour x line pattern; tools.mps_axon_map_layers.METHOD_SLOT_STYLES).
+METHOD_SLOTS = 8
+# The reference the others are counted against: DBSCAN when it is among them [the published pipeline, Gazal et al.
+# 2026], else the analysis shown.
+REFERENCE_METHOD = "DBSCAN"
+
+
+@dataclass
+class MethodRun:
+    """One method on the map: its analysis, its outlines and how it corresponds to the reference."""
+    method: str
+    analysis: Any
+    slot: int
+    hulls: List[NDArray[np.float64]] = field(default_factory=list)
+    n_without_hull: int = 0
+    summary: Optional[Correspondence] = None      # against the reference; None for the reference itself
+    note: str = ""                                 # why it is not drawn, when it is not
+
+    @property
+    def key(self) -> str:
+        """The map row's key: ASCII, stable for a method in its slot."""
+        return f"meth{self.slot}_" + "".join(c if c.isalnum() else "_" for c in self.method)
+
+    @property
+    def is_shown(self) -> bool:
+        return self.slot == 0
+
+
+@dataclass
+class MethodLayers:
+    """Every method on the map for the analysis ``base`` (the analysis shown is slot 0); belongs to ``base`` only."""
+    base: Any
+    runs: List[MethodRun] = field(default_factory=list)
+    reference: str = ""
+
+    def run(self, method: str) -> Optional[MethodRun]:
+        return next((r for r in self.runs if r.method == method), None)
+
+    def drawn(self) -> List[MethodRun]:
+        return [r for r in self.runs if not r.note]
+
+
+def reference_of(methods: List[str], shown: str) -> str:
+    """REFERENCE_METHOD when it is among ``methods``, else the method of the analysis shown."""
+    return REFERENCE_METHOD if REFERENCE_METHOD in methods else shown
+
+
+def build_method_layers(base: Any, analyses: Any, reference: Optional[str] = None) -> MethodLayers:
+    """The layers of ``base`` (the analysis shown) and of each run in ``analyses`` ({method: AxonAnalysis} from
+    'Compare methods...', on the same slab). The method shown is drawn from ``base`` itself (its own clusters, the
+    ones the table measures), whatever the comparison's run of it gave. A run of other localizations is kept with a
+    note and not drawn. ``reference``: the method the others are counted against (``reference_of`` by default)."""
+    shown = str(getattr(base, "cluster_method", "DBSCAN"))
+    ordered: List[Tuple[str, Any]] = [(shown, base)]
+    for name, an in dict(analyses or {}).items():
+        if str(name) != shown and an is not None:
+            ordered.append((str(name), an))
+    ml = MethodLayers(base=base)
+    ml.reference = reference if reference in [m for m, _a in ordered] else reference_of(
+        [m for m, _a in ordered], shown)
+    xa = np.asarray(getattr(base, "x_slab", np.zeros(0)), dtype=np.float64)
+    ya = np.asarray(getattr(base, "y_slab", np.zeros(0)), dtype=np.float64)
+    labels: dict = {}
+    for i, (name, an) in enumerate(ordered):
+        run = MethodRun(method=name, analysis=an, slot=i)           # its style: slot % METHOD_SLOTS
+        ml.runs.append(run)
+        if getattr(an, "labels", None) is None or getattr(an, "x_slab", None) is None:
+            run.note = f"the {name} run has no clusters to draw"
+            continue
+        xb = np.asarray(an.x_slab, dtype=np.float64)
+        yb = np.asarray(an.y_slab, dtype=np.float64)
+        if xb.shape != xa.shape or not (np.array_equal(xa, xb) and np.array_equal(ya, yb)):
+            run.note = "not run on the same localizations as the analysis shown"
+            continue
+        lab = kept_labels(an)
+        labels[name] = lab
+        run.hulls, run.n_without_hull = cluster_hulls(xb, yb, lab)
+    ref = labels.get(ml.reference)
+    for run in ml.runs:
+        if run.note or run.method == ml.reference or ref is None:
+            continue
+        run.summary = correspondence(ref, labels[run.method])
+    return ml

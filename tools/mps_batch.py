@@ -441,9 +441,77 @@ def _precisions(loc: Any, method: str) -> Optional[Any]:
     return np.column_stack([np.asarray(lpx, dtype=float), np.asarray(lpy, dtype=float)])
 
 
+def _load(item: BatchFile) -> Tuple[Any, Optional[str]]:
+    """The file's localizations, or None and why it could not be read (never raises)."""
+    from tools import mps_io
+
+    name = os.path.basename(item.path)
+    if item.unreadable:
+        return None, item.unreadable
+    if item.needs_pixel_size and item.pixel_size_nm is None:
+        return None, (f"{name} carries no pixel size and none was given, so it "
+                      f"was not read")
+    try:
+        loc = mps_io.load_localizations(
+            item.path,
+            pixel_size_nm=(item.pixel_size_nm if item.needs_pixel_size
+                           else None))
+        if item.needs_pixel_size:
+            loc.pixel_size_source = item.pixel_size_source or "manual"
+    except Exception as error:                        # noqa: BLE001
+        return None, f"could not be read: {error}"
+    return loc, None
+
+
+def _analyze_loaded(loc: Any, item: BatchFile, settings: BatchSettings) -> Any:
+    """``analyze_axon`` on a loaded file with the batch's settings (raises on failure)."""
+    from tools.mps_analysis import analyze_axon
+
+    extra: Dict[str, Any] = {}
+    sigma = _precisions(loc, settings.cluster_method)
+    if sigma is not None:
+        extra["localization_sigma_nm"] = sigma
+    if getattr(loc, "frame", None) is not None:
+        # The Emitters layer links them into events; the event layer, the eclipse tolerance and the size's content
+        # count events with them (the clustering integration), for every method.
+        extra["localization_frame"] = loc.frame
+    return analyze_axon(
+        loc.x_nm, loc.y_nm, loc.z_nm, source_name=item.path, **extra,
+        pixel_size_nm=loc.pixel_size_nm,
+        pixel_size_source=loc.pixel_size_source,
+        eps_nm=settings.eps_nm, min_samples=settings.min_samples,
+        cluster_method=settings.cluster_method,
+        cluster_params=settings.cluster_params,
+        cluster_methods_compared=settings.cluster_methods_compared,
+        slab_half_width_nm=settings.slab_half_width_nm,
+        dbcv_threshold=settings.dbcv_threshold,
+        mahalanobis_threshold=settings.mahalanobis_threshold,
+        n_randomizations=settings.n_randomizations,
+        random_seed=settings.random_seed,
+        randomization_params=settings.randomization_params,
+        sigma_cap_fraction=settings.sigma_cap_fraction)
+
+
+def _file_nena(loc: Any) -> Tuple[Optional[float], str]:
+    """The file's NeNA (tools.mps_cut_clusters.nena_from_localizations) and where it came from, or (None, why)."""
+    from tools.mps_cut_clusters import nena_from_localizations
+    try:
+        src = nena_from_localizations(loc, "this file")
+    except Exception as error:                        # noqa: BLE001 - a NeNA that fails leaves its columns empty
+        return None, f"NeNA failed: {error}"
+    return (src.nena_nm, src.words) if src.measured else (None, src.reason)
+
+
+# The per-axon null in the batch (A9 sec. 5, regularity PR 4): off unless the batch window's box is ticked; a slow
+# method's null is refused unless 'Slow methods' is ticked too (open question A2); the regularity's stage 2 at the
+# pipeline level (P-R87 c).
+NULL_REFUSED_SLOW = "null not run: {label} is slow; tick 'Slow methods (Emitters)' to run its null too"
+
+
 def analyse_file(item: BatchFile, settings: BatchSettings,
                  z_store: Optional[Dict[str, Any]] = None,
-                 allow_slow: bool = False) -> AxonRecord:
+                 allow_slow: bool = False, null_replicates: int = 0,
+                 null_seed: int = 0) -> AxonRecord:
     """
     Load one file, analyse it as the axon window would, and build its row.
 
@@ -454,63 +522,47 @@ def analyse_file(item: BatchFile, settings: BatchSettings,
     (``MPSSettings.z_calibration_by_folder``): the row carries the file's
     z calibration as the axon window's export does (read, never applied).
 
+    ``null_replicates`` > 0 also runs the per-axon pipeline null of the
+    file's own method with that many replicates (and the regularity
+    reading, stage 2 at the pipeline level); a slow method's null is
+    refused without ``allow_slow``. The row's v13 block carries the file's
+    NeNA, the DBSCAN rule and the null (tools.clustering_integration).
+
     Never raises: a file that cannot be read or analysed comes back with
     the reason, so a batch reports it instead of losing it.
     """
-    from tools import mps_io
     from tools.axon_export import axon_row
-    from tools.mps_analysis import analyze_axon
 
-    name = os.path.basename(item.path)
     if settings.cluster_method in BATCH_SLOW_METHODS and not allow_slow:
         return AxonRecord(source=item.path, identity=item.identity, error=SLOW_REFUSAL)
-    if item.unreadable:
-        return AxonRecord(source=item.path, identity=item.identity,
-                          error=item.unreadable)
-    if item.needs_pixel_size and item.pixel_size_nm is None:
-        return AxonRecord(
-            source=item.path, identity=item.identity,
-            error=f"{name} carries no pixel size and none was given, so it "
-                  f"was not read")
+    loc, why = _load(item)
+    if loc is None:
+        return AxonRecord(source=item.path, identity=item.identity, error=why)
     try:
-        loc = mps_io.load_localizations(
-            item.path,
-            pixel_size_nm=(item.pixel_size_nm if item.needs_pixel_size
-                           else None))
-        if item.needs_pixel_size:
-            loc.pixel_size_source = item.pixel_size_source or "manual"
-    except Exception as error:                        # noqa: BLE001
-        return AxonRecord(source=item.path, identity=item.identity,
-                          error=f"could not be read: {error}")
-    extra: Dict[str, Any] = {}
-    sigma = _precisions(loc, settings.cluster_method)
-    if sigma is not None:
-        extra["localization_sigma_nm"] = sigma
-    if settings.cluster_method in BATCH_SLOW_METHODS and getattr(loc, "frame", None) is not None:
-        extra["localization_frame"] = loc.frame      # the Emitters layer links them into events
-    try:
-        analysis = analyze_axon(
-            loc.x_nm, loc.y_nm, loc.z_nm, source_name=item.path, **extra,
-            pixel_size_nm=loc.pixel_size_nm,
-            pixel_size_source=loc.pixel_size_source,
-            eps_nm=settings.eps_nm, min_samples=settings.min_samples,
-            cluster_method=settings.cluster_method,
-            cluster_params=settings.cluster_params,
-            cluster_methods_compared=settings.cluster_methods_compared,
-            slab_half_width_nm=settings.slab_half_width_nm,
-            dbcv_threshold=settings.dbcv_threshold,
-            mahalanobis_threshold=settings.mahalanobis_threshold,
-            n_randomizations=settings.n_randomizations,
-            random_seed=settings.random_seed,
-            randomization_params=settings.randomization_params,
-            sigma_cap_fraction=settings.sigma_cap_fraction)
+        analysis = _analyze_loaded(loc, item, settings)
+        from tools import clustering_integration as ci
         from tools import mps_zcalibration as zcal
 
+        nena, nena_words = _file_nena(loc)
+        lpc = ci.locs_per_cycle_of(loc, nena)
+        null = None
+        if int(null_replicates) > 0:
+            run = ci.run_of(analysis, axon_id=item.path)
+            if ci.is_slow(run.method) and not allow_slow:
+                null = ci.NullOutcome(key=run.key, method=run.method, params=dict(run.params), status="refused",
+                                      message=NULL_REFUSED_SLOW.format(label=ci.method_label(run.method)))
+            else:
+                null = ci.run_null_for(run, n_replicates=int(null_replicates), nena_nm=nena, seed=int(null_seed),
+                                       allow_slow=allow_slow, gap_stage2=ci.GAP_STAGE2_BATCH)
+        integration = ci.axon_columns(analysis, nena_nm=nena, nena_source=nena_words, locs_per_cycle=lpc,
+                                      null=null)
+        if null is not None and not null.ok:
+            integration["null_type"] = f"none ({null.status}: {null.message})"
         z_state = zcal.state_for(loc.info, zcal.store_entry(z_store,
                                                             item.path))
         row = axon_row(analysis, identity=item.identity,
                        z_calibration=zcal.export_columns(z_state),
-                       eps_choice=settings.eps_choice)
+                       eps_choice=settings.eps_choice, integration=integration)
     except Exception as error:                        # noqa: BLE001
         return AxonRecord(source=item.path, identity=item.identity,
                           error=f"could not be analysed: {error}")
@@ -525,6 +577,7 @@ def run_batch(
     cancelled: Optional[Callable[[], bool]] = None,
     z_store: Optional[Dict[str, Any]] = None,
     allow_slow: bool = False,
+    null_replicates: int = 0,
 ) -> List[AxonRecord]:
     """
     Analyse ``items`` in order, one record each.
@@ -532,19 +585,136 @@ def run_batch(
     ``on_done(index, record)`` is called after each file, and
     ``cancelled()`` before each: when it returns True the batch stops
     there and returns what it has. A file already started is finished.
+    ``null_replicates`` > 0: the per-axon null of every file too
+    (:func:`analyse_file`).
     """
     records: List[AxonRecord] = []
     for index, item in enumerate(items):
         if cancelled is not None and cancelled():
             break
-        # allow_slow is passed only when given, so the call stays the one of
-        # before F5 for every batch that does not ask for it.
-        record = (analyse_file(item, settings, z_store, allow_slow=True) if allow_slow
-                  else analyse_file(item, settings, z_store))
+        # allow_slow and the null are passed only when given, so the call stays the one of before F5 for every
+        # batch that does not ask for them.
+        kw: Dict[str, Any] = {}
+        if allow_slow:
+            kw["allow_slow"] = True
+        if null_replicates:
+            kw["null_replicates"] = int(null_replicates)
+        record = analyse_file(item, settings, z_store, **kw)
         records.append(record)
         if on_done is not None:
             on_done(index, record)
     return records
+
+
+# ---------------------------------------------------------------------------
+# F1 (manual test of 2026-10-22): the perimeter's time, estimated before a batch
+# ---------------------------------------------------------------------------
+# A file with ~1,100 kept clusters builds its perimeter by 2-opt from every start for about 9 minutes on the fit of
+# tools/mps_perimeter_cost (1.4 x that on a messy contour), and the batch never asks (no one to ask in its worker
+# thread). The batch window now clusters each file first, counts the clusters the perimeter would join, and asks
+# once for the whole batch when any file reaches the warning threshold (the same 60 s [ad hoc] as the axon window).
+
+@dataclass
+class PerimeterEstimate:
+    """What the scan found for one file: the kept clusters, when they reach the warning threshold."""
+
+    source: str
+    # The kept clusters the perimeter would join; None below the threshold (the scan stops at the perimeter and
+    # does not need the number) or when the file could not be clustered.
+    n_clusters: Optional[int] = None
+    error: str = ""
+
+    @property
+    def over(self) -> bool:
+        """The file reaches the warning threshold (tools.mps_perimeter_cost.needs_warning)."""
+        return self.n_clusters is not None
+
+    @property
+    def seconds_every_start(self) -> float:
+        from tools import mps_perimeter_cost as cost
+        return cost.estimate_perimeter_seconds(self.n_clusters or 0)
+
+    @property
+    def seconds_one_start(self) -> float:
+        from tools import mps_perimeter_cost as cost
+        return cost.estimate_one_start_seconds(self.n_clusters or 0)
+
+
+class _BelowThreshold(BaseException):
+    """The scan reached the perimeter without a warning: the file is below the threshold (internal)."""
+
+
+def scan_perimeter_costs(
+    items: Sequence[BatchFile],
+    settings: BatchSettings,
+    *,
+    z_store: Optional[Dict[str, Any]] = None,
+    allow_slow: bool = False,
+    cancelled: Optional[Callable[[], bool]] = None,
+    on_done: Optional[Callable[[int, PerimeterEstimate], None]] = None,
+    observer: Optional[Callable[[str, Optional[int], Optional[int]], None]] = None,
+) -> List[PerimeterEstimate]:
+    """For each file, whether its perimeter would reach the warning threshold, and with how many clusters.
+
+    Each file is read and clustered exactly as ``analyse_file`` does (same settings, same curation), and the
+    analysis is stopped where it would build the perimeter: at the question of ``tools.mps_perimeter_cost`` when
+    the clusters reach the threshold (the number is recorded), or at the check point "before the perimeter"
+    when they do not. So the scan costs one reading and one clustering per file, and nothing it computes is kept.
+    ``cancelled()`` stops the scan at the next check point; the list then holds the files scanned so far.
+    ``observer`` gets the check points (``tools.mps_progress``), for a progress bar.
+    """
+    from tools import mps_cancel, mps_progress
+    from tools import mps_perimeter_cost as cost
+
+    out: List[PerimeterEstimate] = []
+    for index, item in enumerate(items):
+        if cancelled is not None and cancelled():
+            break
+        seen: Dict[str, int] = {}
+        below = [False]
+
+        def gate(n: int) -> str:
+            seen["n"] = int(n)
+            return cost.CANCEL
+
+        def watch(where: str, done: Optional[int], total: Optional[int]) -> None:
+            if observer is not None:
+                observer(where, done, total)
+            if where == "before the perimeter" and "n" not in seen:
+                raise _BelowThreshold()
+
+        estimate = PerimeterEstimate(source=item.path)
+        try:
+            with cost.asking(gate), mps_progress.observing(watch), \
+                    mps_cancel.cancellable(cancelled):
+                if observer is not None:
+                    observer(mps_progress.LOADING, None, None)
+                record = (analyse_file(item, settings, z_store, allow_slow=True) if allow_slow
+                          else analyse_file(item, settings, z_store))
+            if "n" in seen:
+                estimate.n_clusters = seen["n"]
+            elif record.error:
+                estimate.error = record.error
+        except _BelowThreshold:
+            pass
+        except mps_cancel.AnalysisCancelled:
+            break
+        out.append(estimate)
+        if on_done is not None:
+            on_done(index, estimate)
+    return out
+
+
+def perimeter_policy_gate(choice: str) -> Callable[[int], str]:
+    """The gate a batch installs (``tools.mps_perimeter_cost.asking``) once the user chose for the whole batch.
+
+    EVERY_START is what the batch always did (the analysis' note is the same); ONE_START is recorded in each
+    such file's notes and in its contour_2opt column, as in the axon window.
+    """
+    from tools import mps_perimeter_cost as cost
+    if choice not in (cost.EVERY_START, cost.ONE_START):
+        raise ValueError(f"a batch runs with {cost.EVERY_START!r} or {cost.ONE_START!r}, not {choice!r}")
+    return lambda _n: choice
 
 
 # ---------------------------------------------------------------------------
@@ -590,49 +760,124 @@ def compare_methods(
     on_done: Optional[Callable[[int, int], None]] = None,
     allow_slow: bool = False,
     emitters_buffer: Optional[str] = None,
+    analyses: Optional[Sequence[str]] = None,
+    results_out: Optional[List[Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Every file by every method in ``methods``, one row each (D12: only
-    when the batch window's 'Compare methods (slow)' box is ticked).
+    when the batch window's 'Compare methods (slow)' box is ticked), through
+    ``tools.multimethod`` (the clustering integration): each file is loaded
+    once, DBSCAN 25/10 is always run first as the reference, every method
+    runs on the same localizations, and the analyses (``analyses``, the
+    integration's defaults when None) run on every method's result.
 
-    Each method runs with the registry defaults (the saved parameters for
-    the saved method); the file is loaded again per method [ad hoc: simple,
-    and the box is declared slow]. ``on_done(file_index, method_index)``
-    after each run. Never raises: a failed run is a row with ``error``.
-    ``emitters_buffer``: the imaging buffer asked for the run (F5c), put in
-    the parameters of a slow method (Emitters) when they have none.
+    The saved method runs with the saved parameters (DBSCAN with the saved
+    eps / min samples), the others with the registry defaults. Slow methods
+    are refused without ``allow_slow`` (the 'Slow methods' box: open
+    question A2). ``on_done(file_index, method_index)`` after each method.
+    Never raises: a failed run is a row with ``error``. ``emitters_buffer``:
+    the imaging buffer asked for the run (F5c), put in the parameters of a
+    slow method (Emitters) when they have none. ``results_out``: when a list,
+    each file's ``tools.clustering_integration.ComparisonResult`` is
+    appended to it (the long table, the agreement and the summary).
     """
     import dataclasses
-    import time as _time
+    import json as _json
+    from tools import clustering_integration as ci
+    from tools import multimethod as mm
+    from tools.axon_export import axon_id as _axon_id
+    from tools.cluster_quality import describe_roi
     from tools.clustering_strategies import strategy_registry
     rows: List[Dict[str, Any]] = []
     reg = strategy_registry()
-    for i, item in enumerate(items):
-        for j, method in enumerate(methods):
-            if cancelled is not None and cancelled():
-                return rows
+    chosen = list(ci.DEFAULT_ANALYSES if analyses is None else analyses)
+
+    def params_for(method: str) -> Dict[str, Any]:
+        if method == mm.REFERENCE_METHOD:
+            p: Dict[str, Any] = {"eps": float(settings.eps_nm), "min_samples": int(settings.min_samples)}
+        elif method == settings.cluster_method:
+            p = dict(settings.cluster_params)
+        else:
             info = reg.get(method)
-            params = (dict(settings.cluster_params) if method == settings.cluster_method
-                      else {} if info is None else {k: info.defaults[k]["value"] for k in info.numeric_params()})
-            if method in BATCH_SLOW_METHODS and emitters_buffer and not params.get("buffer"):
-                params["buffer"] = str(emitters_buffer)
-            per = dataclasses.replace(settings, cluster_method=method, cluster_params=params,
+            p = {} if info is None else {k: info.defaults[k]["value"] for k in info.numeric_params()}
+        if method in BATCH_SLOW_METHODS and emitters_buffer and not p.get("buffer"):
+            p["buffer"] = str(emitters_buffer)
+        return p
+
+    for i, item in enumerate(items):
+        if cancelled is not None and cancelled():
+            return rows
+        loc, why = _load(item)
+        n_locs = 0 if loc is None else int(np.asarray(loc.x_nm).size)
+        plan = mm.plan_runs(list(methods), n_locs, params_for=params_for, allow_slow=allow_slow)
+
+        def run_fn(method: str, params: Dict[str, Any], _loc: Any = loc, _item: BatchFile = item,
+                   _why: Optional[str] = why) -> Any:
+            if _loc is None:
+                raise RuntimeError(_why or "not read")
+            p = dict(params)
+            per = dataclasses.replace(settings, cluster_method=method, cluster_params=p,
                                       cluster_methods_compared=list(methods))
-            t0 = _time.perf_counter()
-            if method in BATCH_SLOW_METHODS and not allow_slow:
-                rec = AxonRecord(source=item.path, identity=item.identity, error=SLOW_REFUSAL)
-            elif method in BATCH_SLOW_METHODS:
-                rec = analyse_file(item, per, z_store, allow_slow=True)
-            else:
-                rec = analyse_file(item, per, z_store)
-            row: Dict[str, Any] = {c: rec.row.get(c) for c in COMPARISON_COLUMNS}
-            row["source"] = rec.source
-            row["cluster_method"] = method
-            row["time_s"] = round(_time.perf_counter() - t0, 3)
-            row["error"] = rec.error or ""
-            rows.append(row)
+            if method == mm.REFERENCE_METHOD:
+                per = dataclasses.replace(per, eps_nm=float(p.get("eps", settings.eps_nm)),
+                                          min_samples=int(p.get("min_samples", settings.min_samples)),
+                                          cluster_params={})
+            return _analyze_loaded(_loc, _item, per)
+
+        def done(j: int, n: int, run: Any, _i: int = i) -> None:
             if on_done is not None:
-                on_done(i, j)
+                on_done(_i, j)
+
+        nena = None if loc is None else _file_nena(loc)[0]
+        runs = mm.run_methods(run_fn, list(methods), n_locs=n_locs, axon_id=item.path, allow_slow=allow_slow,
+                              cancelled=cancelled, on_done=done, plan=plan)
+        first = next((r.analysis for r in runs if r.ok), None)
+        extras = ci.comparison_extras(nena_nm=nena, analysis=first)
+        names = [n for n in chosen if n in ci.register_all_plugins()]
+        try:
+            long_rows = mm.apply_analyses(runs, names, allow_slow=allow_slow, cancelled=cancelled, extras=extras)
+        except BaseException:                         # noqa: BLE001 - a cancellation: keep the runs' rows
+            long_rows = []
+        if results_out is not None:
+            results_out.append(ci.ComparisonResult(
+                axon_id=item.path, runs=runs, analyses=names, long_rows=long_rows,
+                wide_rows=mm.wide_view(long_rows), agreement_rows=mm.pairwise_agreement(runs),
+                summary_rows=mm.conclusion_summary(long_rows)))
+        for run in runs:
+            an = run.analysis
+            row: Dict[str, Any] = {c: None for c in COMPARISON_COLUMNS}
+            row["source"] = item.path
+            row["cluster_method"] = run.method if run.key in (run.method, mm.REFERENCE_KEY) else run.key
+            row["cluster_params"] = _json.dumps(run.params, sort_keys=True)
+            if an is not None:
+                row["axon_id"] = _axon_id(an.source_name, describe_roi(an.roi))
+                row["cluster_scale_nm"] = an.cluster_scale_nm
+                for c in ("clusters_per_um", "median_1nn_nm", "median_r_eff_nm", "occupancy_percent",
+                          "n_clusters_kept"):
+                    row[c] = getattr(an, c, None)
+            row["time_s"] = round(float(run.seconds), 3)
+            if run.status == mm.STATUS_REFUSED:
+                row["error"] = (f"not analysed: {ci.method_label(run.method)} is slow; tick 'Slow methods "
+                                "(Emitters)' in the batch window to run it")
+            else:
+                row["error"] = run.error or ""
+            rows.append(row)
     return rows
+
+
+def write_methods_comparison_long(results: Sequence[Any], table_path: str) -> Dict[str, str]:
+    """The batch's comparison as ``batch_methods_long.csv`` (+ agreement, summary, wide) beside the axon table
+    (open question A4; ``batch_methods_comparison.csv`` stays as it was). Never overwrites."""
+    from tools import clustering_integration as ci
+    if not results:
+        return {}
+    merged = ci.ComparisonResult(
+        axon_id="batch", runs=[r for res in results for r in res.runs],
+        analyses=list(results[0].analyses), long_rows=[x for res in results for x in res.long_rows],
+        wide_rows=[x for res in results for x in res.wide_rows],
+        agreement_rows=[x for res in results for x in res.agreement_rows],
+        summary_rows=[x for res in results for x in res.summary_rows])
+    stem = os.path.join(os.path.dirname(os.path.abspath(table_path)), "batch")
+    return ci.write_comparison(stem, merged)
 
 
 def comparison_path(table_path: str) -> str:

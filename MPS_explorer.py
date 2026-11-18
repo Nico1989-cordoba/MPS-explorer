@@ -173,6 +173,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.ui = data_explorer.Ui_MainWindow()
         self.ui.setupUi(self)
         self.logger.debug("UI setup complete")
+        # F3 (2026-10-22): Ctrl+F in this window and in every window the program opens (tools/ui_search.py)
+        from tools import ui_search
+        ui_search.install(self)
+        ui_search.install_everywhere()
+        # manual test of 2026-10-23: every informative text can be selected and copied (tools/copyable.py)
+        from tools.copyable import install_text_copy_everywhere
+        install_text_copy_everywhere()
         self._make_content_scrollable()
         self._build_analysis_toolbar()
         self._wire_file_drops()
@@ -484,6 +491,12 @@ class MPS_explorer(QtWidgets.QMainWindow):
             OrderedDict()
         self._discard_cache_base: Any = None
         self.mps_window: Optional[Any] = None        # results window (kept alive)
+        # The clustering integration (2026-10-22): every analysis plug-in registered once, and the loaded file's
+        # NeNA and localizations per cycle, measured once per file (the working scale, the event layer, the DBSCAN
+        # rule, the null and the export read them).
+        from tools import clustering_integration
+        clustering_integration.register_all_plugins()
+        self._file_rule_cache: Tuple[Any, Any] = (None, None)
         self.rings_window: Optional[Any] = None      # multi-segment panel
         # The H-ECL columns review (tools/mps_columns_window.py, H5-D): the
         # launcher that builds the rings, and through it the review window.
@@ -1696,6 +1709,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 x_nm=x_in, y_nm=y_in, z_nm=z_in,
                 z_calibration=zcal.export_columns(self._z_state(1)),
                 eps_choice=self.mps_settings.eps_choice,
+                integration=self._integration_for(measured, analysis),
                 **panel)
         except axon_export.ExportConflict as error:
             QtWidgets.QMessageBox.warning(self, "Export refused", str(error))
@@ -3413,9 +3427,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
             sigma = self._selection_precisions(x_in)
             if sigma is not None:
                 params["localization_sigma_nm"] = sigma
-            frames = self._selection_frames(x_in)
-            if frames is not None and "localization_frame" not in overrides:
-                params["localization_frame"] = frames
+        # The frame numbers go with every method (manual test of 2026-10-23): the event layer (events_*, the
+        # eclipse tolerance's events, the map's 'Events: probable fusions') links the slab's localizations into
+        # switching events, as the batch does; without them the window said "this file has no frame numbers"
+        # for a file whose frames the batch read. Only the Emitters model uses them while clustering.
+        frames = self._selection_frames(x_in)
+        if frames is not None and "localization_frame" not in overrides:
+            params["localization_frame"] = frames
         if compared:
             params["cluster_methods_compared"] = list(compared)
         if method == "emitters_bagol_like":
@@ -3902,7 +3920,60 @@ class MPS_explorer(QtWidgets.QMainWindow):
             set_exclude_cut=self.set_exclude_cut,
             pick_boundary=self.open_pick_boundary,
             nn_bins=int(DEFAULT_KNN_BINS),
-            nn_range=(0.0, float(MAX_LATERAL_DISTANCE_NM)))
+            nn_range=(0.0, float(MAX_LATERAL_DISTANCE_NM)),
+            nena=self._file_nena,
+            rule_inputs=self._file_locs_per_cycle)
+
+    def _file_rule_inputs(self) -> Tuple[Optional[float], str, Optional[Any]]:
+        """The loaded channel-1 file's NeNA (the pick session's whole-field value when one is stored, else this
+        file's own: tools.mps_cut_clusters) and its localizations per cycle measured on the WHOLE file (open
+        question B3, at 3 sqrt(2) NeNA: B1), once per loaded file."""
+        loc = self.locs1
+        if loc is None:
+            return None, "no file loaded", None
+        key = (id(loc), str(getattr(loc, "path", "") or ""), int(np.asarray(loc.x_nm).size))
+        cached_key, cached = self._file_rule_cache
+        if cached_key == key and cached is not None:
+            return (cached[0], str(cached[1]), cached[2])
+        from tools import clustering_integration as ci
+        from tools import mps_cut_clusters as cut_rule
+        nena: Optional[float] = None
+        words = ""
+        session = self._cut_session if getattr(self, "_cut_session", None) is not None else None
+        if session is not None and getattr(session, "nena", None) is not None and session.nena.measured:
+            nena, words = float(session.nena.nena_nm), str(session.nena.words)
+        else:
+            try:
+                src = cut_rule.nena_from_localizations(loc, "this file")
+                nena, words = (float(src.nena_nm), src.words) if src.measured else (None, src.reason)
+            except Exception as error:                 # noqa: BLE001 - no NeNA: its columns stay empty, said so
+                nena, words = None, f"NeNA failed: {error}"
+        try:
+            lpc = ci.locs_per_cycle_of(loc, nena)
+        except Exception:                              # noqa: BLE001 - the rule's labelled fallback
+            lpc = None
+        value = (nena, words, lpc)
+        self._file_rule_cache = (key, value)
+        return value
+
+    def _file_nena(self) -> Tuple[Optional[float], str]:
+        nena, words, _lpc = self._file_rule_inputs()
+        return nena, words
+
+    def _file_locs_per_cycle(self) -> Optional[Any]:
+        return self._file_rule_inputs()[2]
+
+    def _integration_for(self, measured: Any, shown: Any = None) -> Optional[Dict[str, Any]]:
+        """The axon table's v13 block for ``measured``: the analysis window's (its c_label, the null it ran, the last
+        comparison) when it shows this analysis, else built here with the file's NeNA."""
+        from tools import clustering_integration as ci
+        w = self.mps_window
+        wa = None if w is None else getattr(w, "analysis", None)
+        if wa is not None and (wa is measured or wa is shown) and hasattr(w, "integration_columns"):
+            cols: Optional[Dict[str, Any]] = w.integration_columns()
+            return cols
+        nena, words, lpc = self._file_rule_inputs()
+        return ci.axon_columns(measured, nena_nm=nena, nena_source=words, locs_per_cycle=lpc)
 
     @staticmethod
     def _roi_words(shape: Optional[Any]) -> str:

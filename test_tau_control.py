@@ -76,7 +76,7 @@ def test_choices_from_the_loaded_parameters(cp: Any) -> None:
     assert ch[-1] == mt.TauChoice("free", None)
     want = sorted({round(float(t), 2) for t in cp.tau_sensitivity_nm if abs(float(t) - cp.tau0_nm) > 1e-9})
     assert [c.tau_nm for c in ch[1:-1]] == want and all(c.key == "preset" for c in ch[1:-1])
-    assert want == [30.0, 100.0]                     # the file's sensitivity values besides tau_0
+    assert want == [62.0, 100.0]                     # the file's sensitivity values besides tau_0 (P-R61: 2 tau_0, 100)
     assert mt.TAU_CHOICE_KEYS == ("tau0", "preset", "free")
     assert (mt.TAU_FREE_MIN_NM, mt.TAU_FREE_MAX_NM, mt.TAU_FREE_STEP_NM) == (10.0, 300.0, 1.0)
 
@@ -103,7 +103,7 @@ def test_normalize_and_is_tau0(cp: Any) -> None:
             mt.normalize_tau(bad)
     t0 = cp.tau0_nm
     assert mt.is_tau0(t0, t0) and mt.is_tau0(t0 + 1e-10, t0)
-    assert not mt.is_tau0(round(t0, 2), t0) and not mt.is_tau0(100.0, t0)
+    assert mt.is_tau0(round(t0, 2), t0) == (round(t0, 2) == t0) and not mt.is_tau0(100.0, t0)   # exact, no rounding
     assert not mt.is_tau0(None, t0) and not mt.is_tau0("x", t0) and not mt.is_tau0(float("nan"), t0)
     assert mt.tau_text(100) == "100" and mt.tau_text(30.0) == "30" and mt.tau_text(55.5) == "55.5"
     assert mt.tau_text(t0) == f"{round(t0, 2):g}"

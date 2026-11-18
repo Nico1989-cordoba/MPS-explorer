@@ -10,10 +10,10 @@ What tau is, and why another value is exploratory
 Two clusters of adjacent rings are matched ("eclipsed") when they sit within tau of each other: in the axon frame
 for the 2D test, along the membrane for the arc tests. The matching is one-to-one of maximum cardinality (D-24b), so
 a larger tau matches at least as many clusters -- by chance as well as by columns, which is why the evidence is the
-excess over the null (zeta, p), never the number of matches. tau_0 (``config/columns_params.yaml``, D-22) is a
-pilot-derived suggestion: it was measured once on one exploratory axon of an unpublished pilot dataset and then frozen
-in the parameters file; it was NOT fixed before any data were seen, and results on that pilot data are exploratory.
-Any other value is EXPLORATORY too, and every result computed at it says so.
+excess over the null (zeta, p), never the number of matches. tau_0 (``config/columns_params.yaml``, D-22) is 31 nm,
+DERIVED and not measured on any data (P-R61, ``docs/eclipse_tolerance.md``): 1.96 sqrt(2) x 11.3 nm, the 95 %
+half-width of the difference of two typical cluster centres. Any other value is EXPLORATORY, and every result computed
+at it says so. The per-pair tolerance of ``tools.mps_eclipse_tolerance`` is shown beside it, labelled exploratory.
 
 What lives here (no Qt)
 -----------------------

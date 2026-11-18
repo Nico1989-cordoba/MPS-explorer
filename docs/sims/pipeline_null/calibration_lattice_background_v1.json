@@ -1,0 +1,114 @@
+{
+ "scenario": "lattice",
+ "method": "DBSCAN",
+ "closure": "n_locs",
+ "hard_core_nm": null,
+ "origin": "simulation (synthetic only), docs/sims/pipeline_null/calibration_null.py",
+ "B": 99,
+ "n_axons": 20,
+ "n_refused": 0,
+ "rejections_at_0.05": {
+  "ripley1d_p_global": 2,
+  "ripley2d_p_global": 12,
+  "p_mc_k_per_um": 3,
+  "p_mc_nn_median": 0,
+  "p_mc_reff_median": 0,
+  "p_mc_occupancy": 0,
+  "p_mc_regularity": 15
+ },
+ "tested": {
+  "ripley1d_p_global": 20,
+  "ripley2d_p_global": 20,
+  "p_mc_k_per_um": 20,
+  "p_mc_nn_median": 20,
+  "p_mc_reff_median": 20,
+  "p_mc_occupancy": 20,
+  "p_mc_regularity": 20
+ },
+ "rejection_rate": {
+  "ripley1d_p_global": 0.1,
+  "ripley2d_p_global": 0.6,
+  "p_mc_k_per_um": 0.15,
+  "p_mc_nn_median": 0.0,
+  "p_mc_reff_median": 0.0,
+  "p_mc_occupancy": 0.0,
+  "p_mc_regularity": 0.75
+ },
+ "wilson95": {
+  "ripley1d_p_global": [
+   0.0279,
+   0.301
+  ],
+  "ripley2d_p_global": [
+   0.3866,
+   0.7812
+  ],
+  "p_mc_k_per_um": [
+   0.0524,
+   0.3604
+  ],
+  "p_mc_nn_median": [
+   0.0,
+   0.1611
+  ],
+  "p_mc_reff_median": [
+   0.0,
+   0.1611
+  ],
+  "p_mc_occupancy": [
+   0.0,
+   0.1611
+  ],
+  "p_mc_regularity": [
+   0.5313,
+   0.8881
+  ]
+ },
+ "pointwise_exceedances": {
+  "pointwise1d_exceeds": 20,
+  "pointwise2d_exceeds": 20
+ },
+ "pointwise_rate": {
+  "pointwise1d_exceeds": 1.0,
+  "pointwise2d_exceeds": 1.0
+ },
+ "pointwise_wilson95": {
+  "pointwise1d_exceeds": [
+   0.8389,
+   1.0
+  ],
+  "pointwise2d_exceeds": [
+   0.8389,
+   1.0
+  ]
+ },
+ "interpretable": 20,
+ "closure_ratio_median": 1.0,
+ "closure_ratio_range": [
+  0.9983,
+  1.0022
+ ],
+ "seconds_per_replicate_median": 0.815,
+ "k_obs_median": 51.0,
+ "not_interpretable_reasons": [],
+ "ripley1d_rstar_within_30nm_of_190": "0 of 2 rejections",
+ "ripley1d_rstar_values": [
+  140.0,
+  150.0
+ ],
+ "ripley2d_rstar_within_30nm_of_190": "3 of 12 rejections",
+ "ripley2d_rstar_values": [
+  110.0,
+  140.0,
+  140.0,
+  160.0,
+  130.0,
+  150.0,
+  160.0,
+  110.0,
+  140.0,
+  160.0,
+  110.0,
+  120.0
+ ]
+}

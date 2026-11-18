@@ -243,3 +243,96 @@ def test_densities_are_printed_readably():
     assert V.density_words(148.2) == "148"
     assert V.density_words(1.2) == "1.2"
     assert V.density_words(2.5e8) == "2.5e+08"
+
+
+def test_every_localization_is_drawn_inside_its_cell():
+    """Manual test of 2026-10-23: the cells were drawn with no localization in them (the localization rows were
+    off), and that read as "each point no longer has its cell". Ticking a cell row with no localization row drawn
+    ticks the matching one; the points are over the cells; one polygon per unique localization of the row."""
+    _app()
+    from tools import mps_axon_map_layers as L
+    from tools.mps_analysis import analyze_axon
+    from tools.mps_axon_map import AxonMap
+    x, y, z = _ring()
+    a = analyze_axon(x, y, z, run_randomization=False, cluster_method="voronoi_factor", cluster_params={})
+    m = AxonMap(dark=True)
+    m.set_inputs(L.MapInputs(analysis=a))
+    m.layers.hide_all()
+    assert not m.layers.is_visible("slab_kept")
+    m.layers.set_visible("vor_in", True)
+    assert m.layers.is_visible("slab_kept"), "the points of the cells were left off"
+    assert not m.layers.is_visible("slab_noise")
+    cells, points = m.items("vor_in"), m.items("slab_kept")
+    assert cells and points and all(p.isVisible() for p in points)
+    assert min(p.zValue() for p in points) > max(c.zValue() for c in cells)      # points over their cells
+    # one polygon per unique localization of the row (the coincident copy shares its cell)
+    scale = V.density_scale(a.cluster_diagnostics)
+    din, _ = V.cell_drawing(a.cluster_diagnostics, a.x_slab, a.y_slab, a.labels, scale, True)
+    n_polys = sum(int(np.sum(np.asarray(c) == 0)) for _x, _y, c in din.classes.values())
+    n_in, _n_out = V.cell_counts(a.cluster_diagnostics, a.x_slab, a.y_slab, a.labels)
+    assert n_polys == n_in, (n_polys, n_in)
+    kept = np.asarray(a.labels) >= 0
+    uniq = np.unique(np.round(np.c_[np.asarray(a.x_slab)[kept], np.asarray(a.y_slab)[kept]], 6), axis=0)
+    assert abs(n_in - len(uniq)) <= 0.02 * len(uniq) + 1, (n_in, len(uniq))
+    # a deliberate choice stays: with a localization row already on, nothing else is ticked
+    m.layers.set_visible("vor_in", False)
+    m.layers.set_visible("slab_kept", False)
+    m.layers.set_visible("slab_curated", True)
+    m.layers.set_visible("vor_out", True)
+    assert not m.layers.is_visible("slab_noise") and not m.layers.is_visible("slab_kept")
+    m.layers.hide_all()
+    m.layers.set_visible("vor_out", True)
+    assert m.layers.is_visible("slab_noise")
+    _settle(m)
+
+
+def test_the_methods_group_never_hides_the_points_of_the_analysis_shown():
+    """Manual test of 2026-10-23: with 'Methods on the map' present, the points of the analysis shown must depend on
+    the 'Localizations' group only; the methods' group adds or removes the compared methods' outlines."""
+    _app()
+    from tools import mps_axon_map_layers as L
+    from tools.method_overlay import build_method_layers
+    from tools.mps_analysis import analyze_axon
+    from tools.mps_axon_map import AxonMap
+    x, y, z = _ring()
+    a = analyze_axon(x, y, z, run_randomization=False, cluster_method="voronoi_factor", cluster_params={})
+    slab = dict(run_randomization=False, slab_override=(float(a.slab_zmin_nm), float(a.slab_zmax_nm)))
+    db = analyze_axon(np.asarray(a.x_slab), np.asarray(a.y_slab), np.asarray(a.z_slab), **slab)
+    m = AxonMap(dark=True)
+    m.set_inputs(L.MapInputs(analysis=a, methods=build_method_layers(a, {"DBSCAN": db, "voronoi_factor": a})))
+    assert "methods" in m.layers.groups()
+    m.layers.set_visible("vor_in", True)
+    methods = m.layers.group_rows("methods")
+    assert methods and not set(methods) & set(m.layers.group_rows("localizations"))
+    toggle = m.layers._boxes["methods"].toggle
+    for _ in range(3):                      # on, off, on: the points never move
+        toggle.click()
+        assert m.layers.is_visible("slab_kept") and all(i.isVisible() for i in m.items("slab_kept"))
+        assert "localizations:" in m.title()
+    m.layers.set_group_shown("methods", False)
+    assert not any(m.layers.is_visible(k) for k in methods)
+    assert m.layers.is_visible("slab_kept") and all(i.isVisible() for i in m.items("slab_kept"))
+    _settle(m)
+
+
+def test_the_points_get_a_rim_over_the_cells():
+    """Over green / yellow cells a sky-blue dot of 3 px could not be told (manual test of 2026-10-23)."""
+    _app()
+    from tools import mps_axon_map as M
+    from tools import mps_axon_map_layers as L
+    from tools.mps_analysis import analyze_axon
+    x, y, z = _ring()
+    a = analyze_axon(x, y, z, run_randomization=False, cluster_method="voronoi_factor", cluster_params={})
+    m = M.AxonMap(dark=True)
+    m.set_inputs(L.MapInputs(analysis=a))
+    (pts,) = m.items("slab_kept")
+    size0 = pts.opts["size"]
+    m.layers.set_visible("vor_in", True)
+    assert pts.opts["size"] >= M.POINTS_OVER_CELLS_SIZE > size0
+    assert pts.opts["pen"].color().name() == M.DARK_RIM
+    m.redraw()                                       # a redraw keeps it while the cells are drawn
+    (pts,) = m.items("slab_kept")
+    assert pts.opts["size"] >= M.POINTS_OVER_CELLS_SIZE
+    m.layers.set_visible("vor_in", False)
+    assert pts.opts["size"] == size0
+    _settle(m)
