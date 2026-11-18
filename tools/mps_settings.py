@@ -204,6 +204,18 @@ class MPSSettings:
     cluster_params: Dict[str, Any] = field(default_factory=dict)
     experimental_methods_enabled: bool = False
     cluster_methods_compared: List[str] = field(default_factory=list)
+    # Switching cycles per label, the value of the 'Working scale' panel
+    # (c_label: 14 [lit: Dempsey et al. 2011, Alexa Fluor 647 in MEA],
+    # provisional until measured in the lab's buffer; 26 in beta-ME). The
+    # DBSCAN rule, the fusion mark, the footprint, the eclipse tolerance and
+    # the per-axon null read it, in the window AND in the Batch, which before
+    # 2026-10-29 used 14 whatever the panel said. Range 1-200 (the panel's).
+    c_label: float = 14.0
+    # C3 / C4 (2026-10-23): what the Batch's per-axon null is closed on -- "n_locs" (the slab's localizations, the
+    # default), "k" (the detected clusters K) or "both" (one null per closure, side by side; about twice the time
+    # and more: the K closure's pilots run the whole pipeline). A configuration key only (no selector in the window
+    # yet); every row says which closure it carries (null_closure).
+    batch_null_closure: str = "n_locs"
 
     def validate(self) -> "MPSSettings":
         """Clamp to physically meaningful ranges, falling back to the paper
@@ -406,7 +418,31 @@ class MPSSettings:
         if not isinstance(self.cluster_methods_compared, list):
             self.cluster_methods_compared = []
         self.cluster_methods_compared = [str(m) for m in self.cluster_methods_compared if str(m) in names]
+        self.c_label = clean_c_label(self.c_label)
+        if self.batch_null_closure not in BATCH_NULL_CLOSURES:
+            logger.warning("Stored batch_null_closure=%r is not one of %s; using 'n_locs'", self.batch_null_closure,
+                           BATCH_NULL_CLOSURES)
+            self.batch_null_closure = "n_locs"
         return self
+
+
+BATCH_NULL_CLOSURES = ("n_locs", "k", "both")   # C3 / C4: the Batch's null closures (settings key)
+C_LABEL_RANGE = (1.0, 200.0)   # [ad hoc: the Working scale panel's spin box range]
+C_LABEL_DEFAULT = 14.0         # [lit: Dempsey et al. 2011, Table 1, Alexa Fluor 647 in MEA] provisional
+
+
+def clean_c_label(value: Any) -> float:
+    """A stored c_label as a number in ``C_LABEL_RANGE``; anything else (a word, NaN, 0, out of range) falls back
+    to 14 with a log entry, never clamped to the nearest end (a c_label of 500 is a typing slip, not 200)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        v = float("nan")
+    if isinstance(value, bool) or not (C_LABEL_RANGE[0] <= v <= C_LABEL_RANGE[1]):
+        logger.warning("Stored c_label=%r is not a number of cycles in %s; using %g", value, C_LABEL_RANGE,
+                       C_LABEL_DEFAULT)
+        return C_LABEL_DEFAULT
+    return v
 
 
 def clean_randomization_store(value: Any) -> Dict[str, Any]:

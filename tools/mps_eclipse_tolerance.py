@@ -44,7 +44,6 @@ simulated sum-w^2 table) comes from fixed seeds or the caller's generator.
 from __future__ import annotations
 
 import dataclasses
-import functools
 import math
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -52,6 +51,12 @@ from typing import Any, Dict, Hashable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
+
+from tools import footprint_pool as fp
+# The simulated sum-w^2 table lives in tools.footprint_pool since 2026-10-29 (one definition of the footprint pool
+# for this module and the apparent size, finding q); re-exported here under the names this module always had.
+from tools.footprint_pool import (  # noqa: F401  (re-exported)
+    EVENT_EDGES, LAMBDA_GRID, SUM_W2_DRAWS, SUM_W2_SEED, lambda_from_mean_labels, sum_w2_given_events, sum_w2_table)
 
 __all__ = [
     "K_ARC", "K_PLANE", "K_SCALAR", "SIGMA_C_REFERENCE_NM", "TAU_SCALAR_DERIVED_NM", "SIGMA_LOC_DEFAULT_NM",
@@ -64,7 +69,7 @@ __all__ = [
     "merged_cluster_flags", "sum_w2_table", "lambda_from_mean_labels", "sum_w2_given_events", "sigma_c_nm",
     "pool_footprint", "axon_tolerances", "tolerances_from_rings", "pair_tolerance_matrix", "scalar_tau_from_sigma",
     "per_pair_arc_columns", "CLUSTER_COLUMNS", "PAIR_COLUMNS", "AXON_COLUMNS", "COLUMN_DESCRIPTIONS", "describe",
-    "cluster_rows", "pair_rows", "axon_row", "summary_lines", "ECLIPSE_ANALYSIS", "ECLIPSE_READOUTS",
+    "cluster_rows", "pair_rows", "axon_row", "summary_lines", "scalar_tau_role", "TAU0_MATCH_NM", "ECLIPSE_ANALYSIS", "ECLIPSE_READOUTS",
     "eclipse_analysis", "register",
 ]
 
@@ -85,6 +90,10 @@ SIGMA_C_REFERENCE_NM = 11.3
 # The pre-specified scalar tolerance: K_SCALAR * 11.3 = 31.3 -> 31 nm [simulation, as above; written in
 # config/columns_params.yaml as tau0_nm].
 TAU_SCALAR_DERIVED_NM = 31.0
+# How far a scalar tau may sit from TAU_SCALAR_DERIVED_NM and still be the pre-specified one [ad hoc: half of the
+# 0.01 nm to which tools.mps_tau.normalize_tau rounds a tau]. Any other tau is EXPLORATORY (decision D4: 'Free'
+# starts at 31 nm unmarked; every value other than 31 is marked exploratory, on screen and in the exports).
+TAU0_MATCH_NM = 0.005
 # Localization precision when the file's NeNA is not given [lit: Huang et al. 2008, 8-20 nm in 3D-STORM; 10 nm
 # the research's default]. The integration passes the file's NeNA (tools.mps_nena) through ToleranceInputs.
 SIGMA_LOC_DEFAULT_NM = 10.0
@@ -100,19 +109,22 @@ C_LABEL_PRESETS: Mapping[str, float] = {"AF647 MEA": 14.0, "AF647 betaME": 26.0}
 C_LABEL_DEFAULT = 14.0
 # Localizations per event [ad hoc: the project simulator's default locs_per_fluor_mean]; only enters the simulated
 # sum-w^2 table.
-LOCS_PER_EVENT_DEFAULT = 2.0
+LOCS_PER_EVENT_DEFAULT = fp.LOCS_PER_EVENT_DEFAULT
 # The footprint used when it cannot be measured: 25 nm as an UPPER bound (the median r_eff of the reference paper,
 # which is inflated by the precision) [lit: Gazal et al. 2026; user's decision 3a]; 0 nm in the sensitivity row.
 RHO_UPPER_NM = 25.0
 RHO_SENSITIVITY_NM = 0.0
-# The pool is used only when the clusters carry two or more labels on average [user's decision 1a; simulation P-R61
-# S3.2: with one label the footprint is not identifiable, 29 +- 27 nm on a truth of 0].
-MIN_MEAN_LABELS_FOR_POOL = 2.0
+# The pool's rules are tools.footprint_pool's since 2026-10-29 (finding q: one definition for this module and the
+# apparent size). Labels per cluster from which the footprint is identifiable: 1.5 over the POOLED clusters [user
+# decision E2, 2026-10-23, "the 1.5-labels filter"; simulation SIZE_SIM sec. 8.2]. Before: 2 over every cluster
+# [user's decision 1a of P-R61, whose report says 2 in sec. 7.3 and 1.5 in sec. 8.2 and its code].
+MIN_MEAN_LABELS_FOR_POOL = fp.IDENTIFIABLE_LABELS
 # Fewer usable clusters than this and the pool is not reported [ad hoc: the research's smallest axon had K = 30
 # clusters, +-4-8 nm; below 10 the moment estimate is too noisy to call a measurement].
-MIN_POOL_CLUSTERS = 10
-# Bootstrap over clusters for the pool's standard error [ad hoc: 200 draws, a standard error to +-5 %].
-POOL_BOOTSTRAP = 200
+MIN_POOL_CLUSTERS = fp.MIN_POOL_CLUSTERS
+# The pool's standard error is the delete-one jackknife of tools.footprint_pool (deterministic) since 2026-10-29;
+# the 200-draw bootstrap is retired. Kept as a name for callers that read it.
+POOL_BOOTSTRAP = 0
 # Merged-cluster criterion (decision 4a): a cluster whose two event modes along the membrane are farther apart than
 # MERGED_Z * sqrt(2) * sqrt(sigma_link^2 + rho_ref^2 / 4) -- what two labels of ONE cluster with the upper-bound
 # footprint exceed 0.1 % of the time -- is flagged as merged [derivation: two-sided 99.9 % normal quantile 3.29;
@@ -122,18 +134,15 @@ MERGED_Z = 3.29
 # Each mode must hold at least this many events (localizations when there are no events) [ad hoc: one event can be
 # one blink of one label, not a cluster].
 MERGED_MIN_UNITS_PER_SIDE = 2
-# The simulated E[sum w^2 | events] table [simulation: P-R61 sims/common.py sum_w2_given_events_table, seed
-# 20261015; 100 000 simulated clusters per label prior, as the research's sim2].
-SUM_W2_SEED = 20261015
-SUM_W2_DRAWS = 100_000
-LAMBDA_GRID: Tuple[float, ...] = (0.05, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
-EVENT_EDGES: Tuple[int, ...] = (1, 4, 7, 10, 14, 18, 22, 27, 33, 40, 50, 60, 75, 90, 110, 140, 180, 250, 10 ** 9)
+# The simulated E[sum w^2 | events] table (SUM_W2_SEED, SUM_W2_DRAWS, LAMBDA_GRID, EVENT_EDGES) is
+# tools.footprint_pool's, imported above [simulation: P-R61 sims/common.py, seed 20261015, 100 000 clusters per prior].
 
 RULE_SCALAR = "scalar"
 RULE_PER_PAIR = "per_pair"
-RHO_POOL = "pool of every cluster (upper bound: merged clusters not excluded until the criterion is accepted)"
+RHO_POOL = ("pool of every cluster but the event layer's probable fusions (upper bound: merged clusters not "
+            "excluded until the criterion is accepted)")
 RHO_POOL_EXCLUDED = "pool without the merged-looking clusters (criterion accepted)"
-RHO_DEFAULT_NOT_IDENTIFIABLE = "default 25 nm upper bound (not identifiable: fewer than 2 labels per cluster)"
+RHO_DEFAULT_NOT_IDENTIFIABLE = "default 25 nm upper bound (not identifiable: fewer than 1.5 labels per cluster)"
 RHO_DEFAULT_NO_EVENTS = "default 25 nm upper bound (no events: labels per cluster unknown)"
 RHO_DEFAULT_FEW_CLUSTERS = "default 25 nm upper bound (too few clusters to pool)"
 RHO_SOURCES: Tuple[str, ...] = (RHO_POOL, RHO_POOL_EXCLUDED, RHO_DEFAULT_NOT_IDENTIFIABLE, RHO_DEFAULT_NO_EVENTS,
@@ -171,6 +180,9 @@ class ToleranceInputs:
     # Decision 4: the pool is used as an UPPER bound (every cluster, merged ones included) until the user accepts the
     # merged-cluster criterion as a measurement; True then switches sigma_c to the pool without them (recorded).
     exclude_merged_from_pool: bool = False
+    # User decision E2 (2026-10-23): the pool and its 1.5-labels filter leave out the clusters the event layer marks
+    # as probable fusions (events / c_label > 2, tools.mps_events.fusion_flags); tools.footprint_pool applies it.
+    exclude_event_fusion_from_pool: bool = True
 
     def __post_init__(self) -> None:
         for name in ("sigma_loc_nm", "sigma_link_nm", "c_label", "locs_per_event", "rho_upper_nm", "k_arc", "k_plane",
@@ -295,74 +307,7 @@ def merged_cluster_flags(separations_nm: NDArray[np.float64], inputs: ToleranceI
 
 
 # ===================================================================================================== sum w^2
-def _draw_labels_ztp(rng: np.random.Generator, n: int, lam: float) -> NDArray[np.int64]:
-    out = np.zeros(n, dtype=np.int64)
-    todo = np.ones(n, dtype=bool)
-    while todo.any():
-        idx = np.flatnonzero(todo)
-        k = rng.poisson(lam, idx.size)
-        out[idx] = k
-        todo[idx[k > 0]] = False
-    return out
-
-
-@functools.lru_cache(maxsize=64)
-def sum_w2_table(c_label: float, lam: float, locs_per_event: float = LOCS_PER_EVENT_DEFAULT,
-                 draws: int = SUM_W2_DRAWS) -> Tuple[Tuple[int, ...], Tuple[float, ...]]:
-    """
-    E[sum w^2 | events in bin] by simulation [simulation: P-R61 sims/common.py ``sum_w2_given_events_table``]: labels
-    per cluster ~ zero-truncated Poisson(lam), each label a geometric number of events (mean ``c_label``), each event
-    a geometric number of localizations (mean ``locs_per_event``); w_m the share of the cluster's localizations from
-    label m. Returns (bin edges ``EVENT_EDGES``, mean sum w^2 per bin; NaN for an empty bin). Deterministic: seeded
-    from ``SUM_W2_SEED`` and the arguments; cached.
-    """
-    seed = np.random.SeedSequence([SUM_W2_SEED, int(round(1000 * c_label)), int(round(1000 * lam)),
-                                   int(round(1000 * locs_per_event)), int(draws)])
-    rng = np.random.default_rng(seed)
-    n_lab = _draw_labels_ztp(rng, int(draws), float(lam))
-    tot_ev = np.zeros(int(draws))
-    tot_loc = np.zeros(int(draws))
-    sq = np.zeros(int(draws))
-    for j in range(int(n_lab.max())):
-        has = n_lab > j
-        ev = rng.geometric(1.0 / float(c_label), int(has.sum()))
-        locs = ev + rng.negative_binomial(ev, 1.0 / float(locs_per_event))
-        tot_ev[has] += ev
-        tot_loc[has] += locs
-        sq[has] += locs.astype(np.float64) ** 2
-    sw2 = sq / tot_loc ** 2
-    edges = np.asarray(EVENT_EDGES, dtype=np.int64)
-    b = np.searchsorted(edges, tot_ev, side="right") - 1
-    table = tuple(float(sw2[b == i].mean()) if np.any(b == i) else float("nan") for i in range(edges.size - 1))
-    return tuple(int(e) for e in EVENT_EDGES), table
-
-
-def lambda_from_mean_labels(mean_labels: float) -> float:
-    """The label prior's lam (zero-truncated Poisson) whose mean lam / (1 - exp(-lam)) is nearest ``mean_labels``,
-    on ``LAMBDA_GRID`` [simulation: the research's grid]. The smallest lam when the mean is 1 or below."""
-    m = max(1.0, float(mean_labels)) if math.isfinite(float(mean_labels)) else 1.0
-    return min(LAMBDA_GRID, key=lambda lam: abs(lam / (1.0 - math.exp(-lam)) - m))
-
-
-def sum_w2_given_events(n_events: Any, c_label: float, lam: float,
-                        locs_per_event: float = LOCS_PER_EVENT_DEFAULT) -> NDArray[np.float64]:
-    """E[sum w^2 | events] for each cluster's event count from :func:`sum_w2_table` (the nearest finite bin when a
-    bin is empty); 1.0 (one label, the largest value) where the count is missing."""
-    edges, table = sum_w2_table(float(c_label), float(lam), float(locs_per_event))
-    tab = np.asarray(table, dtype=np.float64)
-    finite = np.flatnonzero(np.isfinite(tab))
-    ev = np.asarray(n_events, dtype=np.float64).reshape(-1)
-    out = np.ones(ev.size, dtype=np.float64)
-    for i, e in enumerate(ev.tolist()):
-        if not math.isfinite(e) or e < 1:
-            continue
-        b = int(np.searchsorted(np.asarray(edges), int(e), side="right") - 1)
-        b = min(max(b, 0), tab.size - 1)
-        v = tab[b]
-        if not math.isfinite(v):
-            v = tab[finite[np.argmin(np.abs(finite - b))]]
-        out[i] = float(v)
-    return out
+# sum_w2_table, lambda_from_mean_labels and sum_w2_given_events: tools.footprint_pool (imported above).
 
 
 def sigma_c_nm(n_locs: Any, sum_w2: Any, rho_nm: float, inputs: ToleranceInputs) -> NDArray[np.float64]:
@@ -405,65 +350,44 @@ class FootprintPool:
     rho_sensitivity_nm: float
 
 
-def _moments_rho(s2: NDArray[np.float64], n: NDArray[np.float64], sw2: NDArray[np.float64],
-                 inputs: ToleranceInputs) -> Optional[float]:
-    den = float(np.sum(1.0 - sw2))
-    if not den > 0.0:
-        return None
-    sl2 = float(np.sum((s2 - inputs.sigma_loc_nm ** 2) * (n - 1.0) / n)) / den
-    r2 = 4.0 * (sl2 - inputs.sigma_link_nm ** 2)
-    return float(math.sqrt(r2)) if r2 > 0.0 else 0.0
-
-
-def pool_footprint(s_t_nm: Any, n_locs: Any, sum_w2: Any, merged: Any, n_label_mean_hat: Optional[float],
-                   inputs: ToleranceInputs, *, have_events: bool = True,
-                   rng: Optional[np.random.Generator] = None, n_boot: int = POOL_BOOTSTRAP) -> FootprintPool:
-    """The axon's pooled footprint (see :class:`FootprintPool`). ``rng`` drives the bootstrap (default seeded 0)."""
+def pool_footprint(s_t_nm: Any, n_locs: Any, n_events: Optional[Any], merged: Any, inputs: ToleranceInputs
+                   ) -> Tuple[FootprintPool, Optional[float]]:
+    """The axon's pooled footprint (see :class:`FootprintPool`) by the shared definition of
+    ``tools.footprint_pool.footprint_pool`` (finding q, 2026-10-29): every usable cluster but the event layer's
+    probable fusions (E2) -- the "pool of every cluster", an upper bound when the clustering merged clusters -- and
+    the same pool without the merged-looking clusters too (``merged``). ``n_events`` None: no events. Returns the
+    pool and the label prior lam it used for sum w^2 (None when it used none)."""
     s = np.asarray(s_t_nm, dtype=np.float64).reshape(-1)
     n = np.asarray(n_locs, dtype=np.float64).reshape(-1)
-    w = np.asarray(sum_w2, dtype=np.float64).reshape(-1)
     mg = np.asarray(merged, dtype=bool).reshape(-1)
+    kw: Dict[str, Any] = dict(sigma_link_nm=inputs.sigma_link_nm, c_label=inputs.c_label,
+                              locs_per_event=inputs.locs_per_event,
+                              exclude_event_fusion=bool(inputs.exclude_event_fusion_from_pool))
+    every = fp.footprint_pool(s, n, n_events, inputs.sigma_loc_nm, **kw)
+    excl = fp.footprint_pool(s, n, n_events, inputs.sigma_loc_nm, exclude=mg, **kw)
     ok = np.isfinite(s) & (n > 1)
-    ok_excl = ok & ~mg
     n_excl = int(np.count_nonzero(ok & mg))
-
-    def not_identifiable(reason: str, source: str) -> FootprintPool:
-        return FootprintPool(rho_pooled_nm=None, rho_pooled_se_nm=None, rho_pooled_excluding_merged_nm=None,
-                             n_used=int(ok.sum()),
-                             n_excluded_merged=n_excl, n_label_mean_hat=n_label_mean_hat, identifiable=False,
-                             reason=reason, rho_used_nm=inputs.rho_upper_nm, rho_source=source,
+    use_excl = bool(inputs.exclude_merged_from_pool) and excl.measurable
+    used = excl if use_excl else every
+    if not every.measurable and not use_excl:
+        source = {"no_events": RHO_DEFAULT_NO_EVENTS, "few_clusters": RHO_DEFAULT_FEW_CLUSTERS}.get(
+            every.code, RHO_DEFAULT_NOT_IDENTIFIABLE)
+        reason = every.reason if every.code != "no_events" else (
+            "no emission events: the labels per cluster cannot be estimated")
+        pool = FootprintPool(rho_pooled_nm=None, rho_pooled_se_nm=None, rho_pooled_excluding_merged_nm=None,
+                             n_used=int(every.n_used), n_excluded_merged=n_excl,
+                             n_label_mean_hat=every.labels_per_cluster, identifiable=False, reason=reason,
+                             rho_used_nm=inputs.rho_upper_nm, rho_source=source,
                              rho_sensitivity_nm=inputs.rho_sensitivity_nm)
-
-    if not have_events or n_label_mean_hat is None:
-        return not_identifiable("no emission events: the labels per cluster cannot be estimated", RHO_DEFAULT_NO_EVENTS)
-    if n_label_mean_hat < MIN_MEAN_LABELS_FOR_POOL:
-        return not_identifiable(f"{n_label_mean_hat:.2f} labels per cluster on average (< {MIN_MEAN_LABELS_FOR_POOL:g}): "
-                                "the footprint is not identifiable", RHO_DEFAULT_NOT_IDENTIFIABLE)
-    if int(ok.sum()) < MIN_POOL_CLUSTERS:
-        return not_identifiable(f"{int(ok.sum())} usable clusters (< {MIN_POOL_CLUSTERS})", RHO_DEFAULT_FEW_CLUSTERS)
-    s2 = s ** 2
-    rho = _moments_rho(s2[ok], n[ok], w[ok], inputs)
-    if rho is None:
-        return not_identifiable("no label variance to pool (every cluster looks like one label)",
-                                RHO_DEFAULT_NOT_IDENTIFIABLE)
-    rho_excl = (_moments_rho(s2[ok_excl], n[ok_excl], w[ok_excl], inputs)
-                if int(ok_excl.sum()) >= MIN_POOL_CLUSTERS else None)
-    g = rng if rng is not None else np.random.default_rng(0)
-    use_excl = bool(inputs.exclude_merged_from_pool) and rho_excl is not None
-    idx = np.flatnonzero(ok_excl if use_excl else ok)
-    boots: List[float] = []
-    for _ in range(int(n_boot)):
-        pick = idx[g.integers(0, idx.size, idx.size)]
-        r = _moments_rho(s2[pick], n[pick], w[pick], inputs)
-        if r is not None:
-            boots.append(r)
-    se = float(np.std(boots, ddof=1)) if len(boots) > 1 else None
-    used = float(rho_excl) if use_excl and rho_excl is not None else rho
-    return FootprintPool(rho_pooled_nm=rho, rho_pooled_se_nm=se, rho_pooled_excluding_merged_nm=rho_excl,
-                         n_used=int((ok_excl if use_excl else ok).sum()), n_excluded_merged=n_excl,
-                         n_label_mean_hat=n_label_mean_hat, identifiable=True, reason="", rho_used_nm=used,
+        return pool, every.lam
+    pool = FootprintPool(rho_pooled_nm=every.rho_nm, rho_pooled_se_nm=used.se_nm,
+                         rho_pooled_excluding_merged_nm=excl.rho_nm if excl.measurable else None,
+                         n_used=int(used.n_used), n_excluded_merged=n_excl,
+                         n_label_mean_hat=used.labels_per_cluster, identifiable=True, reason="",
+                         rho_used_nm=float(used.rho_nm if used.rho_nm is not None else inputs.rho_upper_nm),
                          rho_source=RHO_POOL_EXCLUDED if use_excl else RHO_POOL,
                          rho_sensitivity_nm=inputs.rho_upper_nm)
+    return pool, used.lam
 
 
 # ===================================================================================================== per axon
@@ -581,8 +505,9 @@ def axon_tolerances(
     -> the clusters of that group, each the indices of its localizations into ``x_nm`` / ``y_nm`` / ``event_id``.
     ``event_id`` (per localization, -1 = not linked; None without frames) gives the events. ``centres_nm`` per group
     sets the axon centre the tangent is taken from (default: the mean of the group's cluster centroids). The
-    footprint is pooled over EVERY group (it is a property of the axon), with the merged clusters excluded.
-    Deterministic given ``seed`` (the pool's bootstrap).
+    footprint is pooled over EVERY group (it is a property of the axon), by the shared definition of
+    ``tools.footprint_pool`` (finding q). Deterministic (the pool's standard error is a jackknife since 2026-10-29;
+    ``seed`` is kept for the callers and no longer used).
     """
     x = np.asarray(x_nm, dtype=np.float64).reshape(-1)
     y = np.asarray(y_nm, dtype=np.float64).reshape(-1)
@@ -602,24 +527,23 @@ def axon_tolerances(
     all_ev = np.concatenate([r.n_events for r in raws.values()]) if raws else np.zeros(0)
     have_events = ev is not None and bool(np.isfinite(all_ev).any())
     inp = inputs
-    if have_events:
-        mean_ev = float(np.nanmean(all_ev))
-        n_label_mean = mean_ev / inp.c_label
-        lam: Optional[float] = lambda_from_mean_labels(n_label_mean)
-    else:
-        n_label_mean, lam = float("nan"), None
+    if not have_events:
         warnings_.append("no emission events: sum w^2 = 1 for every cluster (one label assumed, the largest centre "
                          "error) and the footprint cannot be pooled")
-    sw2 = {k: (sum_w2_given_events(r.n_events, inp.c_label, float(lam), inp.locs_per_event) if lam is not None
-               else np.ones(r.n_locs.size)) for k, r in raws.items()}
     seps = np.concatenate([r.sep for r in raws.values()]) if raws else np.zeros(0)
     merged_all = merged_cluster_flags(seps, inp)
-    pool = pool_footprint(
+    # the footprint pool by the shared definition (tools.footprint_pool; finding q): its labels per cluster are the
+    # ONE number the apparent size reports too, and its label prior lam sets every cluster's sum w^2 below
+    pool, lam_pool = pool_footprint(
         np.concatenate([r.s_t for r in raws.values()]) if raws else np.zeros(0),
         np.concatenate([r.n_locs for r in raws.values()]) if raws else np.zeros(0),
-        np.concatenate([sw2[k] for k in raws]) if raws else np.zeros(0),
-        merged_all, None if not have_events else n_label_mean, inp, have_events=have_events,
-        rng=np.random.default_rng(np.random.SeedSequence([int(seed), 61])))
+        all_ev if have_events else None, merged_all, inp)
+    lam: Optional[float] = None
+    if have_events:
+        lab = pool.n_label_mean_hat if pool.n_label_mean_hat is not None else fp.labels_per_cluster(all_ev, inp.c_label)
+        lam = lam_pool if lam_pool is not None else lambda_from_mean_labels(float(lab) if lab is not None else 1.0)
+    sw2 = {k: (sum_w2_given_events(r.n_events, inp.c_label, float(lam), inp.locs_per_event) if lam is not None
+               else np.ones(r.n_locs.size)) for k, r in raws.items()}
     if pool.identifiable and pool.rho_pooled_excluding_merged_nm is not None and pool.n_excluded_merged:
         warnings_.append(f"footprint pool: {pool.n_excluded_merged} merged-looking cluster(s); "
                          f"{pool.rho_pooled_nm:.1f} nm with them (upper bound), "
@@ -708,7 +632,7 @@ AXON_COLUMNS: Tuple[str, ...] = (
     "scalar_pairs", "scalar_T_obs", "scalar_E_dir", "scalar_E_null", "scalar_excess", "scalar_z_A",
     "scalar_p_excess_uncalibrated",
     "per_pair_pairs", "per_pair_T_obs", "per_pair_E_dir", "per_pair_E_null", "per_pair_excess", "per_pair_z_A",
-    "per_pair_p_excess_uncalibrated", "per_pair_mean_t_nm")
+    "per_pair_p_excess_uncalibrated", "per_pair_mean_t_nm", "tau_scalar_role")
 
 COLUMN_DESCRIPTIONS: Mapping[str, str] = {
     "ring": "Ring index (build_rings).",
@@ -729,7 +653,10 @@ COLUMN_DESCRIPTIONS: Mapping[str, str] = {
     "merged_suspect": "True when the mode separation exceeds the merged threshold: excluded from the footprint pool.",
     "ring_a": "First ring of the pair.", "ring_b": "Second ring of the pair.",
     "rule": "'scalar' (|ds| <= tau) or 'per_pair' (|ds| <= t_ij = 1.96 sqrt(sigma_i^2 + sigma_j^2)).",
-    "role": "'primary' or 'exploratory' (the per-pair rule is exploratory until c_label is calibrated).",
+    "role": "'primary' or 'exploratory' (the per-pair rule is exploratory until c_label is calibrated; the scalar "
+            "rule is exploratory at any tau other than the pre-specified 31 nm, decision D4).",
+    "tau_scalar_role": "'primary' when the scalar tau is the pre-specified tau_0 (31 nm) and the scalar rule is the "
+                       "primary one; 'exploratory' at any other tau (decision D4).",
     "cluster_a": "Cluster index in ring_a.", "cluster_b": "Cluster index in ring_b.",
     "d_nm": "Arc distance of the matched pair on the reference curve, nm.",
     "t_ij_nm": "The tolerance the pair was admitted with (tau under the scalar rule), nm.",
@@ -804,6 +731,19 @@ def _role(rule: str, inputs: ToleranceInputs) -> str:
     return "primary" if inputs.primary_rule() == rule else "exploratory"
 
 
+def scalar_tau_role(tau_nm: Optional[float], inputs: ToleranceInputs,
+                    tau0_nm: float = TAU_SCALAR_DERIVED_NM) -> str:
+    """The role of the scalar rule at ``tau_nm`` (decision D4): "primary" only when the scalar rule is the primary
+    one (c_label not calibrated) AND the tau is the pre-specified tau_0 (31 nm, within ``TAU0_MATCH_NM``); any other
+    tau -- a sensitivity preset, a free value, 62 nm -- is "exploratory". A missing tau is the pre-specified one."""
+    if inputs.primary_rule() != RULE_SCALAR:
+        return "exploratory"
+    if tau_nm is None:
+        return "primary"
+    t = float(tau_nm)
+    return "primary" if math.isfinite(t) and abs(t - float(tau0_nm)) <= TAU0_MATCH_NM else "exploratory"
+
+
 def pair_rows(scalar_arc: Any, per_pair_arc: Any, inputs: ToleranceInputs) -> List[Dict[str, Any]]:
     """One row per MATCHED pair of clusters of every adjacent ring pair, under each rule (``PAIR_COLUMNS``):
     the arc distance and the tolerance it was admitted with (t_ij; tau under the scalar rule)."""
@@ -811,11 +751,13 @@ def pair_rows(scalar_arc: Any, per_pair_arc: Any, inputs: ToleranceInputs) -> Li
     for rule, arc in ((RULE_SCALAR, scalar_arc), (RULE_PER_PAIR, per_pair_arc)):
         if arc is None:
             continue
+        role = (scalar_tau_role(getattr(arc, "tau_nm", None), inputs) if rule == RULE_SCALAR
+                else _role(rule, inputs))
         for m in arc.adjacent:
             t = np.asarray(getattr(m, "t_nm", np.zeros(0)), dtype=np.float64)
             for q in range(int(np.asarray(m.i_a).size)):
                 rows.append({"ring_a": int(m.ring_a), "ring_b": int(m.ring_b), "rule": rule,
-                             "role": _role(rule, inputs), "cluster_a": int(m.i_a[q]), "cluster_b": int(m.j_b[q]),
+                             "role": role, "cluster_a": int(m.i_a[q]), "cluster_b": int(m.j_b[q]),
                              "d_nm": float(m.d_nm[q]),
                              "t_ij_nm": float(t[q]) if q < t.size else float(m.tau_nm)})
     return rows
@@ -875,6 +817,7 @@ def axon_row(tol: AxonTolerances, scalar_arc: Any = None, per_pair_arc: Any = No
           for t in np.asarray(getattr(m, "t_nm", np.zeros(0))).tolist()
           if pairs is None or (int(m.ring_a), int(m.ring_b)) in {(int(a), int(b)) for a, b in pairs}]
     row["per_pair_mean_t_nm"] = float(np.mean(ts)) if ts else None
+    row["tau_scalar_role"] = scalar_tau_role(row["tau_scalar_nm"], inp)
     return {c: row.get(c) for c in AXON_COLUMNS}
 
 
@@ -902,7 +845,10 @@ def summary_lines(tol: AxonTolerances, scalar_arc: Any = None, per_pair_arc: Any
                        ("per_pair", "t_ij = 1.96 sqrt(sigma_i^2 + sigma_j^2)")):
         if row[f"{rule}_T_obs"] is None:
             continue
-        role = "PRIMARY" if inp.primary_rule() == (RULE_SCALAR if rule == "scalar" else RULE_PER_PAIR) else "EXPLORATORY"
+        # decision D4: a scalar tau other than the pre-specified 31 nm is EXPLORATORY, whatever the rule's role
+        role = (scalar_tau_role(row["tau_scalar_nm"], inp) if rule == "scalar" else _role(RULE_PER_PAIR, inp)).upper()
+        if rule == "scalar" and role == "EXPLORATORY" and inp.primary_rule() == RULE_SCALAR:
+            name += f" (not the pre-specified tau_0 = {TAU_SCALAR_DERIVED_NM:g} nm)"
         z = row[f"{rule}_z_A"]
         out.append(f"   {role} {name}: T = {row[f'{rule}_T_obs']} matched, E = {row[f'{rule}_E_dir']:.3f} vs "
                    f"chance {row[f'{rule}_E_null']:.3f} (excess {row[f'{rule}_excess']:+.3f}), "
@@ -956,7 +902,21 @@ def _readouts() -> Tuple[Any, ...]:
                                 "calibrated).", origin="alpha 0.05 [ad hoc: conventional]"),
         ReadoutSpec("eclipse_primary_rule", kind="verdict", levels=rule_levels,
                     description="The rule called primary for this run."),
+        # decision D2 (tools/mps_eclipse_merged.py): what the arc test did with the merged-looking clusters
+        ReadoutSpec("eclipse_merged_handling", kind="verdict", levels=_merged_handlings(),
+                    description="What the arc test did with the merged-looking clusters: middle (one centre), split "
+                                "(the two halves of their two-means split) or exclude (left out of the matching).",
+                    origin="[own sim: docs/sims/eclipse_tolerance/merged_handling_sim.py; user decision D2a]"),
+        ReadoutSpec("eclipse_n_merged_split", kind="count",
+                    description="Merged-looking clusters that entered the arc test as two halves (rings input, "
+                                "handling split)."),
     )
+
+
+def _merged_handlings() -> Tuple[str, ...]:
+    # the levels of tools.mps_eclipse_merged.MERGED_HANDLINGS, written here because that module imports this one
+    # (a test checks they agree)
+    return ("middle", "split", "exclude")
 
 
 ECLIPSE_READOUTS: Tuple[str, ...] = (
@@ -964,7 +924,7 @@ ECLIPSE_READOUTS: Tuple[str, ...] = (
     "eclipse_rho_pooled_nm", "eclipse_rho_used_nm", "eclipse_rho_source", "eclipse_n_label_mean_hat",
     "eclipse_n_merged_suspect", "eclipse_sigma_c_source", "eclipse_n_ring_pairs", "eclipse_scalar_excess",
     "eclipse_scalar_z_a", "eclipse_scalar_p", "eclipse_per_pair_excess", "eclipse_per_pair_z_a", "eclipse_per_pair_p",
-    "eclipse_primary_rule")
+    "eclipse_primary_rule", "eclipse_merged_handling", "eclipse_n_merged_split")
 
 
 def _inputs_from_context(context: Any) -> ToleranceInputs:
@@ -1004,13 +964,19 @@ def _rings_readouts(run: Any, context: Any, inp: ToleranceInputs, rings_input: M
     tol = tolerances_from_rings(res, inp, seed=int(getattr(context, "seed", 0)))
     stub: Any = SimpleNamespace(include_suspect=True, tau0_nm=inp.tau_scalar_nm, random_seed=int(getattr(context, "seed", 0)))
     up = UnrollParams(n_null=int(getattr(context, "n_replicates", 199)))
+    # decision D2: the merged-looking clusters enter the test as the handling says (tools/mps_eclipse_merged.py)
+    from tools.mps_eclipse_merged import apply_merged_handling
+    mh = apply_merged_handling(res, tol, (getattr(context, "extras", {}) or {}).get("eclipse_merged_handling"))
+    excl = mh.exclude_clusters or None
     context.check_cancelled("eclipse: arc test")
-    scalar = analyze_arc_columns(res, stub, params=up, reference_curve="centroid_membrane")
+    scalar = analyze_arc_columns(mh.res, stub, params=up, reference_curve="centroid_membrane", exclude_clusters=excl)
     context.check_cancelled("eclipse: per-pair arc test")
-    per_pair = per_pair_arc_columns(res, stub, tol, params=up, reference_curve="centroid_membrane")
+    per_pair = analyze_arc_columns(mh.res, stub, params=up, reference_curve="centroid_membrane", exclude_clusters=excl,
+                                   pair_sigma_nm=mh.pair_sigma_nm, pair_k=inp.k_arc)
     row = axon_row(tol, scalar, per_pair, rings_input.get("pairs"))
     n_pairs = 0 if scalar.joint is None else len(scalar.joint.pairs)
-    return {"eclipse_n_ring_pairs": n_pairs, "eclipse_scalar_excess": row["scalar_excess"],
+    return {"eclipse_n_ring_pairs": n_pairs, "eclipse_merged_handling": mh.handling,
+            "eclipse_n_merged_split": mh.n_split, "eclipse_scalar_excess": row["scalar_excess"],
             "eclipse_scalar_z_a": row["scalar_z_A"], "eclipse_scalar_p": row["scalar_p_excess_uncalibrated"],
             "eclipse_per_pair_excess": row["per_pair_excess"], "eclipse_per_pair_z_a": row["per_pair_z_A"],
             "eclipse_per_pair_p": row["per_pair_p_excess_uncalibrated"]}
@@ -1022,7 +988,9 @@ def eclipse_analysis(run: Any, context: Any) -> Dict[str, Any]:
     (``run.analysis``: x_slab / y_slab and the kept labels), with events when ``context.extras["event_id"]`` holds
     the event id of every localization the analysis received (sliced with ``analysis.slab_index``), sigma_loc from
     ``extras["nena_nm"]`` and the inputs from ``extras["eclipse_inputs"]`` (a :class:`ToleranceInputs`, for the
-    calibrations). With ``extras["eclipse_rings_input"]`` (a mapping: x, y, z of the whole ROI in nm; optional
+    calibrations); ``extras["eclipse_merged_handling"]`` ("middle" / "split" / "exclude"; default
+    ``tools.mps_eclipse_merged.MERGED_HANDLING_DEFAULT``) says what the arc test does with merged-looking clusters
+    (decision D2). With ``extras["eclipse_rings_input"]`` (a mapping: x, y, z of the whole ROI in nm; optional
     frame, lp_lateral_nm, lpz_nm, n_frames, pixel_size_nm, columns_params, pairs) the rings are built with this
     method and the arc test runs under both rules; slow methods are refused unless ``allow_slow``.
     """

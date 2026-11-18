@@ -219,7 +219,7 @@ def test_analysis_exports_the_axial_mixture_columns(tmp_path: Any) -> None:
     from tools.axon_export import integration_columns
     n13 = len(integration_columns())               # v13: the clustering integration's block, last
     assert list(row)[:-n13][-len(tail):] == tail
-    assert row["table_version"] == TABLE_VERSION == "axon tables v14"  # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59, v10 Phase D, v11 F5
+    assert row["table_version"] == TABLE_VERSION == "axon tables v16"  # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59, v10 Phase D, v11 F5
     assert row["main_peak_mode"] == "density" and 0.0 <= row["slab_foreign_fraction"] <= 1.0
     assert all(describe(c) for c in AXIAL_MIXTURE_COLUMNS)
     assert known_columns()[:-n13][-len(tail):] == tail

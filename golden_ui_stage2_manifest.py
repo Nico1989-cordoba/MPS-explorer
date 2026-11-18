@@ -45,7 +45,10 @@ from golden_ui_stage2_compare import _diff, _load
 # analyze_axon (localization_frame; events_* filled from the window) and says "not run" in the methods_* cells;
 # feat/report-checklist adds the axon table v14 (nena_method, link_radius_nm, occupancy_arc_fraction_within_25nm).
 # Only the keyword has entries: the table cells fall inside B30's table-level entries, as B31's and B32's did.
-B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26", "B27", "B30", "B31", "B32", "B33"}
+# B34 = fix/core-batch-tanda1 (2026-10-29): the settings gain c_label and batch_null_closure, the Batch settings
+# null_closure; the axon table v15 (G1 failures, regularity_stage2_level, lpc by depth) falls inside B30's
+# table-level entries.
+B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26", "B27", "B30", "B31", "B32", "B33", "B34"}
 # The path ends where the compare tool's ": <first> != <second>" (or ": only in ...", ": n items vs m") begins: at
 # the first colon followed by a space. A key may hold a colon of its own ("other:_columns.csv").
 _PREFIX = re.compile(r"^(?P<cell>[^ ]+) / snapshots / (?P<snap>[^ /]+) / (?P<path>.*?)(?:: .*)?$")

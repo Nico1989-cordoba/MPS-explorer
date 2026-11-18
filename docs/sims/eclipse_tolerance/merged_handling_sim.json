@@ -1,0 +1,726 @@
+{
+ "cells": {
+  "f=0.0|rate=0.0": {
+   "exclude|per_pair": {
+    "mean_matched": 10.69,
+    "rate": 0.037,
+    "rejections": 37,
+    "wilson95": [
+     0.027,
+     0.0506
+    ]
+   },
+   "exclude|scalar31": {
+    "mean_matched": 10.21,
+    "rate": 0.044,
+    "rejections": 44,
+    "wilson95": [
+     0.0329,
+     0.0586
+    ]
+   },
+   "middle|per_pair": {
+    "mean_matched": 10.73,
+    "rate": 0.036,
+    "rejections": 36,
+    "wilson95": [
+     0.0261,
+     0.0494
+    ]
+   },
+   "middle|scalar31": {
+    "mean_matched": 10.24,
+    "rate": 0.044,
+    "rejections": 44,
+    "wilson95": [
+     0.0329,
+     0.0586
+    ]
+   },
+   "n_axons": 1000,
+   "n_null": 199,
+   "planted_flagged_share": null,
+   "planted_fusions": 0,
+   "single_flagged_share": 0.0015,
+   "split_vs_exclude|per_pair": {
+    "ci95": [
+     -0.0039,
+     0.0039
+    ],
+    "difference": 0.0,
+    "mcnemar_p": 1.0,
+    "n_a_only": 2,
+    "n_b_only": 2
+   },
+   "split_vs_exclude|scalar31": {
+    "ci95": [
+     0.0,
+     0.0
+    ],
+    "difference": 0.0,
+    "mcnemar_p": 1.0,
+    "n_a_only": 0,
+    "n_b_only": 0
+   },
+   "split_vs_middle|per_pair": {
+    "ci95": [
+     -0.001,
+     0.003
+    ],
+    "difference": 0.001,
+    "mcnemar_p": 1.0,
+    "n_a_only": 1,
+    "n_b_only": 0
+   },
+   "split_vs_middle|scalar31": {
+    "ci95": [
+     0.0,
+     0.0
+    ],
+    "difference": 0.0,
+    "mcnemar_p": 1.0,
+    "n_a_only": 0,
+    "n_b_only": 0
+   },
+   "split|per_pair": {
+    "mean_matched": 10.75,
+    "rate": 0.037,
+    "rejections": 37,
+    "wilson95": [
+     0.027,
+     0.0506
+    ]
+   },
+   "split|scalar31": {
+    "mean_matched": 10.27,
+    "rate": 0.044,
+    "rejections": 44,
+    "wilson95": [
+     0.0329,
+     0.0586
+    ]
+   },
+   "truth|per_pair": {
+    "mean_matched": 10.73,
+    "rate": 0.036,
+    "rejections": 36,
+    "wilson95": [
+     0.0261,
+     0.0494
+    ]
+   },
+   "truth|scalar31": {
+    "mean_matched": 10.24,
+    "rate": 0.044,
+    "rejections": 44,
+    "wilson95": [
+     0.0329,
+     0.0586
+    ]
+   }
+  },
+  "f=0.0|rate=0.1": {
+   "exclude|per_pair": {
+    "mean_matched": 12.43,
+    "rate": 0.03,
+    "rejections": 30,
+    "wilson95": [
+     0.0211,
+     0.0425
+    ]
+   },
+   "exclude|scalar31": {
+    "mean_matched": 9.09,
+    "rate": 0.027,
+    "rejections": 27,
+    "wilson95": [
+     0.0186,
+     0.039
+    ]
+   },
+   "middle|per_pair": {
+    "mean_matched": 13.52,
+    "rate": 0.025,
+    "rejections": 25,
+    "wilson95": [
+     0.017,
+     0.0366
+    ]
+   },
+   "middle|scalar31": {
+    "mean_matched": 9.95,
+    "rate": 0.024,
+    "rejections": 24,
+    "wilson95": [
+     0.0162,
+     0.0355
+    ]
+   },
+   "n_axons": 1000,
+   "n_null": 199,
+   "planted_flagged_share": 0.5038,
+   "planted_fusions": 5784,
+   "single_flagged_share": 0.0015,
+   "split_vs_exclude|per_pair": {
+    "ci95": [
+     -0.0175,
+     -0.0005
+    ],
+    "difference": -0.009,
+    "mcnemar_p": 0.06357,
+    "n_a_only": 5,
+    "n_b_only": 14
+   },
+   "split_vs_exclude|scalar31": {
+    "ci95": [
+     -0.0124,
+     0.0064
+    ],
+    "difference": -0.003,
+    "mcnemar_p": 0.67764,
+    "n_a_only": 10,
+    "n_b_only": 13
+   },
+   "split_vs_middle|per_pair": {
+    "ci95": [
+     -0.0132,
+     0.0052
+    ],
+    "difference": -0.004,
+    "mcnemar_p": 0.52347,
+    "n_a_only": 9,
+    "n_b_only": 13
+   },
+   "split_vs_middle|scalar31": {
+    "ci95": [
+     -0.0096,
+     0.0096
+    ],
+    "difference": 0.0,
+    "mcnemar_p": 1.0,
+    "n_a_only": 12,
+    "n_b_only": 12
+   },
+   "split|per_pair": {
+    "mean_matched": 14.57,
+    "rate": 0.021,
+    "rejections": 21,
+    "wilson95": [
+     0.0138,
+     0.0319
+    ]
+   },
+   "split|scalar31": {
+    "mean_matched": 10.79,
+    "rate": 0.024,
+    "rejections": 24,
+    "wilson95": [
+     0.0162,
+     0.0355
+    ]
+   },
+   "truth|per_pair": {
+    "mean_matched": 15.4,
+    "rate": 0.027,
+    "rejections": 27,
+    "wilson95": [
+     0.0186,
+     0.039
+    ]
+   },
+   "truth|scalar31": {
+    "mean_matched": 11.54,
+    "rate": 0.029,
+    "rejections": 29,
+    "wilson95": [
+     0.0203,
+     0.0413
+    ]
+   }
+  },
+  "f=0.0|rate=0.25": {
+   "exclude|per_pair": {
+    "mean_matched": 12.54,
+    "rate": 0.034,
+    "rejections": 34,
+    "wilson95": [
+     0.0244,
+     0.0471
+    ]
+   },
+   "exclude|scalar31": {
+    "mean_matched": 8.08,
+    "rate": 0.035,
+    "rejections": 35,
+    "wilson95": [
+     0.0253,
+     0.0483
+    ]
+   },
+   "middle|per_pair": {
+    "mean_matched": 14.99,
+    "rate": 0.03,
+    "rejections": 30,
+    "wilson95": [
+     0.0211,
+     0.0425
+    ]
+   },
+   "middle|scalar31": {
+    "mean_matched": 9.79,
+    "rate": 0.031,
+    "rejections": 31,
+    "wilson95": [
+     0.0219,
+     0.0437
+    ]
+   },
+   "n_axons": 1000,
+   "n_null": 199,
+   "planted_flagged_share": 0.5004,
+   "planted_fusions": 12522,
+   "single_flagged_share": 0.0017,
+   "split_vs_exclude|per_pair": {
+    "ci95": [
+     -0.0144,
+     0.0104
+    ],
+    "difference": -0.002,
+    "mcnemar_p": 0.87463,
+    "n_a_only": 19,
+    "n_b_only": 21
+   },
+   "split_vs_exclude|scalar31": {
+    "ci95": [
+     -0.016,
+     0.004
+    ],
+    "difference": -0.006,
+    "mcnemar_p": 0.32694,
+    "n_a_only": 10,
+    "n_b_only": 16
+   },
+   "split_vs_middle|per_pair": {
+    "ci95": [
+     -0.0087,
+     0.0127
+    ],
+    "difference": 0.002,
+    "mcnemar_p": 0.85554,
+    "n_a_only": 16,
+    "n_b_only": 14
+   },
+   "split_vs_middle|scalar31": {
+    "ci95": [
+     -0.012,
+     0.008
+    ],
+    "difference": -0.002,
+    "mcnemar_p": 0.84502,
+    "n_a_only": 12,
+    "n_b_only": 14
+   },
+   "split|per_pair": {
+    "mean_matched": 17.29,
+    "rate": 0.032,
+    "rejections": 32,
+    "wilson95": [
+     0.0228,
+     0.0448
+    ]
+   },
+   "split|scalar31": {
+    "mean_matched": 11.52,
+    "rate": 0.029,
+    "rejections": 29,
+    "wilson95": [
+     0.0203,
+     0.0413
+    ]
+   },
+   "truth|per_pair": {
+    "mean_matched": 19.23,
+    "rate": 0.033,
+    "rejections": 33,
+    "wilson95": [
+     0.0236,
+     0.046
+    ]
+   },
+   "truth|scalar31": {
+    "mean_matched": 13.31,
+    "rate": 0.043,
+    "rejections": 43,
+    "wilson95": [
+     0.0321,
+     0.0574
+    ]
+   }
+  },
+  "f=0.3|rate=0.0": {
+   "exclude|per_pair": {
+    "mean_matched": 15.39,
+    "rate": 0.574,
+    "rejections": 574,
+    "wilson95": [
+     0.5431,
+     0.6043
+    ]
+   },
+   "exclude|scalar31": {
+    "mean_matched": 14.92,
+    "rate": 0.6,
+    "rejections": 600,
+    "wilson95": [
+     0.5693,
+     0.6299
+    ]
+   },
+   "middle|per_pair": {
+    "mean_matched": 15.44,
+    "rate": 0.57,
+    "rejections": 570,
+    "wilson95": [
+     0.5391,
+     0.6004
+    ]
+   },
+   "middle|scalar31": {
+    "mean_matched": 14.97,
+    "rate": 0.603,
+    "rejections": 603,
+    "wilson95": [
+     0.5723,
+     0.6329
+    ]
+   },
+   "n_axons": 1000,
+   "n_null": 199,
+   "planted_flagged_share": null,
+   "planted_fusions": 0,
+   "single_flagged_share": 0.0019,
+   "split_vs_exclude|per_pair": {
+    "ci95": [
+     -0.0138,
+     0.0018
+    ],
+    "difference": -0.006,
+    "mcnemar_p": 0.21011,
+    "n_a_only": 5,
+    "n_b_only": 11
+   },
+   "split_vs_exclude|scalar31": {
+    "ci95": [
+     -0.0093,
+     0.0053
+    ],
+    "difference": -0.002,
+    "mcnemar_p": 0.79053,
+    "n_a_only": 6,
+    "n_b_only": 8
+   },
+   "split_vs_middle|per_pair": {
+    "ci95": [
+     -0.0093,
+     0.0053
+    ],
+    "difference": -0.002,
+    "mcnemar_p": 0.79053,
+    "n_a_only": 6,
+    "n_b_only": 8
+   },
+   "split_vs_middle|scalar31": {
+    "ci95": [
+     -0.0131,
+     0.0031
+    ],
+    "difference": -0.005,
+    "mcnemar_p": 0.33231,
+    "n_a_only": 6,
+    "n_b_only": 11
+   },
+   "split|per_pair": {
+    "mean_matched": 15.47,
+    "rate": 0.568,
+    "rejections": 568,
+    "wilson95": [
+     0.5371,
+     0.5984
+    ]
+   },
+   "split|scalar31": {
+    "mean_matched": 14.98,
+    "rate": 0.598,
+    "rejections": 598,
+    "wilson95": [
+     0.5673,
+     0.628
+    ]
+   },
+   "truth|per_pair": {
+    "mean_matched": 15.44,
+    "rate": 0.57,
+    "rejections": 570,
+    "wilson95": [
+     0.5391,
+     0.6004
+    ]
+   },
+   "truth|scalar31": {
+    "mean_matched": 14.97,
+    "rate": 0.603,
+    "rejections": 603,
+    "wilson95": [
+     0.5723,
+     0.6329
+    ]
+   }
+  },
+  "f=0.3|rate=0.1": {
+   "exclude|per_pair": {
+    "mean_matched": 15.7,
+    "rate": 0.362,
+    "rejections": 362,
+    "wilson95": [
+     0.3328,
+     0.3923
+    ]
+   },
+   "exclude|scalar31": {
+    "mean_matched": 13.27,
+    "rate": 0.496,
+    "rejections": 496,
+    "wilson95": [
+     0.4651,
+     0.5269
+    ]
+   },
+   "middle|per_pair": {
+    "mean_matched": 16.83,
+    "rate": 0.372,
+    "rejections": 372,
+    "wilson95": [
+     0.3426,
+     0.4024
+    ]
+   },
+   "middle|scalar31": {
+    "mean_matched": 14.17,
+    "rate": 0.489,
+    "rejections": 489,
+    "wilson95": [
+     0.4581,
+     0.52
+    ]
+   },
+   "n_axons": 1000,
+   "n_null": 199,
+   "planted_flagged_share": 0.4888,
+   "planted_fusions": 5702,
+   "single_flagged_share": 0.0018,
+   "split_vs_exclude|per_pair": {
+    "ci95": [
+     -0.0084,
+     0.0384
+    ],
+    "difference": 0.015,
+    "mcnemar_p": 0.2416,
+    "n_a_only": 79,
+    "n_b_only": 64
+   },
+   "split_vs_exclude|scalar31": {
+    "ci95": [
+     -0.0044,
+     0.0464
+    ],
+    "difference": 0.021,
+    "mcnemar_p": 0.12368,
+    "n_a_only": 95,
+    "n_b_only": 74
+   },
+   "split_vs_middle|per_pair": {
+    "ci95": [
+     -0.0189,
+     0.0289
+    ],
+    "difference": 0.005,
+    "mcnemar_p": 0.74327,
+    "n_a_only": 77,
+    "n_b_only": 72
+   },
+   "split_vs_middle|scalar31": {
+    "ci95": [
+     0.0013,
+     0.0547
+    ],
+    "difference": 0.028,
+    "mcnemar_p": 0.04744,
+    "n_a_only": 107,
+    "n_b_only": 79
+   },
+   "split|per_pair": {
+    "mean_matched": 17.95,
+    "rate": 0.377,
+    "rejections": 377,
+    "wilson95": [
+     0.3475,
+     0.4075
+    ]
+   },
+   "split|scalar31": {
+    "mean_matched": 15.14,
+    "rate": 0.517,
+    "rejections": 517,
+    "wilson95": [
+     0.486,
+     0.5478
+    ]
+   },
+   "truth|per_pair": {
+    "mean_matched": 18.77,
+    "rate": 0.384,
+    "rejections": 384,
+    "wilson95": [
+     0.3544,
+     0.4145
+    ]
+   },
+   "truth|scalar31": {
+    "mean_matched": 16.01,
+    "rate": 0.528,
+    "rejections": 528,
+    "wilson95": [
+     0.497,
+     0.5588
+    ]
+   }
+  },
+  "f=0.3|rate=0.25": {
+   "exclude|per_pair": {
+    "mean_matched": 14.86,
+    "rate": 0.227,
+    "rejections": 227,
+    "wilson95": [
+     0.2021,
+     0.254
+    ]
+   },
+   "exclude|scalar31": {
+    "mean_matched": 11.32,
+    "rate": 0.353,
+    "rejections": 353,
+    "wilson95": [
+     0.324,
+     0.3831
+    ]
+   },
+   "middle|per_pair": {
+    "mean_matched": 17.53,
+    "rate": 0.249,
+    "rejections": 249,
+    "wilson95": [
+     0.2232,
+     0.2767
+    ]
+   },
+   "middle|scalar31": {
+    "mean_matched": 13.16,
+    "rate": 0.347,
+    "rejections": 347,
+    "wilson95": [
+     0.3181,
+     0.377
+    ]
+   },
+   "n_axons": 1000,
+   "n_null": 199,
+   "planted_flagged_share": 0.4931,
+   "planted_fusions": 12546,
+   "single_flagged_share": 0.0018,
+   "split_vs_exclude|per_pair": {
+    "ci95": [
+     -0.0052,
+     0.0452
+    ],
+    "difference": 0.02,
+    "mcnemar_p": 0.14006,
+    "n_a_only": 93,
+    "n_b_only": 73
+   },
+   "split_vs_exclude|scalar31": {
+    "ci95": [
+     0.0104,
+     0.0636
+    ],
+    "difference": 0.037,
+    "mcnemar_p": 0.00795,
+    "n_a_only": 111,
+    "n_b_only": 74
+   },
+   "split_vs_middle|per_pair": {
+    "ci95": [
+     -0.026,
+     0.022
+    ],
+    "difference": -0.002,
+    "mcnemar_p": 0.93496,
+    "n_a_only": 74,
+    "n_b_only": 76
+   },
+   "split_vs_middle|scalar31": {
+    "ci95": [
+     0.0141,
+     0.0719
+    ],
+    "difference": 0.043,
+    "mcnemar_p": 0.00443,
+    "n_a_only": 131,
+    "n_b_only": 88
+   },
+   "split|per_pair": {
+    "mean_matched": 19.9,
+    "rate": 0.247,
+    "rejections": 247,
+    "wilson95": [
+     0.2213,
+     0.2747
+    ]
+   },
+   "split|scalar31": {
+    "mean_matched": 15.35,
+    "rate": 0.39,
+    "rejections": 390,
+    "wilson95": [
+     0.3602,
+     0.4206
+    ]
+   },
+   "truth|per_pair": {
+    "mean_matched": 21.9,
+    "rate": 0.245,
+    "rejections": 245,
+    "wilson95": [
+     0.2194,
+     0.2726
+    ]
+   },
+   "truth|scalar31": {
+    "mean_matched": 17.5,
+    "rate": 0.471,
+    "rejections": 471,
+    "wilson95": [
+     0.4402,
+     0.502
+    ]
+   }
+  }
+ },
+ "origin": "[own sim] docs/sims/eclipse_tolerance/merged_handling_sim.py",
+ "partner_nm": [
+  50.0,
+  100.0
+ ],
+ "scenario": "H1_mixed_ztp3",
+ "seed": 20261029,
+ "tau_nm": 31.0
+}

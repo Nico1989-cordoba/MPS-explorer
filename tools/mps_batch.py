@@ -174,6 +174,9 @@ class AxonRecord:
     # analysed here, or read back from a table (then every cell is text).
     row: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
+    # C3 / C4: the per-axon null once per closure the batch ran (tools.clustering_integration.null_closure_rows),
+    # written to <table>_null_by_closure.csv; empty without a null.
+    null_rows: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -259,6 +262,13 @@ class BatchSettings:
     cluster_method: str = "DBSCAN"
     cluster_params: Dict[str, Any] = field(default_factory=dict)
     cluster_methods_compared: List[str] = field(default_factory=list)
+    # The Working scale panel's c_label, from the settings (2026-10-29: the batch used 14 whatever the panel said).
+    # It reaches the DBSCAN rule, the events / eclipse / size plug-ins and the per-axon null of every file, and each
+    # row records it (c_label_used, c_label_source; null_c_label when a null ran).
+    c_label: float = 14.0
+    # C3 / C4: what the per-axon null is closed on ("n_locs", "k" or "both"; settings key batch_null_closure). With
+    # "both" the axon table's row carries the n_locs null (the default) and <table>_null_by_closure.csv both.
+    null_closure: str = "n_locs"
 
     @classmethod
     def from_settings(cls, settings: Any) -> "BatchSettings":
@@ -287,20 +297,35 @@ class BatchSettings:
                    else {},
                    cluster_method=str(getattr(settings, "cluster_method", "DBSCAN") or "DBSCAN"),
                    cluster_params=dict(getattr(settings, "cluster_params", {}) or {}),
-                   cluster_methods_compared=list(getattr(settings, "cluster_methods_compared", []) or []))
+                   cluster_methods_compared=list(getattr(settings, "cluster_methods_compared", []) or []),
+                   c_label=_settings_c_label(settings),
+                   null_closure=_settings_null_closure(settings))
 
 
     def describe(self) -> str:
         method = ("" if self.cluster_method == "DBSCAN"
                   else f"clustering method {self.cluster_method} {self.cluster_params}; ")
         return (f"{method}DBSCAN eps {self.eps_nm:g} nm, min samples "
-                f"{self.min_samples}; axial slab +/-"
+                f"{self.min_samples}; c_label {self.c_label:g} cycles per label; axial slab +/-"
                 f"{self.slab_half_width_nm:g} nm around the main peak, "
                 f"found per axon; Mahalanobis threshold "
                 f"{self.mahalanobis_threshold:g}; the clusters compared "
                 f"with {self.n_randomizations} randomized placements "
                 f"(band +/-{self.randomization_params.band_half_width_nm:g} nm, "
                 f"seed {self.random_seed}), as in the axon window")
+
+
+def _settings_null_closure(settings: Any) -> str:
+    """The settings' batch_null_closure ("n_locs" when missing or not a closure)."""
+    from tools.mps_settings import BATCH_NULL_CLOSURES
+    value = str(getattr(settings, "batch_null_closure", "n_locs") or "n_locs")
+    return value if value in BATCH_NULL_CLOSURES else "n_locs"
+
+
+def _settings_c_label(settings: Any) -> float:
+    """The c_label of the settings, validated as ``tools.mps_settings.clean_c_label`` does (14 when missing)."""
+    from tools.mps_settings import clean_c_label
+    return clean_c_label(getattr(settings, "c_label", 14.0))
 
 
 @dataclass
@@ -404,8 +429,21 @@ def plan_batch(root: str, pattern: str = "",
 # as not analysed, with the reason.
 BATCH_SLOW_METHODS = frozenset({"emitters_bagol_like"})
 SLOW_REFUSAL = ("not analysed: the saved clustering method, Emitters (BaGoL-like "
-                "reimplementation), is slow (minutes per axon); tick 'Slow methods "
-                "(Emitters)' in the batch window to run it")
+                "reimplementation), is slow (minutes per axon); tick 'Allow slow methods' "
+                "in the batch window to run it")
+# A2 (user decision 2026-10-23): every slow method (tools.method_costs.is_slow: Emitters, OPTICS, voronoi_csr) is
+# refused by the Batch unless 'Allow slow methods' is ticked -- not only Emitters (BATCH_SLOW_METHODS keeps naming
+# the methods that need the imaging buffer and the precisions).
+SLOW_METHOD_REFUSAL = ("not analysed: the saved clustering method, {label}, is slow (about {per} per axon); tick "
+                       "'Allow slow methods' in the batch window to run it")
+
+
+def slow_refusal_for(method: str) -> str:
+    """Why the Batch did not analyse a file saved with the slow ``method`` (A2)."""
+    if method in BATCH_SLOW_METHODS:
+        return SLOW_REFUSAL
+    from tools.method_costs import estimate_seconds, method_label, words_seconds
+    return SLOW_METHOD_REFUSAL.format(label=method_label(method), per=words_seconds(estimate_seconds([method], 4000)))
 
 
 def needs_emitters_buffer(settings: BatchSettings, allow_slow: bool,
@@ -505,7 +543,7 @@ def _file_nena(loc: Any) -> Tuple[Optional[float], str]:
 # The per-axon null in the batch (A9 sec. 5, regularity PR 4): off unless the batch window's box is ticked; a slow
 # method's null is refused unless 'Slow methods' is ticked too (open question A2); the regularity's stage 2 at the
 # pipeline level (P-R87 c).
-NULL_REFUSED_SLOW = "null not run: {label} is slow; tick 'Slow methods (Emitters)' to run its null too"
+NULL_REFUSED_SLOW = "null not run: {label} is slow; tick 'Allow slow methods' to run its null too"
 
 
 def analyse_file(item: BatchFile, settings: BatchSettings,
@@ -533,8 +571,9 @@ def analyse_file(item: BatchFile, settings: BatchSettings,
     """
     from tools.axon_export import axon_row
 
-    if settings.cluster_method in BATCH_SLOW_METHODS and not allow_slow:
-        return AxonRecord(source=item.path, identity=item.identity, error=SLOW_REFUSAL)
+    from tools.method_costs import is_slow as _is_slow
+    if (settings.cluster_method in BATCH_SLOW_METHODS or _is_slow(settings.cluster_method)) and not allow_slow:
+        return AxonRecord(source=item.path, identity=item.identity, error=slow_refusal_for(settings.cluster_method))
     loc, why = _load(item)
     if loc is None:
         return AxonRecord(source=item.path, identity=item.identity, error=why)
@@ -545,28 +584,75 @@ def analyse_file(item: BatchFile, settings: BatchSettings,
 
         nena, nena_words = _file_nena(loc)
         lpc = ci.locs_per_cycle_of(loc, nena)
+        # B3 (c): localizations per cycle by depth, the slab against the whole file (a diagnostic; the rule keeps
+        # the whole file's value)
+        from tools import lpc_depth
+        lpc_prof, lpc_why = None, ""
+        try:
+            lpc_prof = lpc_depth.lpc_depth_profile_of(loc, analysis, nena)
+        except ValueError as error:
+            lpc_why = f"not computed: {error}"
         null = None
+        by_closure: Dict[str, Any] = {}
         if int(null_replicates) > 0:
             run = ci.run_of(analysis, axon_id=item.path)
             if ci.is_slow(run.method) and not allow_slow:
                 null = ci.NullOutcome(key=run.key, method=run.method, params=dict(run.params), status="refused",
                                       message=NULL_REFUSED_SLOW.format(label=ci.method_label(run.method)))
             else:
-                null = ci.run_null_for(run, n_replicates=int(null_replicates), nena_nm=nena, seed=int(null_seed),
-                                       allow_slow=allow_slow, gap_stage2=ci.GAP_STAGE2_BATCH)
+                # C3 / C4: one null per closure asked for (the settings' batch_null_closure); the row carries the
+                # first (n_locs when it is among them), <table>_null_by_closure.csv every one
+                by_closure = ci.run_nulls_by_closure(
+                    run, closure=settings.null_closure, n_replicates=int(null_replicates), nena_nm=nena,
+                    seed=int(null_seed), allow_slow=allow_slow, gap_stage2=ci.GAP_STAGE2_BATCH,
+                    c_label=float(settings.c_label))
+                null = next(iter(by_closure.values()))
         integration = ci.axon_columns(analysis, nena_nm=nena, nena_source=nena_words, locs_per_cycle=lpc,
-                                      null=null)
+                                      null=null, c_label=float(settings.c_label), lpc_profile=lpc_prof,
+                                      lpc_profile_note=lpc_why)
         if null is not None and not null.ok:
             integration["null_type"] = f"none ({null.status}: {null.message})"
+        # finding (n), design review 2026-10-29: the methods block says why it is empty in a batch row; when the
+        # batch's own comparison runs, fill_methods_columns fills it at export (the comparison runs after the rows)
+        for name in METHODS_BLOCK:
+            if integration.get(name) == ci.METHODS_NOT_RUN:
+                integration[name] = BATCH_METHODS_NOT_RUN
         z_state = zcal.state_for(loc.info, zcal.store_entry(z_store,
                                                             item.path))
         row = axon_row(analysis, identity=item.identity,
                        z_calibration=zcal.export_columns(z_state),
                        eps_choice=settings.eps_choice, integration=integration)
+        null_rows = ci.null_closure_rows(row, by_closure) if by_closure else []
     except Exception as error:                        # noqa: BLE001
         return AxonRecord(source=item.path, identity=item.identity,
                           error=f"could not be analysed: {error}")
-    return AxonRecord(source=item.path, identity=item.identity, row=row)
+    return AxonRecord(source=item.path, identity=item.identity, row=row, null_rows=null_rows)
+
+
+NULL_BY_CLOSURE_SUFFIX = "_null_by_closure.csv"
+
+
+def write_null_by_closure(records: Sequence[AxonRecord], table_path: str) -> str:
+    """C3 / C4: ``<table>_null_by_closure.csv`` beside the axon table -- one row per axon x closure the batch's null
+    ran (column null_closure), the same columns for every closure; '' when no null ran. Never overwrites."""
+    from tools import clustering_integration as ci
+    from tools import multimethod as mm
+    rows = [r for rec in records if rec.ok for r in rec.null_rows]
+    if not rows:
+        return ""
+    base = os.path.splitext(table_path)[0]
+    return mm.write_rows_csv(base + NULL_BY_CLOSURE_SUFFIX, rows, ci.null_by_closure_columns())
+
+
+def null_cost_per_file(method: str, n_locs_slab: int, n_replicates: int, closure: str = "n_locs") -> float:
+    """Seconds of the per-axon null of one file before Run (C3 / C4: "both" is about twice "n_locs", and the K
+    closure adds its pipeline pilots), with stage 2 of the regularity at the pipeline level as the Batch runs it
+    (an upper bound: it runs only when stage 1 says "more regular"). A first estimate: the cost table's per-method
+    figure for a slab of ``n_locs_slab`` localizations (tools.mps_pipeline_null.estimated_seconds_per_replicate)."""
+    from types import SimpleNamespace
+    from tools import clustering_integration as ci
+    run: Any = SimpleNamespace(method=str(method), analysis=SimpleNamespace(n_locs_slab=int(n_locs_slab)))
+    return ci.null_estimate_seconds(run, int(n_replicates), closure, ci.GAP_STAGE2_BATCH)
 
 
 def run_batch(
@@ -828,10 +914,20 @@ def compare_methods(
                 on_done(_i, j)
 
         nena = None if loc is None else _file_nena(loc)[0]
-        runs = mm.run_methods(run_fn, list(methods), n_locs=n_locs, axon_id=item.path, allow_slow=allow_slow,
+        # finding (m), design review 2026-10-29: the comparison's axon_id held the file's full path; it is the axon
+        # table's own identity (tools.mps_identity.axon_id of the source's name and the selection), so the
+        # batch_methods_* rows join the axon table's rows
+        aid = _axon_id(item.path, describe_roi(None))
+        runs = mm.run_methods(run_fn, list(methods), n_locs=n_locs, axon_id=aid, allow_slow=allow_slow,
                               cancelled=cancelled, on_done=done, plan=plan)
         first = next((r.analysis for r in runs if r.ok), None)
-        extras = ci.comparison_extras(nena_nm=nena, analysis=first)
+        if first is not None:
+            own = _axon_id(first.source_name, describe_roi(first.roi))
+            if own != aid:                      # a selection the batch did not expect: the analysis' own wins
+                aid = own
+                for r in runs:
+                    r.axon_id = aid
+        extras = ci.comparison_extras(nena_nm=nena, analysis=first, c_label=float(settings.c_label))
         names = [n for n in chosen if n in ci.register_all_plugins()]
         try:
             long_rows = mm.apply_analyses(runs, names, allow_slow=allow_slow, cancelled=cancelled, extras=extras)
@@ -839,13 +935,14 @@ def compare_methods(
             long_rows = []
         if results_out is not None:
             results_out.append(ci.ComparisonResult(
-                axon_id=item.path, runs=runs, analyses=names, long_rows=long_rows,
+                axon_id=aid, runs=runs, analyses=names, long_rows=long_rows,
                 wide_rows=mm.wide_view(long_rows), agreement_rows=mm.pairwise_agreement(runs),
                 summary_rows=mm.conclusion_summary(long_rows)))
         for run in runs:
             an = run.analysis
             row: Dict[str, Any] = {c: None for c in COMPARISON_COLUMNS}
             row["source"] = item.path
+            row["axon_id"] = aid
             row["cluster_method"] = run.method if run.key in (run.method, mm.REFERENCE_KEY) else run.key
             row["cluster_params"] = _json.dumps(run.params, sort_keys=True)
             if an is not None:
@@ -862,6 +959,36 @@ def compare_methods(
                 row["error"] = run.error or ""
             rows.append(row)
     return rows
+
+
+METHODS_BLOCK: Tuple[str, ...] = ("methods_compared", "methods_long_file", "methods_depends_on_method")
+BATCH_METHODS_NOT_RUN = "not run (the Batch's 'Compare methods (slow)' box was not ticked)"
+BATCH_METHODS_NOT_REACHED = "not run (the Batch's comparison stopped before this file: cancelled or failed)"
+
+
+def fill_methods_columns(rows: Sequence[Dict[str, Any]], results: Sequence[Any], long_file: str = "") -> int:
+    """Fill the methods block (methods_compared, methods_depends_on_method, methods_long_file) of the batch's rows
+    from its own comparison (``compare_methods(..., results_out=...)``), as the axon window fills it from its last
+    'Compare methods...': the runs by the names the user knows (DBSCAN 25/10 first), the readouts whose verdict
+    changed with the method ('none'), and the long table's file name (``long_file``, '' = not written). Rows are
+    matched on axon_id (the comparison's is the axon table's own: finding m). A row whose file the comparison did
+    not reach says so. Returns the rows filled."""
+    from tools import clustering_integration as ci
+    if not results:
+        return 0
+    by_axon = {str(r.axon_id): r for r in results}
+    n = 0
+    for row in rows:
+        res = by_axon.get(str(row.get("axon_id") or ""))
+        if res is None:
+            for name in METHODS_BLOCK:
+                row[name] = BATCH_METHODS_NOT_REACHED
+            continue
+        row["methods_compared"] = "; ".join(res.labels.get(r.key, r.key) for r in res.runs)
+        row["methods_depends_on_method"] = "; ".join(res.depends_on_method()) or "none"
+        row["methods_long_file"] = os.path.basename(long_file) if long_file else ci.METHODS_TABLES_NOT_WRITTEN
+        n += 1
+    return n
 
 
 def write_methods_comparison_long(results: Sequence[Any], table_path: str) -> Dict[str, str]:
@@ -885,14 +1012,24 @@ def comparison_path(table_path: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(table_path)), COMPARISON_FILE)
 
 
-def write_methods_comparison(rows: Sequence[Dict[str, Any]], path: str) -> int:
-    """Write the comparison rows (COMPARISON_COLUMNS) to ``path``; returns the count."""
+def write_methods_comparison_file(rows: Sequence[Dict[str, Any]], path: str) -> str:
+    """Write the comparison rows (COMPARISON_COLUMNS) to ``path`` -- or, when a file is there already, to the first
+    free ``<stem>_2.csv``, ``<stem>_3.csv``, ... (``tools.results_table.free_path``: a second batch's comparison
+    never overwrites the first's; design review 2026-10-29). Returns the path written."""
     import csv
-    with open(path, "w", newline="", encoding="utf-8") as fh:
+    from tools.results_table import free_path
+    target = free_path(path)
+    with open(target, "x", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(COMPARISON_COLUMNS), extrasaction="ignore")
         w.writeheader()
         for r in rows:
             w.writerow({c: ("" if r.get(c) is None else r.get(c)) for c in COMPARISON_COLUMNS})
+    return target
+
+
+def write_methods_comparison(rows: Sequence[Dict[str, Any]], path: str) -> int:
+    """:func:`write_methods_comparison_file` (never overwrites); returns the count."""
+    write_methods_comparison_file(rows, path)
     return len(rows)
 
 
@@ -996,8 +1133,11 @@ def write_log(records: Sequence[AxonRecord], table_path: str,
             "analysis_id": record.row.get("analysis_id", ""),
             "n_warnings": record.row.get("n_warnings", ""),
             "logged_at": stamp})
-    out = log_path(table_path)
-    with open(out, "w", encoding="utf-8", newline="") as handle:
+    # never overwrite (design review 2026-10-29): a second batch exported to the same table used to replace the first
+    # batch's log, and with it the record of what became of those files; it now goes to <table>_batch_log_2.csv
+    from tools.results_table import free_path
+    out = free_path(log_path(table_path))
+    with open(out, "x", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=[
             "file", "status", "reason", "axon_id", "analysis_id",
             "n_warnings", "logged_at"])

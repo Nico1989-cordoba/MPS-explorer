@@ -20,6 +20,8 @@ sensitivity, which only exists for DBSCAN.
   :func:`nloc_nn_statistic` is the statistic, a pure function of an analysis; :func:`register_with_pipeline_null`
   adds it to ``tools.mps_pipeline_null``'s readouts; the ``"size"`` plug-in reads the null's p from
   ``context.extras`` (see :func:`pipeline_null_p`). Without a null the p is None, never the permutation's.
+  Question (b) has the same hook (decision E5a): ``tools.size_curvature_null.nloc_kappa_r_statistic`` registered
+  by :func:`register_with_pipeline_null` on the same null, read back as ``size_nloc_kappa_r_null_p``.
 
 ``context.extras`` keys read: ``nena_nm`` (the file's NeNA; events, pool), ``size_c_label`` (default 14),
 ``size_locs_per_event`` (default 2), ``pipeline_null_results`` ({run key: PipelineNullResult or mapping of
@@ -41,6 +43,7 @@ from scipy.spatial import cKDTree
 
 from tools import mps_apparent_size as asz
 from tools import mps_curvature as curv
+from tools import size_curvature_null as scn
 
 __all__ = [
     "SIZE_ANALYSIS", "SIZE_EPS_ANALYSIS", "EPS_SENSITIVITY_NM", "SIZE_CLUSTER_COLUMNS", "SIZE_READOUTS",
@@ -146,7 +149,7 @@ SIZE_READOUTS: Tuple[Tuple[str, str, str, str, Tuple[str, ...]], ...] = (
      "decision 3a", ()),
     ("size_cloud_sd_kappa_r_partial_spearman", "value", "Question (b) for an apparent estimator: cloud SD vs "
      "kappa R on the convex clusters, log N_loc partialled out.", "decision 6a", ()),
-)
+) + scn.READOUT_ROWS          # question (b) against the pipeline null (decision E5a): tools/size_curvature_null.py
 SIZE_EPS_READOUTS: Tuple[Tuple[str, str, str, str, Tuple[str, ...]], ...] = tuple(
     (f"size_nloc_nn_spearman_eps{int(e)}", "value", f"size_nloc_nn_spearman re-clustered with DBSCAN eps {e:g} nm "
      "(same min_samples, same curation). Empty for other methods.", "decision 9a", ())
@@ -193,14 +196,14 @@ def _eps_of(analysis: Any) -> Optional[float]:
 
 def size_analysis(analysis: Any, *, nena_nm: Optional[float] = None, seed: int = 0, curvature: bool = True,
                   c_label: float = asz.C_LABEL, locs_per_event: float = 2.0,
-                  exclude_event_fusion: bool = False) -> SizeAnalysis:
+                  exclude_event_fusion: bool = True, events_radius_in_nena: Optional[float] = None) -> SizeAnalysis:
     """The size analysis of one ``AxonAnalysis`` (any method). ``nena_nm``: the file's NeNA (events need it with
     the analysis' frames, the pool needs both). ``curvature``: fit the 400 nm membrane (needs >= 3 clusters); when
     it fails the frame falls back to the contour through the centroids and kappa is empty.
     ``exclude_event_fusion``: also leave out of the footprint pool the clusters the event layer marks as a
     probable fusion (events / c_label above ``tools.mps_events.FUSION_LABELS_THRESHOLD``), on top of the
-    elongation cut [provisional: open question E2 of the clustering integration -- with one label per cluster,
-    fusions passed the 1.5-labels filter in 3 of 12 simulated axons; the integration turns it on]."""
+    elongation cut [user decision E2, 2026-10-23 -- with one label per cluster, fusions passed the 1.5-labels
+    filter in 3 of 12 simulated axons; on by default since 2026-10-29, applied by tools.footprint_pool]."""
     x = np.asarray(analysis.x_slab, dtype=np.float64)
     y = np.asarray(analysis.y_slab, dtype=np.float64)
     labels = np.asarray(analysis.labels, dtype=np.int64)
@@ -212,7 +215,8 @@ def size_analysis(analysis: Any, *, nena_nm: Optional[float] = None, seed: int =
     n_events: Optional[Dict[int, int]] = None
     frames = getattr(analysis, "localization_frame_slab", None)
     if frames is not None and nena is not None and nena > 0 and keep.size:
-        n_events = asz.events_per_cluster(np.asarray(frames), x, y, lab_kept, nena)
+        n_events = asz.events_per_cluster(np.asarray(frames), x, y, lab_kept, nena,
+                                          radius_in_nena=events_radius_in_nena)
     elif keep.size:
         warnings.append("no frames or no NeNA: the content is counted in localizations, the footprint not computed")
     membrane: Optional[curv.CurvatureMembrane] = None
@@ -238,14 +242,12 @@ def size_analysis(analysis: Any, *, nena_nm: Optional[float] = None, seed: int =
     if membrane is not None and k:
         arc, kap, kr = membrane.at(sizes.centroid)
     excluded_pool = np.where(np.isfinite(sizes.elongation), sizes.elongation > asz.POOL_EXCLUDE_ELONGATION, False)
-    if exclude_event_fusion and sizes.has_events:
-        from tools.mps_events import fusion_flags
-        ev = np.asarray(sizes.n_events, dtype=np.float64)
-        _labels_est, fused = fusion_flags(np.where(np.isfinite(ev), ev, 0.0), float(c_label))
-        excluded_pool = excluded_pool | np.asarray(fused, dtype=bool)
+    # E2 (the event layer's probable fusions) is applied by the shared pool (tools.footprint_pool), with the same
+    # rule as the eclipse tolerance's
     pool = asz.pooled_footprint(sizes.sd_tangential, sizes.n_locs.astype(np.float64),
                                 sizes.n_events if sizes.has_events else None, nena, c_label=c_label,
-                                locs_per_event=locs_per_event, exclude=excluded_pool)
+                                locs_per_event=locs_per_event, exclude=excluded_pool,
+                                exclude_event_fusion=bool(exclude_event_fusion))
     return SizeAnalysis(sizes=sizes, membrane=membrane, arc_nm=np.asarray(arc, dtype=np.float64),
                         kappa_per_nm=np.asarray(kap, dtype=np.float64), kappa_r=np.asarray(kr, dtype=np.float64),
                         pool=pool, nena_nm=nena, eps_nm=_eps_of(analysis), warnings=warnings)
@@ -327,7 +329,8 @@ def _view_nloc_nn(view: Any) -> Optional[float]:
 
 
 # name -> statistic of an analysis; the names are the ``size_*`` readouts whose null p the "size" plug-in reports
-PIPELINE_NULL_STATISTICS: Dict[str, Callable[[Any], Optional[float]]] = {"size_nloc_nn_spearman": nloc_nn_statistic}
+PIPELINE_NULL_STATISTICS: Dict[str, Callable[[Any], Optional[float]]] = {
+    "size_nloc_nn_spearman": nloc_nn_statistic, scn.NULL_STATISTIC: scn.nloc_kappa_r_statistic}
 
 PipelineNullHook = Callable[[Any, Any, Mapping[str, Callable[[Any], Optional[float]]]], Mapping[str, Sequence[float]]]
 """``hook(run, context, statistics) -> {name: null values}``: re-run the run's method on ``context.n_replicates``
@@ -342,7 +345,8 @@ def register_with_pipeline_null(replace: bool = False) -> List[str]:
         "size_nloc_nn_spearman", _view_nloc_nn, "", needs_ring=False, two_sided=True,
         description="Spearman of localizations per cluster with the nearest-cluster distance (apparent-size "
                     "question (a); docs/apparent_size.md)"), replace=replace)
-    return ["size_nloc_nn_spearman"]
+    # question (b) on the SAME null replicates (decisions E5a, G3)
+    return ["size_nloc_nn_spearman"] + scn.register_with_pipeline_null(replace=replace)
 
 
 def _mc_p_two_sided(obs: float, null: Sequence[float]) -> Optional[float]:
@@ -381,8 +385,10 @@ def pipeline_null_p(run: Any, context: Any, name: str, observed: Optional[float]
 
 
 def axon_readouts(sa: SizeAnalysis, *, rng: Optional[np.random.Generator] = None,
-                  n_permutations: int = asz.N_PERMUTATIONS, null_p: Optional[float] = None) -> Dict[str, Any]:
-    """The per-axon ``size_*`` readouts of ``SIZE_READOUTS`` (None where not computable)."""
+                  n_permutations: int = asz.N_PERMUTATIONS, null_p: Optional[float] = None,
+                  curvature_null_p: Optional[float] = None) -> Dict[str, Any]:
+    """The per-axon ``size_*`` readouts of ``SIZE_READOUTS`` (None where not computable); ``null_p`` /
+    ``curvature_null_p`` the pipeline-null p of question (a) / (b)."""
     s = sa.sizes
     out: Dict[str, Any] = {r[0]: None for r in SIZE_READOUTS}
     out["size_n_clusters"] = s.n_clusters
@@ -430,6 +436,8 @@ def axon_readouts(sa: SizeAnalysis, *, rng: Optional[np.random.Generator] = None
         out["size_content_kappa_r_fisher_z"] = sc.content_z
         out["size_content_kappa_r_spearman_concave"] = sc.content_rho_concave
         out["size_cloud_sd_kappa_r_partial_spearman"] = sc.apparent_partial_rho
+        out[scn.NULL_STATISTIC] = scn.nloc_kappa_r_from_arrays(nl, sa.kappa_r)
+        out[scn.NULL_P_READOUT] = asz.as_float(curvature_null_p)
     else:
         out["size_curvature_verdict"] = curv.RESOLUTION_LEVELS[2]
     return out
@@ -447,11 +455,15 @@ def size_plugin(run: Any, context: Any) -> Dict[str, Any]:
     sa = size_analysis(run.analysis, nena_nm=ex.get("nena_nm"), seed=int(getattr(context, "seed", 0)),
                        c_label=float(ex.get("size_c_label", asz.C_LABEL)),
                        locs_per_event=float(ex.get("size_locs_per_event", 2.0)),
-                       exclude_event_fusion=bool(ex.get("size_exclude_event_fusion", False)))
+                       exclude_event_fusion=bool(ex.get("size_exclude_event_fusion", True)),
+                       events_radius_in_nena=ex.get("events_radius_in_nena"))
     rho = asz.spearman(sa.sizes.n_locs.astype(np.float64), sa.sizes.d_nn)[0] if sa.sizes.n_clusters else None
     p = pipeline_null_p(run, context, "size_nloc_nn_spearman", rho)
+    rho_b = (scn.nloc_kappa_r_from_arrays(sa.sizes.n_locs.astype(np.float64), sa.kappa_r)
+             if sa.membrane is not None else None)
+    p_b = pipeline_null_p(run, context, scn.NULL_STATISTIC, rho_b)
     rng = context.rng(run) if hasattr(context, "rng") else np.random.default_rng(0)
-    return axon_readouts(sa, rng=rng, null_p=p)
+    return axon_readouts(sa, rng=rng, null_p=p, curvature_null_p=p_b)
 
 
 def size_eps_plugin(run: Any, context: Any) -> Dict[str, Any]:
@@ -498,7 +510,7 @@ def register_with_multimethod(replace: bool = True) -> List[str]:
             if kind == "verdict":
                 kw["levels"] = levels
             if kind == "p_value":
-                kw["tests"] = "size_nloc_nn_spearman"
+                kw["tests"] = name.replace("_null_p", "_spearman")      # size_nloc_nn_*, size_nloc_kappa_r_*
             out.append(mm.ReadoutSpec(name, **kw))
         return out
 

@@ -187,7 +187,9 @@ def truth_merged(labels: NDArray[np.int64], truth: NDArray[np.int64], K: int) ->
 # --------------------------------------------------------------------------------------------- experiment 1
 def merged_experiment(n_axons: int, seed: int = SEED, scenarios: Sequence[str] = tuple(SCENARIOS)) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
-    inp = et.ToleranceInputs()
+    # the research's recipe: the pool without the event layer's fusion exclusion (user decision E2 came later and is
+    # tested on its own in test_core_tanda1.py; with 2+ labels per cluster it leaves too few clusters to pool)
+    inp = et.ToleranceInputs(exclude_event_fusion_from_pool=False)
     for si, name in enumerate(scenarios):
         scen = SCENARIOS[name]
         fp_single = n_single = tp = n_merged = 0
@@ -290,7 +292,8 @@ def rules_one_axon(rng: np.random.Generator, scen: Dict[str, Any], f: float, n_n
             groups[key] = [np.flatnonzero(lab == v) + off for v in ids.tolist()]
         else:
             groups[key] = [np.flatnonzero(R["truth"] == i) + off for i in range(R["K"])]
-    tol = et.axon_tolerances(x, y, groups, event_id=ev, centres_nm={0: [0.0, 0.0], 1: [0.0, 0.0]}, seed=seed)
+    tol = et.axon_tolerances(x, y, groups, event_id=ev, centres_nm={0: [0.0, 0.0], 1: [0.0, 0.0]}, seed=seed,
+                             inputs=et.ToleranceInputs(exclude_event_fusion_from_pool=False))   # research recipe
     arcs = {k: np.mod(np.arctan2(g.centroid_nm[:, 1], g.centroid_nm[:, 0]), 2 * np.pi) * R_NM
             for k, g in tol.groups.items()}
     out: Dict[str, Tuple[int, float]] = {}

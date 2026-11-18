@@ -349,6 +349,8 @@ def test_batch_window_does_not_start_without_the_buffer(monkeypatch, tmp_path):
     started = []
     monkeypatch.setattr(mb, "run_batch", lambda items, st, **kw: started.append(st))
     w.check_slow_methods.setChecked(True)
+    from tools import slow_confirm
+    monkeypatch.setattr(slow_confirm, "ANSWER", lambda _t: True)      # A2: the confirmation is answered here
     w.run(ask_buffer=lambda parent: None)
     assert started == [] and "imaging buffer" in w.label_status.text()
     assert w._thread is None or not w._thread.is_alive()

@@ -46,7 +46,7 @@
     "cluster_set_sha"
    ],
    "decisions_n_rows": 157,
-   "decisions_sha256": "c5695a75cb75b1aa3d8b008859a3cc3648b01af71419eeba8a0e3cb3c92ac621",
+   "decisions_sha256": "4073514b356ae992e7bc763dfed05c7ea8f5b6e1818b911049e47395c9414f74",
    "export_files": [
     "decisions.csv",
     "decisions_results.csv"
@@ -62,14 +62,14 @@
      "marginal_pairs": "0-1",
      "n_null": "19",
      "n_selected": "2",
-     "pair_p": "0-1:0.3;1-2:0.35",
+     "pair_p": "0-1:0.5;1-2:0.25",
      "primary_p_excess": "0.3",
      "primary_p_two_sided": "0.6",
-     "primary_z_A": "1.258347037248135",
+     "primary_z_A": "1.01418510567422",
      "selection_hash": "d9ebf7c1",
      "selection_label": "v2[peak,valley,count,leak:D-39]",
-     "sensitivity_p_excess": "0.25",
-     "sensitivity_z_A": "1.1266771806384377",
+     "sensitivity_p_excess": "0.5",
+     "sensitivity_z_A": "0.5437016844196624",
      "simnull_p": "",
      "source": "review",
      "viable_pairs": "1-2"
@@ -157,15 +157,15 @@
     "animal": "",
     "arcc_T_A": "",
     "arcc_knot_spacing_nm": "400.0",
-    "arcc_membrane_length_nm": "14301.598475140987",
+    "arcc_membrane_length_nm": "14293.944175724748",
     "arcc_p_A": "",
-    "arcc_p_excess_pair0": "0.3",
-    "arcc_p_excess_pair1": "0.35",
-    "arcc_pairs": "0-1: zeta +0.970, p_excess 0.3000 (marginal: sensitivity only) | 1-2: zeta +1.036, p_excess 0.3500",
+    "arcc_p_excess_pair0": "0.5",
+    "arcc_p_excess_pair1": "0.25",
+    "arcc_pairs": "0-1: zeta +0.146, p_excess 0.5000 (marginal: sensitivity only) | 1-2: zeta +1.046, p_excess 0.2500",
     "arcc_recipe": "cmX-k400-it2-L",
     "arcc_z_A": "",
-    "arcc_zeta_pair0": "0.9700534376881638",
-    "arcc_zeta_pair1": "1.0357278027840766",
+    "arcc_zeta_pair0": "0.14551503463554635",
+    "arcc_zeta_pair1": "1.0456500036075869",
     "arcl_p_A": "",
     "arcl_role": "diagnostic only (D-35c), known conservative bias: on simulated axons without leak the arc test on the localization membrane reads below the true curve (D-34b)",
     "arcl_z_A": "",
@@ -199,11 +199,11 @@
     "pair_verdicts": "0-1: marginal (expected leak copies 1.1 % > 0.862 % (marginal: sensitivity only)) | 1-2: viable",
     "primary_T_obs": "14",
     "primary_n_pairs": "1",
-    "primary_null_mean": "11.578947368421053",
+    "primary_null_mean": "12.0",
     "primary_p_excess_uncalibrated": "0.3",
     "primary_p_two_sided_uncalibrated": "0.6",
     "primary_pairs": "1-2",
-    "primary_z_A": "1.258347037248135",
+    "primary_z_A": "1.01418510567422",
     "program": "MPS Explorer (tools/mps_columns_window.py)",
     "protein": "",
     "registration": "",
@@ -211,15 +211,15 @@
     "roi": "",
     "roi_name": "",
     "rule_version": "lumen rule D-35(a) (2026-09-28)",
-    "run_warnings": "arc test (localization membrane, diagnostic): ring 1: 2 of 59 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching) | arc test (localization membrane, diagnostic): ring 2: 1 of 50 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching) | No widefield images: the lumen rule is isolation only (REMOVE = ISO_STRICT, D-35a), its completeness is not certified -- a lumen cluster shallower than ~600 nm or close to other clusters can stay (low sensitivity at 400-600 nm, D-34c). Review the doubtful clusters. | every statistic here is not calibrated for axial leak (H5-E)",
+    "run_warnings": "arc tests: 4 merged-looking cluster(s) entered as the two halves of their split (decision D2b, c_label 14) | arc test (localization membrane, diagnostic): ring 1: 2 of 61 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching) | arc test (localization membrane, diagnostic): ring 2: 2 of 50 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching) | No widefield images: the lumen rule is isolation only (REMOVE = ISO_STRICT, D-35a), its completeness is not certified -- a lumen cluster shallower than ~600 nm or close to other clusters can stay (low sensitivity at 400-600 nm, D-34c). Review the doubtful clusters. | every statistic here is not calibrated for axial leak (H5-E)",
     "sample": "",
-    "sensitivity_T_obs": "28",
+    "sensitivity_T_obs": "27",
     "sensitivity_n_pairs": "2",
-    "sensitivity_null_mean": "24.05263157894737",
-    "sensitivity_p_excess_uncalibrated": "0.25",
-    "sensitivity_p_two_sided_uncalibrated": "0.5",
+    "sensitivity_null_mean": "25.263157894736842",
+    "sensitivity_p_excess_uncalibrated": "0.5",
+    "sensitivity_p_two_sided_uncalibrated": "1.0",
     "sensitivity_pairs": "0-1 1-2",
-    "sensitivity_z_A": "1.1266771806384377",
+    "sensitivity_z_A": "0.5437016844196624",
     "simnull_reproduces_set": "True",
     "source": "sim_marginal.npz",
     "species": "mouse",
@@ -227,14 +227,15 @@
     "viability_rule": "viability rule v2: cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), localizations >= f_min of the reference ring, expected leak copies within the pair's tolerance",
     "viable_pairs": "1-2"
    },
-   "results_text": "Results on the cleaned rings (run finished HH:MM:SS, S s, null size 19)\n!  Every statistic here is not calibrated for axial leak (H5-E); every p here is NOT calibrated: the H5-E calibration of the simulated null was closed as not accepted (D-41, Q-33).\n\nRing-pair viability (viability rule v2: cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), localizations >= f_min of the reference ring, expected leak copies within the pair's tolerance)\n   pair 0-1: !  MARGINAL (sensitivity only) -- expected leak copies 1.1 % > 0.862 % (marginal: sensitivity only)\n   pair 1-2: ok  VIABLE\n\nCleaning (lumen rule D-35(a) (2026-09-28), isolation only: no widefield):\n   0 removed by the rule, 1 doubtful, 0 changed by hand; 0 of 157 clusters removed in total.\n   Clusters per ring: before 48/59/50, after 48/59/50.\n\nArc test on the centroid membrane (cmX-k400-it2-L) -- PRIMARY (D-35c), VIABLE pairs only\n   PRIMARY: viable pairs, joint z_A, pairs 1-2: T = 14 matched (null mean 11.58), z_A = +1.258, p_excess = 0.3000 (not calibrated), two-sided p = 0.6000 (not calibrated)\n   SENSITIVITY: viable + marginal pairs, joint z_A, pairs 0-1 1-2: T = 28 matched (null mean 24.05), z_A = +1.127, p_excess = 0.2500 (not calibrated), two-sided p = 0.5000 (not calibrated)\n   membrane length 14,302 nm, knots 400 nm, tau 31.0 nm, rings [0, 1, 2]\n   pair 0-1: zeta +0.970, p_excess 0.3000 (not calibrated), 14 matched of K 48 / 59  [marginal: sensitivity only]\n   pair 1-2: zeta +1.036, p_excess 0.3500 (not calibrated), 14 matched of K 59 / 50\n   Eclipse tolerance (P-R61; docs/eclipse_tolerance.md):\n   footprint not identifiable (1.58 labels per cluster on average (< 2): the footprint is not identifiable): 25 nm used (upper bound), 0 nm in the sensitivity -- a decision, not a measurement\n   c_label not calibrated: sigma_c from the preset 14 events per label\n   PRIMARY tau = 31.0 nm: T = 28 matched, E = 0.286 vs chance 0.246 (excess +0.040), z_A = +1.127, p_excess = 0.2500 (not calibrated)\n   scalar tau from this axon's own centre errors (2.77 x median sigma_c): 40.7 nm\n\n2D test (pre-specified, D-24) -- SENSITIVITY (D-29a), selected pairs only\n   tau_0 31.0 nm\n   (its joint z_A over every pair is shown only when all of them are VIABLE; here not all are)\n   pair 0-1: zeta +0.548, p_excess 0.4000 (not calibrated), 3 matched of K 48 / 59  [marginal: sensitivity only]\n   pair 1-2: zeta -0.789, p_excess 0.9000 (not calibrated), 1 matched of K 59 / 50\n\nArc test on the localization membrane -- DIAGNOSTIC only, selected pairs only\n   (diagnostic only (D-35c), known conservative bias: on simulated axons without leak the arc test on the localization membrane reads below the true curve (D-34b))\n   (its joint z_A over every pair is shown only when all of them are VIABLE; here not all are)\n   pair 0-1: zeta +0.334, p_excess 0.4500 (not calibrated), 12 matched of K 48 / 59  [marginal: sensitivity only]\n   pair 1-2: zeta +1.949, p_excess 0.0500 (not calibrated), 17 matched of K 59 / 50\n\nNotes of the cleaning and the analyses (2; all in the warnings list):\n   - arc test (localization membrane, diagnostic): ring 1: 2 of 59 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)\n   - arc test (localization membrane, diagnostic): ring 2: 1 of 50 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
+   "results_text": "Results on the cleaned rings (run finished HH:MM:SS, S s, null size 19)\n!  Every statistic here is not calibrated for axial leak (H5-E); every p here is NOT calibrated: the H5-E calibration of the simulated null was closed as not accepted (D-41, Q-33).\n\nRing-pair viability (viability rule v2: cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), localizations >= f_min of the reference ring, expected leak copies within the pair's tolerance)\n   pair 0-1: !  MARGINAL (sensitivity only) -- expected leak copies 1.1 % > 0.862 % (marginal: sensitivity only)\n   pair 1-2: ok  VIABLE\n\nCleaning (lumen rule D-35(a) (2026-09-28), isolation only: no widefield):\n   0 removed by the rule, 1 doubtful, 0 changed by hand; 0 of 157 clusters removed in total.\n   Clusters per ring: before 48/59/50, after 48/59/50.\n\nArc test on the centroid membrane (cmX-k400-it2-L) -- PRIMARY (D-35c), VIABLE pairs only\n   PRIMARY: viable pairs, joint z_A, pairs 1-2: T = 14 matched (null mean 12.00), z_A = +1.014, p_excess = 0.3000 (not calibrated), two-sided p = 0.6000 (not calibrated)\n   SENSITIVITY: viable + marginal pairs, joint z_A, pairs 0-1 1-2: T = 27 matched (null mean 25.26), z_A = +0.544, p_excess = 0.5000 (not calibrated), two-sided p = 1.0000 (not calibrated)\n   membrane length 14,294 nm, knots 400 nm, tau 31.0 nm, rings [0, 1, 2]\n   pair 0-1: zeta +0.146, p_excess 0.5000 (not calibrated), 13 matched of K 50 / 61  [marginal: sensitivity only]\n   pair 1-2: zeta +1.046, p_excess 0.2500 (not calibrated), 14 matched of K 61 / 50\n   Eclipse tolerance (P-R61; docs/eclipse_tolerance.md):\n   footprint not identifiable (1.42 labels per cluster (events / c_label) < 1.5: the footprint is not identifiable, only the content): 25 nm used (upper bound), 0 nm in the sensitivity -- a decision, not a measurement\n   c_label not calibrated: sigma_c from the preset 14 events per label\n   PRIMARY tau = 31.0 nm: T = 27 matched, E = 0.270 vs chance 0.253 (excess +0.017), z_A = +0.544, p_excess = 0.5000 (not calibrated)\n   scalar tau from this axon's own centre errors (2.77 x median sigma_c): 42.6 nm\n\n2D test (pre-specified, D-24) -- SENSITIVITY (D-29a), selected pairs only\n   tau_0 31.0 nm\n   (its joint z_A over every pair is shown only when all of them are VIABLE; here not all are)\n   pair 0-1: zeta +0.548, p_excess 0.4000 (not calibrated), 3 matched of K 48 / 59  [marginal: sensitivity only]\n   pair 1-2: zeta -0.789, p_excess 0.9000 (not calibrated), 1 matched of K 59 / 50\n\nArc test on the localization membrane -- DIAGNOSTIC only, selected pairs only\n   (diagnostic only (D-35c), known conservative bias: on simulated axons without leak the arc test on the localization membrane reads below the true curve (D-34b))\n   (its joint z_A over every pair is shown only when all of them are VIABLE; here not all are)\n   pair 0-1: zeta -0.485, p_excess 0.8500 (not calibrated), 11 matched of K 50 / 61  [marginal: sensitivity only]\n   pair 1-2: zeta +1.291, p_excess 0.1500 (not calibrated), 16 matched of K 61 / 50\n\nNotes of the cleaning and the analyses (2; all in the warnings list):\n   - arc test (localization membrane, diagnostic): ring 1: 2 of 61 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)\n   - arc test (localization membrane, diagnostic): ring 2: 2 of 50 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
    "simnull_enabled": true,
    "simnull_tooltip": "Optional: a p of this axon against a SIMULATED null (power_columns.py simnull, in a separate process with progress and Cancel), restricted to the pairs rule v2 selects in the observed axon and in every simulated one.\n\nIt is NOT calibrated: the H5-E calibration of the simulated null was closed as not accepted (D-41, Q-33). It takes minutes (the measurement of the axon, then each simulated axon).",
    "viability_label": "Ring-pair viability (rule v2, D-41): ok  1 VIABLE pair(s): the column analysis runs on them; 1 MARGINAL (sensitivity only).",
    "warnings": [
     "!  lumen rule: 0 cluster(s) removed automatically, 1 doubtful (kept unless removed by hand), 0 vetoed by the interior",
-    "!  run: arc test (localization membrane, diagnostic): ring 1: 2 of 59 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
-    "!  run: arc test (localization membrane, diagnostic): ring 2: 1 of 50 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
+    "!  run: arc tests: 4 merged-looking cluster(s) entered as the two halves of their split (decision D2b, c_label 14)",
+    "!  run: arc test (localization membrane, diagnostic): ring 1: 2 of 61 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
+    "!  run: arc test (localization membrane, diagnostic): ring 2: 2 of 50 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
     "!  run: No widefield images: the lumen rule is isolation only (REMOVE = ISO_STRICT, D-35a); its completeness is not certified -- a lumen cluster shallower than ~600 nm or close to other clusters can stay (low sensitivity at 400-600 nm, D-34c). Review the doubtful clusters.",
     "!  run: every statistic here is not calibrated for axial leak (H5-E)"
    ]
@@ -285,7 +286,7 @@
     "cluster_set_sha"
    ],
    "decisions_n_rows": 194,
-   "decisions_sha256": "a56e5ecd03856a1eeb8be6db12b9b6ab21dda54a3ad02ba04f71412272f617b3",
+   "decisions_sha256": "3d844ea6723a5efa5644c953aa1808c02e6639d6c8c37a25e20013ab3f781c6f",
    "export_files": [
     "decisions.csv"
    ],
@@ -349,7 +350,7 @@
     "cluster_set_sha"
    ],
    "decisions_n_rows": 156,
-   "decisions_sha256": "bde0d29f17d90250d442ed1bdc7929801fafd6a87c31f0d9660348a247bc4518",
+   "decisions_sha256": "ed3cd73b9379d27ed0d69d9128d1a8146bf34df68075dd3ce8884bb465cdc8b1",
    "export_files": [
     "decisions.csv",
     "decisions_results.csv"
@@ -460,7 +461,7 @@
     "animal": "",
     "arcc_T_A": "0.015311004784688984",
     "arcc_knot_spacing_nm": "400.0",
-    "arcc_membrane_length_nm": "14238.000512721432",
+    "arcc_membrane_length_nm": "14238.000512721475",
     "arcc_p_A": "1.0",
     "arcc_p_excess_pair0": "0.55",
     "arcc_p_excess_pair1": "0.25",
@@ -530,7 +531,7 @@
     "viability_rule": "viability rule v2: cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), localizations >= f_min of the reference ring, expected leak copies within the pair's tolerance",
     "viable_pairs": "0-1 1-2"
    },
-   "results_text": "Results on the cleaned rings (run finished HH:MM:SS, S s, null size 19)\n!  Every statistic here is not calibrated for axial leak (H5-E); every p here is NOT calibrated: the H5-E calibration of the simulated null was closed as not accepted (D-41, Q-33).\n\nRing-pair viability (viability rule v2: cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), localizations >= f_min of the reference ring, expected leak copies within the pair's tolerance)\n   pair 0-1: ok  VIABLE\n   pair 1-2: ok  VIABLE\n\nCleaning (lumen rule D-35(a) (2026-09-28), isolation only: no widefield):\n   0 removed by the rule, 0 doubtful, 0 changed by hand; 0 of 156 clusters removed in total.\n   Clusters per ring: before 44/57/55, after 44/57/55.\n\nArc test on the centroid membrane (cmX-k400-it2-L) -- PRIMARY (D-35c), VIABLE pairs only\n   PRIMARY: viable pairs, joint z_A, pairs 0-1 1-2: T = 25 matched (null mean 23.37), z_A = +0.334, p_excess = 0.5000 (not calibrated), two-sided p = 1.0000 (not calibrated)\n   membrane length 14,238 nm, knots 400 nm, tau 31.0 nm, rings [0, 1, 2]\n   pair 0-1: zeta +0.307, p_excess 0.5500 (not calibrated), 11 matched of K 44 / 57\n   pair 1-2: zeta +0.809, p_excess 0.2500 (not calibrated), 14 matched of K 57 / 55\n   Eclipse tolerance (P-R61; docs/eclipse_tolerance.md):\n   footprint not identifiable (1.49 labels per cluster on average (< 2): the footprint is not identifiable): 25 nm used (upper bound), 0 nm in the sensitivity -- a decision, not a measurement\n   c_label not calibrated: sigma_c from the preset 14 events per label\n   PRIMARY tau = 31.0 nm: T = 25 matched, E = 0.252 vs chance 0.237 (excess +0.015), z_A = +0.334, p_excess = 0.5000 (not calibrated)\n   scalar tau from this axon's own centre errors (2.77 x median sigma_c): 40.8 nm\n\n2D test (pre-specified, D-24) -- SENSITIVITY (D-29a), selected pairs only\n   tau_0 31.0 nm\n   JOINT: every pair VIABLE, joint z_A, pairs 0-1 1-2: T = 4 matched (null mean 3.74), z_A = +0.125, p_excess = 0.5000 (not calibrated), two-sided p = 1.0000 (not calibrated)\n   pair 0-1: zeta -0.774, p_excess 0.9000 (not calibrated), 1 matched of K 44 / 57\n   pair 1-2: zeta -0.259, p_excess 0.7500 (not calibrated), 3 matched of K 57 / 55\n\nArc test on the localization membrane -- DIAGNOSTIC only, selected pairs only\n   (diagnostic only (D-35c), known conservative bias: on simulated axons without leak the arc test on the localization membrane reads below the true curve (D-34b))\n   JOINT: every pair VIABLE, joint z_A, pairs 0-1 1-2: T = 25 matched (null mean 23.58), z_A = +0.332, p_excess = 0.4000 (not calibrated), two-sided p = 0.8000 (not calibrated)\n   pair 0-1: zeta +1.025, p_excess 0.3000 (not calibrated), 12 matched of K 44 / 57\n   pair 1-2: zeta +1.512, p_excess 0.1000 (not calibrated), 13 matched of K 57 / 55\n\nNotes of the cleaning and the analyses (1; all in the warnings list):\n   - arc test (localization membrane, diagnostic): ring 1: 1 of 57 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
+   "results_text": "Results on the cleaned rings (run finished HH:MM:SS, S s, null size 19)\n!  Every statistic here is not calibrated for axial leak (H5-E); every p here is NOT calibrated: the H5-E calibration of the simulated null was closed as not accepted (D-41, Q-33).\n\nRing-pair viability (viability rule v2: cluster-robust SiZer peak + valley (h 0.10 P, alpha 0.05), localizations >= f_min of the reference ring, expected leak copies within the pair's tolerance)\n   pair 0-1: ok  VIABLE\n   pair 1-2: ok  VIABLE\n\nCleaning (lumen rule D-35(a) (2026-09-28), isolation only: no widefield):\n   0 removed by the rule, 0 doubtful, 0 changed by hand; 0 of 156 clusters removed in total.\n   Clusters per ring: before 44/57/55, after 44/57/55.\n\nArc test on the centroid membrane (cmX-k400-it2-L) -- PRIMARY (D-35c), VIABLE pairs only\n   PRIMARY: viable pairs, joint z_A, pairs 0-1 1-2: T = 25 matched (null mean 23.37), z_A = +0.334, p_excess = 0.5000 (not calibrated), two-sided p = 1.0000 (not calibrated)\n   membrane length 14,238 nm, knots 400 nm, tau 31.0 nm, rings [0, 1, 2]\n   pair 0-1: zeta +0.307, p_excess 0.5500 (not calibrated), 11 matched of K 44 / 57\n   pair 1-2: zeta +0.809, p_excess 0.2500 (not calibrated), 14 matched of K 57 / 55\n   Eclipse tolerance (P-R61; docs/eclipse_tolerance.md):\n   footprint not identifiable (1.43 labels per cluster (events / c_label) < 1.5: the footprint is not identifiable, only the content): 25 nm used (upper bound), 0 nm in the sensitivity -- a decision, not a measurement\n   c_label not calibrated: sigma_c from the preset 14 events per label\n   PRIMARY tau = 31.0 nm: T = 25 matched, E = 0.252 vs chance 0.237 (excess +0.015), z_A = +0.334, p_excess = 0.5000 (not calibrated)\n   scalar tau from this axon's own centre errors (2.77 x median sigma_c): 42.6 nm\n\n2D test (pre-specified, D-24) -- SENSITIVITY (D-29a), selected pairs only\n   tau_0 31.0 nm\n   JOINT: every pair VIABLE, joint z_A, pairs 0-1 1-2: T = 4 matched (null mean 3.74), z_A = +0.125, p_excess = 0.5000 (not calibrated), two-sided p = 1.0000 (not calibrated)\n   pair 0-1: zeta -0.774, p_excess 0.9000 (not calibrated), 1 matched of K 44 / 57\n   pair 1-2: zeta -0.259, p_excess 0.7500 (not calibrated), 3 matched of K 57 / 55\n\nArc test on the localization membrane -- DIAGNOSTIC only, selected pairs only\n   (diagnostic only (D-35c), known conservative bias: on simulated axons without leak the arc test on the localization membrane reads below the true curve (D-34b))\n   JOINT: every pair VIABLE, joint z_A, pairs 0-1 1-2: T = 25 matched (null mean 23.58), z_A = +0.332, p_excess = 0.4000 (not calibrated), two-sided p = 0.8000 (not calibrated)\n   pair 0-1: zeta +1.025, p_excess 0.3000 (not calibrated), 12 matched of K 44 / 57\n   pair 1-2: zeta +1.512, p_excess 0.1000 (not calibrated), 13 matched of K 57 / 55\n\nNotes of the cleaning and the analyses (1; all in the warnings list):\n   - arc test (localization membrane, diagnostic): ring 1: 1 of 57 usable cluster(s) have no unique projection on the localization membrane (reported, kept in the matching)",
    "simnull_enabled": true,
    "simnull_tooltip": "Optional: a p of this axon against a SIMULATED null (power_columns.py simnull, in a separate process with progress and Cancel), restricted to the pairs rule v2 selects in the observed axon and in every simulated one.\n\nIt is NOT calibrated: the H5-E calibration of the simulated null was closed as not accepted (D-41, Q-33). It takes minutes (the measurement of the axon, then each simulated axon).",
    "viability_label": "Ring-pair viability (rule v2, D-41): ok  2 VIABLE pair(s): the column analysis runs on them.",
@@ -542,7 +543,7 @@
    ]
   }
  },
- "commit": "feat/eclipse-tolerance",
+ "commit": "feat/ui-tanda2",
  "demo_cases": {
   "marginal": [
    "circle",
@@ -560,7 +561,7 @@
    0.3
   ]
  },
- "how": "UI stage 1 golden of the columns review at the pre-specified tau_0, captured twice on the clean feat/columns-tau at dd62d5a (identical after normalization). For each SIMULATED demo of tools.mps_zquality_window.DEMO_CASES (viable, marginal, none): npz = batch_columns.write_simulated_input(<WORK>/sim_<name>.npz, *DEMO_CASES[name]); launcher = mcw.start_columns_review(zw.inputs_from_npz(npz), n_null=19); launcher.wait(); w = launcher.window; w.wait_viability(); default selection (selection_state().reset()); w.start_run(); wait until idle; record the fields of 'cases' (header_label, viability_label, results_text(), selection_counter_label text + isVisible, leak_banner.isVisible, warnings_list, simnull_button isEnabled + toolTip, export_tables(<WORK>/export_<name>/decisions.csv, duplicates='append'): the results row and header, the decision rows' sha256 (json.dumps(rows, sort_keys=True) of the rows read back with csv.DictReader), the exploration-log rows of the axon). MPS_SELECTION_LOG_DIR and every file in a temporary work folder. The windows are opened one after the other in one process (one session). Normalization: see 'normalization'. Simulated axons only: no path, no measured number. RE-CAPTURED on 2026-10-22 on feat/eclipse-tolerance (P-R61) when the pre-specified tau_0 became the derived 31 nm (it had been a pilot-derived value) and, because the viability's copy tolerance follows tau_0, the 'marginal' demo's leak scale moved from 0.6 to 0.55 (at 0.6 its pair 0-1 is NOT VIABLE at 31 nm); same procedure, captured twice, identical after normalization.",
+ "how": "UI stage 1 golden of the columns review at the pre-specified tau_0, captured twice on the clean feat/columns-tau at dd62d5a (identical after normalization). For each SIMULATED demo of tools.mps_zquality_window.DEMO_CASES (viable, marginal, none): npz = batch_columns.write_simulated_input(<WORK>/sim_<name>.npz, *DEMO_CASES[name]); launcher = mcw.start_columns_review(zw.inputs_from_npz(npz), n_null=19); launcher.wait(); w = launcher.window; w.wait_viability(); default selection (selection_state().reset()); w.start_run(); wait until idle; record the fields of 'cases' (header_label, viability_label, results_text(), selection_counter_label text + isVisible, leak_banner.isVisible, warnings_list, simnull_button isEnabled + toolTip, export_tables(<WORK>/export_<name>/decisions.csv, duplicates='append'): the results row and header, the decision rows' sha256 (json.dumps(rows, sort_keys=True) of the rows read back with csv.DictReader), the exploration-log rows of the axon). MPS_SELECTION_LOG_DIR and every file in a temporary work folder. The windows are opened one after the other in one process (one session). Normalization: see 'normalization'. Simulated axons only: no path, no measured number. RE-CAPTURED on 2026-10-22 on feat/eclipse-tolerance (P-R61) when the pre-specified tau_0 became the derived 31 nm (it had been a pilot-derived value) and, because the viability's copy tolerance follows tau_0, the 'marginal' demo's leak scale moved from 0.6 to 0.55 (at 0.6 its pair 0-1 is NOT VIABLE at 31 nm); same procedure, captured twice, identical after normalization. RE-CAPTURED on 2026-11-07 on feat/ui-tanda2 (interface batch): H-ECL's two arc tests now enter the merged-looking clusters as the two halves of their 2-means split (user decision D2b, as the eclipse plug-in since 2026-10-29) with the settings' c_label (14 in these demos); only 'marginal' has merged-looking clusters (4), so only its arc-test lines, results row, warnings and log row change. decisions_sha256 of the three demos and the last digits of 'viable''s membrane length are environmental drift (the base c251c8a gives the same values on this machine today). Same procedure; checked by recapture_tau_golden.py (only the expected fields and lines).",
  "n_null": 19,
  "normalization": [
   "'(run finished HH:MM:SS, S s,' and '(checked HH:MM:SS, S s;' replace the clock time and the seconds",

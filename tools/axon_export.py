@@ -138,7 +138,23 @@ PROGRAM_VERSION = "MPS Explorer 2026.09"
 # A version of its own although v13 was never merged: a v13 table written
 # during the manual test of the integration must not be taken for one with
 # these columns. No earlier column moved.
-TABLE_VERSION = "axon tables v14"
+# v15 (2026-10-29, headless fixes after the design review): a block at the
+# very end of the integration block, after v14's three
+# (tools.clustering_integration.v15_columns): the null's failed replicates
+# and every p without them (G1 c), how the regularity's stage 2 was run
+# (regularity_stage2_level: centres in the window, pipeline in the Batch),
+# and the localizations-per-cycle diagnostics by depth (B3 c); then, from the
+# validations D2 / E5 (merged in the same v15): the size question (b) on the
+# same null (its p_mc_, null_median_ and p_mc_*_ignoring_failed) and the
+# plug-in readouts eclipse_merged_handling, eclipse_n_merged_split,
+# size_nloc_kappa_r_spearman, size_nloc_kappa_r_null_p. No earlier column moved.
+# v16 (2026-11-07, the interface batch): six columns at the very end, after
+# v15's (tools.clustering_integration.V16_COLUMNS): lpc_rule_radius_nena and
+# radii_exploratory (B1: both linking radii editable in 'Working scale', the
+# export says which radius each used), null_membrane and the membrane
+# deformation indicator (C2: the null's membrane is DBSCAN 25/10's centroid
+# curve by default, the localizations as an option). No earlier column moved.
+TABLE_VERSION = "axon tables v16"
 from tools.emitters_layer import EMITTERS_COLUMNS  # noqa: E402  (v11 block; tools.emitters_layer)
 
 CLUSTER_METHOD_COLUMNS: Tuple[str, ...] = (

@@ -785,6 +785,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
             s.experimental_methods_enabled = bool(values["experimental_methods_enabled"])
         if "cluster_methods_compared" in values:
             s.cluster_methods_compared = [str(m) for m in values["cluster_methods_compared"]]
+        # The Working scale panel's c_label (2026-10-29): kept with the other settings, so the next session and
+        # the Batch use the value the user typed (the Batch used 14 whatever the panel said).
+        c_label_edited = "c_label" in values
+        if c_label_edited:
+            s.c_label = float(values["c_label"])
         if "slab_half_width_nm" in values:
             s.slab_half_width_nm = float(values["slab_half_width_nm"])
         if "mahalanobis_threshold" in values:
@@ -807,7 +812,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                                 else SlabChoice())
         s.validate()
         self._render_mirrors()
-        if values.get("reset"):
+        if values.get("reset") or c_label_edited:
+            # an edited c_label runs nothing, so nothing else would save it before the window closes
             save_settings(s)
         changed = (not self._z_range_user_edited
                    and (float(s.slab_half_width_nm), self.slab_choice) != before)
@@ -3922,7 +3928,52 @@ class MPS_explorer(QtWidgets.QMainWindow):
             nn_bins=int(DEFAULT_KNN_BINS),
             nn_range=(0.0, float(MAX_LATERAL_DISTANCE_NM)),
             nena=self._file_nena,
-            rule_inputs=self._file_locs_per_cycle)
+            rule_inputs=self._file_locs_per_cycle,
+            c_label=lambda: float(self.mps_settings.c_label),
+            rule_inputs_at=self._file_locs_per_cycle_at,
+            lpc_depth=self._lpc_depth_for)
+
+    def _file_locs_per_cycle_at(self, radius_in_nena: Optional[float]) -> Optional[Any]:
+        """B1 (2026-11-07): the whole file's localizations per cycle at the radius typed in 'Working scale' (None:
+        the rule's 3 sqrt(2) NeNA, the cached value), measured once per file and radius."""
+        from tools import clustering_integration as ci
+        if radius_in_nena is None or abs(float(radius_in_nena) - ci.LPC_RULE_RADIUS_IN_NENA) < 1e-9:
+            return self._file_locs_per_cycle()
+        loc = self.locs1
+        nena = self._file_rule_inputs()[0]
+        if loc is None:
+            return None
+        key = (id(loc), int(np.asarray(loc.x_nm).size), float(radius_in_nena), nena)
+        cache = getattr(self, "_lpc_radius_cache", {})
+        if key not in cache:
+            try:
+                cache = {key: ci.locs_per_cycle_of(loc, nena, radius_in_nena=float(radius_in_nena))}
+            except Exception:                          # noqa: BLE001 - the rule's labelled fallback
+                cache = {key: None}
+            self._lpc_radius_cache = cache
+        return cache[key]
+
+    def _lpc_depth_for(self, analysis: Any, radius_in_nena: Optional[float] = None) -> Tuple[Optional[Any], str]:
+        """B3 (c) in the axon window (2026-11-07): the localizations per cycle by depth of the loaded file for the
+        slab of ``analysis`` (tools.lpc_depth, the Batch's own computation), at the rule's radius or the one typed in
+        'Working scale'; (profile or None, why empty). Cached per file, slab, NeNA and radius."""
+        from tools import lpc_depth
+        loc = self.locs1
+        if loc is None or analysis is None:
+            return None, "no file loaded"
+        nena = self._file_rule_inputs()[0]
+        key = (id(loc), int(np.asarray(loc.x_nm).size), float(analysis.slab_zmin_nm), float(analysis.slab_zmax_nm),
+               nena, None if radius_in_nena is None else float(radius_in_nena))
+        cached = getattr(self, "_lpc_depth_cache", (None, None))
+        if cached[0] == key:
+            return cached[1]
+        try:
+            kw = {} if radius_in_nena is None else {"radius_in_nena": float(radius_in_nena)}
+            value: Tuple[Optional[Any], str] = (lpc_depth.lpc_depth_profile_of(loc, analysis, nena, **kw), "")
+        except ValueError as error:
+            value = (None, f"not computed: {error}")
+        self._lpc_depth_cache = (key, value)
+        return value
 
     def _file_rule_inputs(self) -> Tuple[Optional[float], str, Optional[Any]]:
         """The loaded channel-1 file's NeNA (the pick session's whole-field value when one is stored, else this
@@ -3973,7 +4024,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
             cols: Optional[Dict[str, Any]] = w.integration_columns()
             return cols
         nena, words, lpc = self._file_rule_inputs()
-        return ci.axon_columns(measured, nena_nm=nena, nena_source=words, locs_per_cycle=lpc)
+        return ci.axon_columns(measured, nena_nm=nena, nena_source=words, locs_per_cycle=lpc,
+                               c_label=float(self.mps_settings.c_label))
 
     @staticmethod
     def _roi_words(shape: Optional[Any]) -> str:
@@ -4381,7 +4433,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
             roi_text=describe_roi(self._applied_roi_shape),
             pixel_size_nm=pixel, pixel_size_source=pixel_source,
             widefield=widefield, widefield_note=note,
-            identity=self.current_identity)
+            identity=self.current_identity,
+            # the settings' c_label for the arc tests' merged-cluster mark (the interface batch, 2026-11-07)
+            c_label=float(self.mps_settings.c_label))
         return inputs
 
     def open_columns_review(self) -> Optional[Any]:

@@ -78,7 +78,8 @@ SIGMA_LINK_NM = 10.0
 # Blinks per label stack [lit: Dempsey et al. 2011, MEA; provisional, decision D1; 26 (beta-ME) as sensitivity].
 C_LABEL = 14.0
 # Mean labels per cluster (events / c_label) from which the footprint pool is identifiable [simulation: SIZE_SIM
-# sec. 8.2 "extra" and the pool code: below 1.5 the footprint is not measurable, only the content].
+# sec. 8.2 "extra" and the pool code: below 1.5 the footprint is not measurable, only the content]. The pool itself
+# is tools.footprint_pool's since 2026-10-29 (one definition with the eclipse tolerance, finding q).
 IDENTIFIABLE_LABELS = 1.5
 # Elongation above which a cluster is left out of the footprint pool (a probable fusion) [simulation:
 # docs/sims/apparent_size/size_probes.py, probe "footprint_pool": with DBSCAN eps 25 / 10 and 2-3 labels, keeping
@@ -87,9 +88,9 @@ IDENTIFIABLE_LABELS = 1.5
 # what the simulation computed (it excluded the true fusions, which the program cannot know)]. Separate from
 # ELONGATION_FLAG on purpose: a flag is a mark for the reader, this is a cut that changes a number.
 POOL_EXCLUDE_ELONGATION = 2.5
-# Fewest clusters the pool is computed from [ad hoc: the simulation's code; a variance pooled over < 5 clusters is
-# not a number to report].
-POOL_MIN_CLUSTERS = 5
+# Fewest clusters the pool is computed from [ad hoc: tools.footprint_pool.MIN_POOL_CLUSTERS, 10 -- the stricter of
+# the two modules' ad hoc values (this one's was 5, the simulation's code), finding q, 2026-10-29].
+POOL_MIN_CLUSTERS = 10
 # Mark permutations of the diagnostic [lit: Davison & Hinkley 1997 / the user's decision of 199 replicates (A9,
 # P-R78)].
 N_PERMUTATIONS = 199
@@ -163,13 +164,16 @@ def _curve_tangents(curve: NDArray[np.float64]) -> Tuple[NDArray[np.float64], cK
 
 
 def events_per_cluster(frame: NDArray[np.int64], x: NDArray[np.float64], y: NDArray[np.float64],
-                       labels: NDArray[np.int64], nena_nm: float) -> Dict[int, int]:
+                       labels: NDArray[np.int64], nena_nm: float,
+                       radius_in_nena: Optional[float] = None) -> Dict[int, int]:
     """Events (blinks linked in time: radius 3 NeNA, 1 dark frame, decision D5) of every cluster of ``labels``, by
     ``tools.mps_events.cluster_events`` (the event layer A3). Labels already set to -1 are not counted."""
     from tools import mps_events
     ce = mps_events.cluster_events(np.asarray(frame), np.asarray(x, dtype=np.float64),
                                    np.asarray(y, dtype=np.float64), np.asarray(labels, dtype=np.int64),
-                                   nena_nm=float(nena_nm))
+                                   nena_nm=float(nena_nm),
+                                   radius_in_nena=(mps_events.LINK_RADIUS_IN_NENA if radius_in_nena is None
+                                                   else float(radius_in_nena)))
     return {int(c): int(n) for c, n in zip(ce.cluster_ids, ce.n_events)}
 
 
@@ -320,67 +324,16 @@ def cluster_sizes(x: NDArray[np.float64], y: NDArray[np.float64], labels: NDArra
 
 
 # ---------------------------------------------------------------------------------------------------- the pool
-_SW2_CACHE: Dict[Tuple[float, float, float], Tuple[NDArray[np.int64], NDArray[np.float64]]] = {}
-_LAMBDA_GRID: Tuple[float, ...] = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
-_EVENT_EDGES = np.array([1, 4, 7, 10, 14, 18, 22, 27, 33, 40, 50, 60, 75, 90, 110, 140, 180, 250, 10 ** 9],
-                        dtype=np.int64)
-
-
-def _sw2_table(lam: float, c_label: float, locs_per_event: float, draws: int = 100000
-               ) -> Tuple[NDArray[np.int64], NDArray[np.float64]]:
-    """E[sum w^2 | events] by bins of events, for a zero-truncated Poisson label prior of rate ``lam``: w_m is the
-    share of the cluster's localizations that label m gave (P-R61 sec. 2.2). Monte Carlo with a fixed seed
-    (deterministic), cached."""
-    key = (float(lam), float(c_label), float(locs_per_event))
-    if key in _SW2_CACHE:
-        return _SW2_CACHE[key]
-    rng = np.random.default_rng(np.random.SeedSequence([20261015, int(round(lam * 100)), int(round(c_label))]))
-    if lam <= 0:
-        nl = np.ones(draws, dtype=np.int64)
-    else:
-        nl = np.zeros(draws, dtype=np.int64)
-        todo = np.ones(draws, dtype=bool)
-        while todo.any():
-            idx = np.flatnonzero(todo)
-            kk = rng.poisson(lam, idx.size)
-            nl[idx] = kk
-            todo[idx[kk > 0]] = False
-    tot_ev = np.zeros(draws)
-    tot_loc = np.zeros(draws)
-    sq = np.zeros(draws)
-    for j in range(int(nl.max())):
-        has = nl > j
-        evs = rng.geometric(1.0 / c_label, int(has.sum()))
-        locs = evs + rng.negative_binomial(evs, 1.0 / locs_per_event)
-        tot_ev[has] += evs
-        tot_loc[has] += locs
-        sq[has] += locs.astype(np.float64) ** 2
-    sw2 = sq / tot_loc ** 2
-    b = np.searchsorted(_EVENT_EDGES, tot_ev, side="right") - 1
-    table = np.array([sw2[b == i].mean() if np.any(b == i) else np.nan for i in range(_EVENT_EDGES.size - 1)])
-    _SW2_CACHE[key] = (_EVENT_EDGES, table)
-    return _EVENT_EDGES, table
-
-
 def sum_w2_given_events(n_events: NDArray[np.float64], c_label: float = C_LABEL,
                         locs_per_event: float = 2.0) -> NDArray[np.float64]:
     """Plug-in E[sum w^2 | events] of each cluster, the label prior's rate taken from the mean events per cluster
-    (P-R61 sec. 3.2). ``locs_per_event`` [ad hoc: 2, the project's simulator; the measured value of the event layer
-    can be passed]."""
+    (P-R61 sec. 3.2), from the shared table of ``tools.footprint_pool`` (2026-10-29; this module's own copy, with a
+    lambda grid from 0, is retired)."""
+    from tools import footprint_pool as fp
     ev = np.asarray(n_events, dtype=np.float64).reshape(-1)
     mean_ev = float(np.mean(ev)) if ev.size else c_label
-    lam_eff = max(1.0, mean_ev / c_label)
-    lam_hat = min(_LAMBDA_GRID, key=lambda v: abs((v / (1 - math.exp(-v)) if v > 0 else 1.0) - lam_eff))
-    edges, table = _sw2_table(lam_hat, c_label, locs_per_event)
-    out = np.empty(ev.size)
-    finite = np.flatnonzero(np.isfinite(table))
-    for i, e in enumerate(ev):
-        b = int(np.clip(np.searchsorted(edges, int(e), side="right") - 1, 0, table.size - 1))
-        v = table[b]
-        if not np.isfinite(v):
-            v = table[finite[np.argmin(np.abs(finite - b))]]
-        out[i] = float(v)
-    return out
+    lam = fp.lambda_from_mean_labels(max(1.0, mean_ev / c_label))
+    return fp.sum_w2_given_events(ev, c_label, lam, locs_per_event)
 
 
 @dataclass
@@ -399,67 +352,31 @@ class FootprintPool:
     c_label: float = C_LABEL
 
 
-def _pool_value(s_t: NDArray[np.float64], n_loc: NDArray[np.float64], sw2: NDArray[np.float64], sigma_loc: float,
-                sigma_link: float) -> float:
-    num = float(np.sum((s_t ** 2 - sigma_loc ** 2) * (n_loc - 1) / n_loc))
-    den = float(np.sum(1.0 - sw2))
-    if den <= 0:
-        return float("nan")
-    r2 = 4.0 * (num / den - sigma_link ** 2)
-    return math.sqrt(r2) if r2 > 0 else 0.0
-
-
 def pooled_footprint(sd_tangential: NDArray[np.float64], n_locs: NDArray[np.float64],
                      n_events: Optional[NDArray[np.float64]], nena_nm: Optional[float], *,
                      sigma_link_nm: float = SIGMA_LINK_NM, c_label: float = C_LABEL, locs_per_event: float = 2.0,
                      exclude: Optional[NDArray[np.bool_]] = None, min_clusters: int = POOL_MIN_CLUSTERS,
-                     identifiable_labels: float = IDENTIFIABLE_LABELS) -> FootprintPool:
-    """The axon's footprint by the method of moments (P-R61 sec. 3.2):
+                     identifiable_labels: float = IDENTIFIABLE_LABELS,
+                     exclude_event_fusion: bool = True) -> FootprintPool:
+    """The axon's footprint by the method of moments (P-R61 sec. 3.2), by the ONE definition the eclipse tolerance
+    uses too (``tools.footprint_pool.footprint_pool``; finding q of the design review, 2026-10-29):
 
         sigma_L^2 = sum_i (s_t,i^2 - sigma_loc^2) (N_i - 1) / N_i  /  sum_i (1 - E[sum w^2 | events_i])
         rho^2     = 4 (sigma_L^2 - sigma_link^2)
 
-    with s_t the SD of each cluster ALONG the membrane, sigma_loc the file's NeNA and sigma_link the linkage. It is
-    the root-mean-square footprint of the axon's clusters (a mixture returns sqrt(mean rho^2)). Not computed (a
-    reason instead) without events, without a NeNA, without the tangential frame, with fewer than
-    ``min_clusters`` usable clusters, or when mean events / c_label < ``identifiable_labels`` ("content only": with
-    ~1 label per cluster the footprint is not in the data). ``exclude``: clusters left out (the plug-in leaves out
-    elongation > ``POOL_EXCLUDE_ELONGATION``, the program's proxy of the fused clusters the simulation excluded). The standard error
-    is the delete-one jackknife over clusters [lit: Efron & Tibshirani 1993, ch. 11]. Ignores NeNA as covariate on
-    purpose: the pool already deconvolves it (decision 6a)."""
-    if n_events is None or nena_nm is None or not (math.isfinite(float(nena_nm)) and float(nena_nm) > 0):
-        why = "no events (frames) or no NeNA: the footprint needs both"
-        return FootprintPool(None, None, None, 0, REGIME_LEVELS[2], why, None, sigma_link_nm, c_label)
-    s_t = np.asarray(sd_tangential, dtype=np.float64).reshape(-1)
-    nl = np.asarray(n_locs, dtype=np.float64).reshape(-1)
-    ev = np.asarray(n_events, dtype=np.float64).reshape(-1)
-    ok = np.isfinite(s_t) & (nl > 1) & np.isfinite(ev)
-    if exclude is not None:
-        ok &= ~np.asarray(exclude, dtype=bool).reshape(-1)
-    n_ok = int(ok.sum())
-    if not np.isfinite(s_t).any():
-        return FootprintPool(None, None, None, 0, REGIME_LEVELS[2], "no tangential SD (no membrane curve)",
-                             float(nena_nm), sigma_link_nm, c_label)
-    if n_ok < int(min_clusters):
-        return FootprintPool(None, None, None, n_ok, REGIME_LEVELS[2],
-                             f"{n_ok} usable clusters (fewer than {int(min_clusters)})", float(nena_nm),
-                             sigma_link_nm, c_label)
-    labels_hat = max(1.0, float(ev[ok].mean()) / float(c_label))
-    if labels_hat < float(identifiable_labels):
-        return FootprintPool(None, None, labels_hat, n_ok, REGIME_LEVELS[1],
-                             f"{labels_hat:.2f} labels per cluster (events / c_label) < {identifiable_labels:g}: the "
-                             "footprint is not identifiable, only the content", float(nena_nm), sigma_link_nm, c_label)
-    sw2 = sum_w2_given_events(ev[ok], c_label, locs_per_event)
-    sig = float(nena_nm)
-    rho = _pool_value(s_t[ok], nl[ok], sw2, sig, sigma_link_nm)
-    if not math.isfinite(rho):
-        return FootprintPool(None, None, labels_hat, n_ok, REGIME_LEVELS[2], "degenerate pool (sum of 1 - sum w^2 <= 0)",
-                             sig, sigma_link_nm, c_label)
-    jk = np.array([_pool_value(np.delete(s_t[ok], i), np.delete(nl[ok], i), np.delete(sw2, i), sig, sigma_link_nm)
-                   for i in range(n_ok)])
-    jk = jk[np.isfinite(jk)]
-    se = math.sqrt((jk.size - 1) / jk.size * float(np.sum((jk - jk.mean()) ** 2))) if jk.size >= 2 else None
-    return FootprintPool(float(rho), se, labels_hat, n_ok, REGIME_LEVELS[0], "", sig, sigma_link_nm, c_label)
+    with s_t the SD of each cluster ALONG the membrane, sigma_loc the file's NeNA and sigma_link the linkage. Not
+    computed (a reason instead) without events, without a NeNA, without the tangential frame, with fewer than
+    ``min_clusters`` usable clusters, or when mean events / c_label of the pooled clusters < ``identifiable_labels``
+    ("content only"). ``exclude``: the caller's fusion proxy (the plug-in: elongation > ``POOL_EXCLUDE_ELONGATION``);
+    ``exclude_event_fusion``: also leave out the event layer's probable fusions (user decision E2, on). Standard
+    error: delete-one jackknife [lit: Efron & Tibshirani 1993, ch. 11]. Ignores NeNA as covariate on purpose: the
+    pool already deconvolves it (decision 6a)."""
+    from tools import footprint_pool as fp
+    p = fp.footprint_pool(sd_tangential, n_locs, n_events, nena_nm, sigma_link_nm=sigma_link_nm, c_label=c_label,
+                          locs_per_event=locs_per_event, exclude=exclude, exclude_event_fusion=exclude_event_fusion,
+                          min_clusters=min_clusters, identifiable_labels=identifiable_labels)
+    return FootprintPool(p.rho_nm, p.se_nm, p.labels_per_cluster, int(p.n_used), p.verdict, p.reason,
+                         p.sigma_loc_nm, float(sigma_link_nm), float(c_label))
 
 
 # ---------------------------------------------------------------------------------------------------- statistics

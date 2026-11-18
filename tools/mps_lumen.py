@@ -1747,6 +1747,21 @@ class CleanedAnalyses:
     n_null: int = 0
     leak_note: str = LEAK_NOT_CALIBRATED_NOTE
     arc_localization_note: str = ""
+    # The interface batch (2026-11-07): what the two arc tests did with merged-looking clusters (decision D2b, as the
+    # rest of the program: "split" by default, tools.mps_eclipse_merged) and the c_label the merged-cluster mark and
+    # the footprint read (MPSSettings.c_label; 14 [lit: Dempsey et al. 2011, MEA] when none is given). ``arc_rings``
+    # are the rings the arc tests ran on (``rings`` with each split cluster as its two halves; None = ``rings``):
+    # the arc tests' cluster indices point into them, the 2D test's into ``rings``.
+    merged_handling: str = "middle"
+    n_merged_split: int = 0
+    c_label: float = 14.0
+    arc_rings: Optional[RingsResult] = None
+
+    def rings_of(self, test: str) -> RingsResult:
+        """The rings whose cluster indices ``test`` ("arc" or "2d") reports."""
+        if test == "arc" and self.arc_rings is not None:
+            return self.arc_rings
+        return self.rings
 
 
 def _cleaning_notes(before: RingsResult, after: RingsResult) -> List[str]:
@@ -1790,8 +1805,16 @@ def run_cleaned_analyses(
     n_null: Optional[int] = None,
     lpz_nm: Optional[NDArray[np.float64]] = None,
     progress: Optional[Callable[[str, float], None]] = None,
+    c_label: Optional[float] = None,
+    merged_handling: Optional[str] = None,
 ) -> CleanedAnalyses:
     """
+    ``c_label`` (None: 14) and ``merged_handling`` (None: ``tools.mps_eclipse_merged.MERGED_HANDLING_DEFAULT``,
+    "split", decision D2b) set what the two arc tests do with merged-looking clusters: the clusters the
+    merged-cluster criterion marks (``tools.mps_eclipse_tolerance.tolerances_from_rings`` with this c_label) enter
+    both arc tests as the two halves of their 2-means split, as in every other eclipse test of the program (the
+    interface batch, 2026-11-07); the 2D test keeps the cleaned rings.
+
     The ring analyses of one axon on the clusters the decisions keep -- the
     job of the review window's re-run button, meant for a worker thread (it
     touches no Qt object and reads ``decisions`` once, at the start):
@@ -1851,12 +1874,16 @@ def run_cleaned_analyses(
     warnings_.extend(_cleaning_notes(res, rings))
     cols_stub: Any = SimpleNamespace(include_suspect=True, tau0_nm=float(cp.tau0_nm), random_seed=int(cp.random_seed))
     uparams = UnrollParams(n_null=n_rep)
+    c_lab = 14.0 if c_label is None else float(c_label)
+    say("Merged-looking clusters for the arc tests (decision D2b)", 0.06)
+    arc_rings, handling, n_split, excl = _arc_rings(rings, c_lab, merged_handling, warnings_)
     arc_c: Optional[ArcColumnsResult] = None
     arc_l: Optional[ArcColumnsResult] = None
     cols: Optional[AxonColumnsResult] = None
     say("Arc test on the centroid membrane (primary)", 0.10)
     try:
-        arc_c = analyze_arc_columns(rings, cols_stub, params=uparams, reference_curve="centroid_membrane")
+        arc_c = analyze_arc_columns(arc_rings, cols_stub, params=uparams, reference_curve="centroid_membrane",
+                                    exclude_clusters=excl)
     except Exception as exc:  # noqa: BLE001 - a worker job: every failure becomes a warning, never a crash
         warnings_.append(f"arc test on the centroid membrane failed: {type(exc).__name__}: {exc}")
     else:
@@ -1870,8 +1897,8 @@ def run_cleaned_analyses(
         warnings_.extend(_analysis_notes("2D test", cols))
     say("Arc test on the localization membrane (diagnostic)", 0.75)
     try:
-        arc_l = analyze_arc_columns(rings, cols if cols is not None else cols_stub, params=uparams,
-                                    reference_curve="localization_membrane")
+        arc_l = analyze_arc_columns(arc_rings, cols if cols is not None else cols_stub, params=uparams,
+                                    reference_curve="localization_membrane", exclude_clusters=excl)
     except Exception as exc:  # noqa: BLE001
         warnings_.append(f"arc test on the localization membrane failed: {type(exc).__name__}: {exc}")
     else:
@@ -1888,7 +1915,35 @@ def run_cleaned_analyses(
         n_doubtful=int(counts[1]), n_removed_final=int(counts[2]), n_manual=int(counts[3]), edited_after_results_shown=edited,
         leak_calibrated=False, warnings=warnings_, seconds=float(time.perf_counter() - t0), rule_version=snap.rule_version,
         has_widefield=has_wf, removed_keys=list(removed_keys), automatic_removed_keys=list(auto_keys), n_null=n_rep,
-        arc_localization_note=LOCALIZATION_MEMBRANE_DIAGNOSTIC_NOTE)
+        arc_localization_note=LOCALIZATION_MEMBRANE_DIAGNOSTIC_NOTE, merged_handling=handling,
+        n_merged_split=int(n_split), c_label=c_lab, arc_rings=None if arc_rings is rings else arc_rings)
+
+
+def _arc_rings(rings: RingsResult, c_label: float, handling: Optional[str], warnings_: List[str]
+               ) -> Tuple[RingsResult, str, int, Optional[List[Tuple[int, int]]]]:
+    """The rings of the arc tests under the merged handling (decision D2b): (rings, handling applied, clusters
+    split, clusters excluded or None). A failure keeps the cleaned rings (the centre of the middle), with a
+    warning."""
+    from tools import mps_eclipse_merged as emg
+    from tools import mps_eclipse_tolerance as et
+    h = emg.check_handling(handling)
+    if h == "middle" or len(rings.rings) < 2:
+        return rings, h, 0, None
+    try:
+        from tools.clustering_integration import ECLIPSE_EXCLUDE_MERGED, SIZE_EXCLUDE_EVENT_FUSION
+        inp = et.ToleranceInputs(c_label=float(c_label), exclude_merged_from_pool=ECLIPSE_EXCLUDE_MERGED,
+                                 exclude_event_fusion_from_pool=SIZE_EXCLUDE_EVENT_FUSION)
+        tol = et.tolerances_from_rings(rings, inp)
+        mh = emg.apply_merged_handling(rings, tol, h)
+    except Exception as exc:  # noqa: BLE001 - the arc tests still run, on the centres of the middle
+        warnings_.append(f"merged-looking clusters not handled ({type(exc).__name__}: {exc}): the arc tests use "
+                         "each cluster's own centre")
+        return rings, "middle", 0, None
+    warnings_.extend(f"arc tests: {w}" for w in mh.warnings)
+    if mh.n_split:
+        warnings_.append(f"arc tests: {mh.n_split} merged-looking cluster(s) entered as the two halves of their split "
+                         f"(decision D2b, c_label {c_label:g})")
+    return mh.res, mh.handling, int(mh.n_split), (list(mh.exclude_clusters) or None)
 
 
 # ============================================================================

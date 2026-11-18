@@ -301,6 +301,18 @@ def _no_rule_inputs() -> Optional[Any]:
     return None
 
 
+def _no_c_label() -> Optional[float]:
+    return None
+
+
+def _no_rule_inputs_at(_radius: Optional[float]) -> Optional[Any]:
+    return None
+
+
+def _no_lpc_depth(_analysis: Any, _radius: Optional[float] = None) -> Tuple[Optional[Any], str]:
+    return None, "no file loaded in this window"
+
+
 @dataclass
 class WindowLinks:
     """The providers and callbacks the main window gives this window (Appendix B). Every default is the standalone
@@ -339,6 +351,13 @@ class WindowLinks:
     # B3; a tools.mps_events.LocsPerCycle, or None for the rule's labelled fallback).
     nena: Callable[[], Tuple[Optional[float], str]] = field(default=_no_nena)
     rule_inputs: Callable[[], Optional[Any]] = field(default=_no_rule_inputs)
+    # The c_label kept in the settings (2026-10-29): the Working scale panel starts at it; None keeps the panel's 14.
+    c_label: Callable[[], Optional[float]] = field(default=_no_c_label)
+    # The interface batch (2026-11-07). B1: the whole file's localizations per cycle at the radius typed in 'Working
+    # scale' (None = the rule's). B3 (c): the localizations per cycle by depth of the loaded file for an analysis'
+    # slab (tools.lpc_depth), (profile or None, why empty).
+    rule_inputs_at: Callable[[Optional[float]], Optional[Any]] = field(default=_no_rule_inputs_at)
+    lpc_depth: Callable[..., Tuple[Optional[Any], str]] = field(default=_no_lpc_depth)
 
 
 def beside_position(anchor: QtCore.QRect, size: QtCore.QSize,
@@ -1047,6 +1066,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         dlg = CompareAnalysesDialog(self._compare_run, int(np.asarray(a.x_slab).size),
                                     panel.experimental(), panel.current_method(), params_for, parent=self,
                                     analysis=a, nena_nm=nena, c_label=ws.c_label(), rule=ws.rule, rule26=ws.rule26)
+        dlg.events_radius_in_nena = ws.events_radius()           # B1: None at the default 3 NeNA
         self._compare_dialog = dlg
         accepted = dlg.exec_() == QtWidgets.QDialog.Accepted
         if dlg.comparison_result is not None and self.analysis is a:
@@ -1093,6 +1113,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                             panel.experimental() or method != "DBSCAN", compared)
         self._on_param_changed()
 
+    def _store_c_label(self, value: float) -> None:
+        """The Working scale panel's c_label into the one settings object (a window on its own has no store)."""
+        if self.links.store is not None:
+            self.links.store({"c_label": float(value)})
+
     def _remember_compared(self, dlg: Any) -> None:
         """Manual test of 2026-10-23: the methods that ran in 'Compare methods...' are saved as the compared list
         (settings.cluster_methods_compared, which the batch's 'Compare methods (slow)' box offers) whenever the
@@ -1123,7 +1148,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         ws = getattr(self, "working_scale", None)
         if ws is None:
             return
-        ws.show_scale(a, nena, words, self.links.rule_inputs())
+        ws.show_scale(a, nena, words, self._rule_inputs())
         comp = self.method_comparison
         if comp is not None and (a is None or not comp.runs or comp.runs[0].analysis is None
                                  or not np.array_equal(np.asarray(comp.runs[0].analysis.x_slab),
@@ -1140,6 +1165,33 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             runs += [dataclasses.replace(r, key=comp.labels.get(r.key, r.key)) for r in comp.runs]
         self.arrangement.set_context(a, runs, nena, ws.c_label())
 
+    def _rule_inputs(self) -> Optional[Any]:
+        """The localizations per cycle of the rule at the panel's radius (B1; the default radius: the cached one)."""
+        ws = getattr(self, "working_scale", None)
+        r = None if ws is None else ws.lpc_radius()
+        return self.links.rule_inputs() if r is None else self.links.rule_inputs_at(r)
+
+    def compute_lpc_depth(self) -> Tuple[Optional[Any], str]:
+        """B3 (c): the localizations per cycle by depth of the analysis shown (the Working scale panel's button),
+        shown in the panel and carried by the export."""
+        a = self.analysis
+        if a is None:
+            return None, "no analysis"
+        ws = self.working_scale
+        prof, why = self.links.lpc_depth(a, ws.lpc_radius())
+        self._lpc_depth = (a, ws.lpc_radius(), prof, why)
+        ws.show_lpc_depth(prof, why)
+        return prof, why
+
+    def _lpc_depth_of_shown(self) -> Tuple[Optional[Any], str]:
+        st = getattr(self, "_lpc_depth", None)
+        ws = self.working_scale
+        if st is None or st[0] is not self.analysis or st[1] != ws.lpc_radius():
+            from tools.clustering_integration import LPC_DEPTH_NOT_HERE
+            return None, ("not computed: press 'Localizations per cycle by depth' in Working scale (or run the "
+                          "Batch, which computes it per file)" if self.analysis is not None else LPC_DEPTH_NOT_HERE)
+        return st[2], st[3]
+
     def integration_columns(self) -> Optional[Dict[str, Any]]:
         """The v13 block of the axon table for the analysis shown (tools.clustering_integration.axon_columns): the
         file's NeNA, the panel's c_label, the localizations per cycle, the null of this analysis when it ran and
@@ -1149,10 +1201,15 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if a is None:
             return None
         nena, words = self.links.nena()
-        return ci.axon_columns(a, nena_nm=nena, nena_source=words, c_label=self.working_scale.c_label(),
-                               locs_per_cycle=self.links.rule_inputs(), null=self.arrangement.outcome_for(a),
+        prof, why = self._lpc_depth_of_shown()
+        ws = self.working_scale
+        return ci.axon_columns(a, nena_nm=nena, nena_source=words, c_label=ws.c_label(),
+                               locs_per_cycle=self._rule_inputs(), null=self.arrangement.outcome_for(a),
                                comparison=self.method_comparison,
-                               comparison_files=self.method_comparison_files if self.method_comparison else None)
+                               comparison_files=self.method_comparison_files if self.method_comparison else None,
+                               lpc_profile=prof, lpc_profile_note=why, lpc_radius_in_nena=ws.lpc_radius(),
+                               events_radius_in_nena=ws.events_radius(),
+                               membrane_deformation=self.arrangement.deformation())
 
     def show_overlay(self, method: str, other: Any) -> bool:
         """Draw ``method``'s run (``other``, an AxonAnalysis of the same slab from 'Compare methods') over the
@@ -1459,7 +1516,16 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # rule beside 25/10 (D2), at the top of the tab whose tests start at its marks (the left column keeps every
         # row of the results table in sight at 1366 x 728).
         self.working_scale = WorkingScalePanel()
+        # the c_label kept in the settings (2026-10-29): the panel starts at it, and an edit is written back through
+        # the store, so the next session and the Batch use it
+        stored_c = self.links.c_label()
+        if stored_c is not None:
+            self.working_scale.spin_c_label.setValue(float(stored_c))
         self.working_scale.c_label_changed.connect(lambda _v: self._sync_integration())
+        self.working_scale.c_label_changed.connect(self._store_c_label)
+        # B1 / B3 (2026-11-07): the radii re-read the rule (and the arrangement's context); the lpc-by-depth button
+        self.working_scale.radii_changed.connect(lambda: self._sync_integration())
+        self.working_scale.lpc_depth_requested.connect(self.compute_lpc_depth)
         self.arrangement.set_header(self.working_scale)
         # in a scroll area: the tab's controls must not raise the tabs' minimum height and take the map's share
         self.arrangement_scroll = QtWidgets.QScrollArea()

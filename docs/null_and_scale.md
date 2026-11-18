@@ -12,8 +12,10 @@
 > (por defecto) o en el número de clústeres (sensibilidad). Da un p de Monte Carlo por lectura (K/µm, 1NN, r_eff,
 > ocupancia, regularidad r, y las que agregue la rama de regularidad) y compara H(r) de Ripley sobre el arco (H₁) y en
 > la banda (H₂) con su envolvente **global** por encima de la marca de fusión; la envolvente puntual sólo se dibuja.
-> Los p son aproximados y el nulo lleva el rótulo «provisional» hasta calibrar c_label en el buffer propio. Cuando hay
-> menos de 19 réplicas, el cierre no se alcanza o los axones simulados no se parecen al observado, el resultado dice
+> Los p son aproximados y el nulo lleva el rótulo «provisional» hasta calibrar c_label en el buffer propio. Hasta un 5 %
+> de réplicas fallidas se tolera (2 de 49, 9 de 199) y cada una cuenta como tan extrema como el observado, así que el
+> p es conservador; el p que las ignora va al lado, sólo como dato. Cuando hay menos de 19 réplicas, fallan más del
+> 5 %, el cierre no se alcanza o los axones simulados no se parecen al observado, el resultado dice
 > **NOT INTERPRETABLE** con sus razones. Los métodos lentos (Emitters) se rechazan con una estimación de costo salvo
 > que se los pida explícitamente. Tasa de rechazo bajo el nulo y potencia medidas en sintético: sección 6.
 
@@ -142,6 +144,21 @@ reached within 5 %).
 When the file holds far more localizations per cluster than labels × c_label × loc/cycle predicts, the closure on
 localizations needs so many molecules that the contact hard core cannot be honoured (random sequential packing jams
 near 75 % of the ring: Rényi 1958); the null then refuses with that explanation and suggests the closure on clusters.
+
+**Both closures in the Batch (user decisions C3 / C4, 2026-10-23; headless part, 2026-10-29).** The Batch reads the
+settings key `batch_null_closure`: `n_locs` (default), `k` or `both` (no selector in the window yet). With `both` it
+runs one null per closure on each axon, with the same seed, so the two differ only by the closure; the axon table's
+row carries the `n_locs` null (the default) and `<table>_null_by_closure.csv`, beside it and never overwritten, holds
+one row per axon × closure (column `null_closure`, the same null, failure and regularity columns for both, and
+`null_status`). Under the K closure `p_mc_k_per_um` stays empty (K is conditioned). The extra cost, measured on two
+synthetic axons (own simulation, 1,095 and 1,647 slab localizations, DBSCAN 25/10, B = 39, this laptop, one
+process): the N_loc null took 18.8 s and 21.2 s, the K null 25.0 s and 25.8 s (+33 % and +22 %: its 4 × 4 pilots run
+the whole pipeline, the N_loc pilots only simulate), so `both` costs 2.2-2.3× the default; at B = 199 the pilots
+weigh less and `both` is about 2×. When stage 1 of the regularity says "more regular", stage 2 at the pipeline level
+runs once per closure too. The Batch's estimate before Run now counts the closure(s), the K pilots and that stage 2
+(`tools.mps_batch.null_cost_per_file`); before, it counted B + 8 replicates and no stage 2. On those two axons the
+K closure was NOT INTERPRETABLE with 4 pilots of 4 axons (the known C3 caveat: the closure on K misses its 5 %
+mark on a share of axons).
 
 ### 4.4 Method-agnostic by construction
 
@@ -337,10 +354,30 @@ wording as the simulated null of the column analysis):
 - the closure was not reached (the null's median of the closed quantity more than 5 % from the observed);
 - the simulated axons do not resemble the observed one: slab localizations not within 15 %, the centroids' radial
   scatter not within max(15 %, 3 nm) (the 3 nm floor is ad hoc), K not within 15 % under the closure on K;
-- some requested replicates failed (said, with the first reason).
+- more than 5 % of the requested replicates failed (said, with the first reason; see below).
 
 An axon with fewer than 8 curated clusters is refused outright (regularity plan, rule 1). The numbers are kept with
 `null_interpretable = false`.
+
+**Failed replicates (user decision G1 (c), 2026-10-23).** A replicate fails when the hard-core sampler jams near
+packing or the pipeline raises on the simulated axon. Up to floor(0.05 B) failures are tolerated -- 2 of 49, 9 of
+199, none of 19 [derivation] -- and every one of them is counted **in the worst case**: as a replicate at least as
+extreme as the observed value, in the tail (one-sided) or in both tails (two-sided) of each test. For a readout with
+b of the B_ok analysed replicates at least as extreme and f failures,
+
+    one-sided:  p = (1 + b + f) / (B_ok + f + 1)        two-sided:  2 min(p_low, p_high), each tail with + f
+
+and for the global H₁ / H₂ tests p = (1 + b + f) / (n + f + 1) over the n replicate curves. So a failure can only
+raise a p: the p read is conservative whatever the failed replicates would have given. Before this decision the
+failures were dropped from the p (stage 1 refused the whole null for a single one; stage 2 tolerated 5 % by
+dropping them), which made the p of an axon depend on which replicates happened to jam -- typically the most
+regular ones, near packing [simulation: docs/regularity.md, 22 of 60 synthetic axons lost one of 49 replicates of
+the matched null to a jammed sampler]. The export carries `null_failed_replicates` (and
+`matched_null_failed_replicates` for stage 2) and, beside every p, the same p computed without the failures
+(`p_mc_<readout>_ignoring_failed`, `ripley1d_p_global_ignoring_failed`, `gap_cv_p_mc_ignoring_failed`, ...): a
+descriptive number, never the one to read. Above 5 % the null is NOT INTERPRETABLE, as before. A readout that is not
+computable on an analysed replicate (fewer than three centres, for instance) is still left out of that readout's
+p: the replicate itself did not fail.
 
 ## 7. What the synthetic axon shows and does not show
 
@@ -392,10 +429,32 @@ real. It is a visual control, not a test: one replicate says nothing about the p
   replicates); the closure on N_loc applied replicate by replicate (4.3, with the evidence of run 2); loc/cycle
   corrected for the links the 3·NeNA radius breaks (4.2, run 1); for methods other than DBSCAN the working-scale
   marks use the reference ε 25 nm, not the method's edge margin (resolution_limit.md, section 3).
+- 2026-10-23 (user decision G1 c), implemented 2026-10-29 (`fix/core-batch-tanda1`): up to 5 % failed replicates
+  tolerated in stage 1 and stage 2 alike, counted in the worst case (6.4); `null_failed_replicates` and the
+  `*_ignoring_failed` p values exported (axon table v15).
 - Open (for the user): the read hard core 2·r_eff is ~6 nm above the true contact on the synthetic axons and makes
   the global tests slightly liberal at 60-80 nm (6.2). Options: keep it (approved P-R77 a, conservative for
   regularity); subtract a bias read from the null itself; or start the global test at d50 (~80 nm) instead of the
   fusion mark.
+
+## The membrane and the closures in the window (2026-11-07)
+
+* **Membrane (user decision C2).** Every method's null puts its molecules on ONE membrane: by default the 600 nm
+  P-spline through the centroids of DBSCAN 25/10 (the reference of every comparison [lit: Gazal et al. 2026]); the
+  DBSCAN 25/10 run's own null is exactly the null of before. "Membrane: localizations" in the "Perimeter arrangement"
+  tab fits it to the slab's localizations instead (robust periodic P-spline, `tools.mps_membrane`), to compare where
+  the centroids deform what the localizations show. The tab shows how far apart the two membranes are -- mean and
+  largest distance, and a warning for each 600 nm stretch [derivation: the knot spacing, the shortest piece the curve
+  can bend on] where they are more than 50 nm apart [ad hoc: the H2 band's half-width; a membrane displaced by more
+  moves the simulated molecules out of the band H2 counts them in]. The radial scatter of the molecules stays the
+  run's own. The axon table carries `null_membrane` and the indicator (v16). Code: `tools/null_membrane.py`.
+* **Closures (C3 / C4).** The null panel offers "Closure: N_loc (default) / K / both side by side". "both" runs the
+  two nulls with the same seed (about twice the time, said in the estimate; K's pilots run the whole pipeline) and
+  "Compare closures..." puts their p values (H1, H2, the per-axon readouts, the gap CV) and H1 / H2 envelopes side by
+  side, marking the tests whose verdict at 0.05 changes with the closure. "Export curves..." writes
+  `<stem>_null_by_closure.csv` (one row per method and closure, `null_closure`) and `<stem>_closures_compared.csv`.
+  N_loc stays the default [user decisions A9, C4]; the K closure's limit (C3: its pilots can leave the closure off)
+  still applies.
 
 ## References
 

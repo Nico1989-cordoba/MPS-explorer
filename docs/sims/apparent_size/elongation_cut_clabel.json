@@ -1,0 +1,1877 @@
+{
+ "seed": 20261029,
+ "cut": 2.5,
+ "origin": "[own sim] docs/sims/apparent_size/elongation_cut_clabel.py",
+ "cells": {
+  "c_label 8, labels 2, rho 25 nm": {
+   "n_axons": 200,
+   "c_label_true": 8.0,
+   "c_label_analysis": 8.0,
+   "labels_mean": 2.0,
+   "rho_true_nm": 25.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 198,
+     "mean_nm": 25.75,
+     "sd_nm": 5.78,
+     "se_nm": 0.41,
+     "bias_vs_true_nm": 0.75,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 197,
+     "mean_nm": 17.5,
+     "sd_nm": 5.42,
+     "se_nm": 0.39,
+     "bias_vs_true_nm": -7.5,
+     "share_excluded": 0.097
+    },
+    "oracle, cut 2.0": {
+     "n": 197,
+     "mean_nm": 20.2,
+     "sd_nm": 4.87,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": -4.8,
+     "share_excluded": 0.064
+    },
+    "oracle, cut 2.25": {
+     "n": 197,
+     "mean_nm": 22.06,
+     "sd_nm": 5.01,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": -2.94,
+     "share_excluded": 0.042
+    },
+    "oracle, cut 2.5": {
+     "n": 197,
+     "mean_nm": 23.49,
+     "sd_nm": 5.13,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": -1.51,
+     "share_excluded": 0.026
+    },
+    "oracle, cut 2.75": {
+     "n": 197,
+     "mean_nm": 24.12,
+     "sd_nm": 5.24,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": -0.88,
+     "share_excluded": 0.019
+    },
+    "oracle, cut 3.0": {
+     "n": 198,
+     "mean_nm": 24.62,
+     "sd_nm": 5.33,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": -0.38,
+     "share_excluded": 0.015
+    },
+    "oracle, cut 3.5": {
+     "n": 198,
+     "mean_nm": 25.16,
+     "sd_nm": 5.57,
+     "se_nm": 0.4,
+     "bias_vs_true_nm": 0.16,
+     "share_excluded": 0.009
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 24.05,
+     "sd_nm": 7.2,
+     "se_nm": 0.51,
+     "bias_vs_true_nm": -0.95,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 10.47,
+     "sd_nm": 6.23,
+     "se_nm": 0.44,
+     "bias_vs_true_nm": -14.53,
+     "share_excluded": 0.088
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 13.4,
+     "sd_nm": 5.8,
+     "se_nm": 0.41,
+     "bias_vs_true_nm": -11.6,
+     "share_excluded": 0.06
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 15.82,
+     "sd_nm": 5.73,
+     "se_nm": 0.4,
+     "bias_vs_true_nm": -9.18,
+     "share_excluded": 0.04
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 17.56,
+     "sd_nm": 6.15,
+     "se_nm": 0.43,
+     "bias_vs_true_nm": -7.44,
+     "share_excluded": 0.028
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 19.22,
+     "sd_nm": 6.26,
+     "se_nm": 0.44,
+     "bias_vs_true_nm": -5.78,
+     "share_excluded": 0.019
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 20.8,
+     "sd_nm": 5.86,
+     "se_nm": 0.41,
+     "bias_vs_true_nm": -4.2,
+     "share_excluded": 0.012
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 22.29,
+     "sd_nm": 6.31,
+     "se_nm": 0.45,
+     "bias_vs_true_nm": -2.71,
+     "share_excluded": 0.005
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": -5.93,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 3.5
+  },
+  "c_label 8, labels 3, rho 25 nm": {
+   "n_axons": 200,
+   "c_label_true": 8.0,
+   "c_label_analysis": 8.0,
+   "labels_mean": 3.0,
+   "rho_true_nm": 25.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 26.32,
+     "sd_nm": 3.62,
+     "se_nm": 0.26,
+     "bias_vs_true_nm": 1.32,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 200,
+     "mean_nm": 20.38,
+     "sd_nm": 3.52,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": -4.62,
+     "share_excluded": 0.106
+    },
+    "oracle, cut 2.0": {
+     "n": 200,
+     "mean_nm": 22.47,
+     "sd_nm": 3.39,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": -2.53,
+     "share_excluded": 0.064
+    },
+    "oracle, cut 2.25": {
+     "n": 200,
+     "mean_nm": 24.18,
+     "sd_nm": 3.4,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": -0.82,
+     "share_excluded": 0.035
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 25.0,
+     "sd_nm": 3.44,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": 0.0,
+     "share_excluded": 0.021
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 25.39,
+     "sd_nm": 3.52,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": 0.39,
+     "share_excluded": 0.015
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 25.77,
+     "sd_nm": 3.51,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": 0.77,
+     "share_excluded": 0.01
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 26.06,
+     "sd_nm": 3.62,
+     "se_nm": 0.26,
+     "bias_vs_true_nm": 1.06,
+     "share_excluded": 0.006
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 31.92,
+     "sd_nm": 6.94,
+     "se_nm": 0.49,
+     "bias_vs_true_nm": 6.92,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 16.39,
+     "sd_nm": 4.03,
+     "se_nm": 0.28,
+     "bias_vs_true_nm": -8.61,
+     "share_excluded": 0.125
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 18.45,
+     "sd_nm": 4.06,
+     "se_nm": 0.29,
+     "bias_vs_true_nm": -6.55,
+     "share_excluded": 0.091
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 20.32,
+     "sd_nm": 3.86,
+     "se_nm": 0.27,
+     "bias_vs_true_nm": -4.68,
+     "share_excluded": 0.066
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 21.77,
+     "sd_nm": 3.99,
+     "se_nm": 0.28,
+     "bias_vs_true_nm": -3.23,
+     "share_excluded": 0.052
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 23.56,
+     "sd_nm": 4.27,
+     "se_nm": 0.3,
+     "bias_vs_true_nm": -1.44,
+     "share_excluded": 0.04
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 25.1,
+     "sd_nm": 4.73,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": 0.1,
+     "share_excluded": 0.03
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 27.92,
+     "sd_nm": 5.44,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": 2.92,
+     "share_excluded": 0.015
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": -3.23,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 3.0
+  },
+  "c_label 8, labels 3, rho 0 nm": {
+   "n_axons": 200,
+   "c_label_true": 8.0,
+   "c_label_analysis": 8.0,
+   "labels_mean": 3.0,
+   "rho_true_nm": 0.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 6.42,
+     "sd_nm": 4.8,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": 6.42,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 200,
+     "mean_nm": 4.04,
+     "sd_nm": 4.18,
+     "se_nm": 0.3,
+     "bias_vs_true_nm": 4.04,
+     "share_excluded": 0.03
+    },
+    "oracle, cut 2.0": {
+     "n": 200,
+     "mean_nm": 4.92,
+     "sd_nm": 4.34,
+     "se_nm": 0.31,
+     "bias_vs_true_nm": 4.92,
+     "share_excluded": 0.019
+    },
+    "oracle, cut 2.25": {
+     "n": 200,
+     "mean_nm": 5.6,
+     "sd_nm": 4.53,
+     "se_nm": 0.32,
+     "bias_vs_true_nm": 5.6,
+     "share_excluded": 0.011
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 5.94,
+     "sd_nm": 4.61,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": 5.94,
+     "share_excluded": 0.008
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 6.07,
+     "sd_nm": 4.62,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": 6.07,
+     "share_excluded": 0.006
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 6.17,
+     "sd_nm": 4.67,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": 6.17,
+     "share_excluded": 0.005
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 6.28,
+     "sd_nm": 4.71,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": 6.28,
+     "share_excluded": 0.003
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 12.69,
+     "sd_nm": 8.17,
+     "se_nm": 0.58,
+     "bias_vs_true_nm": 12.69,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 1.45,
+     "sd_nm": 2.94,
+     "se_nm": 0.21,
+     "bias_vs_true_nm": 1.45,
+     "share_excluded": 0.038
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 2.13,
+     "sd_nm": 3.47,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": 2.13,
+     "share_excluded": 0.029
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 3.43,
+     "sd_nm": 4.38,
+     "se_nm": 0.31,
+     "bias_vs_true_nm": 3.43,
+     "share_excluded": 0.022
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 4.44,
+     "sd_nm": 5.28,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": 4.44,
+     "share_excluded": 0.018
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 6.17,
+     "sd_nm": 6.49,
+     "se_nm": 0.46,
+     "bias_vs_true_nm": 6.17,
+     "share_excluded": 0.014
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 7.98,
+     "sd_nm": 6.99,
+     "se_nm": 0.49,
+     "bias_vs_true_nm": 7.98,
+     "share_excluded": 0.01
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 10.47,
+     "sd_nm": 7.84,
+     "se_nm": 0.55,
+     "bias_vs_true_nm": 10.47,
+     "share_excluded": 0.004
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": -1.5,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 1.8
+  },
+  "c_label 14, labels 2, rho 25 nm": {
+   "n_axons": 200,
+   "c_label_true": 14.0,
+   "c_label_analysis": 14.0,
+   "labels_mean": 2.0,
+   "rho_true_nm": 25.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 198,
+     "mean_nm": 25.97,
+     "sd_nm": 5.38,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": 0.97,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 197,
+     "mean_nm": 19.27,
+     "sd_nm": 5.47,
+     "se_nm": 0.39,
+     "bias_vs_true_nm": -5.73,
+     "share_excluded": 0.07
+    },
+    "oracle, cut 2.0": {
+     "n": 197,
+     "mean_nm": 21.59,
+     "sd_nm": 5.16,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": -3.41,
+     "share_excluded": 0.043
+    },
+    "oracle, cut 2.25": {
+     "n": 199,
+     "mean_nm": 23.29,
+     "sd_nm": 5.05,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": -1.71,
+     "share_excluded": 0.026
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 24.42,
+     "sd_nm": 5.27,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": -0.58,
+     "share_excluded": 0.016
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 24.84,
+     "sd_nm": 5.37,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": -0.16,
+     "share_excluded": 0.011
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 25.39,
+     "sd_nm": 5.33,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": 0.39,
+     "share_excluded": 0.008
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 25.72,
+     "sd_nm": 5.34,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": 0.72,
+     "share_excluded": 0.005
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 33.57,
+     "sd_nm": 7.95,
+     "se_nm": 0.56,
+     "bias_vs_true_nm": 8.57,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 14.95,
+     "sd_nm": 5.92,
+     "se_nm": 0.42,
+     "bias_vs_true_nm": -10.05,
+     "share_excluded": 0.099
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 17.47,
+     "sd_nm": 5.44,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": -7.53,
+     "share_excluded": 0.076
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 20.06,
+     "sd_nm": 5.5,
+     "se_nm": 0.39,
+     "bias_vs_true_nm": -4.94,
+     "share_excluded": 0.057
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 22.47,
+     "sd_nm": 5.83,
+     "se_nm": 0.41,
+     "bias_vs_true_nm": -2.53,
+     "share_excluded": 0.044
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 24.45,
+     "sd_nm": 5.86,
+     "se_nm": 0.41,
+     "bias_vs_true_nm": -0.55,
+     "share_excluded": 0.034
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 26.46,
+     "sd_nm": 5.98,
+     "se_nm": 0.42,
+     "bias_vs_true_nm": 1.46,
+     "share_excluded": 0.024
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 29.69,
+     "sd_nm": 6.09,
+     "se_nm": 0.43,
+     "bias_vs_true_nm": 4.69,
+     "share_excluded": 0.012
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": -1.95,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 2.75
+  },
+  "c_label 14, labels 3, rho 25 nm": {
+   "n_axons": 200,
+   "c_label_true": 14.0,
+   "c_label_analysis": 14.0,
+   "labels_mean": 3.0,
+   "rho_true_nm": 25.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 26.34,
+     "sd_nm": 3.54,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": 1.34,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 200,
+     "mean_nm": 21.14,
+     "sd_nm": 3.32,
+     "se_nm": 0.23,
+     "bias_vs_true_nm": -3.86,
+     "share_excluded": 0.084
+    },
+    "oracle, cut 2.0": {
+     "n": 200,
+     "mean_nm": 22.99,
+     "sd_nm": 3.18,
+     "se_nm": 0.22,
+     "bias_vs_true_nm": -2.01,
+     "share_excluded": 0.049
+    },
+    "oracle, cut 2.25": {
+     "n": 200,
+     "mean_nm": 24.39,
+     "sd_nm": 3.38,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": -0.61,
+     "share_excluded": 0.026
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 25.32,
+     "sd_nm": 3.4,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": 0.32,
+     "share_excluded": 0.013
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 25.71,
+     "sd_nm": 3.44,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": 0.71,
+     "share_excluded": 0.008
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 25.92,
+     "sd_nm": 3.49,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": 0.92,
+     "share_excluded": 0.005
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 26.22,
+     "sd_nm": 3.49,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": 1.22,
+     "share_excluded": 0.002
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 40.64,
+     "sd_nm": 7.92,
+     "se_nm": 0.56,
+     "bias_vs_true_nm": 15.64,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 18.57,
+     "sd_nm": 4.19,
+     "se_nm": 0.3,
+     "bias_vs_true_nm": -6.43,
+     "share_excluded": 0.148
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 20.71,
+     "sd_nm": 4.04,
+     "se_nm": 0.29,
+     "bias_vs_true_nm": -4.29,
+     "share_excluded": 0.117
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 22.43,
+     "sd_nm": 4.14,
+     "se_nm": 0.29,
+     "bias_vs_true_nm": -2.57,
+     "share_excluded": 0.096
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 24.35,
+     "sd_nm": 4.35,
+     "se_nm": 0.31,
+     "bias_vs_true_nm": -0.65,
+     "share_excluded": 0.081
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 26.74,
+     "sd_nm": 5.11,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": 1.74,
+     "share_excluded": 0.065
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 29.43,
+     "sd_nm": 5.4,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": 4.43,
+     "share_excluded": 0.048
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 32.76,
+     "sd_nm": 5.99,
+     "se_nm": 0.42,
+     "bias_vs_true_nm": 7.76,
+     "share_excluded": 0.029
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": -0.97,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 2.5
+  },
+  "c_label 14, labels 3, rho 0 nm": {
+   "n_axons": 200,
+   "c_label_true": 14.0,
+   "c_label_analysis": 14.0,
+   "labels_mean": 3.0,
+   "rho_true_nm": 0.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 6.77,
+     "sd_nm": 5.14,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": 6.77,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 200,
+     "mean_nm": 5.14,
+     "sd_nm": 4.66,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": 5.14,
+     "share_excluded": 0.02
+    },
+    "oracle, cut 2.0": {
+     "n": 200,
+     "mean_nm": 5.92,
+     "sd_nm": 4.74,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": 5.92,
+     "share_excluded": 0.011
+    },
+    "oracle, cut 2.25": {
+     "n": 200,
+     "mean_nm": 6.33,
+     "sd_nm": 4.87,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": 6.33,
+     "share_excluded": 0.007
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 6.49,
+     "sd_nm": 5.01,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 6.49,
+     "share_excluded": 0.005
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 6.57,
+     "sd_nm": 5.09,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": 6.57,
+     "share_excluded": 0.004
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 6.64,
+     "sd_nm": 5.07,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": 6.64,
+     "share_excluded": 0.004
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 6.72,
+     "sd_nm": 5.1,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": 6.72,
+     "share_excluded": 0.002
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 21.78,
+     "sd_nm": 8.84,
+     "se_nm": 0.63,
+     "bias_vs_true_nm": 21.78,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 2.63,
+     "sd_nm": 4.0,
+     "se_nm": 0.28,
+     "bias_vs_true_nm": 2.63,
+     "share_excluded": 0.054
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 3.72,
+     "sd_nm": 4.67,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": 3.72,
+     "share_excluded": 0.047
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 5.55,
+     "sd_nm": 5.28,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": 5.55,
+     "share_excluded": 0.04
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 7.32,
+     "sd_nm": 6.36,
+     "se_nm": 0.45,
+     "bias_vs_true_nm": 7.32,
+     "share_excluded": 0.035
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 9.26,
+     "sd_nm": 7.3,
+     "se_nm": 0.52,
+     "bias_vs_true_nm": 9.26,
+     "share_excluded": 0.03
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 12.01,
+     "sd_nm": 7.64,
+     "se_nm": 0.54,
+     "bias_vs_true_nm": 12.01,
+     "share_excluded": 0.024
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 17.38,
+     "sd_nm": 8.33,
+     "se_nm": 0.59,
+     "bias_vs_true_nm": 17.38,
+     "share_excluded": 0.01
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": 0.83,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 1.8
+  },
+  "c_label 20, labels 2, rho 25 nm": {
+   "n_axons": 200,
+   "c_label_true": 20.0,
+   "c_label_analysis": 20.0,
+   "labels_mean": 2.0,
+   "rho_true_nm": 25.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 199,
+     "mean_nm": 26.99,
+     "sd_nm": 5.38,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": 1.99,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 199,
+     "mean_nm": 20.47,
+     "sd_nm": 4.8,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": -4.53,
+     "share_excluded": 0.066
+    },
+    "oracle, cut 2.0": {
+     "n": 199,
+     "mean_nm": 22.44,
+     "sd_nm": 4.68,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": -2.56,
+     "share_excluded": 0.041
+    },
+    "oracle, cut 2.25": {
+     "n": 199,
+     "mean_nm": 24.31,
+     "sd_nm": 4.92,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": -0.69,
+     "share_excluded": 0.022
+    },
+    "oracle, cut 2.5": {
+     "n": 199,
+     "mean_nm": 25.34,
+     "sd_nm": 5.01,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": 0.34,
+     "share_excluded": 0.013
+    },
+    "oracle, cut 2.75": {
+     "n": 199,
+     "mean_nm": 26.08,
+     "sd_nm": 5.3,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": 1.08,
+     "share_excluded": 0.007
+    },
+    "oracle, cut 3.0": {
+     "n": 199,
+     "mean_nm": 26.45,
+     "sd_nm": 5.34,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": 1.45,
+     "share_excluded": 0.005
+    },
+    "oracle, cut 3.5": {
+     "n": 199,
+     "mean_nm": 26.75,
+     "sd_nm": 5.38,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": 1.75,
+     "share_excluded": 0.003
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 40.25,
+     "sd_nm": 8.2,
+     "se_nm": 0.58,
+     "bias_vs_true_nm": 15.25,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 16.99,
+     "sd_nm": 5.91,
+     "se_nm": 0.42,
+     "bias_vs_true_nm": -8.01,
+     "share_excluded": 0.119
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 20.17,
+     "sd_nm": 5.58,
+     "se_nm": 0.39,
+     "bias_vs_true_nm": -4.83,
+     "share_excluded": 0.096
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 22.78,
+     "sd_nm": 5.69,
+     "se_nm": 0.4,
+     "bias_vs_true_nm": -2.22,
+     "share_excluded": 0.076
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 25.05,
+     "sd_nm": 5.79,
+     "se_nm": 0.41,
+     "bias_vs_true_nm": 0.05,
+     "share_excluded": 0.062
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 27.49,
+     "sd_nm": 6.47,
+     "se_nm": 0.46,
+     "bias_vs_true_nm": 2.49,
+     "share_excluded": 0.049
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 29.72,
+     "sd_nm": 6.62,
+     "se_nm": 0.47,
+     "bias_vs_true_nm": 4.72,
+     "share_excluded": 0.039
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 34.13,
+     "sd_nm": 6.68,
+     "se_nm": 0.47,
+     "bias_vs_true_nm": 9.13,
+     "share_excluded": 0.02
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": -0.29,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 2.5
+  },
+  "c_label 20, labels 3, rho 25 nm": {
+   "n_axons": 200,
+   "c_label_true": 20.0,
+   "c_label_analysis": 20.0,
+   "labels_mean": 3.0,
+   "rho_true_nm": 25.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 26.02,
+     "sd_nm": 3.97,
+     "se_nm": 0.28,
+     "bias_vs_true_nm": 1.02,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 200,
+     "mean_nm": 20.89,
+     "sd_nm": 3.4,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": -4.11,
+     "share_excluded": 0.079
+    },
+    "oracle, cut 2.0": {
+     "n": 200,
+     "mean_nm": 22.73,
+     "sd_nm": 3.46,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": -2.27,
+     "share_excluded": 0.045
+    },
+    "oracle, cut 2.25": {
+     "n": 200,
+     "mean_nm": 24.35,
+     "sd_nm": 3.68,
+     "se_nm": 0.26,
+     "bias_vs_true_nm": -0.65,
+     "share_excluded": 0.022
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 25.16,
+     "sd_nm": 3.78,
+     "se_nm": 0.27,
+     "bias_vs_true_nm": 0.16,
+     "share_excluded": 0.011
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 25.56,
+     "sd_nm": 3.87,
+     "se_nm": 0.27,
+     "bias_vs_true_nm": 0.56,
+     "share_excluded": 0.006
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 25.8,
+     "sd_nm": 3.97,
+     "se_nm": 0.28,
+     "bias_vs_true_nm": 0.8,
+     "share_excluded": 0.003
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 25.98,
+     "sd_nm": 3.92,
+     "se_nm": 0.28,
+     "bias_vs_true_nm": 0.98,
+     "share_excluded": 0.002
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 46.74,
+     "sd_nm": 8.81,
+     "se_nm": 0.62,
+     "bias_vs_true_nm": 21.74,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 19.19,
+     "sd_nm": 4.12,
+     "se_nm": 0.29,
+     "bias_vs_true_nm": -5.81,
+     "share_excluded": 0.17
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 21.74,
+     "sd_nm": 3.97,
+     "se_nm": 0.28,
+     "bias_vs_true_nm": -3.26,
+     "share_excluded": 0.14
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 23.77,
+     "sd_nm": 4.07,
+     "se_nm": 0.29,
+     "bias_vs_true_nm": -1.23,
+     "share_excluded": 0.118
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 26.0,
+     "sd_nm": 4.67,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": 1.0,
+     "share_excluded": 0.101
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 28.39,
+     "sd_nm": 5.27,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": 3.39,
+     "share_excluded": 0.085
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 30.98,
+     "sd_nm": 5.56,
+     "se_nm": 0.39,
+     "bias_vs_true_nm": 5.98,
+     "share_excluded": 0.07
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 35.92,
+     "sd_nm": 6.23,
+     "se_nm": 0.44,
+     "bias_vs_true_nm": 10.92,
+     "share_excluded": 0.042
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": 0.84,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 2.5
+  },
+  "c_label 20, labels 3, rho 0 nm": {
+   "n_axons": 200,
+   "c_label_true": 20.0,
+   "c_label_analysis": 20.0,
+   "labels_mean": 3.0,
+   "rho_true_nm": 0.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 6.72,
+     "sd_nm": 5.24,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": 6.72,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 200,
+     "mean_nm": 5.19,
+     "sd_nm": 4.8,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": 5.19,
+     "share_excluded": 0.016
+    },
+    "oracle, cut 2.0": {
+     "n": 200,
+     "mean_nm": 5.79,
+     "sd_nm": 4.98,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 5.79,
+     "share_excluded": 0.009
+    },
+    "oracle, cut 2.25": {
+     "n": 200,
+     "mean_nm": 6.24,
+     "sd_nm": 5.1,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": 6.24,
+     "share_excluded": 0.005
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 6.45,
+     "sd_nm": 5.14,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": 6.45,
+     "share_excluded": 0.003
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 6.59,
+     "sd_nm": 5.17,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": 6.59,
+     "share_excluded": 0.002
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 6.65,
+     "sd_nm": 5.19,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": 6.65,
+     "share_excluded": 0.002
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 6.67,
+     "sd_nm": 5.19,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": 6.67,
+     "share_excluded": 0.001
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 28.66,
+     "sd_nm": 8.17,
+     "se_nm": 0.58,
+     "bias_vs_true_nm": 28.66,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 3.52,
+     "sd_nm": 4.47,
+     "se_nm": 0.32,
+     "bias_vs_true_nm": 3.52,
+     "share_excluded": 0.074
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 4.33,
+     "sd_nm": 4.93,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 4.33,
+     "share_excluded": 0.068
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 6.1,
+     "sd_nm": 5.89,
+     "se_nm": 0.42,
+     "bias_vs_true_nm": 6.1,
+     "share_excluded": 0.063
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 8.46,
+     "sd_nm": 6.96,
+     "se_nm": 0.49,
+     "bias_vs_true_nm": 8.46,
+     "share_excluded": 0.056
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 11.81,
+     "sd_nm": 7.63,
+     "se_nm": 0.54,
+     "bias_vs_true_nm": 11.81,
+     "share_excluded": 0.047
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 15.75,
+     "sd_nm": 8.11,
+     "se_nm": 0.57,
+     "bias_vs_true_nm": 15.75,
+     "share_excluded": 0.036
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 21.82,
+     "sd_nm": 7.39,
+     "se_nm": 0.52,
+     "bias_vs_true_nm": 21.82,
+     "share_excluded": 0.018
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": 2.01,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 1.8
+  },
+  "c_label 26, labels 2, rho 25 nm": {
+   "n_axons": 200,
+   "c_label_true": 26.0,
+   "c_label_analysis": 26.0,
+   "labels_mean": 2.0,
+   "rho_true_nm": 25.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 26.64,
+     "sd_nm": 4.78,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": 1.64,
+     "share_excluded": null
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 25.42,
+     "sd_nm": 4.84,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": 0.42,
+     "share_excluded": 0.01
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 25.85,
+     "sd_nm": 4.88,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 0.85,
+     "share_excluded": 0.006
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 26.15,
+     "sd_nm": 4.81,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": 1.15,
+     "share_excluded": 0.004
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 26.49,
+     "sd_nm": 4.83,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": 1.49,
+     "share_excluded": 0.003
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 44.01,
+     "sd_nm": 8.51,
+     "se_nm": 0.6,
+     "bias_vs_true_nm": 19.01,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 199,
+     "mean_nm": 18.15,
+     "sd_nm": 5.89,
+     "se_nm": 0.42,
+     "bias_vs_true_nm": -6.85,
+     "share_excluded": 0.122
+    },
+    "dbscan25, cut 2.0": {
+     "n": 199,
+     "mean_nm": 20.74,
+     "sd_nm": 5.77,
+     "se_nm": 0.41,
+     "bias_vs_true_nm": -4.26,
+     "share_excluded": 0.101
+    },
+    "dbscan25, cut 2.25": {
+     "n": 199,
+     "mean_nm": 23.41,
+     "sd_nm": 6.22,
+     "se_nm": 0.44,
+     "bias_vs_true_nm": -1.59,
+     "share_excluded": 0.082
+    },
+    "dbscan25, cut 2.5": {
+     "n": 199,
+     "mean_nm": 25.96,
+     "sd_nm": 6.14,
+     "se_nm": 0.44,
+     "bias_vs_true_nm": 0.96,
+     "share_excluded": 0.069
+    },
+    "dbscan25, cut 2.75": {
+     "n": 199,
+     "mean_nm": 28.74,
+     "sd_nm": 6.56,
+     "se_nm": 0.46,
+     "bias_vs_true_nm": 3.74,
+     "share_excluded": 0.056
+    },
+    "dbscan25, cut 3.0": {
+     "n": 199,
+     "mean_nm": 30.86,
+     "sd_nm": 6.88,
+     "se_nm": 0.49,
+     "bias_vs_true_nm": 5.86,
+     "share_excluded": 0.046
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 35.76,
+     "sd_nm": 7.43,
+     "se_nm": 0.53,
+     "bias_vs_true_nm": 10.76,
+     "share_excluded": 0.025
+    },
+    "oracle, cut 1.8": {
+     "n": 199,
+     "mean_nm": 20.76,
+     "sd_nm": 4.6,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": -4.24,
+     "share_excluded": 0.057
+    },
+    "oracle, cut 2.0": {
+     "n": 199,
+     "mean_nm": 22.85,
+     "sd_nm": 4.38,
+     "se_nm": 0.31,
+     "bias_vs_true_nm": -2.15,
+     "share_excluded": 0.033
+    },
+    "oracle, cut 2.25": {
+     "n": 199,
+     "mean_nm": 24.46,
+     "sd_nm": 4.56,
+     "se_nm": 0.32,
+     "bias_vs_true_nm": -0.54,
+     "share_excluded": 0.018
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": 0.54,
+   "verdicts_dbscan_cut": {
+    "content only": 1,
+    "footprint measurable": 199
+   },
+   "dbscan_cut_with_least_bias": 2.5
+  },
+  "c_label 26, labels 3, rho 25 nm": {
+   "n_axons": 200,
+   "c_label_true": 26.0,
+   "c_label_analysis": 26.0,
+   "labels_mean": 3.0,
+   "rho_true_nm": 25.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 26.43,
+     "sd_nm": 3.69,
+     "se_nm": 0.26,
+     "bias_vs_true_nm": 1.43,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 200,
+     "mean_nm": 21.34,
+     "sd_nm": 3.4,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": -3.66,
+     "share_excluded": 0.075
+    },
+    "oracle, cut 2.0": {
+     "n": 200,
+     "mean_nm": 23.16,
+     "sd_nm": 3.47,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": -1.84,
+     "share_excluded": 0.041
+    },
+    "oracle, cut 2.25": {
+     "n": 200,
+     "mean_nm": 24.69,
+     "sd_nm": 3.52,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": -0.31,
+     "share_excluded": 0.019
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 25.48,
+     "sd_nm": 3.55,
+     "se_nm": 0.25,
+     "bias_vs_true_nm": 0.48,
+     "share_excluded": 0.009
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 25.93,
+     "sd_nm": 3.62,
+     "se_nm": 0.26,
+     "bias_vs_true_nm": 0.93,
+     "share_excluded": 0.005
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 26.15,
+     "sd_nm": 3.64,
+     "se_nm": 0.26,
+     "bias_vs_true_nm": 1.15,
+     "share_excluded": 0.003
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 26.37,
+     "sd_nm": 3.61,
+     "se_nm": 0.26,
+     "bias_vs_true_nm": 1.37,
+     "share_excluded": 0.001
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 52.12,
+     "sd_nm": 8.9,
+     "se_nm": 0.63,
+     "bias_vs_true_nm": 27.12,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 19.75,
+     "sd_nm": 4.02,
+     "se_nm": 0.28,
+     "bias_vs_true_nm": -5.25,
+     "share_excluded": 0.193
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 21.72,
+     "sd_nm": 4.25,
+     "se_nm": 0.3,
+     "bias_vs_true_nm": -3.28,
+     "share_excluded": 0.166
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 24.43,
+     "sd_nm": 4.83,
+     "se_nm": 0.34,
+     "bias_vs_true_nm": -0.57,
+     "share_excluded": 0.142
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 26.94,
+     "sd_nm": 5.3,
+     "se_nm": 0.37,
+     "bias_vs_true_nm": 1.94,
+     "share_excluded": 0.123
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 29.56,
+     "sd_nm": 5.49,
+     "se_nm": 0.39,
+     "bias_vs_true_nm": 4.56,
+     "share_excluded": 0.106
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 32.75,
+     "sd_nm": 5.72,
+     "se_nm": 0.4,
+     "bias_vs_true_nm": 7.75,
+     "share_excluded": 0.087
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 37.88,
+     "sd_nm": 6.19,
+     "se_nm": 0.44,
+     "bias_vs_true_nm": 12.88,
+     "share_excluded": 0.056
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": 1.46,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 2.25
+  },
+  "c_label 26, labels 3, rho 0 nm": {
+   "n_axons": 200,
+   "c_label_true": 26.0,
+   "c_label_analysis": 26.0,
+   "labels_mean": 3.0,
+   "rho_true_nm": 0.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 7.37,
+     "sd_nm": 4.99,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 7.37,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 200,
+     "mean_nm": 5.9,
+     "sd_nm": 4.94,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 5.9,
+     "share_excluded": 0.013
+    },
+    "oracle, cut 2.0": {
+     "n": 200,
+     "mean_nm": 6.79,
+     "sd_nm": 4.92,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 6.79,
+     "share_excluded": 0.006
+    },
+    "oracle, cut 2.25": {
+     "n": 200,
+     "mean_nm": 7.08,
+     "sd_nm": 4.93,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 7.08,
+     "share_excluded": 0.003
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 7.16,
+     "sd_nm": 4.94,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 7.16,
+     "share_excluded": 0.003
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 7.22,
+     "sd_nm": 4.92,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 7.22,
+     "share_excluded": 0.002
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 7.23,
+     "sd_nm": 4.93,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 7.23,
+     "share_excluded": 0.002
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 7.34,
+     "sd_nm": 4.96,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 7.34,
+     "share_excluded": 0.001
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 32.86,
+     "sd_nm": 9.93,
+     "se_nm": 0.7,
+     "bias_vs_true_nm": 32.86,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 4.89,
+     "sd_nm": 4.95,
+     "se_nm": 0.35,
+     "bias_vs_true_nm": 4.89,
+     "share_excluded": 0.085
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 6.16,
+     "sd_nm": 5.51,
+     "se_nm": 0.39,
+     "bias_vs_true_nm": 6.16,
+     "share_excluded": 0.079
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 7.7,
+     "sd_nm": 6.39,
+     "se_nm": 0.45,
+     "bias_vs_true_nm": 7.7,
+     "share_excluded": 0.073
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 10.29,
+     "sd_nm": 7.37,
+     "se_nm": 0.52,
+     "bias_vs_true_nm": 10.29,
+     "share_excluded": 0.067
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 13.79,
+     "sd_nm": 7.98,
+     "se_nm": 0.56,
+     "bias_vs_true_nm": 13.79,
+     "share_excluded": 0.057
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 17.66,
+     "sd_nm": 8.37,
+     "se_nm": 0.59,
+     "bias_vs_true_nm": 17.66,
+     "share_excluded": 0.046
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 24.75,
+     "sd_nm": 8.48,
+     "se_nm": 0.6,
+     "bias_vs_true_nm": 24.75,
+     "share_excluded": 0.023
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": 3.13,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 1.8
+  },
+  "c_label 26 analysed as 14, labels 3, rho 25 nm": {
+   "n_axons": 200,
+   "c_label_true": 26.0,
+   "c_label_analysis": 14.0,
+   "labels_mean": 3.0,
+   "rho_true_nm": 25.0,
+   "pool": {
+    "oracle, cut None": {
+     "n": 200,
+     "mean_nm": 17.9,
+     "sd_nm": 3.12,
+     "se_nm": 0.22,
+     "bias_vs_true_nm": -7.1,
+     "share_excluded": null
+    },
+    "oracle, cut 1.8": {
+     "n": 200,
+     "mean_nm": 12.79,
+     "sd_nm": 3.37,
+     "se_nm": 0.24,
+     "bias_vs_true_nm": -12.21,
+     "share_excluded": 0.075
+    },
+    "oracle, cut 2.0": {
+     "n": 200,
+     "mean_nm": 14.94,
+     "sd_nm": 3.07,
+     "se_nm": 0.22,
+     "bias_vs_true_nm": -10.06,
+     "share_excluded": 0.04
+    },
+    "oracle, cut 2.25": {
+     "n": 200,
+     "mean_nm": 16.39,
+     "sd_nm": 2.84,
+     "se_nm": 0.2,
+     "bias_vs_true_nm": -8.61,
+     "share_excluded": 0.019
+    },
+    "oracle, cut 2.5": {
+     "n": 200,
+     "mean_nm": 17.12,
+     "sd_nm": 2.89,
+     "se_nm": 0.2,
+     "bias_vs_true_nm": -7.88,
+     "share_excluded": 0.009
+    },
+    "oracle, cut 2.75": {
+     "n": 200,
+     "mean_nm": 17.49,
+     "sd_nm": 3.01,
+     "se_nm": 0.21,
+     "bias_vs_true_nm": -7.51,
+     "share_excluded": 0.005
+    },
+    "oracle, cut 3.0": {
+     "n": 200,
+     "mean_nm": 17.7,
+     "sd_nm": 3.06,
+     "se_nm": 0.22,
+     "bias_vs_true_nm": -7.3,
+     "share_excluded": 0.003
+    },
+    "oracle, cut 3.5": {
+     "n": 200,
+     "mean_nm": 17.82,
+     "sd_nm": 3.14,
+     "se_nm": 0.22,
+     "bias_vs_true_nm": -7.18,
+     "share_excluded": 0.001
+    },
+    "dbscan25, cut None": {
+     "n": 200,
+     "mean_nm": 41.98,
+     "sd_nm": 8.6,
+     "se_nm": 0.61,
+     "bias_vs_true_nm": 16.98,
+     "share_excluded": null
+    },
+    "dbscan25, cut 1.8": {
+     "n": 200,
+     "mean_nm": 10.39,
+     "sd_nm": 4.48,
+     "se_nm": 0.32,
+     "bias_vs_true_nm": -14.61,
+     "share_excluded": 0.185
+    },
+    "dbscan25, cut 2.0": {
+     "n": 200,
+     "mean_nm": 12.99,
+     "sd_nm": 4.68,
+     "se_nm": 0.33,
+     "bias_vs_true_nm": -12.01,
+     "share_excluded": 0.155
+    },
+    "dbscan25, cut 2.25": {
+     "n": 200,
+     "mean_nm": 15.65,
+     "sd_nm": 4.39,
+     "se_nm": 0.31,
+     "bias_vs_true_nm": -9.35,
+     "share_excluded": 0.133
+    },
+    "dbscan25, cut 2.5": {
+     "n": 200,
+     "mean_nm": 18.11,
+     "sd_nm": 4.52,
+     "se_nm": 0.32,
+     "bias_vs_true_nm": -6.89,
+     "share_excluded": 0.116
+    },
+    "dbscan25, cut 2.75": {
+     "n": 200,
+     "mean_nm": 20.6,
+     "sd_nm": 5.09,
+     "se_nm": 0.36,
+     "bias_vs_true_nm": -4.4,
+     "share_excluded": 0.1
+    },
+    "dbscan25, cut 3.0": {
+     "n": 200,
+     "mean_nm": 23.49,
+     "sd_nm": 5.42,
+     "se_nm": 0.38,
+     "bias_vs_true_nm": -1.51,
+     "share_excluded": 0.084
+    },
+    "dbscan25, cut 3.5": {
+     "n": 200,
+     "mean_nm": 29.27,
+     "sd_nm": 5.73,
+     "se_nm": 0.41,
+     "bias_vs_true_nm": 4.27,
+     "share_excluded": 0.051
+    }
+   },
+   "dbscan_cut_minus_oracle_cut_nm": 0.99,
+   "verdicts_dbscan_cut": {
+    "footprint measurable": 200
+   },
+   "dbscan_cut_with_least_bias": 3.0
+  }
+ },
+ "best_cut_per_c_label": {
+  "8": {
+   "best_cut": 3.0,
+   "mean_abs_bias_nm": 2.15,
+   "mean_abs_bias_at_2.5_nm": 5.33
+  },
+  "14": {
+   "best_cut": 2.75,
+   "mean_abs_bias_nm": 1.15,
+   "mean_abs_bias_at_2.5_nm": 1.59
+  },
+  "20": {
+   "best_cut": 2.5,
+   "mean_abs_bias_nm": 0.53,
+   "mean_abs_bias_at_2.5_nm": 0.53
+  },
+  "26": {
+   "best_cut": 2.25,
+   "mean_abs_bias_nm": 1.08,
+   "mean_abs_bias_at_2.5_nm": 1.45
+  }
+ },
+ "elapsed_s": 214.3
+}

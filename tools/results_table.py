@@ -187,9 +187,12 @@ def excel_copy(path: str, out: Optional[str] = None) -> str:
     out = out or f"{os.path.splitext(path)[0]}_for_excel.csv"
     if os.path.abspath(out) == os.path.abspath(path):
         raise ValueError("The copy would overwrite the table itself.")
+    # never overwrite (the exports' rule; design review 2026-10-29): a second copy of a table that grew since is
+    # <stem>_for_excel_2.csv, not the first copy rewritten
+    out = free_path(out)
     with open(path, encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.reader(handle))
-    with open(out, "w", encoding="utf-8-sig", newline="") as handle:
+    with open(out, "x", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle, delimiter=";")
         for row in rows:
             writer.writerow([cell.replace(".", ",") if _NUMBER.match(cell)

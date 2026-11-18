@@ -1,0 +1,51 @@
+{
+ "origin": "[own sim] docs/sims/apparent_size/curvature_null_calibration.py",
+ "seed": 20261029,
+ "B": [
+  39
+ ],
+ "n_axons": 300,
+ "n_refused": 0,
+ "readouts": {
+  "size_nloc_kappa_r_spearman": {
+   "tested": 300,
+   "rejections_at_0.05": 20,
+   "rate": 0.0667,
+   "wilson95": [
+    0.0436,
+    0.1007
+   ],
+   "five_percent_inside_wilson": true,
+   "p_histogram_bins_0_.05_.2_.4_.6_.8_1": [
+    0,
+    57,
+    60,
+    61,
+    50,
+    72
+   ],
+   "mean_observed": -0.0031
+  },
+  "size_nloc_nn_spearman": {
+   "tested": 300,
+   "rejections_at_0.05": 15,
+   "rate": 0.05,
+   "wilson95": [
+    0.0305,
+    0.0808
+   ],
+   "five_percent_inside_wilson": true,
+   "p_histogram_bins_0_.05_.2_.4_.6_.8_1": [
+    0,
+    55,
+    58,
+    64,
+    62,
+    61
+   ],
+   "mean_observed": 0.1319
+  }
+ },
+ "seconds_axon_median": 31.6,
+ "k_obs_median": 34.0
+}
