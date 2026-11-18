@@ -162,7 +162,7 @@ def test_loading() -> None:
         planes = np.stack([np.full((6, 5), v, np.uint16) for v in (10, 20, 60)])
         meta = json.dumps({"ROI": "221-224-5-6", "Binning": "2",
                            "PixelSizeUm": 0.0,
-                           "ReceivedTime": "2026-04-30 14:41:15"})
+                           "ReceivedTime": "2026-01-15 14:41:15"})
         tifffile.imwrite(path, planes, ome=True, metadata={"axes": "TYX"},
                          extratags=[(51123, "s", 0, meta, True)])
         image = ax.load_widefield(path)
@@ -170,7 +170,7 @@ def test_loading() -> None:
         assert np.allclose(image.image, 30.0), image.image
         assert image.camera_region == (221, 224, 5, 6)
         assert image.binning == 2 and image.pixel_size_nm is None
-        assert image.acquired == "2026-04-30 14:41:15" and not image.notes
+        assert image.acquired == "2026-01-15 14:41:15" and not image.notes
         return "3 planes averaged; region, binning and time read"
 
     def pixel_size_recorded():

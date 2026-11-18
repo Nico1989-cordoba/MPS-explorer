@@ -121,6 +121,19 @@ jobs:
             tools/mps_window_scroll.py \
             tools/parallel_clustering.py \
             tools/parameter_cache.py \
+            tools/mps_perimeter_types.py \
+            tools/mps_perimeter_slices.py \
+            tools/mps_perimeter_bc.py \
+            tools/mps_perimeter_a.py \
+            tools/mps_perimeter_sim.py \
+            tools/mps_trace_id.py \
+            tools/mps_auto_contour.py \
+            tools/mps_perimeter_analysis.py \
+            tools/mps_perimeter_pool.py \
+            tools/perimeter_export.py \
+            tools/unanchored_export.py \
+            tools/mps_unanchored.py \
+            batch_perimeter.py \
             config_loader.py \
             logging_config.py \
             --ignore-missing-imports \

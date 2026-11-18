@@ -27,6 +27,9 @@ from tools.axon_export import (
 )
 from tools.mps_cut_clusters import CUT_COLUMNS
 from tools.axon_export import CLUSTER_METHOD_COLUMNS, EMITTERS_COLUMNS
+from tools.perimeter_export import (PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, PERIMETER_V20_COLUMNS,
+                                    PERIMETER_V21_COLUMNS)
+from tools.unanchored_export import UNANCHORED_COLUMNS
 from tools.mps_identity import FIELD_HINTS, FIELDS as IDENTITY_FIELDS
 
 # Units, read off the end of the name. The rule is the convention: a
@@ -39,6 +42,11 @@ UNITS = (
 
 
 def unit_of(name: str) -> str:
+    explicit = perimeter_unit(name)        # v17: units the name does not give (%, fractions, 1/nm, null SD)
+    if explicit is not None:
+        return explicit
+    if name in UNANCHORED_UNITS:            # v18
+        return UNANCHORED_UNITS[name]
     base = name[:-len(DISCARD_SUFFIX)] if name.endswith(DISCARD_SUFFIX) \
         else name
     for suffix, unit in UNITS:
@@ -70,7 +78,9 @@ STATE: Dict[str, str] = {
     "discard_applied": "Whether the columns ending in _discard are filled "
                        "in, i.e. whether clusters were discarded.",
     "discard_margin_nm": "How far inside both widefield images a cluster "
-                         "had to be to be discarded.",
+                         "had to be to be discarded; with the automatic "
+                         "discard of unanchored clusters (v18), its exclusion "
+                         "depth (unanchored_exclude_nm).",
     "discard_registration": "How the widefield images were placed when "
                             "those clusters were found: measured with its "
                             "score, or set by hand.",
@@ -479,6 +489,28 @@ CLUSTERS: Dict[str, str] = {
                    "localizations lies within cut_margin_nm of the edge "
                    "(docs/cut_clusters.md). Empty when the rule was not "
                    "applied (see cut_status in the axon table).",
+    # v18, package P14: the automatic discard of unanchored clusters
+    "depth_below_ring_nm": "Signed distance of the cluster centre to the "
+                           "reference ring of the automatic discard, "
+                           "positive inside (the ring is in "
+                           "unanchored_reference of the axon table). Empty "
+                           "when the discard was not evaluated.",
+    "anchor_state": "The automatic rule's verdict: 'unanchored' (deeper than "
+                    "unanchored_exclude_nm, excluded), 'doubtful' (deeper "
+                    "than unanchored_doubt_nm: only marked, kept), "
+                    "'anchored', or 'not evaluated' (the ring could not be "
+                    "used; see unanchored_failure).",
+    "anchor_borderline": "True when the depth is within 2 of its own noise "
+                         "SDs (subsamples of the ring's input) of the "
+                         "exclusion depth: the verdict depends on the "
+                         "subsample.",
+    "anchor_source": "Why the cluster is out of (or back in) the 'discard "
+                     "applied' analysis: 'automatic', 'widefield' (the old "
+                     "two-image method), 'manual' (excluded by hand), "
+                     "'restored by hand' (the rule excluded it, a person "
+                     "kept it); empty when kept by the rule.",
+    "anchor_reason": "One sentence: the depth that excluded or marked it, or "
+                     "the reason and date of the decision by hand.",
 }
 
 LOCALIZATIONS: Dict[str, str] = {
@@ -858,6 +890,878 @@ CUT_CLUSTERS: Dict[str, str] = {
                     "flagged only, and measured as they are in the file.",
 }
 
+# --------------------------------------------------------------------------
+# The perimeter density analysis (axon tables v17: the pd_* block, written
+# last; the long tables <stem>_perimeter_*.csv). Every entry says what the
+# number is, how to read it, when it is empty and where it comes from. Origin
+# tags: [director] fixed by the thesis director, [lit] literature, [own sim]
+# simulation of this programme, [real data, pilot] the 18-axon pilot of
+# 2026-11-16 (ONE animal), [ad hoc] chosen here and to be swept, [derivation]
+# follows from the geometry. See docs/perimeter_density.md.
+# --------------------------------------------------------------------------
+
+_EMPTY_NOT_RUN = (" Empty when the perimeter density analysis was not run "
+                  "(pd_status 'not run') or failed before this step.")
+
+PERIMETER: Dict[str, str] = {
+    # --- identification of the trace
+    "trace_label": "Readable year.ROI.axon label of the trace, for example "
+                   "26.1.2. A label for reading, NOT a key: the key is "
+                   "axon_id. A part that could not be read is written NA. "
+                   "Origin: [ad hoc] format; the year comes from the date at "
+                   "the start of the file name (yy.m.d_) or from the year "
+                   "typed for the folder." + _EMPTY_NOT_RUN,
+    "trace_year": "Two-digit acquisition year of the label; NA when the file "
+                  "name has no date at its start and no year was typed. "
+                  "Origin: [ad hoc]." + _EMPTY_NOT_RUN,
+    "trace_complete": "True when the year, the ROI and the axon number of the "
+                      "label were all read; False when any reads NA."
+                      + _EMPTY_NOT_RUN,
+    "acquisition_date": "Acquisition date yy.mm.dd read at the start of the "
+                        "file name; empty when the name has none.",
+    "trace_warnings": "Which part of the label is missing and why, separated "
+                      "by ' | '; empty when the label is complete.",
+    # --- state
+    "pd_status": "'ok', or why the analysis has no full result: 'not run', "
+                 "'no focus' (a focus criterion was asked and no focus is "
+                 "known; it never falls back to the peak), 'contour failed', "
+                 "'too few localizations', 'empty profile', 'invalid input', "
+                 "'internal error'. Any status but 'ok' still gives a complete "
+                 "row: the columns after the failure are empty.",
+    "pd_failure": "One sentence saying why pd_status is not 'ok'; empty when "
+                  "it is.",
+    "pd_version": "Version of the perimeter density analysis that wrote the "
+                  "row." + _EMPTY_NOT_RUN,
+    # --- z0 and the two foci
+    "pd_z0_mode": "How the height z0 of the central slice was chosen: 'peak' "
+                  "(the localization peak in z, the default) or 'focus'. "
+                  "Origin: [director] decision of 2026-11-16 (peak by "
+                  "default, focus selectable)." + _EMPTY_NOT_RUN,
+    "pd_focus_kind": "Which focus when pd_z0_mode is 'focus': 'nominal' or "
+                     "'empirical'; empty for 'peak'. Both foci are always "
+                     "estimated and exported whatever z0 is.",
+    "pd_z0_criterion": "The criterion exactly as chosen: 'peak', "
+                       "'focus_nominal' or 'focus_empirical'."
+                       + _EMPTY_NOT_RUN,
+    "pd_z0_nm": "z of the centre of the central slice (slice 0)."
+                + _EMPTY_NOT_RUN,
+    "pd_z_peak_nm": "z of the highest localization density: the maximum of a "
+                    "Gaussian kernel density of the axon's z (sigma 25 nm). "
+                    "It differs from the programme's mixture-model peak by a "
+                    "median of 7.7 nm (maximum 36 nm) on the pilot. Origin: "
+                    "[real data, pilot] for the 25 nm kernel." + _EMPTY_NOT_RUN,
+    "pd_z_focus_nominal_nm": "The nominal focus: z = 0 of the file, shifted by "
+                             "the z calibration record when the file has "
+                             "one. Empty when no record says where it is.",
+    "pd_z_focus_empirical_nm": "The empirical focus: the z where the median "
+                               "of sx - sy crosses zero (the PSF is round "
+                               "there). Empty without sx / sy columns or "
+                               "without a crossing. It is a measured estimate; "
+                               "see pd_focus_empirical_n_bins.",
+    "pd_focus_empirical_n_bins": "z bins (40 nm wide, at least 200 "
+                                 "localizations each) behind the empirical "
+                                 "focus; few bins make it a weak estimate. "
+                                 "Origin: [ad hoc].",
+    "pd_peak_minus_focus_nm": "Peak minus focus of the SELECTED kind (the "
+                              "nominal one when z0 is the peak), in nm: "
+                              "positive when the peak lies at higher z than "
+                              "the focus. Both foci are exported below.",
+    "pd_abs_peak_minus_focus_nm": "Absolute value of pd_peak_minus_focus_nm: "
+                                  "how far the focus is from the peak, "
+                                  "whatever the side.",
+    "pd_peak_minus_focus_nominal_nm": "Peak minus the NOMINAL focus, signed "
+                                      "(nm). Empty without a nominal focus.",
+    "pd_abs_peak_minus_focus_nominal_nm": "Absolute peak - nominal focus (nm).",
+    "pd_peak_minus_focus_empirical_nm": "Peak minus the EMPIRICAL focus, "
+                                        "signed (nm). Empty without an "
+                                        "empirical focus.",
+    "pd_abs_peak_minus_focus_empirical_nm": "Absolute peak - empirical focus "
+                                            "(nm).",
+    # --- slices
+    "pd_slice_thickness_nm": "Thickness of each of the three contiguous "
+                             "slices (-1, 0, +1). Origin: [director] 170 nm, "
+                             "the programme's reference period (about 170 "
+                             "nm in the spectrin lattice, [lit]).",
+    "pd_slice_guard_nm": "Axial guard cut from each side of a slice: 0 for "
+                         "contiguous slices (the main run); the 42.5 nm guard "
+                         "(T / 4) only exists as the axial-guard sensitivity "
+                         "of question C. Origin: [ad hoc].",
+    "pd_n_locs_m1": "Localizations in slice -1." + _EMPTY_NOT_RUN,
+    "pd_n_locs_0": "Localizations in the central slice (slice 0)."
+                   + _EMPTY_NOT_RUN,
+    "pd_n_locs_p1": "Localizations in slice +1." + _EMPTY_NOT_RUN,
+    "pd_pct_m1_of_0": "Localizations of slice -1 as a percentage of the "
+                      "central slice's. No lateral slice is dropped for "
+                      "having few localizations: this number says how thin "
+                      "it is. Origin: [director] decision of 2026-11-16."
+                      + _EMPTY_NOT_RUN,
+    "pd_pct_p1_of_0": "Localizations of slice +1 as a percentage of the "
+                      "central slice's (same reading)." + _EMPTY_NOT_RUN,
+    "pd_frac_locs_in_slices": "Fraction of the axon's localizations that "
+                              "fall in the three slices (510 nm in z); the "
+                              "rest lie outside them." + _EMPTY_NOT_RUN,
+    "pd_z_coverage_m1": "Fraction of slice -1's z interval inside the file's "
+                        "z range; below 1 the slice is cut by the edge of the "
+                        "data and its counts are biased low. Origin: "
+                        "[derivation].",
+    "pd_z_coverage_0": "Same for the central slice.",
+    "pd_z_coverage_p1": "Same for slice +1.",
+    "pd_z_truncated_slices": "The slices (written -1, +1, ...) whose z "
+                             "interval leaves the file's z range; empty when "
+                             "none. A pair that includes one is to be read "
+                             "with care.",
+    "pd_lpz_nm": "Axial localization precision used for the expected axial "
+                 "leak of question C. Origin: [real data, pilot] about 47 nm; "
+                 "pd_lpz_source says where this value came from.",
+    "pd_lpz_source": "Where pd_lpz_nm came from (the file's own column, or "
+                     "the default).",
+    # --- contour
+    "pd_contour_method": "How the perimeter contour was made: "
+                         "'density_nodes' (automatic, the default), 'polar' "
+                         "(automatic, star-shaped axons only) or 'drawn' "
+                         "(a manual trace, offered for comparison). Origin: "
+                         "[director] decision of 2026-11-16: automatic.",
+    "pd_contour_status": "'ok', or why the automatic contour failed.",
+    "pd_contour_knot_nm": "Spacing of the spline's knots. Origin: [ad hoc] "
+                          "400 nm, the curvature module's knot spacing.",
+    "pd_contour_length_nm": "Length of the contour: the perimeter the arc "
+                            "bins are laid on." + _EMPTY_NOT_RUN,
+    "pd_contour_residual_sd_nm": "Standard deviation of the localizations' "
+                                 "distances to the contour.",
+    "pd_contour_self_crossings": "Times the contour crosses itself; above 0 "
+                                 "arc distances and windows are unreliable."
+                                 + _EMPTY_NOT_RUN,
+    "pd_contour_vs_polar_nm": "Mean distance between the automatic contour "
+                              "and the polar one; a large value, or a length "
+                              "that doubles the polar one, means the contour "
+                              "does not follow the membrane. Empty when not "
+                              "computable.",
+    "pd_contour_unsupported_fraction": "Fraction of the central slice's bins "
+                                       "that are not measured (arc stretches "
+                                       "longer than 400 nm without data, "
+                                       "[ad hoc]); those bins are left out "
+                                       "of the tests.",
+    "pd_contour_star_shaped": "True when the contour is star-shaped about "
+                              "its centre (the polar contour is then valid).",
+    "pd_contour_n_nodes": "Nodes of the automatic contour before smoothing.",
+    "pd_contour_reversed": "True when the contour came out clockwise and was "
+                           "reversed to counter-clockwise before use (the "
+                           "curvature sign depends on it).",
+    "pd_drawn_vs_auto_nm": "Mean absolute offset of a manually drawn trace "
+                           "from the automatic contour; empty when no trace "
+                           "was given.",
+    "pd_radial_shift_m1_nm": "Median radial offset of slice -1 minus that of "
+                             "the central slice (radial offset positive "
+                             "outside the contour): a systematic shift "
+                             "between slices of the same axon.",
+    "pd_radial_shift_p1_nm": "Same for slice +1 minus the central slice.",
+    # --- band
+    "pd_band_mode": "'fixed' (the band half-width is typed) or 'fwhm' (the "
+                    "axon's own radial FWHM, clipped to 50-150 nm).",
+    "pd_band_half_width_nm": "Half-width of the radial band around the "
+                             "perimeter contour inside which a localization "
+                             "counts here (100 nm). NOT the 50 nm band of the "
+                             "pipeline null H2 (tools.mps_pipeline_null): "
+                             "another module and another question. Origin: "
+                             "[ad hoc] chosen on [real data, pilot]; 50 and "
+                             "150 nm are run as a mandatory sensitivity "
+                             "(pd_band_sensitivity).",
+    "pd_radial_fwhm_nm": "Gaussian-equivalent full width at half maximum of "
+                         "the radial distances (2.3548 x 1.4826 x MAD). "
+                         "Origin: [derivation].",
+    "pd_radial_sd_nm": "Robust radial standard deviation (1.4826 x MAD).",
+    "pd_frac_within_50nm": "Fraction of the localizations within +-50 nm of "
+                           "the contour.",
+    "pd_frac_within_100nm": "Fraction of the localizations within +-100 nm of "
+                            "the contour.",
+    "pd_frac_within_150nm": "Fraction of the localizations within +-150 nm of "
+                            "the contour.",
+    # --- grid
+    "pd_bin_nm": "Nominal arc bin. Origin: [director] 100 nm.",
+    "pd_bin_nm_effective": "Bin actually used: perimeter divided by the "
+                           "number of bins (99-101 nm). Origin: [derivation].",
+    "pd_n_bins": "Arc bins around the perimeter." + _EMPTY_NOT_RUN,
+    "pd_max_count_0": "Localizations in the fullest bin of the central slice "
+                      "(the maximum question A aligns on).",
+    "pd_max_tie": "True when another bin ties the maximum; the first one is "
+                  "used.",
+    # --- question A
+    "pd_a_exclusion_nm": "Width of the zone around the maximum left out of "
+                         "A's statistics: the run of bins above half height "
+                         "(measured above the median) plus one buffer bin, "
+                         "and at least 200 nm on each side. Origin: [ad hoc].",
+    "pd_a_contrast": "Question A, near-far contrast: mean relative density "
+                     "within 1000 nm of the excluded zone minus the mean of "
+                     "the rest. Positive reads as an attractor (density "
+                     "gathers around the maximum), negative as an inhibition "
+                     "zone. The attractor reading is EXPLORATORY: it only "
+                     "holds if it survives the sensitivity to the exclusion "
+                     "zone (fixed 200 and 400 nm) and to the band. Origin: "
+                     "[ad hoc] 1000 nm.",
+    "pd_a_contrast_z": "pd_a_contrast in standard deviations of its null: the "
+                       "remainder of the profile shifted circularly (toroidal "
+                       "shift; Lotwick & Silverman 1982, [lit], not re-read). "
+                       "Two-sided.",
+    "pd_a_contrast_p": "Two-sided Monte Carlo p of the contrast, (1 + # "
+                       "replicates at least as extreme) / (1 + n_null) "
+                       "([lit] Phipson & Smyth 2010); its floor is "
+                       "1 / (n_null + 1), 0.0005 with 1999. The 18 pilot "
+                       "axons are ONE animal: with n_animals = 1 no "
+                       "comparison between animals is possible.",
+    "pd_a_period_nm": "Period of the strongest phase-locked peak of the "
+                      "remainder's periodogram, among periods from 300 nm "
+                      "([ad hoc]). Empty when A could not be tested.",
+    "pd_a_period": "The statistic behind pd_a_period_nm: the phase-locked "
+                   "periodogram power of the strongest peak (relative "
+                   "density squared, not divided by the total variance). "
+                   "Read it through pd_a_period_z and pd_a_period_p.",
+    "pd_a_period_z": "That peak's power in null standard deviations; "
+                     "one-sided. Descriptive for ONE axon: a periodic "
+                     "remainder looks almost the same after a shift by its "
+                     "period, so the per-axon test has little power. The "
+                     "test with power is the pooled one.",
+    "pd_a_period_p": "One-sided Monte Carlo p of the period peak (same floor "
+                     "as pd_a_contrast_p).",
+    "pd_a_period_at_edge": "True when the strongest peak sits at the longest "
+                           "scanned period: a trend (a halo or a depleted "
+                           "zone), not a repeat. Empty when A could not be "
+                           "tested.",
+    # --- question B
+    "pd_b_window_nm": "Tortuosity window (2 bins). Origin: [director] 200 nm.",
+    "pd_b_spearman": "Question B: Spearman correlation between the "
+                     "tortuosity of the 200 nm windows (chord / arc: 1 is "
+                     "straight, lower is more curved) and their density. It "
+                     "comes out NEGATIVE when density is higher where the "
+                     "contour is more curved. Tortuosity does not tell convex "
+                     "from concave. A positive value can also be the "
+                     "contour-band bias (see pd_b_tau_vs_offset).",
+    "pd_b_z": "pd_b_spearman in standard deviations of the circular-rotation "
+              "null of the density profile (curvature fixed).",
+    "pd_b_p": "Two-sided p against that null, (1 + #) / (1 + n shifts) ([lit] "
+              "Phipson & Smyth 2010); all non-zero shifts are used when "
+              "there are fewer than n_null.",
+    "pd_b_tau_min": "Lowest tortuosity among the windows (the most curved "
+                    "one).",
+    "pd_b_curvature_resolved": "True when the perimeter's equivalent radius "
+                               "(length / 2 pi) is at least 600 nm; below it "
+                               "the tortuosity differences are under the "
+                               "resolution and B is not interpretable. "
+                               "Origin: [derivation].",
+    "pd_b_tau_vs_offset": "Control for B: Spearman between the windows' "
+                          "tortuosity and their median radial offset. Far "
+                          "from 0 means the contour cutting corners could "
+                          "give B without biology. Only simulation controls "
+                          "that bias ([own sim]).",
+    # --- question C
+    "pd_c_r_m1_0": "Question C: correlation between the density profiles of "
+                   "slices -1 and 0. Neighbouring slices share axial "
+                   "leakage: compare with pd_c_leak_r_m1_0_sz47nm / _sz77nm "
+                   "(the leak with this axon's slice fractions) before "
+                   "reading it as registry.",
+    "pd_c_z_m1_0": "pd_c_r_m1_0 in standard deviations of the circular-shift "
+                   "null.",
+    "pd_c_p_m1_0": "One-sided p of pd_c_r_m1_0 over the circular shifts of "
+                   "the profile. Its floor is 1 / (n_bins + 1), about 0.0105 "
+                   "with 94 bins, whatever n_null is.",
+    "pd_c_r_0_p1": "Correlation between slices 0 and +1 (neighbours; same "
+                   "caution about leakage).",
+    "pd_c_z_0_p1": "pd_c_r_0_p1 in null standard deviations.",
+    "pd_c_p_0_p1": "One-sided p of pd_c_r_0_p1; floor 1 / (n_bins + 1), about "
+                   "0.0105 with 94 bins.",
+    "pd_c_r_m1_p1": "Correlation between slices -1 and +1, the pair that can "
+                    "show registry. Leakage reaches it too: about 0.02 with "
+                    "three equal slices and sigma_z 47 nm, but 0.07-0.09 "
+                    "(47 nm) to 0.24-0.28 (77 nm) with laterals at ~45 % of "
+                    "the central slice, as in the pilot; compare with "
+                    "pd_c_leak_r_m1_p1_sz47nm (main; range _sz36nm-_sz51nm, "
+                    "v21; _sz77nm is only an upper bound). Read as the "
+                    "main reading of C only when pd_c_main_reading is true.",
+    "pd_c_z_m1_p1": "pd_c_r_m1_p1 in null standard deviations.",
+    "pd_c_p_m1_p1": "One-sided p of pd_c_r_m1_p1; floor 1 / (n_bins + 1), about "
+                   "0.0105 with 94 bins.",
+    "pd_c_leak_expected_r": "Largest correlation between NEIGHBOURING slices "
+                            "that axial leakage alone produces: about 0.27 "
+                            "for 170 nm slices and a 47 nm axial precision. "
+                            "With the 42.5 nm axial guard it is about 0.12, "
+                            "not below 0.10. Counts are taken noise-free, so "
+                            "it is an upper bound. Origin: [derivation] with "
+                            "the precision of [real data, pilot]. Reported "
+                            "for reference only: since 2026-11-17 "
+                            "pd_c_reading compares the neighbours with the "
+                            "leak of the axon's own slice fractions "
+                            "(pd_c_leak_r_*_sz47nm, range _sz36nm-_sz51nm).",
+    "pd_c_reading": "Plain reading of the three correlations: 'registry "
+                    "between slices', 'leakage only', 'neighbours above "
+                    "leakage' (suggestive), 'no correlation between slices' "
+                    "or 'not computable'. A suffix says when the reading "
+                    "cannot be read as it stands: ' (contour not reliable: "
+                    "not interpretable)' or ' (contour not assessed: not "
+                    "interpretable)' when the quality gate leaves the axon "
+                    "out of the pooled analyses, and ' (slices do not "
+                    "coincide: outside the main reading of C, descriptive)' "
+                    "when the contour is reliable but pd_c_slices_coincide "
+                    "is false (v20; before v20 a ' (slice misfit: ...)' "
+                    "suffix followed pd_contour_slice_misfit). A 'registry "
+                    "between slices' whose r(-1, +1) is not clearly above "
+                    "the leak expected for the pair says so (v21: sigma_z "
+                    "47 nm main, measured range 36-51 nm): ' (r(-1, +1) not "
+                    "above the axial leak expected even with sigma_z 36 "
+                    "nm)', ' (r(-1, +1) at the limit: above the axial leak "
+                    "expected with sigma_z 36 nm, not with 47 nm)' or ' "
+                    "(r(-1, +1) above the axial leak expected with sigma_z "
+                    "47 nm but within its measured range 36-51 nm)'. The "
+                    "numbers do not change. 'leakage only' and 'neighbours "
+                    "above leakage' compare each significant neighbouring "
+                    "pair with ITS OWN leak expected from this axon's slice "
+                    "fractions at 47 nm (pd_c_leak_r_m1_0_sz47nm / "
+                    "pd_c_leak_r_0_p1_sz47nm; since 2026-11-17, before "
+                    "against pd_c_leak_expected_r of equal slices). When an "
+                    "end of the measured range gives another reading the "
+                    "label is the 47 nm one followed by ' (within the "
+                    "measured range of sigma_z 36-51 nm: <reading> at 36 "
+                    "nm; <reading> at 51 nm)'. The 77 nm upper bound does "
+                    "not enter the reading. Origin: [ad hoc] rule, "
+                    "tolerance 0.10 over the expected leak (neighbours).",
+    # --- sensitivity and run
+    "pd_band_sensitivity": "'consistent' when A, B and C keep their decision "
+                           "with the band at 50 and 150 nm, or which decision "
+                           "changes. Origin: [ad hoc]; the sensitivity is "
+                           "mandatory, its detail is in the sensitivity table.",
+    "pd_n_null": "Replicates of the Monte Carlo nulls. Origin: [lit] 1999, "
+                 "as the rest of the programme (Phipson & Smyth 2010).",
+    "pd_seed": "Seed of the random generator of the nulls (the same seed "
+               "gives the same p).",
+    "pd_warnings": "Warnings of the analysis, separated by ' | '.",
+}
+
+# v19 (package P10b): the automatic contour's assessment, the quality gate of the pooled analyses and the per-axon
+# reading of A. Thresholds and their origin: tools.mps_auto_contour (QUALITY_*, SLICE_*), docs/perimeter_density.md.
+_EMPTY_NO_CONTOUR = (" Empty when the analysis was not run or stopped before "
+                     "the contour.")
+PERIMETER_V19: Dict[str, str] = {
+    "trace_roi": "The ROI part of trace_label (year.ROI.axon); NA when it "
+                 "could not be read. For reading, not a key.",
+    "pd_contour_kind": "Which curve the contour is: 'primary' (density nodes, "
+                       "knot 400 nm), 'stiff fallback' (knot 600 nm), 'polar "
+                       "fallback' or 'polar', 'drawn' (a drawn trace), "
+                       "'external' (a curve given by a caller-supplied "
+                       "function) or 'none' (rejected)." + _EMPTY_NO_CONTOUR,
+    "pd_curve_stratum": "The kind folded into the strata of the pooled "
+                        "report: primary, stiff, polar, drawn (external / "
+                        "none otherwise). Origin: [own sim] the three "
+                        "automatic curves have different errors (p95 median "
+                        "36, 81 and 74 nm).",
+    "pd_contour_reliable": "The automatic contour's own verdict: False when "
+                           "the contour was rejected or failed ANY rule of its "
+                           "quality gate, the slice misfit included. Whether "
+                           "the axon is pooled is pd_pool_included, which "
+                           "does NOT count the slice misfit (decision D12)."
+                           + _EMPTY_NO_CONTOUR,
+    "pd_contour_failure_reason": "Why the contour was rejected (self-crossing, "
+                                 "implausible length, inward notch, no lumen, "
+                                 "too few nodes, ...); empty when accepted.",
+    "pd_contour_quality_reasons": "Every rule of the quality gate the contour "
+                                  "failed, separated by ' | ', the slice "
+                                  "misfit included; empty when none.",
+    "pd_contour_gate_reasons": "The reasons of pd_contour_quality_reasons "
+                               "that keep the axon out of the pooled "
+                               "analyses: all but the slice misfit "
+                               "(decision D12).",
+    "pd_contour_frac100": "Fraction of the localizations of the three slices "
+                          "within +-100 nm of the contour. The gate needs >= "
+                          "0.55. Origin: [own sim + review] no correct "
+                          "simulated curve with a cloud up to 100 nm falls "
+                          "below it.",
+    "pd_contour_robust_sd_nm": "Robust SD (1.4826 MAD) of the radial offsets "
+                               "within 400 nm of the contour. The gate needs "
+                               "<= 130 nm. Origin: [own sim + review].",
+    "pd_contour_persistent_offset_nm": "Largest offset of the band from the "
+                                       "curve that holds over 3 consecutive "
+                                       "windows of 500 nm (step 100 nm). The "
+                                       "gate needs <= 75 nm. Origin: [own "
+                                       "sim] 1.0 % false alarms on correct "
+                                       "curves, 39 % detection of bad ones.",
+    "pd_contour_off_band_fraction": "Fraction of the arc windows whose band "
+                                    "lies more than 100 nm from the curve. "
+                                    "The gate needs <= 0.15. Origin: [own "
+                                    "sim] 3x the largest of correct curves.",
+    "pd_contour_max_window_offset_nm": "Largest offset of ONE window (a "
+                                       "diagnostic only: it flagged every real "
+                                       "contour, so the gate reads the "
+                                       "persistent one).",
+    "pd_contour_support_unsupported_fraction": "Share of the contour's length "
+                                               "with no localization density "
+                                               "under it (runs > the gap "
+                                               "length): the curve is an "
+                                               "interpolation there. Not the "
+                                               "same as pd_contour_"
+                                               "unsupported_fraction (bins "
+                                               "not measured).",
+    "pd_contour_n_unsupported_arcs": "Number of those unsupported stretches.",
+    "pd_contour_slice_misfit": "True when the rings of slices -1 or +1 fall "
+                               "more than 50 nm RMS from the central one "
+                               "about the same curve (decision D7). REPORTED "
+                               "ONLY: the axon stays in the main pooled set "
+                               "(decision D12); the set without slice misfit "
+                               "leaves it out. Origin: [derivation] 50 nm "
+                               "costs about 12 % of the band; not calibrated.",
+    "pd_contour_slice_rms_minus_nm": "RMS along the curve of the displacement "
+                                     "of slice -1's ring from the central "
+                                     "one.",
+    "pd_contour_slice_rms_plus_nm": "Same for slice +1.",
+    "pd_contour_slice_radius_change_nm": "Change of the ring's radius per "
+                                         "slice ((a+1 - a-1) / 2; positive = "
+                                         "larger upward).",
+    "pd_contour_slice_lateral_minus_nm": "Lateral shift of slice -1's ring "
+                                         "from the central one.",
+    "pd_contour_slice_lateral_plus_nm": "Lateral shift of slice +1's ring "
+                                        "from the central one.",
+    "pd_contour_slice_frac100_central": "Fraction within +-100 nm for the "
+                                        "central slice alone.",
+    "pd_contour_slice_frac100_all": "Fraction within +-100 nm for the three "
+                                    "slices together.",
+    "pd_contour_n_excluded": "Localizations left out of the contour fit by "
+                             "the optional interior trim (decision D8, off by "
+                             "default: 0).",
+    "pd_contour_trim_status": "'trimmed' or 'not trimmed: <why>' when the "
+                              "interior trim was switched on; empty when off "
+                              "(the default). The trim acts only when the "
+                              "polar curve passes the strict rules of the "
+                              "automatic contour (no notch under 150 nm, the "
+                              "cloud never leaves it, a lumen, ...); otherwise "
+                              "'not trimmed: the polar reference fails the "
+                              "strict rules of the automatic contour (<rule>)' "
+                              "(user's decision 2026-11-17: against a polar "
+                              "curve of a non-star-shaped cloud the trim "
+                              "removed 5-22 % of the membrane in simulation).",
+    "pd_pool_included": "True when the axon enters the pooled analyses (main "
+                        "set): its analysis finished and its contour passed "
+                        "the quality gate, slice misfit aside (decisions D9, "
+                        "D12).",
+    "pd_pool_included_without_misfit": "True when the axon enters the pooled "
+                                       "set without slice misfit.",
+    "pd_pool_exclusion_reason": "Why the axon is not pooled: the analysis "
+                                "status and failure, 'contour rejected: ...' "
+                                "or 'contour not reliable: ...'; empty when "
+                                "pooled.",
+    "pd_a_reading": "Reading of question A. In the per-axon table: this axon "
+                    "alone (its contrast and period tests, Holm between the "
+                    "two; no exclusion-zone sensitivity per axon). In the "
+                    "pooled table: the group's pooled reading. Labels: "
+                    "'attractor', 'inhibition zone', 'regular' (or a "
+                    "combination), 'no structure detectable' or 'not "
+                    "computable'. In the pooled table a group of fewer than "
+                    "10 axons reads 'n too small (n = k axons < 10): not "
+                    "interpreted; computed label ...' (10 = the smallest "
+                    "simulated set, sizes 4-11 and 18, where attractor, "
+                    "inhibition zone and regular appear with a lower 95 % "
+                    "Wilson bound above 0.075 while every null stays at most "
+                    "0.075 [own sim; Bradley 1978]; 11 in v20). "
+                    "EXPLORATORY: a pooled reading is valid only "
+                    "if it survives the exclusion-zone sensitivity; with one "
+                    "animal there is no comparison between animals.",
+}
+
+# v20 (decision P-R3-1): the calibrated slice criterion of C and the axial leak with the axon's own slice
+# fractions. Rules and origins: tools.mps_perimeter_bc (slices_coincide_for_c, leak_expected_r_pairs).
+_LEAK_V20 = ("Correlation between slices {pair} expected from axial leakage "
+             "ALONE, computed with this axon's own fractions of "
+             "localizations in the three slices (taken as the slices' "
+             "molecule masses; this can underestimate the leak when a "
+             "lateral slice is mostly leak) and an axial width sigma_z = "
+             "{sz} nm. Noise-free counts. {why} Widths decided 2026-11-17 "
+             "after the NeNA in z of the pilot: 47 nm main, measured range "
+             "36-51 nm, 77 nm upper bound; for new data sigma_z should be "
+             "measured per file. Origin: [derivation]; widths [real data, "
+             "pilot].")
+_SZ47 = ("47 nm is the MAIN width: the equivalent sd of the error in z "
+         "measured by the NeNA in z with the slow error component (median "
+         "47.0 nm across axons; equals Picasso's median lpz).")
+_SZ77 = ("77 nm is only an UPPER BOUND: the sd of the rings' components in "
+         "z, which also holds the rings' physical thickness.")
+_SZ36 = ("36 nm is the LOWER end of the measured range: frame-to-frame "
+         "error only (v21).")
+_SZ51 = ("51 nm is the UPPER end of the measured range (across axons, with "
+         "the slow error component; v21).")
+PERIMETER_V20: Dict[str, str] = {
+    "pd_c_slices_coincide": "True when the slices coincide well enough for "
+                            "the main reading of question C: the better-"
+                            "fitting lateral slice is at most 32 nm RMS from "
+                            "the central ring (min(pd_contour_slice_rms_"
+                            "minus_nm, pd_contour_slice_rms_plus_nm) <= 32). "
+                            "False when either misfit could not be measured. "
+                            "Empty when the contour carries no assessment. "
+                            "Origin: [own sim; Bradley 1978 robustness band "
+                            "7.5 %]: the largest misfit at which the false-"
+                            "positive rate of C(-1, +1) stays at most 0.075 in "
+                            "the worst simulated geometry (calibrated with up "
+                            "to 50 localizations per bin: recalibrate for "
+                            "denser data).",
+    "pd_c_main_reading": "True when the axon is in the main reading of "
+                         "question C: it enters the pooled analyses "
+                         "(pd_pool_included) AND its slices coincide "
+                         "(pd_c_slices_coincide). The others are reported "
+                         "apart, descriptively.",
+    "pd_c_leak_r_m1_0_sz47nm": _LEAK_V20.format(pair="-1 and 0", sz=47, why=_SZ47),
+    "pd_c_leak_r_0_p1_sz47nm": _LEAK_V20.format(pair="0 and +1", sz=47, why=_SZ47),
+    "pd_c_leak_r_m1_p1_sz47nm": _LEAK_V20.format(pair="-1 and +1", sz=47, why=_SZ47),
+    "pd_c_leak_r_m1_0_sz77nm": _LEAK_V20.format(pair="-1 and 0", sz=77, why=_SZ77),
+    "pd_c_leak_r_0_p1_sz77nm": _LEAK_V20.format(pair="0 and +1", sz=77, why=_SZ77),
+    "pd_c_leak_r_m1_p1_sz77nm": _LEAK_V20.format(pair="-1 and +1", sz=77, why=_SZ77),
+    "pd_c_m1_p1_vs_leak": "pd_c_r_m1_p1 against the leak expected for the "
+                          "pair (since v21: 47 nm main, range 36-51 nm, 77 nm "
+                          "upper bound): 'above the leak (sigma_z 47 nm, range "
+                          "36-51 nm) and above its upper bound (77 nm)', "
+                          "'above the leak (sigma_z 47 nm, range 36-51 nm); "
+                          "within the upper bound (77 nm)', 'above the leak "
+                          "at sigma_z 47 nm, within its range (not above 51 "
+                          "nm)', 'at the limit: above the leak at sigma_z 36 "
+                          "nm, not at 47 nm' or 'not above the leak (not even "
+                          "at sigma_z 36 nm)'. Says nothing about significance "
+                          "(pd_c_p_m1_p1). Origin: [derivation].",
+}
+# v21 (NeNA in z, 2026-11-17): the leak at the two ends of the measured range of sigma_z.
+PERIMETER_V21: Dict[str, str] = {
+    "pd_c_leak_r_m1_0_sz36nm": _LEAK_V20.format(pair="-1 and 0", sz=36, why=_SZ36),
+    "pd_c_leak_r_0_p1_sz36nm": _LEAK_V20.format(pair="0 and +1", sz=36, why=_SZ36),
+    "pd_c_leak_r_m1_p1_sz36nm": _LEAK_V20.format(pair="-1 and +1", sz=36, why=_SZ36),
+    "pd_c_leak_r_m1_0_sz51nm": _LEAK_V20.format(pair="-1 and 0", sz=51, why=_SZ51),
+    "pd_c_leak_r_0_p1_sz51nm": _LEAK_V20.format(pair="0 and +1", sz=51, why=_SZ51),
+    "pd_c_leak_r_m1_p1_sz51nm": _LEAK_V20.format(pair="-1 and +1", sz=51, why=_SZ51),
+}
+
+# Units that the name alone does not give (or gives wrongly: kappa_mean_per_nm ends in _nm but is 1 / nm).
+PERIMETER_UNITS: Dict[str, str] = {
+    "pd_pct_m1_of_0": "%", "pd_pct_p1_of_0": "%",
+    "pd_frac_locs_in_slices": "fraction (0-1)", "pd_z_coverage_m1": "fraction (0-1)",
+    "pd_z_coverage_0": "fraction (0-1)", "pd_z_coverage_p1": "fraction (0-1)",
+    "pd_contour_unsupported_fraction": "fraction (0-1)", "pd_frac_within_50nm": "fraction (0-1)",
+    "pd_frac_within_100nm": "fraction (0-1)", "pd_frac_within_150nm": "fraction (0-1)",
+    "pd_c_leak_expected_r": "r (correlation)", "kappa_mean_per_nm": "1/nm",
+    "pd_c_r_m1_0": "r (correlation)", "pd_c_r_0_p1": "r (correlation)", "pd_c_r_m1_p1": "r (correlation)",
+    "pd_b_spearman": "r (Spearman)", "pd_b_tau_vs_offset": "r (Spearman)",
+    "pd_b_z": "null SD", "pd_a_contrast_z": "null SD", "pd_a_period_z": "null SD",
+    "pd_c_z_m1_0": "null SD", "pd_c_z_0_p1": "null SD", "pd_c_z_m1_p1": "null SD",
+    "trace_warnings": "", "pd_warnings": "",
+    # v19
+    "pd_contour_frac100": "fraction (0-1)", "pd_contour_off_band_fraction": "fraction (0-1)",
+    "pd_contour_support_unsupported_fraction": "fraction (0-1)",
+    "pd_contour_slice_frac100_central": "fraction (0-1)", "pd_contour_slice_frac100_all": "fraction (0-1)",
+    # v20
+    "pd_c_leak_r_m1_0_sz47nm": "r (correlation)", "pd_c_leak_r_0_p1_sz47nm": "r (correlation)",
+    "pd_c_leak_r_m1_p1_sz47nm": "r (correlation)", "pd_c_leak_r_m1_0_sz77nm": "r (correlation)",
+    "pd_c_leak_r_0_p1_sz77nm": "r (correlation)", "pd_c_leak_r_m1_p1_sz77nm": "r (correlation)",
+    "pd_c_m1_p1_vs_leak": "",
+    # v21
+    "pd_c_leak_r_m1_0_sz36nm": "r (correlation)", "pd_c_leak_r_0_p1_sz36nm": "r (correlation)",
+    "pd_c_leak_r_m1_p1_sz36nm": "r (correlation)", "pd_c_leak_r_m1_0_sz51nm": "r (correlation)",
+    "pd_c_leak_r_0_p1_sz51nm": "r (correlation)", "pd_c_leak_r_m1_p1_sz51nm": "r (correlation)",
+}
+
+# --------------------------------------------------------------------------
+# v18, package P14: the automatic discard of unanchored clusters
+# (tools.mps_unanchored; decisions D1-D11). Origin of the numbers: [pilot] one
+# unpublished pilot experiment, [ad hoc] chosen without further support; none
+# from the literature.
+# --------------------------------------------------------------------------
+_EMPTY_UN = (" Empty when the discard was not evaluated (unanchored_status "
+             "'not run').")
+UNANCHORED: Dict[str, str] = {
+    "unanchored_method": "Which discard made the 'discard applied' columns: "
+                         "'automatic' (the cluster's depth below a ring the "
+                         "spectrin itself draws), 'widefield' (the old "
+                         "tubulin + widefield spectrin method), 'off' (only "
+                         "decisions by hand) or 'not run'.",
+    "unanchored_status": "'ok', 'not run', or why the automatic rule could "
+                         "not be evaluated (too few localizations, no polar "
+                         "contour, cloud not star-shaped, too few cluster "
+                         "centres, smooth fit failed). When it is not 'ok' "
+                         "nothing was excluded automatically.",
+    "unanchored_failure": "One sentence saying why unanchored_status is not "
+                          "'ok'.",
+    "unanchored_reference": "The reference ring the depths were measured "
+                            "from: 'polar_localizations' (default: the polar "
+                            "contour of the slab's localizations) or "
+                            "'smooth_centres' (a robust smooth curve through "
+                            "the cluster centres).",
+    "unanchored_exclude_nm": "Depth below the ring beyond which a cluster is "
+                             "excluded automatically. Origin: [pilot + ad "
+                             "hoc] 400 nm, PROVISIONAL until the pilot axons "
+                             "are labelled by hand." + _EMPTY_UN,
+    "unanchored_doubt_nm": "Depth beyond which a cluster is only marked as "
+                           "doubtful (never excluded automatically). Origin: "
+                           "[ad hoc] 250 nm, the widefield method's margin."
+                           + _EMPTY_UN,
+    "unanchored_reference_noise_nm": "Median over the clusters of the SD of "
+                                     "their depth over 20 subsamples of the "
+                                     "ring's input (70 % of the localizations "
+                                     "or 90 % of the centres, fixed seed).",
+    "unanchored_inner_band_arc_nm": "Arc of the longest dense band deeper "
+                                    "than the exclusion depth that runs "
+                                    "along the inside of the ring (star-shape "
+                                    "test). Above 1500 nm [ad hoc + own sim] "
+                                    "the membrane folds inward and the ring "
+                                    "is rejected.",
+    "unanchored_n_clusters": "Kept clusters the discard looked at.",
+    "unanchored_n_auto": "Clusters the automatic rule excludes (deeper than "
+                         "unanchored_exclude_nm).",
+    "unanchored_n_doubtful": "Clusters the automatic rule marks as doubtful "
+                             "(kept).",
+    "unanchored_n_borderline": "Clusters whose depth is within 2 noise SDs "
+                               "of the exclusion depth.",
+    "unanchored_max_depth_nm": "Depth of the deepest cluster below the ring.",
+    "unanchored_other_reference": "The other reference ring, evaluated for "
+                                  "comparison.",
+    "unanchored_other_status": "'ok' or why the other ring could not be used.",
+    "unanchored_n_auto_other": "Clusters the automatic rule would exclude "
+                               "with the other ring.",
+    "unanchored_n_changed_by_reference": "Clusters whose verdict (anchored / "
+                                         "doubtful / unanchored) changes "
+                                         "with the ring. Empty when either "
+                                         "ring could not be used.",
+    "unanchored_n_widefield": "Clusters the old widefield method discards, "
+                              "when it was run on this axon (empty "
+                              "otherwise).",
+    "unanchored_n_excluded_manual": "Clusters excluded by hand that the "
+                                    "method kept.",
+    "unanchored_n_restored_manual": "Clusters the method excluded and a "
+                                    "person restored.",
+    "unanchored_n_final": "Clusters left out of the 'discard applied' "
+                          "analysis (method plus decisions by hand).",
+    "unanchored_fraction": "unanchored_n_final / unanchored_n_clusters.",
+    "unanchored_gate_exceeded": "True when the automatic rule excludes more "
+                                "than 20 % of the clusters [ad hoc, pilot "
+                                "maximum 19 %]: check the axon and the ring.",
+    "unanchored_discard_source": "Where the final discards came from: "
+                                 "'automatic', 'widefield', 'manual', their "
+                                 "combination joined by '+', or 'none'.",
+    "unanchored_labels_auto": "Labels of the clusters the automatic rule "
+                              "excludes, separated by spaces.",
+    "unanchored_labels_doubtful": "Labels of the doubtful clusters.",
+    "unanchored_labels_excluded_manual": "Labels of the clusters excluded by "
+                                         "hand.",
+    "unanchored_labels_restored_manual": "Labels of the clusters restored by "
+                                         "hand.",
+    "unanchored_manual_reasons": "'label: reason' of every decision by hand "
+                                 "applied, separated by ' | '.",
+    "unanchored_manual_file": "The decisions file beside the data "
+                              "(<data>_unanchored.json): decisions are stored "
+                              "by position (cluster centre, 50 nm tolerance) "
+                              "and survive a re-analysis.",
+    "unanchored_manual_fingerprint": "Short hash of the decisions applied "
+                                     "(the same decisions give the same "
+                                     "hash).",
+    "unanchored_manual_n_orphan": "Decisions in the file that match no "
+                                  "cluster of this analysis (kept in the "
+                                  "file, not applied).",
+    "unanchored_warnings": "Warnings of the discard, separated by ' | '.",
+    "pd_contour_trim_nm": "Depth below the polar ring beyond which "
+                          "localizations were left out before the perimeter "
+                          "contour was fitted (off by default: empty). "
+                          "Origin: [pilot + ad hoc] 250 nm. Applied only when "
+                          "the polar curve passes the strict rules of the "
+                          "automatic contour (see pd_contour_trim_status).",
+    "pd_contour_n_locs_trimmed": "Localizations that trim left out of the "
+                                 "contour fit (the density profiles still "
+                                 "count every localization).",
+}
+UNANCHORED_UNITS: Dict[str, str] = {
+    "unanchored_fraction": "fraction (0-1)",
+    "unanchored_inner_band_arc_nm": "nm",
+}
+
+# The long tables. A name keeps one meaning across them.
+PERIMETER_LONG: Dict[str, str] = {
+    # profiles
+    "slice": "Slice of the row: -1, 0 (central) or +1.",
+    "bin": "Index of the arc bin on the central grid (bin j is centred on "
+           "origin + j x bin).",
+    "lag_nm": "Position along the contour relative to the central slice's "
+              "maximum, on the straight axis centred on it (0 at the maximum; "
+              "negative one way round, positive the other). In the pooled "
+              "table with axis 'fraction' it is a fraction of the perimeter "
+              "instead.",
+    "count": "Localizations of this slice in this bin.",
+    "relative": "count / the largest count of this slice (0-1).",
+    "measured": "False where the contour has no data support (a stretch "
+                "longer than 400 nm without data, or a bin the band does not "
+                "reach): left out of the tests.",
+    "tau_window": "Tortuosity (chord / arc, 1 = straight) of the 200 nm "
+                  "window that starts at this bin, central slice.",
+    "kappa_mean_per_nm": "Signed mean curvature of that window (positive = "
+                         "convex, 1/nm).",
+    "window_radial_median_nm": "Median signed radial offset (positive "
+                               "outside the contour) of the localizations in "
+                               "that window, central slice.",
+    "radial_median_nm": "Median signed radial offset of this slice's "
+                        "localizations in this bin.",
+    # contour
+    "row": "Row of the contour's point table.",
+    "x_nm": "x of the contour point.",
+    "y_nm": "y of the contour point.",
+    "arc_nm": "Cumulative arc length from the first row, counter-clockwise.",
+    # pooled
+    "group": "The group of the row: the genotype (or the identity fields "
+             "chosen) of the pooled axons, 'SIN ANIMAL' when no axon has an "
+             "animal; in the peak - focus table '(all axons)' or 'ROI n'.",
+    "axis": "'nm' (absolute distance from the maximum, bins of 100 nm) or "
+            "'fraction' (of the perimeter).",
+    "mean_relative": "Mean over axons of the folded relative density at this "
+                     "distance (one axon, one weight).",
+    "n_axons": "Axons contributing at this distance (in the per-animal and "
+               "peak - focus tables: axons in the row).",
+    "n_animals": "Animals contributing at this distance.",
+    "null_lo": "Pointwise 2.5 % of the null band at this distance.",
+    "null_hi": "Pointwise 97.5 % of the null band.",
+    "global_lo": "Lower edge of the global envelope of the null (Myllymaki "
+                 "et al. 2017, [lit]); a profile leaving it is significant "
+                 "over all distances at once.",
+    "global_hi": "Upper edge of the global envelope.",
+    "reading_full": "The reading with its Holm p's, the period peak and the "
+                    "scope (axons pooled).",
+    "contrast": "Pooled near-far contrast of the group.",
+    "contrast_z": "Pooled contrast in null standard deviations.",
+    "contrast_p": "Pooled contrast p (two-sided, Monte Carlo).",
+    "period": "Pooled phase-locked periodogram power of the group.",
+    "period_z": "Pooled period power in null standard deviations.",
+    "period_p": "Pooled period p (one-sided, Monte Carlo).",
+    "n_axons_pooled": "Axons pooled in the group's statistics.",
+    "scope": "Which pooled set the row belongs to: 'reliable contours (slice "
+             "misfit included)' (the main set: every finished axon whose "
+             "contour passed the quality gate; the misfit between the z "
+             "slices is only reported, decision D12), 'reliable contours "
+             "without slice misfit' (the same, without the axons the misfit "
+             "marked) or 'reliable contours, curve: <kind>' (the main set "
+             "restricted to one kind of curve: primary, stiff, polar, drawn; "
+             "the kinds are different estimators). v20: 'reliable contours "
+             "with coinciding slices (main reading of C)' is the main set "
+             "restricted to axons whose slices coincide "
+             "(pd_c_main_reading): C(-1, +1) gets its p only there, and A "
+             "and B only in the other scopes; elsewhere those columns are "
+             "descriptive. Origin: [plan] P10b; decision P-R3-1.",
+    # gate summary
+    "n_axons_total": "Axons analysed (every file of the run).",
+    "n_included": "Axons in this pooled set.",
+    "n_excluded": "Axons not in this pooled set (n_axons_total - "
+                  "n_included).",
+    "n_excluded_analysis_failed": "Axons whose analysis did not finish "
+                                  "(pd_status not 'ok'), in any set.",
+    "n_excluded_contour_not_reliable": "Finished axons whose contour failed "
+                                       "the quality gate for a reason other "
+                                       "than the slice misfit.",
+    "n_excluded_slice_misfit": "Axons left out ONLY because the slice misfit "
+                               "marked them (non-zero only in the set "
+                               "without slice misfit).",
+    "n_included_with_slice_misfit": "Axons of this set that carry the slice "
+                                    "misfit mark (pd_contour_slice_misfit).",
+    "included_axons": "trace_label of the axons in this set, separated by "
+                      "' | '.",
+    "n_excluded_slices_not_coinciding": "Pooled axons left out of the main "
+                                        "reading of C because their slices "
+                                        "do not coincide (non-zero only in "
+                                        "that scope).",
+    # by animal
+    "animal": "Animal label; 'SIN ANIMAL' for axons without one (descriptive "
+              "per ROI, no p); 'provisional-single-animal' is a placeholder "
+              "for a folder known to be one animal of unknown label, not an "
+              "animal's name.",
+    "provisional": "True when the animal label is the provisional placeholder.",
+    "n_animals_total": "Animals in the whole analysis; with 1 no comparison "
+                       "between animals is possible.",
+    "note": "How to read the row (what its p is and is not).",
+    # sensitivity
+    "setting": "What was varied: 'band (main)' (the main run), 'band' "
+               "(another half-width) or 'axial guard'.",
+    "value_nm": "The band half-width or the axial guard of the row.",
+    "c_leak_expected_r": "Expected neighbour correlation from axial leakage "
+                         "alone at this setting (about 0.27 unguarded, about "
+                         "0.12 with the 42.5 nm guard).",
+    "a_contrast": "As pd_a_contrast at this setting.",
+    "a_contrast_z": "As pd_a_contrast_z at this setting.",
+    "a_contrast_p": "As pd_a_contrast_p at this setting.",
+    "a_period": "Phase-locked period power at this setting.",
+    "a_period_z": "As pd_a_period_z at this setting.",
+    "a_period_p": "As pd_a_period_p at this setting.",
+    "b_spearman": "As pd_b_spearman at this setting (empty for an axial "
+                  "guard: only C is repeated).",
+    "b_z": "As pd_b_z at this setting.",
+    "b_p": "As pd_b_p at this setting.",
+    # the batch's axons table and log
+    "source_path": "The localization file this axon was analysed from.",
+    "file": "The localization file of the log row.",
+    "status": "Status of the analysis of that file (as pd_status).",
+    "failure": "One sentence saying why the analysis of that file did not "
+               "finish; empty when it did.",
+    "duplicate_label_with": "Other files that read the same trace_label; a "
+                            "label is not a key, so this is a warning.",
+    "warnings": "Warnings of the identity and of the analysis, separated by "
+                "' | '.",
+}
+for _suffix in ("m1_0", "0_p1", "m1_p1"):
+    PERIMETER_LONG[f"c_r_{_suffix}"] = f"As pd_c_r_{_suffix} at this setting."
+    PERIMETER_LONG[f"c_z_{_suffix}"] = f"As pd_c_z_{_suffix} at this setting."
+    PERIMETER_LONG[f"c_p_{_suffix}"] = f"As pd_c_p_{_suffix} at this setting."
+
+_ROW_STATS = {
+    "n": "How many axons have a value of",
+    "mean": "Mean over the axons of",
+    "median": "Median over the axons of",
+    "sd": "Standard deviation over the axons of",
+    "min": "Smallest value of",
+    "max": "Largest value of",
+    "p": "p of a t test (z against 0) of the axons within one animal, of",
+    "p_holm": "That p, Holm-adjusted across the readouts, for",
+}
+# readouts summarised per animal (tools.mps_perimeter_pool.Z_READOUTS) and per ROI (the four distances)
+_ROW_MEASURES = ("pd_a_contrast_z", "pd_a_period_z", "pd_b_z", "pd_c_z_m1_p1", "pd_c_z_m1_0", "pd_c_z_0_p1",
+                 "pd_peak_minus_focus_nominal_nm", "pd_abs_peak_minus_focus_nominal_nm",
+                 "pd_peak_minus_focus_empirical_nm", "pd_abs_peak_minus_focus_empirical_nm")
+
+
+def describe_perimeter(name: str) -> Optional[str]:
+    """What a column of the perimeter density analysis means (axon table block or long table), or None."""
+    if name in PERIMETER:
+        return PERIMETER[name]
+    if name in PERIMETER_V19:
+        return PERIMETER_V19[name]
+    if name in PERIMETER_V20:
+        return PERIMETER_V20[name]
+    if name in PERIMETER_V21:
+        return PERIMETER_V21[name]
+    if name in PERIMETER_LONG:
+        return PERIMETER_LONG[name]
+    # n_ / mean_ / sd_ / p_ / p_holm_ / median_ / min_ / max_ + a summarised readout
+    for prefix in sorted(_ROW_STATS, key=len, reverse=True):
+        if name.startswith(prefix + "_") and name[len(prefix) + 1:] in _ROW_MEASURES:
+            measure = name[len(prefix) + 1:]
+            base = f"{_ROW_STATS[prefix]} {measure} ({describe_perimeter(measure)})"
+            if prefix in ("p", "p_holm"):
+                base += (" This is a test within one animal that treats its axons as replicates, NOT a comparison "
+                         "between animals, and it does not generalise. It is empty with a single animal or a "
+                         "provisional one ('one animal: no p'), in rows 'SIN ANIMAL', and always for "
+                         "pd_c_z_m1_0, pd_c_z_0_p1 and pd_a_period_z (not tested: see the note). Holm runs over "
+                         "pd_a_contrast_z, pd_b_z and pd_c_z_m1_p1 only.")
+            if measure in ("pd_c_z_m1_0", "pd_c_z_0_p1"):
+                base += " For the neighbouring pairs a z above 0 is expected from axial leakage alone."
+            return base
+    return None
+
+
+def perimeter_unit(name: str) -> Optional[str]:
+    """The unit of a perimeter column when it is not the one the name gives (None: use the name's)."""
+    if name in PERIMETER_UNITS:
+        return PERIMETER_UNITS[name]
+    for prefix in sorted(_ROW_STATS, key=len, reverse=True):
+        measure = name[len(prefix) + 1:] if name.startswith(prefix + "_") else ""
+        if measure in _ROW_MEASURES:
+            if prefix == "n":
+                return "axons"
+            if prefix in ("p", "p_holm"):
+                return ""
+            return "nm" if measure.endswith("_nm") else "null SD"
+    return None
+
+
 _PANEL = {**AXOPLASM, **AXOPLASM_CLUSTERS, **AXOPLASM_LOCALIZATIONS}
 
 
@@ -865,9 +1769,12 @@ def describe(name: str) -> Optional[str]:
     """What one column means, or None when nothing here describes it."""
     for table in (IDENTITY, STATE, ANALYSIS, CLUSTERS, LOCALIZATIONS,
                   CROSSCHANNEL, Z_CALIBRATION, AXIAL_MIXTURE,
-                  EPS_CHOICE, CUT_CLUSTERS):
+                  EPS_CHOICE, CUT_CLUSTERS, UNANCHORED):
         if name in table:
             return table[name]
+    described_pd = describe_perimeter(name)         # v17: the perimeter density analysis
+    if described_pd:
+        return described_pd
     if name.endswith(DISCARD_SUFFIX):
         base = name[:-len(DISCARD_SUFFIX)]
         described = describe(base)
@@ -935,5 +1842,10 @@ def known_columns() -> List[str]:
     columns += list(CLUSTER_METHOD_COLUMNS)
     columns += list(EMITTERS_COLUMNS)
     from tools.axon_export import integration_columns
-    columns += list(integration_columns())          # v13 (v14: three more at its end), last
+    columns += list(integration_columns())          # v13 (v14: three more at its end)
+    columns += list(PERIMETER_COLUMNS)              # v17: the perimeter density analysis
+    columns += list(UNANCHORED_COLUMNS)             # v18: the unanchored-cluster discard
+    columns += list(PERIMETER_V19_COLUMNS)          # v19: contour assessment and pooling gate
+    columns += list(PERIMETER_V20_COLUMNS)          # v20: slice criterion of C, leak with real fractions
+    columns += list(PERIMETER_V21_COLUMNS)          # v21: leak at the ends of the measured range of sigma_z, last
     return columns

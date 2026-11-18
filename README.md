@@ -388,6 +388,11 @@ pytest test_mps_explorer.py -v
   flagged clusters, controls, the experimental unit, the expected bias of each readout) with the column or file it
   comes from and whether the program or the author supplies it; the occupancy also as the fraction of the contour
   within 25 nm of a cluster centre (P-R103): [docs/reporting_checklist.md](docs/reporting_checklist.md).
+- **Perimeter density analysis (no clusters).** Three 170 nm slices around the peak or the focus, an automatic
+  contour fitted to the localizations, density profiles of a ±100 nm band in 100 nm arc bins, and three questions
+  (A: the density around its maximum; B: density against curvature; C: correlation between slices), each with its
+  Monte Carlo null and the way to read it. Command line `batch_perimeter.py`; axon table v17 (`pd_*` columns) and
+  long tables with dictionaries: [docs/perimeter_density.md](docs/perimeter_density.md).
 
 ---
 

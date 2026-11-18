@@ -116,10 +116,15 @@ def _groupby(rows: Sequence[Mapping[str, Any]], key: str) -> Dict[str, List[Mapp
 
 
 def aggregate_by_animal(rows: Sequence[Mapping[str, Any]], measures: Sequence[str] = Z_COLUMNS, *,
-                        animal_key: str = "animal") -> List[Dict[str, Any]]:
+                        animal_key: str = "animal",
+                        tested: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
     """One row per animal: ``n_axons``, ``mean_<m>``, ``sd_<m>``, ``n_<m>`` (axons with a value), the one-sample t
-    test of the axons' z against 0 (``p_<m>``, needs >= 2 axons) and its Holm adjustment across ``measures``
-    (``p_holm_<m>``). Rows without an animal are left out."""
+    test of the axons' z against 0 (``p_<m>``, needs >= 2 axons) and its Holm adjustment across the tested measures
+    (``p_holm_<m>``). Rows without an animal are left out.
+
+    ``tested`` (default: every measure) is the family that gets a p and enters the Holm adjustment; the other
+    measures keep their descriptive numbers and get ``p_<m> = p_holm_<m> = None``."""
+    family = list(measures) if tested is None else [m for m in measures if m in set(tested)]
     out: List[Dict[str, Any]] = []
     for animal, rr in sorted(_groupby(rows, animal_key).items()):
         row: Dict[str, Any] = {animal_key: animal, "n_axons": len(rr)}
@@ -129,10 +134,15 @@ def aggregate_by_animal(rows: Sequence[Mapping[str, Any]], measures: Sequence[st
             row[f"n_{m}"] = int(v.size)
             row[f"mean_{m}"] = float(np.mean(v)) if v.size else None
             row[f"sd_{m}"] = float(np.std(v, ddof=1)) if v.size > 1 else None
-            p = float(stats.ttest_1samp(v, 0.0).pvalue) if v.size > 1 and np.std(v) > 0 else None
+            p = None
+            if m in family and v.size > 1 and np.std(v) > 0:
+                p = float(stats.ttest_1samp(v, 0.0).pvalue)
             row[f"p_{m}"] = p
-            ps.append(p)
-        for m, p in zip(measures, holm(ps)):
+            if m in family:
+                ps.append(p)
+        for m in measures:
+            row[f"p_holm_{m}"] = None
+        for m, p in zip(family, holm(ps)):
             row[f"p_holm_{m}"] = p
         out.append(row)
     return out
