@@ -1165,12 +1165,6 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if self.links.store is not None:
             self.links.store({"cluster_methods_compared": ran})
 
-    def _on_null_shortcut(self) -> None:
-        """'Null (per axon)...' in the strip: the Perimeter arrangement tab, with its estimate; it runs from there
-        (the estimate is read first: a null of a slow method takes hours)."""
-        self.tabs.setCurrentWidget(self.arrangement_scroll)
-        self._sync_integration()
-
     def _sync_integration(self) -> None:
         """The Working scale panel and the Perimeter arrangement tab follow the analysis shown: its working scale,
         the DBSCAN rule with the panel's c_label, the double table, and the runs a null can be run for (the
@@ -1618,8 +1612,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         from tools.arrangement_ui import TAB_TITLE, ArrangementPanel, WorkingScalePanel
         self.arrangement = ArrangementPanel(dark=self.dark)
         # The working scale of the analysis shown (A9 sec. 4.1; A5 inside it), the editable c_label and the DBSCAN
-        # rule beside 25/10 (D2), at the top of the tab whose tests start at its marks (the left column keeps every
-        # row of the results table in sight at 1366 x 728).
+        # rule beside 25/10 (D2), in the tab whose tests start at its marks, below the 'Null (per axon)' row and its
+        # estimate so that row stays in sight (the left column keeps every row of the results table in sight at
+        # 1366 x 728).
         self.working_scale = WorkingScalePanel()
         # the c_label kept in the settings (2026-10-29): the panel starts at it, and an edit is written back through
         # the store, so the next session and the Batch use it

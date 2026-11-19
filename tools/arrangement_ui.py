@@ -60,9 +60,13 @@ NULL_TIP = ("Simulate this axon without structure: molecules at random on its ow
             "resemble this one. Methods: docs/null_and_scale.md, docs/regularity.md.")
 SYNTH_TIP = ("The observed axon beside one simulated axon of its null (the replicate kept), with the same contour, "
              "scale and colours. Drawn only when you press this; nothing of it stays on the axon map.")
+# Manual test (2026-11-19): H1 / H2 stayed empty axes until the null ran, and nothing said so; the Randomization
+# box (KS test) of the results window does not compute it.
+NULL_NEEDED = ("Empty until you press 'Null (per axon)' above; the Randomization box (KS test) does not compute "
+               "this null.")
 GLOBAL_TIP = ("Decision: the global envelope (maximum studentised deviation over r >= the working scale's d50) and "
               "its p. The grey shade is the pointwise 2.5-97.5 % envelope, for the eye only: crossing it at some r "
-              "is not a test.")
+              "is not a test. " + NULL_NEEDED)
 
 
 # C3 / C4 (user decision 2026-10-23): the null's closure in the panel; N_loc stays the default.
@@ -501,7 +505,27 @@ def band_label(source: str) -> str:
     """The legend's band entry with its source ('pipeline null, B = ...' or 'approx., centres')."""
     return f"Null 95 % band ({source}; shade, guide only)" if source else LEG_BAND
 H_HELP = ("Above the null = more neighbours than random (clustering); below = fewer (spacing / regularity). Only "
-          "the global envelope decides; its p is in the title. Left of the grey zone's edge nothing is tested.")
+          "the global envelope decides; its p is in the title. Left of the grey zone's edge nothing is tested. "
+          + NULL_NEEDED)
+HINT_WIDTH = 46                                          # characters per line of the 'No null yet' notice
+
+
+def null_hint_words(b: Optional[int], estimate: Optional[str]) -> str:
+    """The notice centred on H1 / H2 while no null of the method shown is drawn."""
+    if b is None:
+        return f"No null yet: run the MPS analysis, then press '{NULL_BUTTON}' above."
+    return f"No null yet: press '{NULL_BUTTON}' above (B = {b}" + (f", {estimate}" if estimate else "") + ")."
+
+
+def wrap_words(text: str, width: int = HINT_WIDTH) -> str:
+    """``text`` in lines of at most ``width`` characters (a longer word keeps its own line)."""
+    lines: List[str] = []
+    for word in text.split():
+        if lines and len(lines[-1]) + 1 + len(word) <= width:
+            lines[-1] += " " + word
+        else:
+            lines.append(word)
+    return "\n".join(lines)
 REGULARITY_HELP = ("Gaps: distances between consecutive centres along the ring. g(s): neighbours at arc distance s "
                    "(1 = random). S(m): periodogram of the centres (a peak = a regular spacing). The curves are for "
                    "the eye; the reading above is the test.")
@@ -778,6 +802,8 @@ class ArrangementPanel(QtWidgets.QWidget):
         self._shown_res: Any = None
         self._drawn_key: Optional[str] = None
         self._base_titles: Dict[Any, str] = {}           # plot -> its title before any null is drawn
+        self._hints: Dict[Any, Any] = {}                 # plot -> the 'No null yet' notice centred on H1 / H2
+        self._hint_fixed: Optional[str] = None           # the notice's text when it is not 'No null yet'
         self.excluded: List[Tuple[str, str]] = []
         self.lbl_estimate = QtWidgets.QLabel("")
         self.lbl_estimate.setObjectName("lbl_null_estimate")
@@ -896,12 +922,16 @@ class ArrangementPanel(QtWidgets.QWidget):
         self._split_placed = False
         lay.addWidget(self.splitter, 1)
         self._update_estimate()
+        self._draw(None)
 
     def set_header(self, widget: QtWidgets.QWidget) -> None:
-        """A panel at the top of the upper pane (the window's Working scale)."""
+        """A panel in the upper pane (the window's Working scale), below the null's controls, estimate, progress and
+        banner and above the nulls' table: the 'Null (per axon)' row stays in sight when the upper pane is short
+        (manual test of 2026-11-19: at the top, the panel pushed that row out of view)."""
         lay = self.upper.layout()
         assert isinstance(lay, QtWidgets.QVBoxLayout)
-        lay.insertWidget(0, widget)
+        idx = lay.indexOf(self.banner)
+        lay.insertWidget(idx + 1 if idx >= 0 else 0, widget)
 
     def showEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
         super().showEvent(event)
@@ -1044,14 +1074,12 @@ class ArrangementPanel(QtWidgets.QWidget):
         except Exception:  # noqa: BLE001 - each null falls back to its own reading, said in its row
             return None
 
-    def _update_estimate(self) -> None:
-        if not self.runs:
-            self.lbl_estimate.setText("Run the MPS analysis first: the null simulates the axon shown.")
-            return
+    def _estimate_parts(self) -> Tuple[int, float, List[str], List[str]]:
+        """B, the estimated seconds of the methods that would run, their keys and the slow ones refused."""
         b = int(self.combo_b.currentData() or B_CHOICES[0])
-        parts = []
+        parts: List[str] = []
         total = 0.0
-        refused = []
+        refused: List[str] = []
         closure = self.closure_choice()
         for r in self.runs:
             s = ci.null_estimate_seconds(r, b, closure)
@@ -1060,6 +1088,22 @@ class ArrangementPanel(QtWidgets.QWidget):
                 continue
             total += s
             parts.append(r.key)
+        return b, total, parts, refused
+
+    def null_hint_text(self) -> str:
+        """The 'No null yet' notice of H1 / H2, with B and the time the null would take."""
+        if not self.runs:
+            return null_hint_words(None, None)
+        b, total, parts, _refused = self._estimate_parts()
+        return null_hint_words(b, ci.words_estimate(total) if parts else None)
+
+    def _update_estimate(self) -> None:
+        self._refresh_hints()
+        if not self.runs:
+            self.lbl_estimate.setText("Run the MPS analysis first: the null simulates the axon shown.")
+            return
+        closure = self.closure_choice()
+        b, total, parts, refused = self._estimate_parts()
         both = " (closure: both side by side, about twice the time)" if closure == "both" else f" (closure: {closure})"
         text = (f"{NULL_BUTTON} for {len(parts)} method(s) ({', '.join(parts)}), B = {b}{both}: "
                 f"{ci.words_estimate(total)} (a first estimate from the per-method cost table; a lower bound for "
@@ -1220,6 +1264,7 @@ class ArrangementPanel(QtWidgets.QWidget):
             # H1 kept +/-2e8 until the user pressed pyqtgraph's 'A')
             p.getViewBox().enableAutoRange()
         self._clear_legends()
+        self._hints = {}                                 # p.clear() above took them off the plots
         self._shown_res = None
         self._drawn_key = None
         for p, title in self._base_titles.items():
@@ -1231,6 +1276,8 @@ class ArrangementPanel(QtWidgets.QWidget):
             self.banner.setText("" if o is None else f"{key}: {o.status} -- {o.message}")
             self.banner.setStyleSheet(f"color: {verdict('warn', dark=False)};" if o is not None else "")
             self.lbl_reading.setText("")
+            self._show_hints(None if o is None else f"No null drawn for {key}: {o.status} (see the message under "
+                                                     "the estimate).")
             # G2: before the null, the regularity plots show the centres-level band, labelled so
             self._draw_centres_preview()
             for name, plot in self.figure_plots().items():
@@ -1276,6 +1323,34 @@ class ArrangementPanel(QtWidgets.QWidget):
             return regularity_legend_entries(self.dark, self.band_source) if self.plot_has_curves(name) else []
         return []
 
+    def _show_hints(self, text: Optional[str] = None) -> None:
+        """H1 / H2 with no null drawn: a notice centred on each (``text``; default: 'No null yet', with B and the
+        estimate), in a 0-1 view; the next drawing clears it. Presentation only."""
+        colour = neutral(self.dark)
+        for plot in (self.plot_h1, self.plot_h2):
+            item = pg.TextItem(anchor=(0.5, 0.5), color=colour)
+            plot.addItem(item, ignoreBounds=True)
+            item.setPos(0.5, 0.5)
+            plot.getViewBox().setRange(xRange=(0.0, 1.0), yRange=(0.0, 1.0), padding=0.0)
+            self._hints[plot] = item
+        self._hint_fixed = text
+        self._refresh_hints()
+
+    def _refresh_hints(self) -> None:
+        """The notice's text follows B, the closure and 'Allow slow methods' (its estimate)."""
+        if not getattr(self, "_hints", None):
+            return
+        text = wrap_words(self._hint_fixed or self.null_hint_text())
+        for item in self._hints.values():
+            item.setText(text)
+
+    def null_hint_shown(self) -> str:
+        """The notice on H1 now, in one line ('' when a null is drawn)."""
+        item = self._hints.get(self.plot_h1)
+        if item is None or item.scene() is None:
+            return ""
+        return " ".join(str(item.toPlainText()).split())
+
     def plot_has_curves(self, name: str) -> bool:
         plot = self.figure_plots().get(name)
         return plot is not None and any(isinstance(it, pg.PlotDataItem) for it in plot.getPlotItem().items)
@@ -1293,14 +1368,20 @@ class ArrangementPanel(QtWidgets.QWidget):
 
     @contextlib.contextmanager
     def legends_hidden(self) -> Iterator[None]:
-        """While Export image... writes a plot (it draws its own legend from legend_entries)."""
+        """While Export image... writes a plot (it draws its own legend from legend_entries); the 'No null yet'
+        notice steps aside too (it speaks to the screen, not to a figure)."""
         was = {k: leg.isVisible() for k, leg in self._legends.items()}
+        hints = list(self._hints.values())
         try:
             self.set_legends_visible(False)
+            for item in hints:
+                item.setVisible(False)
             yield
         finally:
             for k, leg in self._legends.items():
                 leg.setVisible(was.get(k, True))
+            for item in hints:
+                item.setVisible(True)
 
     def _draw_env(self, plot: Any, env: Any, res: Any, tag: str) -> None:
         if env is None:
