@@ -42,6 +42,7 @@ from tools.cluster_quality import (
     CircularROI,
     PolygonROI,
     SquareROI,
+    distance_to_roi_boundary,
     points_in_polygon,
     points_in_roi,
 )
@@ -49,6 +50,7 @@ from tools.mps_analysis import analyze_axon
 from tools import mps_perimeter_cost as perimeter_cost
 from tools.mps_periodicity import fit_z_periodicity
 from tools import mps_file_drop, mps_io, mps_pixel_size
+from tools import size_guard_ui
 from tools.mps_picasso_tools import PicassoTools
 from tools import mps_plot_style as plot_style
 from tools.mps_tooltips import MAIN_WINDOW, apply_tooltips
@@ -124,6 +126,14 @@ class _HeldDiscard(NamedTuple):
     base: Any                    # the AxonAnalysis it was computed from
     key: Tuple[int, bytes]       # how many clusters, and which went
     comparison: Any    # tools.mps_analysis.DiscardComparison
+
+
+class _HeldUnanchored(NamedTuple):
+    """The automatic discard of unanchored clusters of one analysis (package P15)."""
+
+    base: Any                    # the AxonAnalysis it was computed on
+    flags: Any                   # tools.mps_unanchored.FinalFlags
+    comparison: Any              # DiscardComparison once applied, else None
 
 
 class MPS_explorer(QtWidgets.QMainWindow):
@@ -482,6 +492,13 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # The same analysis with all its clusters and without the ones the
         # axoplasm panel found inside the axon (a _HeldDiscard), or None.
         self.mps_discard: Optional[Any] = None
+        # P15: the automatic discard of unanchored clusters of the analysis shown (a _HeldUnanchored), its window
+        # (kept hidden: it also runs the rule on every analysis shown), the analysis it last ran on, and the
+        # axoplasm panel's last flags (the 'Widefield images' method of that window).
+        self.mps_unanchored: Optional[Any] = None
+        self.unanchored_window: Optional[Any] = None
+        self._unanchored_seen: Any = None
+        self._last_anchored: Any = None
         # Every discarded set already computed for the current analysis.
         # Dragging the margin over one cluster and back used to re-run
         # the 1000-iteration randomization each way; eight entries covers
@@ -1226,7 +1243,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         picasso_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         toolbar.addWidget(picasso_button)
 
-        self.action_export_axon = QtWidgets.QAction("Export axon", self)
+        self.action_export_axon = QtWidgets.QAction("Save axon...", self)
         self.action_export_axon.setToolTip(
             "Write this axon to the tables: one row with the measured\n"
             "parameters and the ones with the discard applied, and, if you\n"
@@ -1240,7 +1257,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.action_batch.setToolTip(
             "Analyse every picked axon under a folder at once, with the\n"
             "settings of this window, and write them to the same table\n"
-            "'Export axon' writes. It also compares groups -- per axon and\n"
+            "'Save axon' writes. It also compares groups -- per axon and\n"
             "per animal -- from a batch or from any exported table."
         )
         self.action_batch.triggered.connect(self._on_batch)
@@ -1504,7 +1521,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         own. Nor is the ThunderSTORM one, which writes for another
         program.
         """
-        covered = ("This file is a subset of what 'Export axon' writes; it "
+        covered = ("This file is a subset of what 'Save axon' writes; it "
                    "is kept for other programs.\n\n")
         superseded = (
             (self.ui.pushButton_savexyzROI,
@@ -1716,6 +1733,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 z_calibration=zcal.export_columns(self._z_state(1)),
                 eps_choice=self.mps_settings.eps_choice,
                 integration=self._integration_for(measured, analysis),
+                **self._unanchored_export(analysis),
                 **panel)
         except axon_export.ExportConflict as error:
             QtWidgets.QMessageBox.warning(self, "Export refused", str(error))
@@ -1735,6 +1753,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 "slab are written, and not the ones it left out.")
 
         paths = axon_export.table_paths(path)
+        existed = {key: os.path.exists(target) for key, target in paths.items()}
         # Each table carries which one it is: with only the localizations
         # asked for, a list of (path, rows) alone would report them under
         # the clusters table's name.
@@ -1773,6 +1792,11 @@ class MPS_explorer(QtWidgets.QMainWindow):
         self.mps_settings.last_export_dir = os.path.dirname(paths["axon"])
         save_settings(self.mps_settings)
         note = written(paths, counts, decision == export_ui.REPLACE)
+        kept = [os.path.basename(paths[k]) for k in counts if existed.get(k)]
+        if kept:
+            note += ("\n\n" + ", ".join(kept) + " already existed"
+                     + ": nothing was overwritten, this axon's rows were "
+                     + ("put in place of the same axon's." if decision == export_ui.REPLACE else "added to it."))
         # BaGoL F5: with the Emitters layer, its emitters and the labels in
         # the 'External labels' format, one pair of files per axon.
         if getattr(measured, "emitters", None) is not None:
@@ -2317,6 +2341,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
         # Called from the panel's slots: an exception escaping here would
         # take the whole application down, for a comparison that is only
         # an addition to the measured analysis.
+        self._last_anchored = (found, centroids)
         try:
             self._compare_discard(found, centroids)
         except Exception as error:     # noqa: BLE001 - logged
@@ -2419,11 +2444,116 @@ class MPS_explorer(QtWidgets.QMainWindow):
             self.mps_window.refresh()
 
     def _discard_for(self, analysis: Any) -> Optional[Any]:
-        """The DiscardComparison of ``analysis``, if there is one."""
+        """The DiscardComparison of ``analysis``, if there is one: the axoplasm panel's (widefield) when it has
+        one, else none while the panel shows a result for this selection (its export must agree with it), else the
+        automatic discard of unanchored clusters (P15, decision D4). The first time an analysis is asked about,
+        that automatic run starts (in the background)."""
         held = self.mps_discard
-        if held is None or held.base is not analysis:
+        if held is not None and held.base is analysis:
+            return held.comparison
+        self._maybe_start_unanchored(analysis)
+        if self._axoplasm_export_state():
             return None
-        return held.comparison
+        un = self.mps_unanchored
+        if un is None or un.base is not analysis:
+            return None
+        return un.comparison
+
+    # ---------------- P15: unanchored clusters ----------------
+
+    def _maybe_start_unanchored(self, analysis: Any) -> None:
+        from tools.mps_unanchored_window import auto_enabled
+        if (analysis is None or analysis is not self.mps_analysis or analysis is self._unanchored_seen
+                or not auto_enabled()):
+            return
+        self._unanchored_seen = analysis
+        QtCore.QTimer.singleShot(0, lambda a=analysis: self._start_unanchored(a))
+
+    def _start_unanchored(self, analysis: Any) -> None:
+        if analysis is not self.mps_analysis:
+            return
+        try:
+            self._unanchored().analysis_changed(auto_apply=True)
+        except Exception as error:     # noqa: BLE001 - logged; the analysis shown stays as it is
+            self.logger.error(f"Unanchored clusters not evaluated: {error}", exc_info=True)
+
+    def _unanchored_inputs(self) -> Optional[Any]:
+        """The analysis shown, its data file and, when the axoplasm panel has flags for its centres, those."""
+        from tools.mps_unanchored_window import UnanchoredInputs
+        analysis = self.mps_analysis
+        if analysis is None:
+            return None
+        widefield = None
+        last = self._last_anchored
+        if last is not None and last[0] is not None and last[1] is not None:
+            cent = np.asarray(analysis.centroids, float).reshape(-1, 2)
+            got = np.asarray(last[1], float).reshape(-1, 2)
+            if got.shape == cent.shape and np.allclose(got, cent):
+                widefield = np.asarray(last[0].discarded, bool).ravel()
+        return UnanchoredInputs(analysis=analysis, data_path=self._identity_source(), widefield=widefield)
+
+    def _unanchored(self) -> Any:
+        """The unanchored clusters window (created hidden, once)."""
+        if self.unanchored_window is None:
+            from tools.mps_unanchored_window import TOUR_ID, UnanchoredWindow
+            w = UnanchoredWindow(self._unanchored_inputs, parent=self)
+            w.flags_ready.connect(self._on_unanchored_flags)
+            w.applied.connect(self._on_unanchored_applied)
+            w.progress_changed.connect(self._on_unanchored_progress)
+            tour = getattr(self, "tour", None)
+            if tour is not None:
+                tour.register_window(w, TOUR_ID)
+            self.unanchored_window = w
+        return self.unanchored_window
+
+    def show_unanchored_window(self) -> None:
+        """'Unanchored...': the window, on the analysis shown."""
+        if self.mps_analysis is None:
+            QtWidgets.QMessageBox.information(self, "Unanchored clusters",
+                                              "Run the analysis first: select one axon with an ROI and cluster it.")
+            return
+        w = self._unanchored()
+        if (w.inputs is None or w.inputs.analysis is not self.mps_analysis) and not w.running():
+            w.analysis_changed(auto_apply=False)
+        w.show()
+        w.raise_()
+        w.activateWindow()
+
+    def cancel_unanchored(self) -> None:
+        if self.unanchored_window is not None:
+            self.unanchored_window.cancel()
+
+    def _on_unanchored_flags(self, analysis: Any, flags: Any) -> None:
+        held = self.mps_unanchored
+        comparison = None
+        if held is not None and held.base is analysis and held.comparison is not None:
+            from tools.mps_unanchored_window import same_flags
+            if same_flags(held.flags, flags):
+                comparison = held.comparison
+        if comparison is None and held is not None and held.base is analysis and held.comparison is not None:
+            flags = held.flags        # the preview changed; what is applied (and exported) stays until Apply
+            comparison = held.comparison
+        self.mps_unanchored = _HeldUnanchored(base=analysis, flags=flags, comparison=comparison)
+
+    def _on_unanchored_applied(self, analysis: Any, flags: Any, comparison: Any) -> None:
+        self.mps_unanchored = _HeldUnanchored(base=analysis, flags=flags, comparison=comparison)
+        if self.mps_window is not None and self.mps_window.analysis is analysis:
+            self.mps_window.refresh()
+
+    def _on_unanchored_progress(self, line: str, value: int, running: bool) -> None:
+        if self.mps_window is not None:
+            try:
+                self.mps_window.show_side_progress(line, int(value), bool(running))
+            except Exception:          # noqa: BLE001 - the line is a convenience
+                pass
+
+    def _unanchored_export(self, analysis: Any) -> Dict[str, Any]:
+        """The v18 block and the per-cluster rows of the automatic discard, for the export of ``analysis``."""
+        from tools import mps_unanchored as mu
+        held = self.mps_unanchored
+        if held is None or held.base is not analysis or held.flags is None:
+            return {}
+        return {"unanchored": mu.unanchored_block(held.flags), "unanchored_rows": mu.cluster_rows(held.flags)}
 
     def show_axoplasm_panel(self) -> None:
         """Open the axoplasm panel on the channel-1 selection."""
@@ -3315,6 +3445,22 @@ class MPS_explorer(QtWidgets.QMainWindow):
         QtWidgets.QApplication.restoreOverrideCursor()
         return self._finish_mps_analysis(job, analysis, show_window)
 
+    def _confirm_large_selection(self) -> bool:
+        """tools.mps_size_guard: a selection with more than ANALYSIS_ASK_LOCS localizations is asked about once
+        (per selection: the same arrays are not asked again at every re-run). True: go on."""
+        from tools import mps_size_guard as guard
+        from tools.method_costs import estimate_seconds, method_label, words_seconds
+        n = len(self.xroi)
+        if not guard.analysis_needs_question(n) or getattr(self, "_big_ok_for", None) is self.xroi:
+            return True
+        method = str(self.mps_settings.cluster_method)
+        text = guard.analysis_question_text(
+            n, method_label(method), words_seconds(estimate_seconds([method], n)))
+        if not size_guard_ui.confirm(self, "Large selection", text, go_label="Analyse"):
+            return False
+        self._big_ok_for = self.xroi
+        return True
+
     def _prepare_mps_analysis(self, overrides: Dict[str, Any]) -> Optional[Any]:
         """The first half of ``run_mps_analysis`` (GUI thread): the inputs and
         the keywords of ``analyze_axon`` from the selection, the settings and
@@ -3328,6 +3474,10 @@ class MPS_explorer(QtWidgets.QMainWindow):
                 "Load a file, draw the scatter plot and select an ROI before "
                 "running the MPS analysis."
             )
+            return None
+        if not self._confirm_large_selection():
+            self._perimeter_cancelled = ("The analysis was not run: the selection has far more localizations "
+                                         "than an axon and the question was answered with Cancel.")
             return None
 
         s = self.mps_settings
@@ -3539,12 +3689,18 @@ class MPS_explorer(QtWidgets.QMainWindow):
         arrays and localization table (compared by identity: a new ROI, cut or file replaces them)."""
         return (self.ui.lineEdit_filename.text(), self.xroi, self.xroi_unfiltered, self.locs1)
 
+    def _selection_is_big(self) -> bool:
+        """The selection is large enough (tools.mps_size_guard.ANALYSIS_BACKGROUND_LOCS) for the analysis to run in
+        the background, with a bar and a Cancel button, whatever the method."""
+        from tools import mps_size_guard as guard
+        return self.xroi is not None and guard.analysis_in_background(len(self.xroi))
+
     def _mps_run_in_background(self) -> bool:
         """An interactive analysis with a slow method goes to the MPS analysis window, which runs it in the
         background (True: handed over, or refused because one is running). False: run it here."""
         from tools.cluster_method_ui import is_slow
         from tools.perimeter_cost_ui import interactive
-        if not interactive() or not is_slow(str(self.mps_settings.cluster_method)):
+        if not interactive() or not (is_slow(str(self.mps_settings.cluster_method)) or self._selection_is_big()):
             return False
         if self.xroi is None or self.zroi is None or len(self.xroi) == 0:
             return False                                  # the synchronous path says why
@@ -3619,7 +3775,18 @@ class MPS_explorer(QtWidgets.QMainWindow):
             compute=compute, finish=finish, fail=fail,
             gates=((perimeter_cost.asking, make_gate(self)),
                    (_el.asking_precision, emitters_precision_ui.make_gate(self))),
-            words=f"{words} on {len(job.x_in):,} ROI localizations")
+            words=f"{words} on {len(job.x_in):,} ROI localizations",
+            clustering_estimate_s=self._clustering_estimate(job))
+
+    @staticmethod
+    def _clustering_estimate(job: Any) -> float:
+        """Seconds the clustering is expected to take on this job (tools.method_costs; 0 when unknown)."""
+        from tools.method_costs import SECONDS_PER_KLOC, SCALING_EXPONENT
+        method = str(job.method)
+        per = SECONDS_PER_KLOC.get(method)
+        if per is None:
+            return 0.0
+        return float(per * (len(job.x_in) / 1000.0) ** SCALING_EXPONENT.get(method, 1.0))
 
     def _forget_emitters_buffer(self) -> None:
         """A new file: the Emitters layer's imaging buffer is chosen again (F5c; a source of F5b that implied a
@@ -3854,6 +4021,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             export_callback=self.export_axon,
             links=self._mps_window_links(),
             background=self._background_mps_run)
+        window.big_run = self._selection_is_big
         window.axon_map.image_changed.connect(self._map_image_changed)
         # a new map starts on its own choice: the panel's selector shows it
         self._map_image_changed(window.axon_map.inputs().image)
@@ -3931,7 +4099,38 @@ class MPS_explorer(QtWidgets.QMainWindow):
             rule_inputs=self._file_locs_per_cycle,
             c_label=lambda: float(self.mps_settings.c_label),
             rule_inputs_at=self._file_locs_per_cycle_at,
-            lpc_depth=self._lpc_depth_for)
+            lpc_depth=self._lpc_depth_for,
+            perimeter_inputs=self._perimeter_inputs,
+            open_unanchored=self.show_unanchored_window,
+            cancel_unanchored=self.cancel_unanchored)
+
+    def _perimeter_inputs(self) -> Optional[Any]:
+        """The perimeter density window's axon (P12): every localization of the current ROI BEFORE the axial cut
+        (the analysis cuts its own slices), with the file's columns and metadata chain, silently None without a
+        usable ROI. The drawn trace is the guide of the contour of the last analysis, when a person drew one."""
+        from tools.mps_perimeter_window import PerimeterInputs
+
+        loc = self.locs1
+        if (loc is None or self.roi_indices_unfiltered is None or self.xroi_unfiltered is None
+                or self.yroi_unfiltered is None or self.zroi_unfiltered is None):
+            return None
+        index = np.asarray(self.roi_indices_unfiltered, dtype=np.intp)
+        x = np.asarray(self.xroi_unfiltered, dtype=float)
+        y = np.asarray(self.yroi_unfiltered, dtype=float)
+        z = np.asarray(self.zroi_unfiltered, dtype=float)
+        if x.size == 0 or not (x.size == y.size == z.size == index.size):
+            return None
+        n_file = int(np.asarray(loc.x_nm).size)
+        columns = {name: np.asarray(v).reshape(-1)[index] for name, v in loc.columns.items()
+                   if np.asarray(v).reshape(-1).size == n_file}
+        analysis = self.mps_analysis
+        perimeter = None if analysis is None else getattr(analysis, "perimeter", None)
+        guide = None if perimeter is None else getattr(perimeter, "guide", None)
+        return PerimeterInputs(
+            x_nm=x, y_nm=y, z_nm=z, columns=columns, info=list(loc.info),
+            source_path=str(getattr(loc, "path", "") or self.ui.lineEdit_filename.text()),
+            identity=self.current_identity(ask=False),
+            drawn_contour=None if guide is None else np.asarray(guide, dtype=float))
 
     def _file_locs_per_cycle_at(self, radius_in_nena: Optional[float]) -> Optional[Any]:
         """B1 (2026-11-07): the whole file's localizations per cycle at the radius typed in 'Working scale' (None:
@@ -4747,6 +4946,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """Load a file into channel 1 without the file dialog."""
         try:
             x, y, z = self.import_file(path, fileformat, channel=1)
+        except size_guard_ui.ReadCancelled as note:
+            self.logger.info(str(note))
+            return False
         except ValueError as error:
             # Nothing has changed yet: the previous file stays loaded.
             self.logger.error(f"Could not load {path}: {error}")
@@ -4869,6 +5071,9 @@ class MPS_explorer(QtWidgets.QMainWindow):
         """Load a file into channel 2 without the file dialog."""
         try:
             x, y, z = self.import_file(path, fileformat, channel=2)
+        except size_guard_ui.ReadCancelled as note:
+            self.logger.info(str(note))
+            return False
         except ValueError as error:
             # Nothing has changed yet: the previous file stays loaded.
             self.logger.error(f"Could not load {path}: {error}")
@@ -5007,6 +5212,26 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return None
         return value
 
+    def _read_localizations(self, filename: str, fileformat: int,
+                            pixel_size_nm: Optional[float] = None, ask: bool = True) -> Any:
+        """``mps_io.load_localizations`` with the guard of ``tools.mps_size_guard``: a file with far more
+        localizations than a cropped axon is asked about BEFORE it is read (the count comes from its header), and
+        the read runs in a worker thread with a bar and a Cancel button, so the window keeps answering. Offscreen
+        it reads here, as before. Raises ``size_guard_ui.ReadCancelled`` when the user stops it."""
+        from tools import mps_size_guard as guard
+        if ask:
+            n_locs, n_bytes = guard.peek_count(filename, fileformat)
+            if guard.load_needs_question(n_locs):
+                if not size_guard_ui.confirm(
+                        self, "Very large file",
+                        guard.load_question_text(os.path.basename(filename), int(n_locs or 0), n_bytes),
+                        go_label="Read it anyway"):
+                    raise size_guard_ui.ReadCancelled(
+                        "The file was not read: it has far more localizations than an axon.")
+        return size_guard_ui.read_with_progress(
+            self, lambda: mps_io.load_localizations(filename, fileformat, pixel_size_nm=pixel_size_nm),
+            f"Reading {os.path.basename(filename)}...")
+
     def import_file(
         self,
         filename: str,
@@ -5043,7 +5268,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
             Tuple of (x, y, z) coordinate arrays in nanometers.
         """
         try:
-            loc = mps_io.load_localizations(filename, fileformat)
+            loc = self._read_localizations(filename, fileformat)
         except ValueError as error:
             if "pixel size" not in str(error).lower():
                 raise
@@ -5070,8 +5295,8 @@ class MPS_explorer(QtWidgets.QMainWindow):
                     "it carries no pixel size -- no Picasso YAML beside "
                     "it and no '/metadata' inside it -- and none was "
                     "found near it or given, so nothing was loaded")
-            loc = mps_io.load_localizations(
-                filename, fileformat, pixel_size_nm=guessed
+            loc = self._read_localizations(
+                filename, fileformat, pixel_size_nm=guessed, ask=False
             )
             assert resolution is not None       # guessed is not None
             loc.pixel_size_source = resolution.token
@@ -5372,6 +5597,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         # Render channel 1 scatter (sets self.x, self.y, self.z, self.data_points)
         self._render_scatter_xy_ch1(scatterWidgetxy, plotxy)
+        self._add_scale_bar(plotxy, float(np.max(self.x) - np.min(self.x)))
 
         # Render channel 1 z-histogram
         self._render_z_histogram(self.z, 1, self.brush1, self.pen1,
@@ -5603,12 +5829,60 @@ class MPS_explorer(QtWidgets.QMainWindow):
             return
         self.xroi2, self.yroi2, self.zroi2 = x2[keep], y2[keep], z2[keep]
 
+    # Scale bar lengths [nm] the ROI views choose from: the longest that stays under about a fifth of the view.
+    SCALE_BAR_CHOICES_NM = (50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000)
+
+    @classmethod
+    def _scale_bar_length_nm(cls, view_width_nm: float) -> int:
+        """A round length (nm) for the scale bar of a view ``view_width_nm`` wide (display only)."""
+        fits = [c for c in cls.SCALE_BAR_CHOICES_NM if c <= 0.2 * float(view_width_nm)]
+        return int(fits[-1] if fits else cls.SCALE_BAR_CHOICES_NM[0])
+
+    def _add_scale_bar(self, plot: Any, view_width_nm: float) -> Optional[Any]:
+        """A scale bar in nm in the plot's bottom-right corner (the x / y axes are in nm already; the bar says it
+        in one look while the ROI is drawn). Display only: it changes no selection and no number."""
+        try:
+            length = self._scale_bar_length_nm(view_width_nm)
+            bar = pg.ScaleBar(size=length, suffix="nm", width=4, brush="w", pen=None)
+            bar.setParentItem(plot.getViewBox())
+            bar.anchor((1, 1), (1, 1), offset=(-24, -24))
+            bar.setZValue(1e6)
+            return bar
+        except Exception:  # noqa: BLE001 - cosmetic only
+            self.logger.debug("Scale bar not drawn", exc_info=True)
+            return None
+
+    def _roi_margin_words(self) -> str:
+        """Live reading of how far the selected localizations lie from the ROI edge and the pixel size, in nm (the
+        tooltips recommend a margin of at least 500 nm around the membrane). Display only."""
+        parts = []
+        try:
+            shape = self._current_roi_shape()
+            if shape is not None and self.xroi is not None and len(self.xroi) > 0:
+                d = distance_to_roi_boundary(np.asarray(self.xroi, dtype=float),
+                                             np.asarray(self.yroi, dtype=float), shape)
+                d = np.abs(d[np.isfinite(d)])
+                if d.size:
+                    parts.append(f"ROI edge to nearest localization {float(d.min()):.0f} nm "
+                                 f"(5th percentile {float(np.percentile(d, 5)):.0f} nm)")
+        except Exception:  # noqa: BLE001 - the reading is only a help
+            self.logger.debug("ROI margin not computed", exc_info=True)
+        try:
+            px = self._channel1_pixel_size()[0]
+            if px:
+                parts.append(f"pixel {float(px):g} nm")
+        except Exception:  # noqa: BLE001
+            pass
+        return "; ".join(parts)
+
     def _draw_roi_panels(self) -> None:
         """Draw both channels' selections in the ROI scatter. Their z is on
         the MPS analysis window's Axial tab (UI stage 2: the ROI before the
         cut, the cut lines, channel 2 as loaded)."""
         scatterWidgetROI = pg.GraphicsLayoutWidget()
-        plotROI = scatterWidgetROI.addPlot(title="ROI after the Z cut")
+        margin_words = self._roi_margin_words()
+        plotROI = scatterWidgetROI.addPlot(
+            title="ROI after the Z cut" + (f" -- {margin_words}" if margin_words else ""))
         plotROI.setAspectLocked(True)
         plotROI.setLabels(bottom=('x [nm]'), left=('y [nm]'))
 
@@ -5623,6 +5897,7 @@ class MPS_explorer(QtWidgets.QMainWindow):
 
         x_shown = np.concatenate(shown)
         plotROI.setXRange(np.min(x_shown), np.max(x_shown), padding=0)
+        self._add_scale_bar(plotROI, float(np.max(x_shown) - np.min(x_shown)))
 
         self.empty_layout(self.ui.scatterlayout_3)
         self.ui.scatterlayout_3.addWidget(scatterWidgetROI)

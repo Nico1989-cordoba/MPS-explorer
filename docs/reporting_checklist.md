@@ -151,7 +151,7 @@ When a choice of method rests on the project's benchmark (`docs/clustering_bench
 - The axial precision, and the 95 % interval of the NeNA (both shown in windows, not in the axon table).
 - The fraction of localizations left unassigned and any density: divisions of exported columns (items 8-9).
 - Laboratory controls and a measured c_label: until they exist, c_label is the literature's 14 cycles per label
-  (Alexa Fluor 647 in MEA), 26 as the sensitivity column [lit: Dempsey et al. 2011], labelled provisional.
+  (Alexa Fluor 647 in MEA), 26 as the sensitivity column [lit: Dempsey et al. 2011, per fluorophore on glass; other measurements span about 4-17 events per label, `docs/dbscan_rule.md` section 2.1], labelled provisional.
 
 ## Decision record
 

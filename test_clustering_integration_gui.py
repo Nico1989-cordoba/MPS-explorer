@@ -66,7 +66,7 @@ def test_working_scale_rule_and_the_tab(app, observed):
         assert ws.badge_c_label.badge == "paper" and ws.rule.min_samples == 6
         groups = {g.key: g for g in L.build_map(w._map_inputs())}
         assert "events" in groups and [lay.key for lay in groups["events"].layers] == ["fus14", "fus26"]
-        assert w.btn_null_shortcut.isEnabled()
+        assert not hasattr(w, "btn_null_shortcut")          # the one Null (per axon) button is the tab's
         w._on_null_shortcut()
         assert w.tabs.currentWidget() is w.arrangement_scroll
         assert "B = 199" in w.arrangement.lbl_estimate.text() and "per animal" in w.arrangement.lbl_estimate.text()

@@ -194,7 +194,7 @@ def draw(plot: Any, d: Diagnostic, dark: bool = True) -> None:
     text = "#ffffff" if dark else "#000000"
     legend = pg.LegendItem(offset=(-4, 4), labelTextColor=text,
                            brush=pg.mkBrush(*((0, 0, 0, 150) if dark else (255, 255, 255, 190))),
-                           pen=pg.mkPen(text, width=0.5), labelTextSize="7pt", verSpacing=-6)
+                           pen=pg.mkPen(text, width=0.5), labelTextSize="9pt", verSpacing=-6)
     legend.setParentItem(pi.vb)
     legend.setZValue(1e6)
     if d.kind == "points":

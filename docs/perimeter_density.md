@@ -17,8 +17,8 @@
 > **En el piloto (18 axones, un experimento, un animal) solo 3 contornos pasan la compuerta de calidad (4 si el
 > desajuste entre rodajas solo informa). Ninguna lectura A, B o C de ese piloto es un hallazgo: son 3 o 4 axones de un
 > animal, sin comparación posible entre animales ni entre genotipos.** Con 4 axones la potencia de A es 0,05–0,24:
-> «no detectado» no es «ausente»; con menos de 10 axones el agrupado de A dice «n too small» y no se interpreta
-> (mínimo fijado simulando de 5 a 10 axones, con el techo de 7,5 % de Bradley; el margen en 10 es chico). C se lee solo sobre contornos confiables y, para la lectura principal, solo sobre rodajas que coinciden bien: la rodaja
+> «no detectado» no es «ausente»; con menos de 9 axones el agrupado de A dice «n too small» y no se interpreta
+> (mínimo fijado simulando de 5 a 11 axones, con el techo de 7,5 % de Bradley, y confirmado con 2000 conjuntos por escenario en 9, 10 y 11). C se lee solo sobre contornos confiables y, para la lectura principal, solo sobre rodajas que coinciden bien: la rodaja
 > lateral mejor alineada a ≤ 32 nm RMS de la central (calibrado en simulación, sección 8; en el piloto pasan 3 axones).
 > La fuga axial del par −1/+1 con las fracciones reales de cada axón es mucho mayor que la de rodajas iguales. El
 > ancho axial se midió en el piloto con una «NeNA en z»: la cifra principal es **47 nm**, con **36–51 nm** como
@@ -398,9 +398,10 @@ excluded and the null is the shifted remainder.
   without slice misfit 3, and the curve strata hold 2 (primary), 2 (polar) and 0 (stiff) (sections 4 and 13): a pooled
   reading there is a reading of three or four axons of one animal, and a stratum of two axons is no pooled reading at
   all.
-- **Minimum number of axons for a pooled reading of A** (`mps_perimeter_pool.MIN_POOLED_A_AXONS` = **10**; 11 in v20,
-  fixed at 10 on 2026-11-17 after simulating every size from 5 to 10). Below it the label is "n too small (n = k axons
-  < 10): not interpreted; computed label '...'" and the numbers stay in the table, not to be read. **Criterion**
+- **Minimum number of axons for a pooled reading of A** (`mps_perimeter_pool.MIN_POOLED_A_AXONS` = **9**; 11 in v20,
+  10 on 2026-11-17 after simulating every size from 5 to 10, **9 on 2026-11-19** after 2000 sets per scenario at 9, 10
+  and 11 axons, user decision). Below it the label is "n too small (n = k axons
+  < 9): not interpreted; computed label '...'" and the numbers stay in the table, not to be read. **Criterion**
   [own sim; Bradley 1978 robustness band 7.5 %, the same ceiling as the slice criterion of C], fixed before reading
   the table: the smallest size that meets, together with every larger simulated size, (S) every null emits each
   reading ("attractor", "regular", "inhibition zone") with an upper 95 % Wilson bound at most 0.075, and (I) every
@@ -424,11 +425,25 @@ excluded and the null is the shifted remainder.
   | 11 | 0.017 (0.007-0.038) | 0.42 (0.35-0.48) | 0.125 (0.086-0.178) | 1.00 | not run | yes | yes |
   | 18 | 0.026 (0.015-0.044) | 0.62 (0.55-0.68) | 0.275 (0.218-0.341) | 1.00 | 0.010 | yes | yes |
 
-  The inhibition zone decides the minimum, and **the margin at 10 is thin** (lower bound 0.080 against 0.075; 0.070
+  With 500 sets the inhibition zone decided the minimum, and **the margin at 10 was thin** (lower bound 0.080 against 0.075; 0.070
   with 9). If only the attractor counted, 4 axons would already pass (I); the criterion asks it of every effect the
   reading can name. The minimum makes a reading informative, not powerful: the conventional 0.8 is not reached at any
   size up to 18 (attractor 0.62, inhibition 0.28 with 18 axons). Report: INTEGRACION_FINAL2.md of the validation
   (outside the repository).
+
+  **Confirmation with 2000 sets (2026-11-19).** The sizes at the edge were simulated again with 2000 sets per
+  scenario (4 nulls and 4 effects) at 9, 10 and 11 axons, with new seeds and the same criterion:
+
+  | axons | worst null reading (rate, Wilson 95 %) | attractor | inhibition zone | regular | halo | S | I |
+  |---|---|---|---|---|---|---|---|
+  | 9 | 0.016 (0.011-0.022) | 0.38 (0.36-0.40) | 0.106 (0.094-0.121) | 1.00 | 0.005 | yes | yes |
+  | 10 | 0.021 (0.016-0.028) | 0.42 (0.40-0.44) | 0.112 (0.099-0.127) | 1.00 | 0.006 | yes | yes |
+  | 11 | 0.025 (0.019-0.032) | 0.43 (0.41-0.45) | 0.119 (0.106-0.134) | 1.00 | 0.009 | yes | yes |
+
+  With 2000 sets the inhibition zone at 9 axons clears the ceiling with margin (lower bound 0.094), so the minimum
+  is **9** [own sim; user decision 2026-11-19]. Eight does not pass: its 500-set estimate of the inhibition zone
+  (0.074) is already below the ceiling. The power against the attractor stays near 0.4 and against the halo near
+  0.01: "no structure detectable" with 9-11 axons says little against those two patterns.
 - **Per-axon reading** (`pd_a_reading` in the per-axon table): the same labels from the axon's own two tests, Holm
   between them, without the zone-widening check (not run per axon) and therefore never "robust"; descriptive only.
 - **Reading** (descriptive labels; the numbers are what is reported):
@@ -620,10 +635,48 @@ is registry between slices.
   as an **upper bound**: it also contains the physical thickness of the ring (~61 nm implied), and for the leak only
   the localization error counts (a physically thick ring crossing two slices is a true shared structure, not leak).
   Columns: `pd_c_leak_r_<pair>_sz47nm` (main) and `_sz77nm` (upper bound) since v20, `_sz36nm` and `_sz51nm` (the
-  range) since v21. These are the pilot's values: **for new data σ_z should be measured per file** (the method of
-  NENA_Z.md; not yet in the program). In simulation with laterals at 45 % and no misfit, the false positives of
+  range) since v21. These are the pilot's values: **for new data σ_z is measured per file** (next bullet; v22) and
+  the pilot's 47 nm is the fallback when a file cannot be measured. In simulation with laterals at 45 % and no misfit, the false positives of
   C(−1, +1) from the leak alone were 0.068-0.080 with 47 nm (0.15-0.26 with the 77 nm upper bound) [own sim,
   calibration study]: no slice criterion removes this.
+- **σ_z measured in the file itself (v22; `tools.mps_axial_sigma`).** The leak depends on how wrong the z of a
+  localization is, and Picasso's `lpz` does not say it (on the pilot the real error ranged from 0.45 × `lpz` close to
+  the focus to 1.0-1.7 × `lpz` above z = +100 nm), so each file is measured with the method of the pilot study
+  [real data, pilot; derivation]:
+  1. *Frame to frame.* Localizations in consecutive frames closer than 25 nm in x, y, with no other partner within
+     40 nm, are the same molecule; the difference of their z is only error (NeNA, Endesfelder et al. 2014, turned to
+     z). The error is not Gaussian, so the difference is fitted as the mixture that follows from "each localization is
+     good (sd s_c) with probability 1 − w and bad (sd s_b) with probability w", by maximum likelihood, with BIC against
+     a single Gaussian. The leak is linear in the mean absolute error (uniform depth, error smaller than the slice),
+     so the equivalent sd is (1 − w) s_c + w s_b, not a root-mean-square. This is `pd_sz_frame_nm` (36 nm on the
+     pilot).
+  2. *Slow component.* The same molecule switched on again 1001 frames or more later shows an extra error that
+     consecutive frames cannot see (focus drift, a z bias that changes between switch-ons). Pairs closer than 10 nm are
+     a mixture of the same molecule (narrow) and its neighbours (wide); the narrow component at lag ≥ 1001 against the
+     one at lag 1 gives δ = sqrt(s_long² − s_1²), `pd_sz_slow_nm` (27 nm on the pilot). The total adds δ in
+     quadrature to both components: `pd_sz_total_nm` = (1 − w) √(s_c² + δ²) + w √(s_b² + δ²) (47 nm on the pilot).
+  3. *Intervals.* 95 %, resampling blocks of frames (or the groups the caller gives, when there are six or more) and
+     refitting everything.
+  When the measurement is reliable (`pd_sz_status` = "measured") its total is the main width and its interval the
+  range, and `pd_sz_source` is "measured"; the 77 nm upper bound does not change. Otherwise the pilot's 47 nm
+  (36-51 nm) is used, `pd_sz_source` is "pilot 47" and the reason is a warning and `pd_sz_note`. It is **not**
+  measurable, and the pilot width is used, when: there is no `frame` column (nothing identifies the same molecule);
+  there are too few pairs (fewer than 1500 unique frame pairs, 500 at lag 1 or 1500 at lag ≥ 1001; the frame error
+  alone is then reported but not used, because it leaves out the slow component: 36 against 47 nm on the pilot); the
+  acquisition is shorter than 2002 frames; the density is high; or the interval is wider than 60 % of the value. Two
+  controls from the data catch a dense acquisition, in which localizations of different molecules would be taken for
+  the same one and widen the pairs: the share of localizations with another one in the SAME frame within 300 nm
+  (`pd_sz_same_frame_fraction`; warning above 1 %, no measurement above 5 %) and the pairs of consecutive frames at
+  100-300 nm scaled to the 25 nm disc along a line, the pessimistic scale (`pd_sz_contamination`; warning above 10 %,
+  no measurement above 30 %). `pd_c_m1_p1_vs_leak` and `pd_c_reading` are read against the width used, and the
+  numbers inside their labels are that width's; `pd_c_leak_r_<pair>_szused` (and `_lo`, `_hi`) hold the leak at it,
+  while the `_sz47nm`/`_sz77nm`/`_sz36nm`/`_sz51nm` columns stay at the pilot's fixed widths for comparison. What the
+  measurement does not see: a fixed bias per molecule (dipole orientation, a local aberration that does not change
+  between switch-ons), and whether the slow component is error or neighbours of the same ring at < 10 nm (36 nm if it
+  is contamination, 47 nm if it is error; fixed beads or fiducials would settle it). The thresholds (pair counts,
+  density controls, interval width) are [ad hoc]; the radii and lag are [real data, pilot]; `lp` and `lpz` are
+  reported for comparison and never enter the estimate. Tested on simulated files of known error
+  (`test_axial_sigma.py`).
 - **r(−1, +1) against its own leak** (`pd_c_m1_p1_vs_leak`, v21 vocabulary): "above the leak (sigma_z 47 nm, range
   36-51 nm) and above its upper bound (77 nm)"; "above the leak (sigma_z 47 nm, range 36-51 nm); within the upper
   bound (77 nm)"; "above the leak at sigma_z 47 nm, within its range (not above 51 nm)"; "at the limit: above the
@@ -838,7 +891,7 @@ Every failure produces a complete row with a status and a one-sentence reason (`
 | `invalid input` | an unreadable file or arrays of different lengths |
 | `internal error` | an unexpected failure, caught and reported with its text |
 
-## 11. Export (axon tables v17, v19 and v20) and how to reproduce
+## 11. Export (axon tables v17 to v21), the windows, and how to reproduce
 
 - **Per-axon table, v17.** A block at the very end of the row, after the six columns of v16; no earlier column moves.
   The block is empty with `pd_status = "not run"` when the analysis was not run, and keeps every column (empty where a
@@ -862,7 +915,58 @@ Every failure produces a complete row with a status and a one-sentence reason (`
   `n_excluded_slices_not_coinciding`.
 - **Per-axon table, v21.** A fourth perimeter block after v20, the very last: the leak of the three pairs at the
   ends of the measured range of σ_z, `pd_c_leak_r_m1_0_sz36nm` ... `pd_c_leak_r_m1_p1_sz51nm` (NeNA in z, decision of
-  2026-11-17: 47 nm main, 36-51 nm range, 77 nm upper bound). No earlier column moved.
+  2026-11-17: 47 nm main, 36-51 nm range, 77 nm upper bound). No earlier column moved. The table goes from 656 to
+  **662 columns**; the 47 and 77 nm columns of v20 stay (the 77 nm one is labelled "upper bound"), and every new column
+  has its entry, with its origin, in `tools/column_dictionary.py` (the columns of v18, the unanchored-cluster block, are
+  described in [unanchored.md](unanchored.md)).
+- **Per-axon table, v22.** A fifth perimeter block after v21, the very last (`pd_sz_source` ... `pd_c_leak_r_m1_p1_szused_hi`):
+  where the width of the leak of C came from ("measured" or "pilot 47"), the width used with its range, the
+  frame-to-frame, slow and total σ_z with their intervals, the pairs and density controls they rest on, a note, and the
+  leak of the three pairs at the width used (main, low and high end). No earlier column moved. The table goes from 662 to **691 columns** (29 new, all at the end; the v21 `_sz36nm`, `_sz47nm`,
+  `_sz51nm` and `_sz77nm` columns stay as the pilot reference).
+
+**The "Perimeter..." and "Unanchored..." windows.** Two buttons of the MPS analysis window open these windows on the
+axon it shows; neither computes anything of its own (the analysis lives in `tools/mps_perimeter_analysis.py` and
+`tools/mps_unanchored.py`). Both run in the background with a real progress bar and a Cancel that stops at the next step
+(`tools/mps_cancel.check`); a result that arrives after Cancel is not used. The windows open with the defaults every time.
+
+*"Perimeter..."* (`tools/mps_perimeter_window.py`). Bar: **z0 from** (peak of the z density curve, the default; focus,
+nominal; focus, empirical), **Band ± (nm)** (default 100, range 25-300), **Contour** (Automatic, or Drawn: the trace
+drawn on that axon), **Run** (analyse the axon shown), **Cancel** (enabled only during a run; nothing the run computed is
+shown), **Save...** (one save dialog; the name chosen is the name used; if companion tables with that name exist it asks
+before replacing). Three tabs. *Slices and contour*: the cloud of the three slices with the contour and its band, the z
+density curve with the peak, both foci and the three slices, a table with the n and the percentage of each lateral slice
+against the central one (100 %), and one line with the state of the contour, read from the quality gate of the contour
+module and not judged by the window ("Contour reliable" or "Contour NOT reliable" with the reasons; an unreliable
+contour is drawn red and dashed). *Profile: A and C* and *Curvature: B*: for each question a table, a one-line
+descriptive reading and grey warnings (A is exploratory and its pooled reading comes from the pooled profile; C: the
+pair z−1/z+1 is the clean one, the expected axial leak and the unmeasured risk of a common contour error; B: a negative
+sign means denser where more curved, and the tortuosity-versus-radial-displacement control). The Batch button of the
+analysis window has a "Perimeter density" check box that runs the analysis in its thread; the tables are written at
+Export beside the chosen table, named `<name>_perimeter_*.csv` (`_run2` if they exist; never overwritten). **What is
+exported** by Save...: the axon's row (`<name>.csv`) and the long tables (`<name>_perimeter_*.csv`), each with its
+`_columns.csv` dictionary.
+
+*"Unanchored..."* (`tools/mps_unanchored_window.py`). Bar: **method** (Automatic, own ring; Widefield images, only when
+the axoplasm panel has flags; Off, by hand only), **reference ring** (polar ring of the localizations, the default;
+smooth ring of the centres), **Exclude beyond (nm)** (400, provisional), **Doubtful from (nm)** (250), **Apply**
+(analyse the axon again without the excluded clusters; both columns are kept), **Cancel**, **Load...** (decisions by
+hand saved under another name), **Save...** (the decisions; beside the data file as `<data>_unanchored.json` they load
+by themselves; another name is respected but only the default name is read automatically). The map draws the slab's
+localizations, the reference ring (dashed), and the cluster centres: red cross = excluded, orange ring = doubtful,
+open square = restored by hand. A click on a centre excludes it (a reason is asked) or restores it; a click on a
+cluster that already has a decision takes it back. One line says what the discard would do ("would exclude N of K; M
+doubtful") with the rule's warnings, and a table records every decision (cluster, x, y, depth, automatic state,
+decision, reason, date) with **Undo** and **Back to automatic**; decisions that find no cluster within 50 nm are listed
+as orphans. Nothing changes in the numbers until Apply. The program keeps one hidden instance that, the first time an
+analysis is shown, runs the rule and the analysis without the excluded clusters, so the results window always shows
+**with and without the discard** and the exports carry the v18 block. **Exported:** the axon row and the Batch carry the
+two columns and the v18 block; the per-cluster table carries `depth_below_ring_nm`, `anchor_state`, `anchor_borderline`,
+`anchor_source` and `anchor_reason`. If the perimeter was computed "one start" (a long perimeter), the column with
+discard is not computed (it would rebuild the contour from every start, the cost that choice avoids); the v18 block is
+still written and says so. With the Widefield method chosen and the axoplasm panel open, the panel's flags rule in the
+export (a known limitation of the agreement check). The long explanation of every number is in the guided tours
+("perimeter" and "unanchored"), which are bilingual; the windows themselves are English only for now.
 - **Long tables** next to the per-axon table, `<stem>_perimeter_<name>.csv`, each with a `_columns.csv` dictionary:
   `profiles` (axon x slice x bin: lag, count, relative density, measured, tortuosity, signed mean curvature, radial
   medians), `pooled` (the pooled A profile per group with its bands and reading), `by_animal`, `contour` (x, y and arc of
@@ -1087,7 +1191,7 @@ the contour orientation; a slice with almost no localizations; the peak against 
 | default axial precision | 47 nm | [pilot] |
 | expected neighbour leak | 0.27 (no guard), 0.12 (guard 42.5 nm); measured with blinking 0.25 / 0.09 | [derivation]; [own sim] |
 | slice coincidence criterion for the main reading of C | min(RMS −1, RMS +1) ≤ 32 nm; not measurable = does not coincide | [own sim; Bradley 1978 robustness band 7.5 %]; calibrated up to 50 loc./bin, recalibrate for denser data |
-| axial width for the leak with real fractions | 47 nm main; 36-51 nm measured range; 77 nm upper bound only | [pilot]: NeNA in z (NENA_Z.md), user's decision 2026-11-17; measure per file in new data |
+| axial width for the leak with real fractions | measured in the file when reliable (v22); else 47 nm main, 36-51 nm range; 77 nm upper bound only | [pilot]: NeNA in z, user's decision 2026-11-17; per-file measurement [derivation + real data, pilot]; thresholds [ad hoc] |
 | interior trim (D8) applied only when | the polar curve passes the strict rules of the automatic contour | user's decision 2026-11-17; [own sim] contour report v2: weak rule lost 5-22 % of the membrane |
 | minimum axons for a pooled reading of A | 10 | [own sim; Bradley 1978]: smallest simulated size (4-11, 18) where every recognisable effect has a lower Wilson bound above 0.075 and every null stays at most 0.075 |
 | leak tolerance in the reading | 0.10 | [ad hoc] |

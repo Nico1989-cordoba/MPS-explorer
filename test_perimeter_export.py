@@ -124,9 +124,10 @@ def test_every_column_is_a_key_of_the_flat_row(ok_result, failed_result):
     row = pool.perimeter_row(ok_result)
     assert [c for c in pe.PERIMETER_COLUMNS if c not in row] == []
     assert [c for c in pe.PERIMETER_V19_COLUMNS + pe.PERIMETER_V20_COLUMNS + pe.PERIMETER_V21_COLUMNS
-            if c not in row] == []
+            + pe.PERIMETER_V22_COLUMNS if c not in row] == []
     assert (set(row) - set(pe.PERIMETER_COLUMNS) - set(pe.PERIMETER_V19_COLUMNS)
-            - set(pe.PERIMETER_V20_COLUMNS) - set(pe.PERIMETER_V21_COLUMNS)) <= set(IDENTITY_COLUMNS)
+            - set(pe.PERIMETER_V20_COLUMNS) - set(pe.PERIMETER_V21_COLUMNS)
+            - set(pe.PERIMETER_V22_COLUMNS)) <= set(IDENTITY_COLUMNS)
     failed = pool.perimeter_row(failed_result)                  # P11 sec. 9.1: same grid, empty cells
     assert [c for c in pe.ALL_PERIMETER_COLUMNS if c not in failed] == []
     assert set(pe.PEAK_FOCUS_MEASURES) == set(pool.PEAK_FOCUS_COLUMNS)
@@ -137,10 +138,10 @@ def test_table_version_is_v17_and_the_block_is_last_after_the_six_v16_columns(ax
     # pooling gate after that; nothing in v17's block moved.
     from tools import clustering_integration as ci
     from tools.unanchored_export import UNANCHORED_COLUMNS
-    assert axon_export.TABLE_VERSION == "axon tables v21"
+    assert axon_export.TABLE_VERSION == "axon tables v22"
     row = axon_export.axon_row(axon_analysis, exported_at="t")
     last = (list(pe.PERIMETER_V19_COLUMNS) + list(pe.PERIMETER_V20_COLUMNS)
-            + list(pe.PERIMETER_V21_COLUMNS))                                 # v19, v20 then v21, the very last
+            + list(pe.PERIMETER_V21_COLUMNS) + list(pe.PERIMETER_V22_COLUMNS))   # v19 ... v22, the very last
     n_tail = len(UNANCHORED_COLUMNS) + len(last)
     assert list(row)[-len(last):] == last
     assert list(row)[-n_tail:-len(last)] == list(UNANCHORED_COLUMNS)
@@ -148,7 +149,7 @@ def test_table_version_is_v17_and_the_block_is_last_after_the_six_v16_columns(ax
     n_pd = len(pe.PERIMETER_COLUMNS)
     assert names[-n_pd:] == list(pe.PERIMETER_COLUMNS)
     assert names[:-n_pd][-len(ci.V16_COLUMNS):] == list(ci.V16_COLUMNS)       # the six v16 columns, then v17
-    assert row["table_version"] == "axon tables v21"
+    assert row["table_version"] == "axon tables v22"
     assert axon_export.trailing_columns()[:-n_tail][-n_pd:] == pe.PERIMETER_COLUMNS
     assert column_dictionary.known_columns()[:-n_tail][-n_pd:] == list(pe.PERIMETER_COLUMNS)
     assert column_dictionary.known_columns()[-len(last):] == last
@@ -164,7 +165,8 @@ def test_not_run_block_is_empty_with_status_and_leaves_earlier_columns_alone(axo
     assert bare == explicit
     from tools.unanchored_export import UNANCHORED_COLUMNS
     n_pd = (len(pe.PERIMETER_COLUMNS) + len(UNANCHORED_COLUMNS) + len(pe.PERIMETER_V19_COLUMNS)
-            + len(pe.PERIMETER_V20_COLUMNS) + len(pe.PERIMETER_V21_COLUMNS))     # v18, v19, v20, v21 follow
+            + len(pe.PERIMETER_V20_COLUMNS) + len(pe.PERIMETER_V21_COLUMNS)
+            + len(pe.PERIMETER_V22_COLUMNS))     # v18 ... v22 follow
     before = list(bare.items())[:-n_pd]
     assert before == list(with_result.items())[:-n_pd]            # nothing earlier changed, in place or value
     assert with_result["pd_status"] == "ok"
@@ -332,6 +334,7 @@ def test_every_column_has_an_entry_and_every_entry_a_column(tmp_path, ok_result,
     assert set(column_dictionary.PERIMETER_V19) == set(pe.PERIMETER_V19_COLUMNS)   # v19 too
     assert set(column_dictionary.PERIMETER_V20) == set(pe.PERIMETER_V20_COLUMNS)   # and v20
     assert set(column_dictionary.PERIMETER_V21) == set(pe.PERIMETER_V21_COLUMNS)   # and v21
+    assert set(column_dictionary.PERIMETER_V22) == set(pe.PERIMETER_V22_COLUMNS)   # and v22
     paths = list(pe.write_perimeter_tables([ok_result, failed_result], str(tmp_path / "d")))
     used = set()
     for path in paths[:len(pe.LONG_TABLES)]:

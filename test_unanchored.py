@@ -451,13 +451,13 @@ def test_axon_row_v18_block_is_last_and_cluster_columns(axon_with_lumps):
     res = mu.auto_for_analysis(an, **FAST)
     flags = mu.final_flags(res)
     cmp = mu.compare_unanchored(an, flags)
-    assert axon_export.TABLE_VERSION == "axon tables v21"
+    assert axon_export.TABLE_VERSION == "axon tables v22"
     bare = axon_export.axon_row(cmp.all_clusters, exported_at="t")
     row = axon_export.axon_row(cmp.all_clusters, discard=cmp.discard_applied, exported_at="t",
                                unanchored=mu.unanchored_block(flags))
     n = len(ue.UNANCHORED_COLUMNS)
     last = (list(pe.PERIMETER_V19_COLUMNS) + list(pe.PERIMETER_V20_COLUMNS)
-            + list(pe.PERIMETER_V21_COLUMNS))                                  # v19, v20 (P-R3-1), v21, last
+            + list(pe.PERIMETER_V21_COLUMNS) + list(pe.PERIMETER_V22_COLUMNS))   # v19, v20, v21, v22, last
     n19 = len(last)
     assert list(row)[-n19:] == last == list(bare)[-n19:]
     names = list(row)[:-n19]

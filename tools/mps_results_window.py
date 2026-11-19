@@ -185,7 +185,11 @@ MAP_SHARE = 0.80
 # On a short screen the tabs under the map keep at least this height (a plot
 # of ~30 px cannot be read), as long as the map keeps MAP_MIN_OF_WINDOW of the
 # window's height.
-TABS_MIN_PX = 230
+TABS_MIN_PX = 215
+# The hard floor of the tabs' height: below the TABS_MIN_PX wish, above an unreadable strip.
+TABS_FLOOR_PX = 150
+# The least height of the table + plots area (a 1366 x 640 window with the Emitters box open keeps it).
+SPLITTER_MIN_PX = 320
 MAP_MIN_OF_WINDOW = 0.56
 # Manual test of 2026-10-23 (1920 x 1020): the map ended at ~200 px under ~600 px of tabs, and with its aspect
 # locked a short map shows x = -20000..20000 nm around a dot of an axon. Until the user drags the divider, a map
@@ -358,6 +362,13 @@ class WindowLinks:
     # slab (tools.lpc_depth), (profile or None, why empty).
     rule_inputs_at: Callable[[Optional[float]], Optional[Any]] = field(default=_no_rule_inputs_at)
     lpc_depth: Callable[..., Tuple[Optional[Any], str]] = field(default=_no_lpc_depth)
+    # The perimeter density window (P12): the whole pick of the current ROI as a
+    # tools.mps_perimeter_window.PerimeterInputs, or None. None here: the button stays disabled.
+    perimeter_inputs: Optional[Callable[[], Optional[Any]]] = None
+    # The unanchored clusters window (P15): opens it on the analysis shown. None here: the button stays disabled.
+    open_unanchored: Optional[Callable[[], Any]] = None
+    # Cancels the automatic unanchored run of the analysis shown (the second progress line's Cancel).
+    cancel_unanchored: Optional[Callable[[], Any]] = None
 
 
 def beside_position(anchor: QtCore.QRect, size: QtCore.QSize,
@@ -429,6 +440,13 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.export_callback = export_callback
         self.links = links if links is not None else WindowLinks()
         self.background = background
+        # The main window's answer to "is the selection large enough to run in the background whatever the
+        # method" (tools.mps_size_guard); None: only the slow methods do.
+        self.big_run: Optional[Callable[[], bool]] = None
+        # The perimeter density window (P12), its notes and the axon they are about.
+        self._perimeter_window: Any = None
+        self._perimeter_notes: List[str] = []
+        self._perimeter_notes_key: Any = None
         # F5d: the run in the background, if any, and how to give the controls back their states after it.
         self._run: Any = None
         self._restore_controls: Optional[Callable[[], None]] = None
@@ -481,12 +499,24 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._progress_timer.setSingleShot(True)
         self._progress_timer.timeout.connect(self._hide_progress)
         root.addWidget(self.run_progress)
+        # P15: the automatic unanchored run (the rule, then the analysis without the excluded clusters) has its own
+        # line, so it never takes the re-run's Cancel.
+        self.side_progress = RunProgress()
+        self.side_progress.setObjectName("mps_unanchored_progress")
+        self.side_progress.label.setWordWrap(False)          # one line: it must not take the map's height
+        self.side_progress.label.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        self.side_progress.btn_cancel.setToolTip("Stop the unanchored-cluster run; the analysis shown stays as it is.")
+        self.side_progress.cancel_requested.connect(self._cancel_unanchored)
+        root.addWidget(self.side_progress)
 
         splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         splitter.addWidget(self._build_left_column())
         splitter.addWidget(self._build_plots())
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 5)
+        # The window never gives the table and the plots less than this, whatever the strip above has open
+        # (it was the tabs' own ~205 px minimum that guaranteed it before TABS_FLOOR_PX).
+        splitter.setMinimumHeight(SPLITTER_MIN_PX)
         root.addWidget(splitter, stretch=1)
         self.splitter = splitter
         # The table is widened once when its extra columns appear; after
@@ -768,17 +798,6 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         actions.setContentsMargins(0, 0, 0, 0)
         actions.setSpacing(4)
 
-        # The clustering integration (A9 sec. 4.2): the per-axon pipeline null, among the axon's actions
-        # (beside the strip's Randomization it took a third line of the strip at 1366 px); it opens the 'Perimeter arrangement' tab and runs there (in the background, with Cancel).
-        self.btn_null_shortcut = QtWidgets.QPushButton("Null (per axon)...")
-        self.btn_null_shortcut.setObjectName("btn_null_shortcut")
-        self.btn_null_shortcut.setToolTip(
-            "The per-axon pipeline null: molecules at random on this axon's membrane, with this file's blinking and "
-            "precision, analysed by the same method, curation and contour, B = 199 times (999 on demand), for the "
-            "method shown and every method compared. Opens the 'Perimeter arrangement' tab, which shows the time "
-            "it will take before it runs. Not the paper's randomization (that is the switch on the left).")
-        self.btn_null_shortcut.clicked.connect(self._on_null_shortcut)
-        actions.addWidget(self.btn_null_shortcut)
         self.btn_rings = QtWidgets.QPushButton("Rings...")
         self.btn_rings.setToolTip(
             "Analyse EVERY axial segment of this axon, not just this slab,\n"
@@ -788,8 +807,22 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_rings.clicked.connect(self._on_rings)
         self.btn_rings.setEnabled(self.rings_callback is not None)
         actions.addWidget(self.btn_rings)
+        # The perimeter density analysis (P12): the ONE way in; its notes join 'Analysis notes'.
+        self.btn_perimeter = QtWidgets.QPushButton("Perimeter...")
+        self.btn_perimeter.setObjectName("btn_perimeter")
+        self.btn_perimeter.setToolTip("Perimeter density: slices, density profiles and tortuosity of the membrane.")
+        self.btn_perimeter.clicked.connect(self._on_perimeter)
+        self.btn_perimeter.setEnabled(self.links.perimeter_inputs is not None)
+        actions.addWidget(self.btn_perimeter)
+        # The unanchored clusters (P15): preview of the automatic discard and the decisions by hand.
+        self.btn_unanchored = QtWidgets.QPushButton("Unanchored...")
+        self.btn_unanchored.setObjectName("btn_unanchored")
+        self.btn_unanchored.setToolTip("Clusters under the membrane: preview, exclude or restore by hand, Apply.")
+        self.btn_unanchored.clicked.connect(self._on_unanchored)
+        self.btn_unanchored.setEnabled(self.links.open_unanchored is not None)
+        actions.addWidget(self.btn_unanchored)
 
-        self.btn_export = QtWidgets.QPushButton("Export axon...")
+        self.btn_export = QtWidgets.QPushButton("Save axon...")
         self.btn_export.setToolTip(
             "Write this axon: one row with the measured parameters and the\n"
             "ones with the discard applied, plus the per-cluster and\n"
@@ -1315,6 +1348,78 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if self.rings_callback is not None:
             self.rings_callback()
 
+    def _on_perimeter(self) -> None:
+        """'Perimeter...': the perimeter density window, kept (one per results window) and raised when pressed
+        again; its notes come back through ``set_perimeter_notes``."""
+        if self.links.perimeter_inputs is None:
+            return
+        from tools import mps_perimeter_window as mpw
+        w = self._perimeter_window
+        if w is None:
+            w = mpw.MPSPerimeterWindow(inputs_provider=self.links.perimeter_inputs,
+                                       notes_callback=self.set_perimeter_notes, parent=self)
+            self._perimeter_window = w
+            self.register_tour(w, mpw.TOUR_ID)
+        w.show()
+        w.raise_()
+        w.activateWindow()
+
+    def _on_unanchored(self) -> None:
+        if self.links.open_unanchored is not None:
+            self.links.open_unanchored()
+
+    def _cancel_unanchored(self) -> None:
+        if self.links.cancel_unanchored is not None:
+            self.links.cancel_unanchored()
+
+    def show_side_progress(self, line: str, value: int, running: bool) -> None:
+        """The automatic unanchored run's line: ``value`` 0..1000 (-1: no fraction), hidden a moment after it
+        ends."""
+        sp = self.side_progress
+        self._side_active = bool(running)
+        if running:
+            if value >= 0:
+                sp.bar.setRange(0, 1000)
+                sp.bar.setValue(int(value))
+            else:
+                sp.bar.setRange(0, 0)
+            sp.btn_cancel.setVisible(True)
+            sp.show_line(line, cancelling=line.find("Cancelling") >= 0)
+        else:
+            sp.btn_cancel.setVisible(False)
+            if not any(word in line for word in ("Cancelled", "Failed", "Not applied", "Not evaluated")):
+                sp.setVisible(False)           # done: the discard column says it; no note takes the map's room
+                return
+            sp.show_line(line, cancelling=True)
+            QtCore.QTimer.singleShot(CANCELLED_NOTE_MS, lambda: (None if self._side_running() else sp.setVisible(False)))
+
+    def _side_running(self) -> bool:
+        return bool(getattr(self, "_side_active", False))
+
+    def register_tour(self, window: QtWidgets.QWidget, tour_id: str) -> None:
+        """Give a window opened from here its guided tour (tools.mps_tour), when the program that owns this window
+        has one: the long explanations live in the tour, not in fixed paragraphs."""
+        owner: Any = self.parent()
+        while owner is not None and getattr(owner, "tour", None) is None:
+            owner = owner.parent() if hasattr(owner, "parent") else None
+        tour = None if owner is None else getattr(owner, "tour", None)
+        if tour is not None:
+            try:
+                tour.register_window(window, tour_id)
+            except Exception:                          # noqa: BLE001 - the tour is a convenience
+                pass
+
+    def _perimeter_key(self) -> Any:
+        a = self.analysis
+        return None if a is None else (getattr(a, "source_name", ""), repr(getattr(a, "roi", None)))
+
+    def set_perimeter_notes(self, lines: List[str]) -> None:
+        """The notes of the perimeter density run, for the axon shown now: they join 'Analysis notes' until
+        another axon is shown."""
+        self._perimeter_notes = list(lines)
+        self._perimeter_notes_key = self._perimeter_key()
+        self._fill_warnings()
+
     def _build_left_column(self) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(w)
@@ -1404,7 +1509,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         export.setContentsMargins(0, 0, 0, 0)
         self.label_export = QtWidgets.QLabel(
             "Both columns go into one row, with and without the discard: "
-            "'Export axon...' above.")
+            "'Save axon...' above.")
         self.label_export.setWordWrap(True)
         export.addWidget(self.label_export)
         export.addStretch(1)
@@ -1535,6 +1640,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.arrangement_scroll.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred,
                                               QtWidgets.QSizePolicy.Policy.Ignored)
         self.tabs.addTab(self.arrangement_scroll, TAB_TITLE)
+        # The tabs' own minimum height (the tallest tab's, ~205 px) was larger than what is left under the map
+        # on a 1366 x 728 window, so the splitter refused _apply_map_share and the map got 0.49 of the window
+        # instead of MAP_MIN_OF_WINDOW. A floor that fits keeps the design: the map first, the tabs scroll.
+        self.tabs.setMinimumHeight(TABS_FLOOR_PX)
         self.plot_splitter.addWidget(self.tabs)
         # The map keeps MAP_SHARE of the plot column through every show and
         # resize, until the user drags the divider (then it stays there).
@@ -1848,7 +1957,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # F6: each plot's title, editable in the dialog; a legend of the rows drawn for the plots with a layer panel
         titles = {name: figure_export.plain_title(plot.getPlotItem()) for name, plot in plots.items()}
         request = ask(list(plots), suggested, parent=self, offer_white=white, titles=titles,
-                      legend=set(LEGEND_PLOTS) & set(plots))
+                      legend=(set(LEGEND_PLOTS) | set(self.arrangement.figure_plots())) & set(plots))
         if request is None:
             return
         plot = plots.get(request.plot)
@@ -2159,6 +2268,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         else:
             assert self.analysis is not None
             messages = list(self.analysis.warnings)
+            if self._perimeter_notes and self._perimeter_notes_key == self._perimeter_key():
+                messages += [n for n in self._perimeter_notes if n not in messages]
             if self.comparison is not None:
                 # Their own warnings, once each: those shared with an analysis
                 # listed before are not repeated.
@@ -2640,7 +2751,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if self.rerun_callback is None or self.busy():
             return
         from tools.cluster_method_ui import is_slow
-        if self.background is not None and is_slow(str(kw.get("cluster_method", "DBSCAN"))):
+        if self.background is not None and (is_slow(str(kw.get("cluster_method", "DBSCAN")))
+                                            or (self.big_run is not None and self.big_run())):
             self.start_background(kw, fail_title, fail_text)
             return
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
@@ -2684,6 +2796,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             return False
         run = BackgroundRun(prepared, parent=self)
         run.tick.connect(lambda line: self.run_progress.show_line(line, cancelling=run.cancelled()))
+        run.progress.connect(self.run_progress.set_fraction)
         run.tick.connect(lambda line: self.method_bar.set_status(line, True, cancelling=run.cancelled()))
         run.ended.connect(lambda status, value, tb: self._on_run_ended(run, status, value, tb, fail_title,
                                                                        fail_text))

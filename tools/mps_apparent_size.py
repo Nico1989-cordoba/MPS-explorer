@@ -28,7 +28,8 @@ APPARENT size = footprint (+) linkage (+) precision, and with one label per clus
     docs/sims/apparent_size/size_probes.py, probe "cloud_sd_definition"]. The principal SDs are exported too.
   - the hull at FIXED N (rarefaction): the mean convex-hull area of ``RAREFY_N`` = 15 localizations drawn without
     replacement, over ``RAREFY_REPS`` = 20 draws, and the radius of that area (``r_rare``). The hull of n points
-    grows with n [lit: Renyi & Sulanke 1963; Efron 1965]; at fixed n it does not. Undefined (flagged) below 15
+    grows with n [lit: Efron 1965; Renyi & Sulanke 1963 for the number of vertices]; at fixed n it does not.
+    Undefined (flagged) below 15
     localizations.
 
 Every estimator is a pure function of the labels of whatever clustering method produced them (``-1`` = noise), the
@@ -73,9 +74,11 @@ CLOSE_FLAG_NM = 50.0
 # Localizations below which a cluster is flagged "few localizations" (detection margin) [simulation: SIZE_SIM
 # sec. 5, flag N_loc >= 20].
 FEW_LOCS_FLAG = 20
-# Linkage error per axis [lit: Frueh et al. 2021; adopted, not measured].
+# Linkage error per axis [ad hoc, of the order of Frueh et al. 2021 (mean displacement 10.0 nm, radial sigma ~7.5 nm,
+# maximum ~19 nm; not a per-axis value of that paper); adopted, not measured].
 SIGMA_LINK_NM = 10.0
-# Blinks per label stack [lit: Dempsey et al. 2011, MEA; provisional, decision D1; 26 (beta-ME) as sensitivity].
+# Blinks per label [lit: Dempsey et al. 2011, MEA, per fluorophore on glass; other measurements 4-17 per label,
+# docs/dbscan_rule.md 2.1; provisional, decision D1; 26 (beta-ME) as sensitivity].
 C_LABEL = 14.0
 # Mean labels per cluster (events / c_label) from which the footprint pool is identifiable [simulation: SIZE_SIM
 # sec. 8.2 "extra" and the pool code: below 1.5 the footprint is not measurable, only the content]. The pool itself

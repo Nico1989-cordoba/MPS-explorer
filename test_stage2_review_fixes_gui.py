@@ -59,6 +59,8 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
     os.makedirs(out_dir, exist_ok=True)
     os.chdir(out_dir)
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    # The automatic unanchored discard (P15) also calls compare_discard and would eat the failure injected below.
+    os.environ["MPS_UNANCHORED_AUTO"] = "0"
     os.environ["MPS_SELECTION_LOG_DIR"] = os.path.join(out_dir, "selection_log")
     for v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
         os.environ[v] = "1"

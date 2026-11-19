@@ -76,13 +76,13 @@ failure modes; benchmark evidence. All entries are **literature** unless marked 
 | DBSCAN (Ester et al. 1996; Schubert et al. 2017) | ≥ minPts points within ε → core point; density connectivity | ε, minPts; valley of the sorted k-dist plot (k = 4 in 2D), minPts = 2·dim, ε "as small as possible" (Schubert et al. 2017); in SMLM, sweeps against simulations (Nieves et al. 2023), FINDER (Verzelli et al. 2022), DBOpt (Hammer et al. 2025), DBSCAN maps (Bíró et al. 2025) | Not modelled; the most robust to blinking in benchmark, but creates pseudoclusters (Khater et al. 2020) | 2D/3D; scikit-learn (Pedregosa et al. 2011), Picasso and others | Arbitrary shape; separates noise; adaptable | Merges two clusters closer than ε (Ester et al. 1996); varying density (Paupiah et al. 2023); parameter sensitivity (Mazouchi & Milstein 2016; Bíró et al. 2025); nanodomains closer than 50 nm needed ~11 nm precision at ε 20 / minPts 3 (Mollazade et al. 2017); underestimates radius (Staszowska et al. 2018) | DBSCAN ≈ ToMATo ≈ KDE, most robust to blinking (Nieves et al. 2023); above HDBSCAN and OPTICS (Hammer et al. 2025) |
 | OPTICS (Ankerst et al. 1999) | Ordered reachability; hierarchy | minPts, maximum ε; cut of the reachability plot | Not modelled | 2D/3D; scikit-learn | Varying density | Slow; below DBSCAN (Hammer et al. 2025); lost 42-48 % of molecules (simulation (project)) | Hammer et al. (2025) |
 | HDBSCAN (Campello et al. 2013, 2015; McInnes et al. 2017) | Mutual-reachability tree; no border points | min_cluster_size (+ min_samples) | Not modelled | 2D/3D; `hdbscan` (Python) | Varying density; less merging in the dense regime (simulation (project)) | Below DBSCAN except at low noise (Hammer et al. 2025); larger hull, size decoupled from N_loc (simulation (project)) | Hammer et al. (2025) |
-| FOCAL / FOCAL3D (Mazouchi & Milstein 2016; Nino et al. 2020) | Density on a grid (voxel ~ precision), connection of cells | minL (against a randomized version), minC (plateau), Δ | Simulated, not corrected | 2D; 3D (Python) | One parameter; O(n); filters out-of-focus | Small, fine-grid and overlapping clusters (Khater et al. 2020); drops on sparse data (Nieves et al. 2023) | Nieves et al. (2023); Nino et al. (2020) |
+| FOCAL / FOCAL3D (Mazouchi & Milstein 2016; Nino et al. 2020) | Density on a grid (voxel ~ precision in the 2D FOCAL; Δ below the cluster radius in FOCAL3D), connection of cells | FOCAL3D (Nino et al. 2020): minL (against a randomized version), minC (plateau), Δ; 2D FOCAL (Mazouchi & Milstein 2016): minL from the uncertainty curve, minC = 10 | Simulated, not corrected | 2D; 3D (Python) | One parameter; O(n); filters out-of-focus | Small, fine-grid and overlapping clusters (Khater et al. 2020); drops on sparse data (Nieves et al. 2023) | Nieves et al. (2023); Nino et al. (2020) |
 | SR-Tesseler (Levet et al. 2015) | Voronoi; normalized first-rank density | Threshold 1× or 2× the mean density; minimum localizations | Not in dSTORM (Levet et al. 2015) | 2D (3D with Voro3D; Levet 2023) | No search radius; multiscale | Underestimates radius (Staszowska et al. 2018); does not separate adjacent clusters; drops on sparse data (Nieves et al. 2023) | Nieves et al. (2023); Staszowska et al. (2018) |
 | ClusterViSu / 3DClusterViSu (Andronov et al. 2016, 2018) | Cell area or volume; threshold by Monte Carlo (first intersection with CSR) | Automatic threshold; 50 rounds (Andronov et al. 2016, 2018); 20 nm voxel (source passage not re-checked) | Consecutive events within 50 nm averaged | 2D/3D (MATLAB) | Objective threshold; edge effects controlled | Hours in 3D (Levet 2023); does not separate close clusters; drops on sparse data (Nieves et al. 2023) | Nieves et al. (2023) |
 | ToMATo (Chazal et al. 2013; Pike et al. 2020) | Density modes and persistence; merge if P < τ | Density radius; τ on the persistence diagram | Not modelled | 2D/3D (R; RSMLM) | Better separation of close clusters (Paupiah et al. 2023) | τ set by eye; the radius is an ε *(inference)* | DBSCAN ≈ ToMATo ≈ KDE (Nieves et al. 2023); most accurate overall in Kutz et al. (2021) |
 | StormGraph (Scurll et al. 2019; preprint, not peer reviewed) | r₀ graph weighted by localization uncertainty; multilevel Infomap | α (0.05), k (10-20), minimum size; r₀ automatic | Explicit filter for a molecule counted several times | 2D/3D (MATLAB); z rescaled | Uses per-localization uncertainties | Preprint; computational cost | Advantage over DBSCAN and ClusterViSu in its authors' simulations (preprint) |
 | Bayesian cluster analysis (Rubin-Delanchy et al. 2015; Griffié et al. 2016, 2017) | Scores proposals (L(r) sweeping r and T) by posterior under Gaussian clusters + CSR background + precision | p_B = 0.5, α = 20; r 5-300 nm, T 5-500 | It "does not attempt" to be robust to it (Rubin-Delanchy et al. 2015) | 2D; 3D (Griffié et al. 2017); R | Uses precision and background; no scale parameter | ~30 min per 1000 points; sensitive to priors and artefacts (Khater et al. 2020); not for fibres (Griffié et al. 2016) | Kutz et al. (2021) |
-| BaGoL (Fazel et al. 2022); G5M (Kowalewski et al. 2026); DDC (Bohrer et al. 2021); MBC (Jensen et al. 2022) | Group localizations into emitters with the precision and a blinking model | Distribution of events per emitter (learned, or from a control); σ bounds | Yes (it is their object) | 2D/3D (G5M in Picasso) | Return emitters with high-precision positions | Return fluorophores or docking sites, not proteins *(inference)*; need the buffer's event distribution | DNA origami, NPC (Fazel et al. 2022; Kowalewski et al. 2026) |
+| BaGoL (Fazel et al. 2022); G5M (Kowalewski et al. 2026); DDC (Bohrer et al. 2021); MBC (Jensen et al. 2022) | Group localizations into emitters with the precision and a blinking model | Distribution of events per emitter (learned, or from a control); σ bounds | Yes (it is their object) | 2D/3D (G5M in Picasso) | Return emitters with high-precision positions | Return fluorophores or docking sites, not proteins *(inference)*; BaGoL and G5M need the buffer's event distribution; DDC needs no calibration but requires most fluorophores to bleach during the movie, a constant 405 nm and 2D data (Bohrer et al. 2021) | DNA origami, NPC (Fazel et al. 2022; Kowalewski et al. 2026) |
 | CAML (Williamson et al. 2020); MIRO (Pineda et al. 2025) | Per-point classification from neighbour distances; GNN that compacts clouds before DBSCAN | Trained model; DBSCAN afterwards (MIRO) | CAML makes no correction for re-blinking; MIRO trains with 4-5 loc./molecule but uses no temporal information | 2D (CAML 3D) | High accuracy within the trained distribution | Training bias inherent to simulated sets (Williamson et al. 2020); ARI with blinking 0.59-0.66 (Pineda et al. 2025) | Pineda et al. (2025, Table 1) |
 | Ripley K / pair correlation / 1NN (Ripley 1977; Sengupta et al. 2011; Veatch et al. 2012) | Second moment against a null; no assignment | Range of r; null (CSR, surface, with blinking) | PC-PALM separates the overcounting term; K does not (Platzer et al. 2020) | 2D (3D and surfaces: Griffié et al. 2017; Ward et al. 2021) | Tests whether there is clustering and at which scale; cross-correlation immune to overcounting (Veatch et al. 2012) | No partition; apparent domain size biased (Shivanandan et al. 2015, 2016) | — |
 | Parameter selection: FINDER, DBOpt, DBSCAN maps, similarity to simulations | Stability, internal validation (DBCV; Moulavi et al. 2014) or statistical similarity | Sweep ranges | No | 2D (DBOpt also HDBSCAN/OPTICS) | Remove arbitrariness; reportable | Do not define a molecule | Simulations (Verzelli et al. 2022; Hammer et al. 2025; Bíró et al. 2025; Nieves et al. 2023) |
@@ -122,16 +122,19 @@ both for every cluster type, though at low noise HDBSCAN occasionally returned a
 al. 2025).
 
 **FOCAL / FOCAL3D.** Counts localizations on a grid whose voxel is of the order of the precision and connects the
-dense cells; minL is set against a randomized version of the data and minC on a plateau (Mazouchi & Milstein 2016;
-Nino et al. 2020). It is fast and has one main parameter, but struggles with small, overlapping clusters (Khater et
+dense cells; in FOCAL3D minL is set against a randomized version of the data and minC on a plateau (Nino et al.
+2020); in the original 2D FOCAL minL comes from the curve of mean localization uncertainty versus minL and minC is
+fixed at 10 (Mazouchi & Milstein 2016). It is fast and has one main parameter, but struggles with small, overlapping clusters (Khater et
 al. 2020) and its performance drops on sparse data (Nieves et al. 2023).
 
 *In MPS Explorer (2026-10-16).* The implementation follows FOCAL3D as Nino et al. (2020, Fig 1B-D) describe it, in
 2D: each occupied cell is replaced by the sum of its 3 × 3 neighbourhood, cells at or above minL are core, cells that
 share an edge with a core cell are border cells, and connected groups of at least minC cells are clusters. The first
 version counted raw cells without border cells and lost 60-83 % of the molecules (benchmark run of 2026-10-16,
-before the fix). Defaults: Δ = 15 nm [literature: Δ "based on the localization precision" (Nino et al. 2020); ≈ 1.25-1.5 ×
-the 10-12 nm NeNA of the project; simulation (project): verification run E], minL = 6 on the enhanced map
+before the fix). Defaults: Δ = 15 nm [simulation (project): verification run E; ≈ 1.25-1.5 × the 10-12 nm NeNA of the project.
+Choosing Δ by the localization precision is the criterion of the 2D FOCAL (Mazouchi & Milstein 2016); Nino et al.
+2020 say it does not carry over to 3D, use Δ 25-40 nm, a plateau of clusters versus minC and Δ below the cluster
+radius, so 15 nm is not their value], minL = 6 on the enhanced map
 [simulation (project): run E; `suggest_min_l` gives the minL* of Nino et al. 2020, the lowest value with no cluster in
 randomized data, drawn in the region the data occupy], minC = 3 [ad hoc; Nino et al. choose it on a plateau].
 
@@ -328,7 +331,7 @@ with Ripley's K and 95 % simulation envelopes, after correcting blinking (Nieves
 DBSCAN at the published parameters of the reference study (literature: Gazal et al. 2026), through scikit-learn
 (Pedregosa et al. 2011). It stays as the default and as the **compatibility mode**, so that every result can be
 compared with that study. In the project's synthetic benchmark (simulation (project); 2D transverse plane, Alexa 647
-blinking statistics from Dempsey et al. 2011, Picasso-style linking from Schnitzbauer et al. 2017, NeNA from
+blinking statistics from Dempsey et al. 2011, Picasso-style linking (from the code of Picasso 0.9.10, the software of Schnitzbauer et al. 2017; the article does not describe the linking), NeNA from
 Endesfelder et al. 2014, ARI from Hubert & Arabie 1985):
 
 - in the sparse regime (mean spacing ~200 nm between labelled molecules), DBSCAN 25/10 turned 77-83 % of its clusters
@@ -369,7 +372,7 @@ one label per localization, −1 for noise, plus a record of the parameters and 
 | DBSCAN (compatibility) | ε = 25 nm; min_samples = 10 | literature: Gazal et al. (2026) for ε; min_samples is the reference pipeline's value (not among the verified sentences of the preprint) |
 | HDBSCAN | min_cluster_size = 10; min_samples = 5 | derivation (≈ 28 / 3 localizations per molecule); simulation (project): run A |
 | OPTICS (diagnostic) | min_samples = 10; ξ = 0.1; max_eps = 100 nm | ad hoc (= DBSCAN); simulation (project): run F; simulation (project), does not bound the time |
-| FOCAL | Δ = 15 nm; minL = 6 (3 × 3 map); minC = 3 | literature (Δ ~ precision, Nino et al. 2020) + simulation (project): run E; simulation: run E; ad hoc |
+| FOCAL | Δ = 15 nm; minL = 6 (3 × 3 map); minC = 3 | simulation (project): run E (Δ ~ precision is the 2D FOCAL criterion, Mazouchi & Milstein 2016; Nino et al. 2020 use 25-40 nm in 3D); simulation: run E; ad hoc |
 | voronoi_factor | first-rank density, α = 2, occupied region | literature: Levet et al. (2015); derivation (reference region) |
 | voronoi_csr | rank 0, 50 random sets, first crossing, occupied region; fallback quantile 0.99 | literature: Andronov et al. (2016); ad hoc (fallback) |
 | ToMATo | radius graph 20 nm; KDE σ 10 nm; τ by largest gap; min size 3; no floor | literature: Pike et al. (2020) + simulation: run D; derivation (r/2); ad hoc; ad hoc (StormGraph's value) |
@@ -379,9 +382,11 @@ Still ad hoc after the verification: GraphCommunity's 25 nm, ToMATo's σ = r/2 a
 and the k range of StormGraph (only the preprint was read), FOCAL's minC and 4-connectivity, the 100-nm grid of the
 occupied region, D11's Δ = 5 points, 10× and 10 replicates, and HDBSCAN's 5 / 10 (benchmark-specific).
 
-Methods that need a trained model (CAML, MIRO) or a calibrated event distribution per emitter (G5M, DDC) are
+Methods that need a trained model (CAML, MIRO) or a calibrated event distribution per emitter (G5M) are
 only offered through external labels: the calibration they require does not exist yet for the buffers and labels in
-use *(inference)*. The exception is BaGoL, reimplemented in Python as the experimental, slow method
+use *(inference)*. DDC needs no calibration (Bohrer et al. 2021), but it requires that a substantial share of the
+fluorophores bleach during the acquisition, a constant 405 nm power and 2D data; it is offered through external
+labels for that reason. The exception is BaGoL, reimplemented in Python as the experimental, slow method
 **Emitters (BaGoL-like reimplementation)** (`emitters_bagol_like`, not the authors' code): its event distribution
 per emitter, ξ, is taken from the literature (Dempsey et al. 2011), learned from the axon or typed from a control,
 and the emitters are linked into clusters within r_mol; see [`emitters.md`](emitters.md) and

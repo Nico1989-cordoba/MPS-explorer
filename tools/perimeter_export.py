@@ -16,7 +16,9 @@ Export of the perimeter density analysis: the v17, v19 and v20 blocks of the per
 * ``PERIMETER_V21_COLUMNS`` (axon tables v21) is written after v20's block, the very last: the axial leak of the three
   pairs at the two ends of the measured range of sigma_z (36 and 51 nm; NeNA in z, user's decision 2026-11-17: 47 nm
   is the main width, 77 nm only an upper bound).
-  ``perimeter_block`` returns the four blocks (v17, v19, v20, v21); ``tools.axon_export`` places them.
+* ``PERIMETER_V22_COLUMNS`` (axon tables v22) is written after v21's block, the very last: sigma_z measured in the
+  file itself (``tools.mps_axial_sigma``), where the width of the leak came from and the leak at the width used.
+  ``perimeter_block`` returns the five blocks (v17, v19, v20, v21, v22); ``tools.axon_export`` places them.
 * ``perimeter_block(result)`` is the block of one axon; ``write_perimeter_tables(results, stem)`` writes the long
   tables (profiles, contours, pooled A profile, per animal, sensitivities, peak - focus per ROI), each with a
   ``_columns.csv`` that says what every column is. Nothing existing is ever overwritten: a table is created
@@ -141,9 +143,28 @@ PERIMETER_V21_COLUMNS: Tuple[str, ...] = (
     "pd_c_leak_r_m1_0_sz51nm", "pd_c_leak_r_0_p1_sz51nm", "pd_c_leak_r_m1_p1_sz51nm",
 )
 
-# Every column of the four per-axon blocks, in the order they are written (v17, v19, v20, v21).
+# ----------------------------------------------------------------------------------------------------
+# The v22 block (sigma_z measured per file, ``tools.mps_axial_sigma``), written after v21's, the very last: where the
+# width of the leak of C came from (``pd_sz_source``: "pilot 47" or "measured"), the width used with its range, what
+# the file's own measurement gave (frame to frame, slow component, total, each with its 95 % interval), the pairs and
+# the density controls it rests on, and the leak of the three pairs at the width used. Order fixed; new columns only
+# at its END.
+# ----------------------------------------------------------------------------------------------------
+PERIMETER_V22_COLUMNS: Tuple[str, ...] = (
+    "pd_sz_source", "pd_sz_main_nm", "pd_sz_lo_nm", "pd_sz_hi_nm",
+    "pd_sz_status", "pd_sz_frame_nm", "pd_sz_frame_lo_nm", "pd_sz_frame_hi_nm",
+    "pd_sz_slow_nm", "pd_sz_slow_lo_nm", "pd_sz_slow_hi_nm",
+    "pd_sz_total_nm", "pd_sz_total_lo_nm", "pd_sz_total_hi_nm",
+    "pd_sz_n_pairs_frame", "pd_sz_n_pairs_lag1", "pd_sz_n_pairs_long",
+    "pd_sz_contamination", "pd_sz_same_frame_fraction", "pd_sz_note",
+    "pd_c_leak_r_m1_0_szused", "pd_c_leak_r_0_p1_szused", "pd_c_leak_r_m1_p1_szused",
+    "pd_c_leak_r_m1_0_szused_lo", "pd_c_leak_r_0_p1_szused_lo", "pd_c_leak_r_m1_p1_szused_lo",
+    "pd_c_leak_r_m1_0_szused_hi", "pd_c_leak_r_0_p1_szused_hi", "pd_c_leak_r_m1_p1_szused_hi",
+)
+
+# Every column of the five per-axon blocks, in the order they are written (v17, v19, v20, v21, v22).
 ALL_PERIMETER_COLUMNS: Tuple[str, ...] = (PERIMETER_COLUMNS + PERIMETER_V19_COLUMNS + PERIMETER_V20_COLUMNS
-                                          + PERIMETER_V21_COLUMNS)
+                                          + PERIMETER_V21_COLUMNS + PERIMETER_V22_COLUMNS)
 
 LOCALIZATION_SLICE_COLUMN: str = "pd_slice"   # one column at the end of the localization table
 
@@ -196,7 +217,7 @@ GATE_SUMMARY_COLUMNS: Tuple[str, ...] = (
 # (the identity columns of the per-axon row, then the v17 block) and the log (one row per file).
 AXONS_COLUMNS: Tuple[str, ...] = (
     ("axon_id", "source_path", "genotype", "animal", "protein", "roi_name", "axon_name") + PERIMETER_COLUMNS
-    + PERIMETER_V19_COLUMNS + PERIMETER_V20_COLUMNS + PERIMETER_V21_COLUMNS)
+    + PERIMETER_V19_COLUMNS + PERIMETER_V20_COLUMNS + PERIMETER_V21_COLUMNS + PERIMETER_V22_COLUMNS)
 LOG_COLUMNS: Tuple[str, ...] = (
     "file", "axon_id", "trace_label", "status", "failure", "duplicate_label_with", "warnings")
 
@@ -227,7 +248,7 @@ def not_run_block() -> Dict[str, Any]:
 
 
 def perimeter_block(result: Optional[PDResult]) -> Dict[str, Any]:
-    """The PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, PERIMETER_V20_COLUMNS then PERIMETER_V21_COLUMNS values of
+    """The PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, V20, V21 then PERIMETER_V22_COLUMNS values of
     one axon, in order.
 
     ``None``: the analysis was not run (all empty, ``pd_status = "not run"``). A failed analysis keeps what it
@@ -375,4 +396,51 @@ def write_perimeter_tables(results: Sequence[PDResult], stem: str, *, pooled: Op
         _write_table(path, cols, data[name])
         tables.append(path)
         dictionaries.append(write_columns_file(path, name, cols))
+    return tables + dictionaries
+
+
+def saved_paths(path: str) -> Dict[str, str]:
+    """Every file ``save_axon_tables(path, ...)`` writes, by table name ("axons" is ``path`` itself, a missing
+    ``.csv`` added), for a Save dialog that must say what it will replace."""
+    base, ext = os.path.splitext(str(path))
+    if ext.lower() != ".csv":
+        base, ext = str(path), ".csv"
+    out = {"axons": base + ext}
+    out.update({name: f"{base}{TABLE_MARK}{name}.csv" for name in LONG_TABLES})
+    return out
+
+
+def save_axon_tables(path: str, results: Sequence[PDResult], *,
+                     rows: Optional[Sequence[Dict[str, Any]]] = None,
+                     pooled: Optional[Mapping[str, Any]] = None) -> Sequence[str]:
+    """The Save button of the perimeter window (P12): the per-axon rows at exactly ``path`` (the name the person
+    chose), the long tables at ``<path without .csv>_perimeter_<name>.csv`` and a ``_columns.csv`` beside each.
+    Unlike the batch's writers this one REPLACES files of those names: the save dialog has asked the person, and a
+    save that came back as ``_run2`` would not be the file they named. Returns the paths written (tables first)."""
+    from tools import mps_perimeter_pool as pool
+    names = saved_paths(path)
+    parent = os.path.dirname(os.path.abspath(names["axons"]))
+    os.makedirs(parent, exist_ok=True)
+    axon_rows = list(rows) if rows is not None else pool.perimeter_rows(list(results))
+    data = table_rows(results, pooled=pooled if pooled is not None else {}, rows=axon_rows)
+    data["axons"] = axon_rows
+    tables: List[str] = []
+    dictionaries: List[str] = []
+    for name in ("axons",) + LONG_TABLES:
+        cols = table_columns(name, data[name])
+        target = names[name]
+        with open(target, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(cols)
+            for row in data[name]:
+                writer.writerow([_cell(row.get(c)) for c in cols])
+        tables.append(target)
+        from tools.column_dictionary import rows_for
+        base, ext = os.path.splitext(target)
+        dict_path = f"{base}_columns{ext}"
+        with open(dict_path, "w", encoding="utf-8", newline="") as handle:
+            dw = csv.DictWriter(handle, fieldnames=["table", "position", "column", "unit", "meaning"])
+            dw.writeheader()
+            dw.writerows(rows_for(list(cols), name))
+        dictionaries.append(dict_path)
     return tables + dictionaries

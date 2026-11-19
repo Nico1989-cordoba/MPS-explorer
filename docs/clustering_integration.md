@@ -57,7 +57,7 @@ in [reporting_checklist.md](reporting_checklist.md).
   every method]), min samples, NeNA and where it came from, near-total fusion (d50 − 20 nm) and d50 (2 eps + 2.5 NeNA)
   [own simulation, an empirical fit], slab half-width [lit: Gazal et al. 2026].
 * **Methods block** (plan A8): `dbscan_mode` (compatibility 25/10, rule, typed, not DBSCAN); the rule's eps and min
-  samples with c_label 14 and 26 [lit: Dempsey et al. 2011, Table 1, Alexa Fluor 647 in MEA / βME; provisional];
+  samples with c_label 14 and 26 [lit: Dempsey et al. 2011, Table 1, Alexa Fluor 647 in MEA / βME, per fluorophore on glass; other measurements span about 4-17 events per label (`docs/dbscan_rule.md` section 2.1); provisional];
   localizations per cycle (measured on the whole file at 3√2 NeNA, or the labelled fallback 2 [ad hoc]); the linking
   radius and dark frames of the event layer (3 NeNA, 1 frame [own simulation; lit: Thevathasan et al. 2019]); the
   runs of the last comparison and the readouts whose verdict changed with the method.

@@ -611,14 +611,6 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         origin_lay.addStretch(1)
         lay.addWidget(origin, 1, 1, 1, 3)
         self.spin_margin.valueChanged.connect(lambda _v: self._refresh_badges())
-        self.btn_export = QtWidgets.QPushButton("Export axon...")
-        self.btn_export.setToolTip(
-            "Write this axon to the tables: the analysis, this panel and "
-            "the discard in one row, and the per-cluster and "
-            "per-localization tables if you ask for them. The same button "
-            "as in the main window, so nothing is written twice.")
-        self.btn_export.clicked.connect(self._export_clicked)
-        lay.addWidget(self.btn_export, 0, 2)
         self.btn_image = QtWidgets.QPushButton("Export image...")
         self.btn_image.setToolTip(
             "Write the distance histogram as a figure: at the width a journal "
@@ -1187,7 +1179,6 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         for widget in (self.spin_dx, self.spin_dy):
             widget.setEnabled(self._needs_shift())
         self.btn_back.setEnabled(self.measured is not None)
-        self.btn_export.setEnabled(self.result is not None)
         for widget in (self.slider_threshold, self.spin_threshold,
                        self.btn_otsu):
             widget.setEnabled(self.axoplasm is not None)
@@ -1611,24 +1602,6 @@ class AxoplasmWindow(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.information(
             self, "Image written",
             f"{figure_export.describe(request)}\n\n{written}")
-
-    def _export_clicked(self) -> None:
-        """
-        Ask the main window to write this axon.
-
-        This panel used to write three tables of its own, from its own
-        state, while the results window wrote another from its own -- which
-        is how one axon came to be described twice, differently. What this
-        panel measures is now part of the axon's single row, and the
-        export that writes it is the one place that sees both.
-        """
-        if self.export_callback is None:
-            QtWidgets.QMessageBox.information(
-                self, "Export axon",
-                "This panel was opened on its own, so it cannot write the "
-                "tables. Use 'Export axon' in the main window.")
-            return
-        self.export_callback()
 
 
 def show_axoplasm_window(

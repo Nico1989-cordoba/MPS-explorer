@@ -134,7 +134,7 @@ def test_export_columns_and_axon_id_stability():
     from tools import axon_export
     from tools.column_dictionary import describe, missing
     from tools.mps_analysis import analyze_axon
-    assert axon_export.TABLE_VERSION == "axon tables v21"
+    assert axon_export.TABLE_VERSION == "axon tables v22"
     from tools.column_dictionary import known_columns
     n_em = len(axon_export.EMITTERS_COLUMNS)   # v11 (BaGoL F5): the emitters' block after the method's
     known = known_columns()[:-len(axon_export.trailing_columns())]   # v13: the integration block, then v17's, last
@@ -333,7 +333,7 @@ def test_batch_compare_methods_rows(monkeypatch, tmp_path):
     assert [s[0] for s in seen] == ["DBSCAN", "FOCAL"] and seen[0][1] == 25.0
     assert results and results[0].runs[0].is_reference and results[0].long_rows
     out = mb.comparison_path(str(tmp_path / "mps_axons.csv"))
-    assert os.path.basename(out) == "batch_methods_comparison.csv"
+    assert os.path.basename(out) == "mps_axons_methods_comparison.csv"
     assert mb.write_methods_comparison(rows, out) == 2
     with open(out, encoding="utf-8") as fh:
         head = fh.readline().strip().split(",")

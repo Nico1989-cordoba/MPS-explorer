@@ -445,8 +445,9 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        not_editable_because="e1: the rule is shown beside the compatibility values, not edited", fmt=".2f"),
     _e(key="dbscan_rule.min_samples_floor", label="rule: min samples floor", unit="", home="none",
        default=_const(_DR, "MIN_SAMPLES_FLOOR"), origin="derived",
-       origin_note="standard method: min samples of at least the dimension plus one (Ester et al. 1996; Schubert "
-                   "et al. 2017), for the two lateral dimensions clustered",
+       origin_note="ad hoc floor: min samples of at least the dimension plus one, for the two lateral dimensions "
+                   "clustered; Schubert et al. 2017 give 4 in 2D, the dimension + 1 heuristic is attributed to "
+                   "Ester et al. 1996 (pending full-text check)",
        not_editable_because="e1: the rule is shown beside the compatibility values, not edited"),
     _e(key="dbscan_rule.loc_per_cycle_fallback", label="rule: localizations per cycle when not measured",
        unit="", home="none", default=_const("tools.mps_events", "LOCS_PER_CYCLE_FALLBACK"), origin="ad hoc",
@@ -486,9 +487,9 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
     # ---------------------------------------------------------------- the parameter sweep (clustering plan A1)
     _e(key="sweep.eps_values_nm", label="sweep: eps values", unit="nm", home="none",
        default=_const("tools.dbscan_sweep", "DBSCAN_EPS_NM"), origin="simulation",
-       origin_note="the eps axis of the sensitivity grid: the range the clustering research recommends after the "
-                   "SMLM benchmarks (Nieves et al. 2023; Hammer et al. 2025) and the grid of its own simulation, "
-                   "the published value among them",
+       origin_note="the eps axis of the sensitivity grid: the grid of the clustering research's own simulation "
+                   "(ad hoc range), the published value among them; the SMLM benchmarks (Nieves et al. 2023; "
+                   "Hammer et al. 2025) support reporting a sweep, not this range",
        not_editable_because="e1: no window runs the sweep yet"),
     _e(key="sweep.min_samples_values", label="sweep: min samples values", unit="", home="none",
        default=_const("tools.dbscan_sweep", "DBSCAN_MIN_SAMPLES"), origin="simulation",
@@ -521,7 +522,8 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        origin_note=f"random centres are confined to a band around the smoothed contour, the width used by {PAPER}, "
                    "who describe the band as approximating the accessible membrane surface; with the cluster-centre "
                    "error model the position error of a membrane-anchored centre is about 16 nm per axis for a "
-                   "cluster carried by a single antibody (Fruh et al. 2021), so the half-width is at least about "
+                   "cluster carried by a single antibody (linkage 10 nm per axis: ad hoc, of the order of Fruh et "
+                   "al. 2021, not a value of that paper), so the half-width is at least about "
                    "three standard deviations",
        shown_as="Randomization editor and 'More' line; CDF details; axon table",
        documented_range=(20.0, 150.0), range_text="20-150",

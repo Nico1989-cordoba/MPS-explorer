@@ -60,7 +60,7 @@ simulation P-R61: power 0.56 on the arc against 0.48 in the plane, 30 % of colum
   deviation √2 σ_c; 1.96 of those hold 95 % of true coincidences along a line.
 - **σ_c = 11.3 nm** [own simulation, P-R61 / methods draft 2.3]: the per-axis centre error of a typical cluster —
   three antibody stacks on a 25 nm footprint [literature: Gazal et al. 2026, median r_eff], linkage 10 nm per axis
-  [literature: Früh et al. 2021], localization precision 10 nm [literature: Huang et al. 2008], geometric event
+  [ad hoc, of the order of Früh et al. 2021; see the table below], localization precision 10 nm [literature: Huang et al. 2008], geometric event
   counts with a mean of 10 events of two localizations each.
 
 The tolerance used before 2026-10-22 had been measured once on one exploratory pilot axon with a recipe that adds
@@ -81,9 +81,9 @@ The per-axis error of a cluster's centre [derivation, P-R61 2.4; verified to 0.3
 |---|---|---|
 | σ_loc, localization precision | the file's **NeNA**; **10 nm** if it is not given | measurement per file; literature (Huang et al. 2008) |
 | N_loc | the cluster's localizations | measured, from ANY clustering method's labels |
-| σ_link, linkage error per axis | **10 nm** (editable) | literature (Früh et al. 2021: offsets up to ~19 nm → l/√3); an assumption until single-molecule clusters on glass calibrate it (Phase B) |
+| σ_link, linkage error per axis | **10 nm** (editable) | ad hoc, of the order of Früh et al. 2021 (not a value of that paper: for primary + secondary IgG they measure a mean radial displacement of 10.0 nm, a layer FWHM of 17-18 nm, σ ≈ 7.5 nm, and a maximum of ~19 nm; dividing that maximum by √3 does not give a per-axis SD, and 10 nm is probably on the high side); an assumption until single-molecule clusters on glass calibrate it (Phase B) |
 | Σw², sum of squared label shares | E[Σw² \| events], from a simulated table | own simulation (P-R61 generator; 100 000 clusters per label prior; seed 20261015); 1 (one label) without events |
-| c_label, events per antibody stack | **14** (AF647 in MEA) or 26 (βME), labelled "preset" | literature (Dempsey et al. 2011), a lower bound; the calibration (sparse primary on glass with the same secondary, P-R75) is Phase B |
+| c_label, events per label | **14** (AF647 in MEA) or 26 (βME), labelled "preset" | literature (Dempsey et al. 2011), switching cycles **per fluorophore**, antibodies on glass, a lower bound in their conditions; not a count per antibody stack, and independent measurements in other conditions span about 4-17 events per label (`docs/dbscan_rule.md` section 2.1); the calibration (sparse primary on glass with the same secondary, P-R75) is Phase B |
 | Label prior of the table | zero-truncated Poisson, λ from the axon's mean events per cluster / c_label | own simulation (grid 0.05-6, the research's) |
 | ρ, footprint | the axon's pooled footprint, or 25 nm (section 4) | measurement per axon; literature (Gazal et al. 2026) for the bound |
 | σ_reg, registration per ring | **2 nm** | literature (Wang et al. 2014, RCC ~1.6 nm) |
@@ -105,7 +105,9 @@ side of the axon in both rings) the rejection rate stayed at 0.04-0.05.
 localizations of one antibody are copies of one point plus photon noise, so with one label the footprint is invisible
 (the cloud measures σ_loc whatever the footprint), and with three it is estimated with ±100 % error (a variance with
 two degrees of freedom). The convex-hull radius r_eff measures mostly how many localizations the cluster has (the
-logarithm of N_loc explains 69-75 % of its variance; Rényi & Sulanke 1963): it is exported for the record, never used
+logarithm of N_loc explains 69-75 % of its variance [own simulation]; that the hull of random points grows with
+their number is classical (Efron 1965; Rényi & Sulanke 1963 treat the number of vertices, the area is in their 1964
+part II, pending full-text check), but the 69-75 % is this project's number): it is exported for the record, never used
 as the size of a cluster, and "Cluster area" keeps its name and meaning.
 
 **The footprint is measured once per axon** by pooling every cluster (method of moments) [own simulation, P-R61
@@ -327,6 +329,7 @@ its CSV (`tau_role`, rule D4). It is a view, not a test (`tools/two_rings_view.p
 - Agresti A (2013). *Categorical Data Analysis*, 3rd ed. Wiley (sec. 11.1, comparing dependent proportions).
 - Dempsey GT, Vaughan JC, Chen KH, Bates M, Zhuang X (2011). Evaluation of fluorophores for optimal performance in
   localization-based super-resolution imaging. *Nat Methods* 8:1027-1036.
+- Efron B (1965). The convex hull of a random set of points. *Biometrika* 52:331-343. doi:10.1093/biomet/52.3-4.331
 - Früh SM, Matti U, Spycher PR, Rubini M, Lickert S, Schlichthaerle T, Jungmann R, Vogel V, Ries J, Schoen I (2021).
   Site-Specifically-Labeled Antibodies for Super-Resolution Microscopy Reveal In Situ Linkage Errors. *ACS Nano*
   15(7):12161-12170. doi:10.1021/acsnano.1c03677

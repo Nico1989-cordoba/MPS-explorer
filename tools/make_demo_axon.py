@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Write the SIMULATED example axon that the beginner tour opens (Help -> "Open the example axon (simulated)").
+Write the SIMULATED example axon that the beginner tour opens (Help -> "Simulated axon to demonstrate the analysis capabilities of MPS Explorer").
 
     venv/Scripts/python.exe tools/make_demo_axon.py [--out examples/demo_axon]
 

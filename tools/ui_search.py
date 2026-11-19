@@ -24,7 +24,7 @@ Shift+Enter or Shift+F3 to the previous one; Esc closes the bar (and only the ba
 Cost when closed: one QShortcut per window. The bar, its two F3 shortcuts and its event filter are made the first
 time Ctrl+F is pressed in that window; the filter (which keeps the bar in its corner when the window is resized) is
 installed only while the bar is open. ``install_everywhere(app)`` installs the search in every window the
-program opens, when it first becomes active (one signal per change of active window).
+program opens, when it first becomes active or a widget in it first takes the focus (two signals, no event filter).
 
 Nothing here reads or changes an analysis, a setting or an export.
 
@@ -577,9 +577,32 @@ def install_everywhere(app: Optional[QtWidgets.QApplication] = None) -> None:
         return
     qapp.setProperty("ui_search_everywhere", True)
 
-    def on_active(_qwindow: Any) -> None:
-        w = QtWidgets.QApplication.activeWindow()
-        if _searchable(w):
-            install(w)
+    def _install_in(w: Any) -> None:
+        try:
+            if _searchable(w):
+                install(w)
+        except RuntimeError:                           # a window being destroyed
+            return
+
+    def on_active(qwindow: Any) -> None:
+        # The window that became active, found by its QWindow: ``activeWindow()`` can still answer the previous
+        # window when this signal fires (manual test of 2026-11-17: Ctrl+F did nothing in the lumen review and in
+        # "Two rings" until another window had been active).
+        found = None
+        if qwindow is not None:
+            for top in qapp.topLevelWidgets():
+                try:
+                    if top.windowHandle() is qwindow:
+                        found = top
+                        break
+                except RuntimeError:
+                    continue
+        _install_in(found if found is not None else QtWidgets.QApplication.activeWindow())
+
+    def on_focus(_old: Any, new: Any) -> None:
+        # A widget took the keyboard focus: the window that holds it has Ctrl+F before the next key is pressed.
+        if isinstance(new, QtWidgets.QWidget):
+            _install_in(new.window())
 
     qapp.focusWindowChanged.connect(on_active)
+    qapp.focusChanged.connect(on_focus)

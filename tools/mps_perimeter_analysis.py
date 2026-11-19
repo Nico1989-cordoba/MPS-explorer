@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 import numpy as np
 from numpy.typing import NDArray
 
+from tools import mps_cancel
 from tools import mps_perimeter_a as pa
 from tools import mps_perimeter_bc as bc
 from tools import mps_perimeter_density as dens
@@ -166,9 +167,48 @@ def _lpz(columns: Mapping[str, NDArray[Any]], n: int) -> Tuple[float, str]:
     return float(bc.LEAK_DEFAULT_LPZ_NM), "default (pilot lpz, no lpz column)"
 
 
+_FRAME_NAMES: Tuple[str, ...] = ("frame", "frame number")
+_LP_NAMES: Tuple[str, ...] = ("lpx", "lp", "uncertainty_xy [nm]")
+
+
+def _axial_widths(x: NDArray[np.float64], y: NDArray[np.float64], z: NDArray[np.float64],
+                  cols: Mapping[str, NDArray[Any]], n: int, params: PerimeterParams,
+                  warnings: List[str]) -> Tuple[bc.LeakWidths, Any]:
+    """The axial width of the leak of C: measured in the file (``tools.mps_axial_sigma``) when the measurement is
+    reliable, else the pilot's 47 nm (36-51 nm) with the reason as a warning. Returns the widths and the
+    ``AxialSigma`` (None when ``params.sigma_z_per_file`` is off)."""
+    if not params.sigma_z_per_file:
+        return bc.pilot_widths(), None
+    from tools import mps_axial_sigma as axs
+    res = axs.measure_axial_sigma(x, y, z, _column(cols, _FRAME_NAMES, n), lp=_column(cols, _LP_NAMES, n),
+                                  lpz=_column(cols, _LPZ_NAMES, n), n_boot=int(params.sigma_z_n_boot),
+                                  seed=int(params.seed))
+    w = axs.leak_widths(res)
+    if w is not None:
+        return bc.measured_widths(*w), res
+    warnings.append(f"sigma_z not measurable in this file ({res.status}: {res.note() or 'no reason given'}): the "
+                    f"axial leak uses the pilot's {bc.LEAK_SIGMA_Z_MAIN_NM:g} nm")
+    return bc.pilot_widths(), res
+
+
 def _window_bins(params: PerimeterParams) -> int:
     # [director] window 200 nm on 100 nm bins = 2 bins; the window is a whole number of bins of the grid
     return max(1, int(round(float(params.window_nm) / float(params.bin_nm))))
+
+
+# Where a run is, for a progress bar and a Cancel button (package P12): ``mps_cancel.check`` at the start of each
+# step, ``done`` of ``total`` steps; nothing is installed outside an interactive run, and then nothing happens.
+PROGRESS_PREFIX = "perimeter density: "
+
+
+def progress_total(params: PerimeterParams) -> int:
+    """How many steps ``analyze_perimeter`` reports: z0 and slices, contour, profiles, A/B/C, one per band
+    sensitivity half-width, one per guard sensitivity."""
+    return 4 + len(params.band_sensitivity_nm) + len(params.guard_sensitivity_nm)
+
+
+def _step(params: PerimeterParams, done: int, words: str) -> None:
+    mps_cancel.check(PROGRESS_PREFIX + words, int(done), progress_total(params))
 
 
 def _read_abc(path: SmoothPath, s: NDArray[np.float64], r: NDArray[np.float64], label: NDArray[np.int8],
@@ -275,6 +315,7 @@ def _analyze(x_nm: NDArray[np.float64], y_nm: NDArray[np.float64], z_nm: NDArray
              drawn_contour: Optional[NDArray[np.float64]], contour_fn: Optional[ContourFn], warnings: List[str],
              result: Callable[..., PerimeterResult]) -> PerimeterResult:
     criterion = params.z0_criterion
+    _step(params, 0, "z0 and the slices")
     x_all = np.asarray(x_nm, dtype=np.float64).reshape(-1)
     y_all = np.asarray(y_nm, dtype=np.float64).reshape(-1)
     z_all = np.asarray(z_nm, dtype=np.float64).reshape(-1)
@@ -326,6 +367,7 @@ def _analyze(x_nm: NDArray[np.float64], y_nm: NDArray[np.float64], z_nm: NDArray
                       diagnostics=PerimeterDiagnostics(**diag))
 
     # ---- contour ----
+    _step(params, 1, "the contour")
     in_three = slices.label != OUTSIDE_LABEL
     x_fit, y_fit = x[in_three], y[in_three]
     slice_fit = np.asarray(slices.label[in_three])
@@ -366,6 +408,7 @@ def _analyze(x_nm: NDArray[np.float64], y_nm: NDArray[np.float64], z_nm: NDArray
             warnings.append(f"drawn trace not compared: {exc}")
 
     # ---- projection, band, profiles ----
+    _step(params, 2, "the band and the profiles")
     s, r = dens.project(path, x, y)
     label = slices.label
     band = dens.band_width(r[in_three], mode=params.band_mode, fixed_nm=params.band_half_width_nm)
@@ -387,11 +430,15 @@ def _analyze(x_nm: NDArray[np.float64], y_nm: NDArray[np.float64], z_nm: NDArray
         warnings.append(f"no lpz column: the expected axial leak uses the pilot lpz of {lpz:g} nm")
     leak = bc.leak_expected_r(lpz, params.slice_thickness_nm, params.slice_guard_nm)
     diag.update(lpz_nm=lpz, lpz_source=lpz_src, leak_expected_r=leak)
+    widths, sz_report = _axial_widths(x, y, z, cols, n_finite, params, warnings)
+    diag.update(sigma_z_source=widths.source, sigma_z_widths=(widths.lo, widths.main, widths.hi),
+                sigma_z_report=sz_report)
     if p0.n_locs == 0:
         return result(Status.EMPTY_PROFILE, f"no localization of the central slice within +-{half:g} nm of the "
                       "contour", **common, diagnostics=PerimeterDiagnostics(**diag))
 
     # ---- A, B, C at the main half-width ----
+    _step(params, 3, "questions A, B and C")
     a_det, b, c, wrm = _read_abc(path, s, r, label, profiles, half, params, warnings, "")
     a = {"contrast": a_det["contrast"], "period": a_det["period"]}
     wb = _window_bins(params)
@@ -399,10 +446,10 @@ def _analyze(x_nm: NDArray[np.float64], y_nm: NDArray[np.float64], z_nm: NDArray
     # the measured range 36-51 nm (user's decisions 2026-11-17), not with ``leak`` (three equal slices), which is still
     # reported.
     leaks_real = {sz: bc.leak_expected_r_pairs(slices.n_locs, sz, params.slice_thickness_nm, params.slice_guard_nm)
-                  for sz in bc.LEAK_SIGMA_Z_ALL_NM}
+                  for sz in tuple(bc.LEAK_SIGMA_Z_ALL_NM) + (widths.lo, widths.main, widths.hi)}
     diag.update(a_exclusion_nm=float(a_det["exclusion_nm"]), a_period_nm=float(a_det["period_nm"]),
                 a_period_at_edge=bool(a_det["period_at_edge"]), a_zone=tuple(int(v) for v in a_det["zone"]),
-                a_usable=bool(a_det["usable"]), c_reading=bc.slice_reading_real_fractions(c, leaks_real),
+                a_usable=bool(a_det["usable"]), c_reading=bc.slice_reading_real_fractions(c, leaks_real, widths=widths),
                 window_bins=wb,
                 window_radial_median_nm=wrm)
     if not a_det["usable"]:
@@ -417,7 +464,8 @@ def _analyze(x_nm: NDArray[np.float64], y_nm: NDArray[np.float64], z_nm: NDArray
 
     # ---- band sensitivity: profiles recomputed, never the main mask ----
     sens: Dict[float, BandSensitivity] = {}
-    for hw in params.band_sensitivity_nm:
+    for i_hw, hw in enumerate(params.band_sensitivity_nm):
+        _step(params, 4 + i_hw, f"band {float(hw):g} nm")
         prof_hw = dens.slice_profiles(s, r, label, length, half_width_nm=float(hw), bin_nm=params.bin_nm)
         a_hw, b_hw, c_hw, _ = _read_abc(path, s, r, label, prof_hw, float(hw), params, warnings,
                                         f"band {float(hw):g} nm: ")
@@ -427,7 +475,8 @@ def _analyze(x_nm: NDArray[np.float64], y_nm: NDArray[np.float64], z_nm: NDArray
 
     # ---- axial guard sensitivity of C (decision Q3) ----
     guards: Dict[float, GuardSensitivity] = {}
-    for g in params.guard_sensitivity_nm:
+    for i_g, g in enumerate(params.guard_sensitivity_nm):
+        _step(params, 4 + len(params.band_sensitivity_nm) + i_g, f"axial guard {float(g):g} nm")
         try:
             sl_g = sl.cut_slices(z, float(z0.z0_nm), thickness_nm=params.slice_thickness_nm, guard_nm=float(g))
             prof_g = dens.slice_profiles(s, r, sl_g.label, length, half_width_nm=half, bin_nm=params.bin_nm)
@@ -599,6 +648,6 @@ def analyze_file(path: str, params: PerimeterParams = PerimeterParams(), *,
                              contour_fn=contour_fn, year=year)
 
 
-__all__ = ["analyze_perimeter", "analyze_file", "counter_clockwise", "MIN_LOCALIZATIONS", "NO_ROI_TEXT",
-           "assessment_extras", "EXTERNAL_KIND", "SLICE_MISFIT_PREFIX",
+__all__ = ["analyze_perimeter", "analyze_file", "progress_total", "PROGRESS_PREFIX", "counter_clockwise", "MIN_LOCALIZATIONS",
+           "NO_ROI_TEXT", "assessment_extras", "EXTERNAL_KIND", "SLICE_MISFIT_PREFIX",
            "ContourFn", "TraceLabel"]

@@ -69,7 +69,7 @@ Presets in the dialog (and a free value, documented range 150-210 nm):
 | Preset | Value | Source |
 |---|---|---|
 | sciatic nerve, axial (default) | 170 nm | Gazal et al. 2026 (170 ± 15 nm along z) |
-| sciatic nerve, lateral STED, mean | 186 nm | D'Este et al. 2016 (as quoted by Gazal et al. 2026; the median there is ~175 nm) |
+| sciatic nerve, lateral STED, mean | 186 nm | D'Este et al. 2016 (actin, 186 ± 23 nm, SD; between animals 177 ± 22 to 198 ± 18 nm; the "median ~175 nm" quoted earlier is not in D'Este et al. 2016: to be checked against Gazal et al. 2026, pending full-text check) |
 | cultured neurons | 182 nm | Xu et al. 2013 (βII-spectrin C-terminus, 182 ± 18 nm) |
 | cultured neurons | 190 nm | Zhong et al. 2014 (~190 nm) |
 
@@ -192,7 +192,7 @@ were found to have no valid reading as a decision between "leak" and "columns", 
 (their descriptive fields stay in the tables):
 
 - **(i) shared emission events against a random re-pairing null — removed.** The linking of localizations into
-  emission events (as in Picasso; Schnitzbauer et al. 2017) is local, so random cross-ring pairs essentially never
+  emission events (as in the code of Picasso 0.9.10, the software of Schnitzbauer et al. 2017; the article itself does not describe the linking) is local, so random cross-ring pairs essentially never
   share an event, and the test rejects whenever **any** matched pair shares one — under leak and under genuine
   columns alike (a true partner can absorb its neighbour's leaked localizations). The per-pair shared-event
   fractions are reported; no highlight threshold is set by default (it depends on the linking radius and the dark
@@ -302,8 +302,12 @@ shown.
 ## 9. The 3D variance groups: the axial scale from the file's precision
 
 The units of the cluster-robust variance are 3D DBSCAN clusters with eps = 25 nm and min_samples = 10, the lab's
-published settings (Gazal et al. 2026: eps from the ~20 nm lateral precision, min_samples from the mean switching
-cycles of the dyes, Dempsey et al. 2011) **[literature]**. In 3D the axial coordinate must be in the same precision
+published settings (Gazal et al. 2026) **[literature of the group; not validated on sciatic nerve by this
+program]**. Two justifications sometimes attached to them do not hold as written: "eps from the ~20 nm lateral
+precision" mixes a FWHM (~20 nm) with a standard deviation (lateral SD 9-11 nm, Huang et al. 2008; NeNA is an SD);
+and min_samples = 10 is not the switching cycles of Alexa Fluor 647 in Dempsey et al. 2011 (14 in MEA, 26 in βME,
+per fluorophore on glass). The closest published setting is eps = 3 × NeNA with minPts = 10 (Stein et al. 2025,
+DNA-PAINT); see `docs/dbscan_rule.md` section 2.1. In 3D the axial coordinate must be in the same precision
 units, so z is scaled by **σ_xy / σ_z of the file** (median lateral over median axial reported precision) before the
 clustering **[derivation]**. Astigmatic axial precision is typically 2-3× the lateral (Huang et al. 2008: 9-11 nm in
 x, y and 22 nm in z), so **0.5** is the suggestion when the file carries no precision. A typed value overrides both
@@ -464,6 +468,8 @@ and after this change with `docs/sims/viability/viability_numbers.py` (outputs `
   doi:10.2307/1412159
 - Steegen S, Tuerlinckx F, Gelman A, Vanpaemel W (2016). Increasing transparency through a multiverse analysis.
   *Perspectives on Psychological Science* 11:702-712. doi:10.1177/1745691616658637
+- Stein J, Ericsson M, Nofal M, et al. (2025). Cryosectioning-enhanced super-resolution microscopy for single-protein
+  imaging across cells and tissues. *PNAS* 122(32):e2504578122. doi:10.1073/pnas.2504578122
 - Wald A (1943). Tests of statistical hypotheses concerning several parameters when the number of observations is
   large. *Trans Am Math Soc* 54:426-482. doi:10.1090/S0002-9947-1943-0012401-3
 - Xu K, Zhong G, Zhuang X (2013). Actin, spectrin, and associated proteins form a periodic cytoskeletal structure in

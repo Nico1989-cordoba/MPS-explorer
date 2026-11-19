@@ -57,7 +57,8 @@ window's parameter strip (More → Edit...), recorded in the settings file and w
 region between the paper's two offset curves wherever they do not self-intersect, and stays well defined on concave
 contours, where explicit offsets do. Why ±50 nm is defensible beyond the paper's word (derivation): the radial
 scatter of a membrane-anchored cluster centre combines the centroid's precision (~20 nm / √10 ≈ 6 nm for the smallest
-DBSCAN cluster), the antibody linkage (10-20 nm for a primary plus secondary IgG; Früh et al. 2021) and half the
+DBSCAN cluster; ~20 nm is a conservative figure, closer to a FWHM than to the lateral SD of 9-11 nm of Huang et
+al. 2008, which would give ~3 nm), the antibody linkage (of the order of 10-15 nm for a primary plus secondary IgG [ad hoc range; Früh et al. 2021 measure a mean displacement of 10.0 nm with a radial σ ≈ 7.5 nm and a maximum of ~19 nm]) and half the
 radial extent of a cluster of effective radius ~25 nm (Gazal et al. 2026), ≈ 12 nm; together σ_r ≈ √(36 + 225 +
 144) ≈ 20 nm, so ±50 nm is about ±2.5 σ_r and holds about 99 % of membrane-anchored centres. A narrower band makes
 the null more one-dimensional (longer random 1NN); a wider one shortens random 1NN. Own simulation
@@ -433,6 +434,8 @@ its ~200 nm peak without stating bin width or smoothing.
   nerve axons. bioRxiv doi:10.64898/2026.02.19.705149; eLife Reviewed Preprint doi:10.7554/eLife.111108.1
 - Hope ACA (1968). A simplified Monte Carlo significance test procedure. *Journal of the Royal Statistical Society B*
   30(3):582-598. doi:10.1111/j.2517-6161.1968.tb00759.x
+- Huang B, Wang W, Bates M, Zhuang X (2008). Three-dimensional super-resolution imaging by stochastic optical
+  reconstruction microscopy. *Science* 319(5864):810-813. doi:10.1126/science.1153529
 - Killip S, Mahfoud Z, Pearce K (2004). What is an intracluster correlation coefficient? *Annals of Family Medicine*
   2(3):204-208. doi:10.1370/afm.141
 - Koo TK, Li MY (2016). A guideline of selecting and reporting intraclass correlation coefficients for reliability

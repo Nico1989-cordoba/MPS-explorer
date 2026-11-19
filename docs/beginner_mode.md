@@ -18,7 +18,7 @@ the explanations*); the rest of the interface stays in English.
   - *Explain this* (**Shift+F1**): the cursor changes, and the next click on a control shows its card instead of
     running it - no button fires, no field changes. A control without a card gets a short note with its tooltip.
     Esc cancels.
-  - *Open the example axon (simulated)* loads `examples/demo_axon/demo_axon_simulated.hdf5` into channel 1, so the
+  - *Simulated axon to demonstrate the analysis capabilities of MPS Explorer* loads `examples/demo_axon/demo_axon_simulated.hdf5` into channel 1, so the
     tour can be followed on the program's real output.
 - **"?"** in the top-right corner of each panel (files, view, clustering, measurement) replays only that panel's cards.
 

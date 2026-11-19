@@ -280,7 +280,7 @@ def test_excel_copy_batch_log_and_comparison_never_overwrite(tmp_path) -> None:
     rows = [{"source": "x.csv", "cluster_method": "DBSCAN"}]
     p1 = mb.write_methods_comparison_file(rows, mb.comparison_path(str(table)))
     assert mb.write_methods_comparison(rows, mb.comparison_path(str(table))) == 1
-    assert p1.endswith(mb.COMPARISON_FILE) and os.path.exists(str(tmp_path / "batch_methods_comparison_2.csv"))
+    assert p1.endswith("axons_methods_comparison.csv") and os.path.exists(str(tmp_path / "axons_methods_comparison_2.csv"))
 
 
 # ===================================================================================================== 5-6. batch comparison
@@ -327,7 +327,7 @@ def test_batch_rows_methods_block_filled_or_not_run_with_reason(batch_comparison
     done = next(r for r in rows if r["axon_id"] == results[0].axon_id)
     other = next(r for r in rows if r["axon_id"] != results[0].axon_id)
     assert "DBSCAN" in done["methods_compared"] and "HDBSCAN" in done["methods_compared"]
-    assert done["methods_long_file"] == "batch_methods_long.csv"
+    assert done["methods_long_file"] == "batch_methods_long.csv"   # whatever file name it is given
     assert done["methods_depends_on_method"] not in (None, "")
     assert other["methods_compared"] == mb.BATCH_METHODS_NOT_REACHED
     rows2 = [dict(r.row) for r in records if r.ok]

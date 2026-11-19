@@ -15,7 +15,8 @@ What it computes
   - P(d <= eps) = 1 - exp(-eps^2 / (4 NeNA^2)) is the probability that two localizations of one emitter are within
     eps (Rayleigh law of scale sqrt(2) sigma) [derivation; docs/channel2_parameters.md section 4],
   - "1 + ... - 1": DBSCAN counts the point itself [lit: Ester et al. 1996; scikit-learn's min_samples includes it].
-  The floor 3 is minPts >= dimension + 1 for 2D data [lit: Ester et al. 1996; Schubert et al. 2017].
+  The floor 3 is minPts >= dimension + 1 for 2D data [ad hoc floor; the heuristic is attributed to Ester et al. 1996
+  by Mazouchi & Milstein 2016 (pending full-text check); Schubert et al. 2017 give 4 in 2D, docs/dbscan_rule.md 2.1].
 
 The same formula with the MEAN cycles instead of the quantile and one localization per cycle is the worked check of
 docs/channel2_parameters.md section 5: 1 + 13 x 0.662 = 9.6 -> 10, the published min_samples
@@ -57,7 +58,8 @@ C_LABEL_BME: float = float(ch.DYE_CYCLES["Alexa Fluor 647"]["bME"])   # [lit: De
 C_LABEL_DEFAULT: float = C_LABEL_MEA  # provisional (D1): the laboratory images in MEA; not measured in its buffer
 C_LABELS_REPORTED: Tuple[float, ...] = (C_LABEL_MEA, C_LABEL_BME)   # D1: both, 26 as the sensitivity column
 CYCLE_QUANTILE: float = 0.25         # [simulation: clustering research, the "cycles rule" strategy]
-MIN_SAMPLES_FLOOR: int = 3           # [lit: Ester et al. 1996; Schubert et al. 2017: minPts >= dimension + 1]
+MIN_SAMPLES_FLOOR: int = 3           # [ad hoc: minPts >= dimension + 1; not in Schubert et al. 2017 (they give 4
+                                     # in 2D); attributed to Ester et al. 1996, pending full-text check]
 COMPAT_EPS_NM: float = ch.GAZAL_EPS_NM            # [lit: Gazal et al. 2026] the compatibility mode
 COMPAT_MIN_SAMPLES: int = ch.GAZAL_MIN_SAMPLES    # [lit: Gazal et al. 2026] the compatibility mode
 DBSCAN_MODES: Tuple[str, ...] = ("compat_25_10", "rule")

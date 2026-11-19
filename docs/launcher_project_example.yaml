@@ -1,0 +1,99 @@
+# proyecto.yaml -- one batch of measurements for the MPS Explorer launcher (example; tools/mps_project.py reads it).
+#
+# Fill it in once per batch. A key left out takes the program's default, and the run's manifest says which ones did.
+# The reader is strict: a key it does not know (a typo such as "eps_mn") is an error, never silently the default.
+# Check it before a run, without analysing anything:
+#     venv\Scripts\python.exe -m tools.launcher_check proyecto.yaml
+#
+# Where the defaults come from: each key's origin is in tools/mps_project.py (SCHEMA); the labels are
+# [lit] literature, [own sim] this project's simulations, [code] a constant of the program, [ad hoc] a convention,
+# [user decision] a decision of the user with its date.
+version_proyecto: 1
+nombre_tanda: "2026-11_adducin_t1"          # no spaces; it becomes part of the results folder's name
+
+carpetas:
+  entrada: 'D:\Measurements\2026-11_adducin_t1'     # single quotes: the backslashes stay as they are
+  salida:  'D:\MPS-results'                         # a new subfolder per run; never inside "entrada"
+
+archivos:
+  extensiones: [".hdf5"]                    # Picasso files (each with its .yaml beside it)
+  el_nombre_contiene: "picked"              # leaves out the whole-field files and the renders [ad hoc]
+  ignorar_carpetas: ["Nueva carpeta"]       # draft folders to skip
+
+identidad:
+  especie: "mouse"
+  linea_ko: "adducin"                       # REQUIRED: "adducin" or "4.1B" [user decision 2026-11-07, P3 (a)].
+                                            # Groups are compared only within one line, never pooling the WT of
+                                            # two lines; one batch = one line.
+  proteina_marcada: "βII-espectrina"        # recorded in the inventory and the manifest only
+  secundario: "AF647"
+  patrones:                                 # regular expressions applied to the whole path
+    genotipo: '(?<![A-Za-z0-9])(KO|WT)(?![A-Za-z0-9])'   # KO/WT also between underscores; "wt" is read as WT
+    roi:      '(ROI[ _-]*\d+)'
+    axon:     '([Aa]xon[ _-]*\d+)'
+    muestra:  ''                            # optional; empty = the folder that holds the "ROI n" folder
+  genotipos_validos: ["KO", "WT"]           # compared in upper case
+  animales: null                            # not known yet: nothing is ever computed BETWEEN genotypes without it
+                                            # (no p-value); used from stage F6 on
+
+calibracion:
+  pixel_esperado_nm: 113                    # REQUIRED: the pixel size every YAML should carry
+  pixel_respaldo_nm: null                   # null: a file without YAML, /metadata or neighbour is not analysed
+  tolerancia_pixel: 0.005                   # relative difference taken as another pixel size [ad hoc: 133 vs 135]
+  frames_esperados: 60000                   # a warning when a movie has another length; null = not compared
+  buffer: null                              # MEA or βME; only needed by the Emitters method (no default on purpose)
+
+parametros:                                 # FROZEN: any other value makes the whole run EXPLORATORY
+  metodo: "DBSCAN"
+  eps_nm: 25                                # [lit: Gazal et al. 2026]
+  min_samples: 10                           # [lit: Gazal et al. 2026]
+  ventana_z_semiancho_nm: 90                # [lit: Gazal et al. 2026]
+  dbcv_umbral: -1                           # off [code: tools/mps_settings.py]
+  mahalanobis_umbral: 3                     # [lit: Gazal et al. 2026]
+  ocupancia_tope_sigma: 0.3333              # 1/3 [code: tools/mps_occupancy.py]
+  aleatorizaciones: 999                     # [code: tools/mps_randomization.py]
+  semilla: 0
+  c_label: 14                               # [lit: Dempsey et al. 2011, per fluorophore on glass; provisional]
+  radio_lpc_regla_nena: 4.243               # 3 sqrt(2) NeNA [own sim: docs/dbscan_rule.md; decision B1]
+  radio_eventos_nena: 3                     # [own sim: docs/dbscan_rule.md; decision D5]
+  tau_nm: 31                                # [derivation: docs/eclipse_tolerance.md; rule D4]
+  # The two radii and tau are not applied by the windowless analysis yet: the pre-checks refuse another value.
+
+nulo:
+  correr: true                              # the per-axon null (expensive; the B readouts need it)
+  replicas: 199                             # FROZEN [plan est. sec. 3.1]
+  cierre: "n_locs"                          # "n_locs", "k" (EXPLORATORY) or "ambos"
+
+comparar_metodos:
+  correr: false
+  metodos: []
+
+politicas:                                  # what the launcher does where the window would ask
+  perimetro: "todos_los_arranques"          # the only value: always the complete analysis [user decision P7]
+  metodos_lentos: "rechazar"                # or "permitir"
+  ventana_z: "automatica"
+  ventana_z_manual: {}                      # { "file.hdf5": 1250 } fixes the axial peak at z = 1250 nm for that file
+  borde: "envolvente_convexa"
+  archivo_picks: null
+  sin_genotipo: "frenar"                    # or "analizar_igual" (those rows stay out of every comparison)
+  duplicados: "frenar"                      # or "quedarse_con_el_primero"
+  pixel_distinto: "frenar"                  # or "usar_el_del_archivo"
+  ilegible: "frenar"                        # or "saltear"
+
+maquina:
+  tope_horas: 24                            # a run stops BETWEEN axons and resumes later (F5); no axon is ever cut
+  ram_minima_gb: 1.5
+  disco_minimo_gb: 2
+  contar_clusteres_para_estimar: true       # cluster each file in the pre-checks to estimate the perimeter's time
+
+# Axons estimated above 2 hours stop the launcher before it starts until they are accepted [user decision P7,
+# 2026-11-07]. List them here (file name or path relative to "entrada") to run unattended, or launch with
+# --aceptar-axones-largos.
+aceptar_axones_largos: []
+
+canal_2: null                               # reserved: channel 2 is out of the launcher for now
+
+rol_de_los_datos: "exploratorio"            # "confirmatorio" needs a pre-registration and the animal
+preregistro: null
+informe:
+  idioma: "es"

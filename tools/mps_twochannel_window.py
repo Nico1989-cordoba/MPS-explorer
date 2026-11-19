@@ -556,7 +556,7 @@ class TwoChannelWindow(QtWidgets.QMainWindow):
             "Write one row for this pair of channels: the registration, "
             "its error, and every comparison in the tabs below.\n\n"
             "It carries the identity columns and the axon's id, so it "
-            "lines up with the axon table that 'Export axon' writes.")
+            "lines up with the axon table that 'Save axon' writes.")
         self.btn_export.setEnabled(False)
         self.btn_export.clicked.connect(self._export_clicked)
         grid.addWidget(self.btn_run, 0, 4)

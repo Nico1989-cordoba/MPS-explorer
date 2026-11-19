@@ -82,7 +82,11 @@ C_SUFFIX_LEAK_RANGE: str = (" (r(-1, +1) above the axial leak expected with sigm
 # with 11; attractor 0.39 with 10. The margin at 10 is thin (lower bound 0.080 against 0.075). Power is far below the
 # conventional 0.8 at every size up to 18 (attractor 0.62, inhibition 0.28 with 18): the minimum makes a reading
 # informative, not powerful. Below it the label says "n too small" and the numbers stay, not interpreted.
-MIN_POOLED_A_AXONS: int = 10
+# 2026-11-19 [own sim, 2000 sets per scenario at 9, 10 and 11 axons, new seeds, same criterion fixed beforehand]:
+# S and I are met at 9, 10 and 11; inhibition zone 0.106 (0.094-0.121) with 9, 0.112 (0.099-0.127) with 10,
+# 0.119 (0.106-0.134) with 11; worst null 0.016-0.025 (upper bound <= 0.032). With 8 the 500-set estimate of
+# the inhibition zone (0.074) is already below the ceiling. Minimum lowered to 9 [user decision 2026-11-19].
+MIN_POOLED_A_AXONS: int = 9
 READING_N_TOO_SMALL: str = "n too small"
 # Distances summarised per ROI for decision Q1.
 PEAK_FOCUS_COLUMNS: Tuple[str, ...] = ("pd_peak_minus_focus_nominal_nm", "pd_abs_peak_minus_focus_nominal_nm",
@@ -280,8 +284,8 @@ def axon_c_reading(reading: Optional[str], gate: Dict[str, Any], vs_leak: Option
     elif gate.get("pd_pool_included") and not gate.get("pd_c_slices_coincide"):
         out += C_SUFFIX_SLICES
     if reading == "registry between slices":
-        out += {bc.VS_LEAK_NOT_ABOVE: C_SUFFIX_LEAK_NOT_ABOVE, bc.VS_LEAK_LIMIT: C_SUFFIX_LEAK_LIMIT,
-                bc.VS_LEAK_WITHIN_RANGE: C_SUFFIX_LEAK_RANGE}.get(vs_leak or "", "")
+        out += {"not_above": C_SUFFIX_LEAK_NOT_ABOVE, "limit": C_SUFFIX_LEAK_LIMIT,
+                "range": C_SUFFIX_LEAK_RANGE}.get(bc.vs_leak_kind(vs_leak), "")
     return out
 
 
@@ -404,14 +408,16 @@ def perimeter_row(r: pdt.PerimeterResult) -> Dict[str, Any]:
     row.update(gate)
     # ---- v20 / v21: the axial leak of every pair with this axon's own slice fractions: 47 nm (main) and 77 nm (upper
     # bound) in v20's columns, the measured range 36 and 51 nm in v21's ----
+    widths = result_widths(r)
     leaks: Dict[float, Dict[Tuple[int, int], float]] = {}
     if sl is not None:
-        for sz in bc.LEAK_SIGMA_Z_ALL_NM:
+        for sz in tuple(bc.LEAK_SIGMA_Z_ALL_NM) + (widths.lo, widths.main, widths.hi):
             leaks[sz] = bc.leak_expected_r_pairs(sl.n_locs, sz, float(p.slice_thickness_nm), float(p.slice_guard_nm))
     for sz in bc.LEAK_SIGMA_Z_ALL_NM:
         for pair, suffix in _PAIRS:
             row[leak_column(suffix, sz)] = _f(leaks[sz][pair]) if sz in leaks else None
-    vs_leak = bc.m1_p1_vs_leak(row.get("pd_c_r_m1_p1"), {sz: leaks[sz][(-1, 1)] for sz in leaks})
+    row.update(sigma_z_columns(r, widths, leaks))
+    vs_leak = bc.m1_p1_vs_leak(row.get("pd_c_r_m1_p1"), {sz: leaks[sz][(-1, 1)] for sz in leaks}, widths)
     row["pd_c_m1_p1_vs_leak"] = vs_leak
     if "pd_c_reading" in row:                              # R3: the reading says when it cannot be read as it is
         row["pd_c_reading"] = axon_c_reading(row["pd_c_reading"], gate, vs_leak)
@@ -423,6 +429,40 @@ def perimeter_row(r: pdt.PerimeterResult) -> Dict[str, Any]:
     for name in ALL_PERIMETER_COLUMNS:
         row.setdefault(name, None)
     return row
+
+
+def result_widths(r: pdt.PerimeterResult) -> bc.LeakWidths:
+    """The axial widths the leak of this axon was read against (``PerimeterDiagnostics.sigma_z_*``): the file's own
+    when its sigma_z was measured reliably, the pilot's 47 nm (36-51 nm) otherwise."""
+    dg = r.diagnostics
+    if dg is not None and dg.sigma_z_source == bc.SIGMA_Z_SOURCE_MEASURED and all(
+            math.isfinite(v) for v in dg.sigma_z_widths):
+        return bc.measured_widths(*dg.sigma_z_widths)
+    return bc.pilot_widths()
+
+
+def sigma_z_columns(r: pdt.PerimeterResult, widths: bc.LeakWidths,
+                    leaks: Dict[float, Dict[Tuple[int, int], float]]) -> Dict[str, Any]:
+    """The v22 columns: where the width of the leak came from, what was measured, and the leak at the width used."""
+    dg = r.diagnostics
+    rep = None if dg is None else dg.sigma_z_report
+    out: Dict[str, Any] = {}
+    if dg is not None and dg.sigma_z_source:
+        out["pd_sz_source"] = dg.sigma_z_source
+        out["pd_sz_main_nm"], out["pd_sz_lo_nm"], out["pd_sz_hi_nm"] = _f(widths.main), _f(widths.lo), _f(widths.hi)
+        for pair, suffix in _PAIRS:
+            for tag, sz in (("", widths.main), ("_lo", widths.lo), ("_hi", widths.hi)):
+                out[f"pd_c_leak_r_{suffix}_szused{tag}"] = _f(leaks[sz][pair]) if sz in leaks else None
+    if rep is not None:
+        out.update(pd_sz_status=rep.status, pd_sz_frame_nm=_f(rep.frame_nm), pd_sz_frame_lo_nm=_f(rep.frame_lo_nm),
+                   pd_sz_frame_hi_nm=_f(rep.frame_hi_nm), pd_sz_slow_nm=_f(rep.slow_nm),
+                   pd_sz_slow_lo_nm=_f(rep.slow_lo_nm), pd_sz_slow_hi_nm=_f(rep.slow_hi_nm),
+                   pd_sz_total_nm=_f(rep.total_nm), pd_sz_total_lo_nm=_f(rep.total_lo_nm),
+                   pd_sz_total_hi_nm=_f(rep.total_hi_nm), pd_sz_n_pairs_frame=rep.n_pairs_frame,
+                   pd_sz_n_pairs_lag1=rep.n_pairs_lag1, pd_sz_n_pairs_long=rep.n_pairs_long,
+                   pd_sz_contamination=_f(rep.contamination), pd_sz_same_frame_fraction=_f(rep.same_frame_fraction),
+                   pd_sz_note=rep.note() or None)
+    return out
 
 
 def leak_column(pair_suffix: str, sigma_z_nm: float) -> str:
@@ -567,8 +607,8 @@ def pooled_a(results: Sequence[pdt.PerimeterResult], *, group_by: Tuple[str, ...
     """Pooled question A per group (``mps_perimeter_a.pooled_test`` on the central slice of each ok axon whose
     contour passed the quality gate; ``scope`` as in ``summarise_by_animal``, the main set by default).
 
-    v20 (R3 M3): a group with fewer than ``min_axons`` pooled axons (``MIN_POOLED_A_AXONS`` = 10, see there) gets
-    the label ``n too small (n = k axons < 10): not interpreted; computed label '<label>'``; the numbers are kept
+    v20 (R3 M3): a group with fewer than ``min_axons`` pooled axons (``MIN_POOLED_A_AXONS`` = 9, see there) gets
+    the label ``n too small (n = k axons < 9): not interpreted; computed label '<label>'``; the numbers are kept
     and exported, and must not be read. ``min_axons=1`` gives the bare labels (validation code).
 
     Groups are the values of the identity fields in ``group_by`` joined by "/" (blank -> ""); the dictionary key

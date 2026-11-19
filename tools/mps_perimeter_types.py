@@ -109,6 +109,10 @@ class PerimeterParams:
     # whose polar curve passes the strict rules of the automatic contour (user's decision 2026-11-17). The density profiles always
     # count every localization; only the contour fit sees the trimmed cloud.
     contour_trim_interior_nm: Optional[float] = None
+    # v22: measure sigma_z in the file (``tools.mps_axial_sigma``; needs the frame column) and use it as the width of the
+    # leak of C when the measurement is reliable; otherwise the pilot's 47 nm (36-51 nm) with a warning.
+    sigma_z_per_file: bool = True
+    sigma_z_n_boot: int = 99
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -365,3 +369,9 @@ class PerimeterDiagnostics:
     a_usable: bool = False
     band_sensitivity_flag: str = ""                        # "consistent" or which decision changes with the band
     drawn_vs_auto_nm: float = float("nan")                 # mean |offset| of a drawn trace from the auto contour
+    # v22: where the axial width of the leak came from. ``sigma_z_source`` is "pilot 47" or "measured";
+    # ``sigma_z_widths`` = (low, main, high) in nm actually used; ``sigma_z_report`` the ``mps_axial_sigma.AxialSigma``
+    # (None when the measurement was switched off).
+    sigma_z_source: str = ""
+    sigma_z_widths: Tuple[float, float, float] = (float("nan"),) * 3
+    sigma_z_report: Optional[Any] = None

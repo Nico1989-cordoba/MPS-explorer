@@ -39,8 +39,9 @@ GENERIC_PATTERNS: Tuple[str, ...] = (
     r"Google Drive",
     r"Dropbox",
 )
-# Files that must write such a pattern in the open to do their job (the parameter registry's own leak check, and this file).
-GENERIC_EXEMPT_FILES = frozenset({"test_param_registry.py", "test_no_private_strings.py"})
+# Files that must write such a pattern in the open to do their job (the parameter registry's own leak check, this file,
+# and the launcher's pre-check, whose job is to warn about a OneDrive output folder and cloud-only files).
+GENERIC_EXEMPT_FILES = frozenset({"test_param_registry.py", "test_no_private_strings.py", "tools/mps_precheck.py"})
 
 
 def _git(*args: str) -> Optional[bytes]:

@@ -312,7 +312,7 @@ def test_pool_without_animal_and_with_a_provisional_single_animal():
     (name, pr), = p1.items()
     assert "n_animals = 1" in pr.reading
     # v20: three axons are below the minimum of a pooled reading of A (MIN_POOLED_A_AXONS)
-    assert pool.a_reading_label(pr).startswith("n too small (n = 3 axons < 10): not interpreted; computed label")
+    assert pool.a_reading_label(pr).startswith("n too small (n = 3 axons < 9): not interpreted; computed label")
     (bare,) = pool.pooled_a(one, min_axons=1).values()
     assert pool.a_reading_label(bare) in ("attractor", "regular", "inhibition zone", "no structure detectable",
                                           "not computable", "inhibition zone + regular", "attractor + regular")

@@ -92,7 +92,8 @@ def column_values(path: str, column: str) -> Set[str]:
         return set()
 
 
-def _mismatch(path: str, header: List[str], fields: List[str]) -> str:
+def _mismatch(path: str, header: List[str], fields: List[str],
+              rows: Optional[Sequence[Dict[str, Any]]] = None) -> str:
     name = os.path.basename(path)
     if len(header) == 1 and any(sep in header[0] for sep in (";", "\t")):
         cause = ("its columns are separated by ';' or tabs, as Excel saves "
@@ -114,7 +115,27 @@ def _mismatch(path: str, header: List[str], fields: List[str]) -> str:
             cause = "; ".join(parts)
     return (f"{name} already exists with other columns: {cause}. Adding "
             f"these rows would misalign them, and replacing the file would "
-            f"lose its rows, so nothing was written. Choose another file.")
+            f"lose its rows, so nothing was written."
+            f"{_versions(path, header, rows)} Choose another file.")
+
+
+def _versions(path: str, header: List[str],
+              rows: Optional[Sequence[Dict[str, Any]]]) -> str:
+    """
+    A sentence naming the table's layout and the new rows' layout, when
+    both carry a ``table_version`` column ('' otherwise): the usual reason
+    for other columns is a table written by an older version of the
+    program, and saying so tells the user what to do about it.
+    """
+    if not rows or "table_version" not in header:
+        return ""
+    new = sorted({str(row["table_version"]) for row in rows
+                  if row.get("table_version") not in (None, "")})
+    old = sorted(column_values(path, "table_version") - {""})
+    if not new or not old:
+        return ""
+    return (f" The table is {' / '.join(f'«{v}»' for v in old)}; this "
+            f"axon is {' / '.join(f'«{v}»' for v in new)}.")
 
 
 def _fields(rows: Sequence[Dict[str, Any]],
@@ -136,7 +157,7 @@ def check_appendable(path: str, rows: Sequence[Dict[str, Any]],
     fields = _fields(rows, fieldnames)
     header, _ = _existing(path)
     if header is not None and header != fields:
-        raise TableMismatch(_mismatch(path, header, fields))
+        raise TableMismatch(_mismatch(path, header, fields, rows))
 
 
 def cell_text(text: str) -> str:
@@ -250,7 +271,7 @@ def replace_rows(path: str, rows: Sequence[Dict[str, Any]],
         append_rows(path, rows, fields)
         return 0
     if header != fields:
-        raise TableMismatch(_mismatch(path, header, fields))
+        raise TableMismatch(_mismatch(path, header, fields, rows))
     numbers = duplicate_rows(path, rows, key_columns)
     if not numbers:
         append_rows(path, rows, fields)
@@ -283,7 +304,7 @@ def append_rows(path: str, rows: Sequence[Dict[str, Any]],
     fields = _fields(rows, fieldnames)
     header, terminated = _existing(path)
     if header is not None and header != fields:
-        raise TableMismatch(_mismatch(path, header, fields))
+        raise TableMismatch(_mismatch(path, header, fields, rows))
     append = header is not None
     with open(path, "a" if append else "w", encoding="utf-8",
               newline="") as handle:
@@ -306,3 +327,21 @@ def free_path(path: str) -> str:
     while os.path.exists(f"{stem}_{n}{ext}"):
         n += 1
     return f"{stem}_{n}{ext}"
+
+
+def with_csv_extension(path: str) -> str:
+    """``path`` with ``.csv`` when the name the user typed has no extension: every file an export derives from it
+    (``<stem>_columns.csv``, ``<stem>_regularity.txt``...) then takes the stem the user chose."""
+    return path if os.path.splitext(path)[1] else path + ".csv"
+
+
+def saved_as_notes(expected: Dict[str, str], written: Dict[str, str]) -> List[str]:
+    """One line for each file that was written under another name than the one expected because that name was taken
+    (``free_path``: nothing is overwritten) -- so the change of name is said, not silent. ``expected`` and
+    ``written`` map the same keys to the intended and the actual path."""
+    lines = []
+    for key, want in expected.items():
+        got = written.get(key)
+        if got and os.path.normcase(os.path.abspath(got)) != os.path.normcase(os.path.abspath(want)):
+            lines.append(f"{os.path.basename(want)} already existed; saved as {os.path.basename(got)}.")
+    return lines

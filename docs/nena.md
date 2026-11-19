@@ -40,7 +40,7 @@ the input of the channel-2 DBSCAN parameters (eps₂ = eps₁ · NeNA₂ / NeNA�
 
 The nearest neighbour in the next frame is not always the same molecule: when the molecule switched off, or when
 another localization is closer, the pair is a "nearby" pair, and its distance follows the spatial arrangement of the
-other molecules. Picasso (`picasso.postprocess.nena`; Schnitzbauer et al. 2017, literature) models those pairs with a
+other molecules. Picasso (`picasso.postprocess.nena`, the software of Schnitzbauer et al. 2017; the model is in the code, not in the article) models those pairs with a
 Gaussian term and fits
 
     a · p_same(d; s)  +  ac / (sc √(2π)) · exp(−(d − dc)² / 2 sc²),    a ≥ ac,          (Picasso's model)

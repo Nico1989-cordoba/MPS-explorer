@@ -23,7 +23,7 @@ clustering study (`SIM_CLUSTERING_REPORT.md`, section 2.1, own simulation
 | molecules | arc positions with hard core 0.4 × mean spacing; mean spacing 200 / 100 / 40 nm (sparse / medium / dense) | sparse: literature, preprint (≈ 5 clusters/µm, Gazal et al. 2026); medium / dense: ad hoc stress levels; hard core ad hoc (as the project simulator) |
 | pairs | fraction `f_pair` (0.15) gets a partner at U(30, 60) nm | ad hoc |
 | epitopes | 2 per molecule, U(5, 10) nm apart, random orientation | inference from the tetramer structure (two β C-termini); no published distance |
-| labelling | each epitope labelled with probability `p_label`; linkage offset N(0, 10 nm) per axis, fixed for the movie | literature + derivation: Früh et al. (2021) report linkage errors up to ~19 nm; 19 / √3 ≈ 11 → ~10 nm per axis |
+| labelling | each epitope labelled with probability `p_label`; linkage offset N(0, 10 nm) per axis, fixed for the movie | ad hoc, of the order of Früh et al. (2021): mean displacement 10.0 nm, radial σ ≈ 7.5 nm, maximum ~19 nm; the former "19 / √3" divided a maximum, so 10 nm per axis is not their value |
 | blinking | cycles per label ~ Geometric(mean `c_label`), 14 (MEA) or 26 (βME); each cycle starts at a uniform frame of 20 000 and lasts 1-3 frames (one localization per frame) | Dempsey et al. (2011) for 14 / 26; on-time ad hoc |
 | precision | N(0, σ) per axis, σ log-normal (CV 0.25) around `sigma_loc` (12 or 20 nm) | as the P-R61 generator; 12 nm ≈ NeNA of Gazal et al. (2026) |
 | background | non-specific labels (blinking like a label) at `bg_labels_per_um` per µm of contour in a ±150 nm band, plus isolated localizations at `bg_locs_per_um2` | ad hoc (no laboratory measurement) |

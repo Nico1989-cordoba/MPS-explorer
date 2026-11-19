@@ -59,7 +59,9 @@ The fusion mark is the null's `r_min`: Ripley radii below it are drawn shaded an
 ## 3. Why a null of random localizations is wrong in SMLM
 
 Each labelled molecule leaves tens of localizations within a few precisions of its label (c_label switching cycles
-of one or a few frames each; Dempsey et al. 2011). If a null scatters *localizations* independently, none of them has
+per label, 14 per Alexa Fluor 647 fluorophore in MEA on glass in Dempsey et al. 2011, about 4-17 in other
+measurements, `docs/dbscan_rule.md` section 2.1; that each cycle lasts one or a few frames is this project's
+assumption, measured per file as localizations per cycle, not a statement of Dempsey et al.). If a null scatters *localizations* independently, none of them has
 ten neighbours within 25 nm at the densities of an axon's slab, DBSCAN finds no cluster in the null, and "the axon has
 more clusters than random" is significant for any biology. Platzer et al. (2020) show that a random distribution of
 blinking fluorophores could not be discriminated from a clustered one by Ripley's K; Nieves et al. (2023, scenario 1)
@@ -102,9 +104,9 @@ into over-counting and true structure. The null therefore randomises what biolog
 | σ_z | the slab ring's GMM component sd minus the label offsets in quadrature | read + derivation |
 | Axial period | the axon's mean ΔZ; 170 nm when not measured | read / literature (Gazal et al. 2026) |
 | loc/cycle | mean localizations per linked event (radius 3·NeNA, 1 dark frame, Picasso's rule; `tools.mps_paint.link_localizations`) on the kept clusters, corrected for the links the radius breaks (below); 2 without frames | read + derivation; regularity plan P-R79 (b) with (a) meanwhile |
-| c_label | **14**; sensitivity 26 | literature (Dempsey et al. 2011, Table 1, Alexa Fluor 647 in MEA / βME), provisional until measured in the lab's buffer (plan D1) |
+| c_label | **14**; sensitivity 26 | literature (Dempsey et al. 2011, Table 1, Alexa Fluor 647 in MEA / βME, per fluorophore on glass; other measurements 4-17 per label, `docs/dbscan_rule.md` section 2.1), provisional until measured in the lab's buffer (plan D1) |
 | Labels per molecule, p_label | 2, 1 | ad hoc (two epitopes per tetramer, every one labelled) |
-| σ_link | 12 nm | ad hoc (the simulator's value, of the order of Früh et al. 2021) |
+| σ_link | 12 nm | ad hoc (the simulator's value, of the order of Früh et al. 2021; the other modules use 10 nm, both ad hoc, see `docs/eclipse_tolerance.md`) |
 | Epitope disc radius R | 25 nm | ad hoc (the simulator's value); **not read**, see 4.5 |
 | Background density | slab localizations beyond max(50 + 3·NeNA, 200) nm of the membrane AND beyond 100 nm of every kept centroid, per µm² of the area meeting the same conditions inside the region and the slab's convex hull (10 nm grid) | read; A9 section 3.1, made robust to the method (6.2); the 100 nm discs are the simulator's, the 200 nm floor ad hoc (above the worst centroid-membrane error seen, 133 nm) |
 | Frames | last frame + 1; 60 000 without frames | read / ad hoc |

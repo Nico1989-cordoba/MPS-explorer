@@ -24,13 +24,26 @@ from tools.mps_plot_style import neutral, rgba, role, set_title, style_dark, ver
 
 TITLE = "Two rings (unrolled)"
 BUTTON_TEXT = "Two rings (unrolled)..."
-BUTTON_TIP = ("Two consecutive rings of this run laid flat along the membrane, with a tolerance +/- tau you set by "
-              "hand: the clusters that coincide within tau are painted, and their count is compared with what chance "
-              "gives (rotations of the second ring). tau = 31 nm (tau_0) is the pre-specified value; any other is "
-              "EXPLORATORY. A view to understand the tolerance, not a test. docs/eclipse_tolerance.md")
+BUTTON_TIP = ("Two consecutive rings laid flat, with a tau you set by hand (this view only, not the analysis). "
+              "Details: docs/eclipse_tolerance.md")
+BUTTON_TIP_MORE = ("The clusters that coincide within tau are painted, and their count is compared with what chance "
+                   "gives (rotations of the second ring). tau = 31 nm (tau_0) is the pre-specified value; any other is "
+                   "EXPLORATORY. A view to understand the tolerance, not a test.")
+VIEW_TAU_LABEL = "tau of this view only [nm]:"
+VIEW_TAU_TIP = ("Changes only this view and its CSV; the lumen review's 'Tolerance tau' (which re-runs the whole "
+                "analysis) is another control.")
+NOTE_TEXT = "Line = one-to-one match within tau; drag the shaded window (2 tau) along the arc. Not a test. Hover for more."
+NOTE_TIP = ("Top row: the first ring's clusters; bottom row: the second's, at their arcs on the centroid membrane "
+            "(the coordinate of the PRIMARY arc test). A line joins each pair that coincides within tau (one-to-one, "
+            "as the test matches). The shaded window is 2 tau wide: drag it along the arc to see which clusters fall "
+            "inside. 'Chance' = the mean count over 199 rotations of the second ring [ad hoc]. Right: the same rings "
+            "in the plane (the 2D sensitivity). Not a test: no joint null, no viability, no p.")
+CSV_TIP = "Exports this view only: one row per cluster of the two rings, with tau and its role. Never over a file."
+CSV_TIP_MORE = ("One row per cluster of the two rings: arc, centroid, partner along the arc and in the plane, tau "
+                "and its role (EXPLORATORY unless tau_0). Never over an existing file.")
 SIZE_KEY = "two_rings_dialog.size"
 
-__all__ = ["TwoRingsDialog", "TITLE", "BUTTON_TEXT", "BUTTON_TIP"]
+__all__ = ["TwoRingsDialog", "TITLE", "BUTTON_TEXT", "BUTTON_TIP", "BUTTON_TIP_MORE"]
 
 
 class TwoRingsDialog(QtWidgets.QDialog):
@@ -47,7 +60,10 @@ class TwoRingsDialog(QtWidgets.QDialog):
         self.data: Optional[trv.PairData] = None
         self.reading: Optional[trv.PairReading] = None
         lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(8)
         top = QtWidgets.QHBoxLayout()
+        top.setSpacing(8)
         top.addWidget(QtWidgets.QLabel("Rings:"))
         self.combo_pair = QtWidgets.QComboBox()
         self.combo_pair.setObjectName("combo_two_rings_pair")
@@ -55,15 +71,15 @@ class TwoRingsDialog(QtWidgets.QDialog):
             self.combo_pair.addItem(f"{a}-{b}", (a, b))
         self.combo_pair.currentIndexChanged.connect(lambda _i: self._load_pair())
         top.addWidget(self.combo_pair)
-        top.addWidget(QtWidgets.QLabel("tolerance +/- tau [nm]:"))
+        top.addWidget(QtWidgets.QLabel(VIEW_TAU_LABEL))
         self.spin_tau = QtWidgets.QDoubleSpinBox()
         self.spin_tau.setObjectName("spin_two_rings_tau")
         self.spin_tau.setRange(1.0, 300.0)
         self.spin_tau.setDecimals(1)
         self.spin_tau.setSingleStep(1.0)
         self.spin_tau.setValue(trv.TAU0_NM)
-        self.spin_tau.setToolTip("How close (nm, along the membrane or in the plane) two clusters of the two rings "
-                                 "must be to coincide. tau_0 = 31 nm [derivation: 2.77 x 11.3 nm, "
+        self.spin_tau.setToolTip(VIEW_TAU_TIP + "\n\nHow close (nm, along the membrane or in the plane) two clusters "
+                                 "of the two rings must be to coincide. tau_0 = 31 nm [derivation: 2.77 x 11.3 nm, "
                                  "docs/eclipse_tolerance.md sec. 2]; any other value is EXPLORATORY (rule D4).")
         self.spin_tau.valueChanged.connect(lambda _v: self.update_reading())
         top.addWidget(self.spin_tau)
@@ -101,19 +117,15 @@ class TwoRingsDialog(QtWidgets.QDialog):
         self.lbl_window.setObjectName("lbl_two_rings_window")
         self.lbl_window.setWordWrap(True)
         lay.addWidget(self.lbl_window)
-        note = QtWidgets.QLabel(
-            "Top row: the first ring's clusters; bottom row: the second's, at their arcs on the centroid membrane "
-            "(the coordinate of the PRIMARY arc test). A line joins each pair that coincides within tau (one-to-one, "
-            "as the test matches). The shaded window is 2 tau wide: drag it along the arc to see which clusters fall "
-            "inside. 'Chance' = the mean count over 199 rotations of the second ring [ad hoc]. Right: the same rings "
-            "in the plane (the 2D sensitivity). Not a test: no joint null, no viability, no p.")
+        note = QtWidgets.QLabel(NOTE_TEXT)
+        note.setObjectName("lbl_two_rings_note")
+        note.setToolTip(NOTE_TIP)
         note.setWordWrap(True)
         lay.addWidget(note)
         btns = QtWidgets.QHBoxLayout()
         self.btn_csv = QtWidgets.QPushButton("Export CSV...")
         self.btn_csv.setObjectName("btn_two_rings_csv")
-        self.btn_csv.setToolTip("One row per cluster of the two rings: arc, centroid, partner along the arc and in "
-                                "the plane, tau and its role (EXPLORATORY unless tau_0). Never over an existing file.")
+        self.btn_csv.setToolTip(CSV_TIP + "\n\n" + CSV_TIP_MORE)
         self.btn_csv.clicked.connect(lambda: self.export_csv())
         btns.addWidget(self.btn_csv)
         self.btn_png = QtWidgets.QPushButton("Export image...")

@@ -38,12 +38,14 @@ A cluster in a localization image is not the cluster: it is a cloud of localizat
 1. the **footprint** ρ: the stretch of membrane the epitopes occupy (what one would like to call its size);
 2. the **labels**: 1-5 antibody stacks that landed at random points of the footprint;
 3. the **linkage**: the dye sits ~10 nm from its epitope in a direction fixed for the whole movie (σ_link ≈ 10 nm per
-   axis; literature: Früh et al. 2021);
+   axis; ad hoc, of the order of Früh et al. 2021, who measure a mean displacement of 10.0 nm and a radial spread of
+   σ ≈ 7.5 nm for primary + secondary IgG, not a per-axis SD of 10 nm);
 4. the **precision**: every localization is off by σ_loc ≈ 8-14 nm, which NeNA measures per file (literature:
    Endesfelder et al. 2014; Mortensen et al. 2010).
 
 On top of that, each label blinks a geometric number of times (mean 14 in MEA, 26 in β-ME; literature: Dempsey et
-al. 2011), so one label can give 3 localizations and another 90. The variance of the localizations along the
+al. 2011, per fluorophore on glass; other measurements span about 4-17 events per label, `docs/dbscan_rule.md`
+section 2.1), so one label can give 3 localizations and another 90. The variance of the localizations along the
 membrane is (derivation, P-R61; verified to 0.3 nm in the feasibility simulation):
 
     E[s_t²] = σ_loc² + (ρ²/4 + σ_link²) · (1 − Σw²) · N/(N − 1)
@@ -78,7 +80,7 @@ cluster.
 ## 3. Why the hull grows with N and the SD does not
 
 The convex hull wraps the outermost points of the cloud, and the extremes of a sample grow with its size: the
-expected hull of n random points grows with n (literature: Rényi & Sulanke 1963; Efron 1965, who links the expected
+expected hull of n random points grows with n (literature: Rényi & Sulanke 1963 for the number of vertices; Efron 1965, who links the expected
 hull area to the expected number of vertices). A standard deviation does not: it is estimated from all the points
 and its bias at small n is a few percent (E[s]/σ = 0.94 at n = 5, 0.97 at 10, 0.99 at 20; literature: Gurland &
 Tripathi 1971).
@@ -137,9 +139,9 @@ Pooling the K clusters of an axon recovers the footprint by the method of moment
     ρ̂²   = 4 · (σ_L² − σ_link²)
 
 with s_t the SD of each cluster **along** the membrane (the 400 nm membrane of section 7), σ_loc the file's NeNA,
-σ_link = 10 nm (literature: Früh et al. 2021; adopted, not measured) and E[Σw² | events] tabulated by Monte Carlo
-for the label prior that the mean events per cluster imply (c_label = 14, literature: Dempsey et al. 2011,
-provisional, decision D1; 2 localizations per event, ad hoc, the project simulator's default). It estimates the
+σ_link = 10 nm (ad hoc, of the order of Früh et al. 2021, not a value of that paper; adopted, not measured) and
+E[Σw² | events] tabulated by Monte Carlo for the label prior that the mean events per cluster imply (c_label = 14,
+literature: Dempsey et al. 2011, per fluorophore on glass, provisional, decision D1; 2 localizations per event, ad hoc, the project simulator's default). It estimates the
 root-mean-square footprint of the axon's clusters. The standard error is the delete-one jackknife over clusters
 (literature: Efron & Tibshirani 1993).
 

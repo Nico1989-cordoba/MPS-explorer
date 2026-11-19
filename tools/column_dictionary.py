@@ -28,7 +28,7 @@ from tools.axon_export import (
 from tools.mps_cut_clusters import CUT_COLUMNS
 from tools.axon_export import CLUSTER_METHOD_COLUMNS, EMITTERS_COLUMNS
 from tools.perimeter_export import (PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, PERIMETER_V20_COLUMNS,
-                                    PERIMETER_V21_COLUMNS)
+                                    PERIMETER_V21_COLUMNS, PERIMETER_V22_COLUMNS)
 from tools.unanchored_export import UNANCHORED_COLUMNS
 from tools.mps_identity import FIELD_HINTS, FIELDS as IDENTITY_FIELDS
 
@@ -1351,12 +1351,14 @@ PERIMETER_V19: Dict[str, str] = {
                     "'attractor', 'inhibition zone', 'regular' (or a "
                     "combination), 'no structure detectable' or 'not "
                     "computable'. In the pooled table a group of fewer than "
-                    "10 axons reads 'n too small (n = k axons < 10): not "
-                    "interpreted; computed label ...' (10 = the smallest "
+                    "9 axons reads 'n too small (n = k axons < 9): not "
+                    "interpreted; computed label ...' (9 = the smallest "
                     "simulated set, sizes 4-11 and 18, where attractor, "
                     "inhibition zone and regular appear with a lower 95 % "
                     "Wilson bound above 0.075 while every null stays at most "
-                    "0.075 [own sim; Bradley 1978]; 11 in v20). "
+                    "0.075 [own sim; Bradley 1978; 2000 sets per scenario at "
+                    "9-11 axons, user decision 2026-11-19]; 11 in v20, "
+                    "10 until 2026-11-19). "
                     "EXPLORATORY: a pooled reading is valid only "
                     "if it survives the exclusion-zone sensitivity; with one "
                     "animal there is no comparison between animals.",
@@ -1417,7 +1419,11 @@ PERIMETER_V20: Dict[str, str] = {
                           "at sigma_z 47 nm, within its range (not above 51 "
                           "nm)', 'at the limit: above the leak at sigma_z 36 "
                           "nm, not at 47 nm' or 'not above the leak (not even "
-                          "at sigma_z 36 nm)'. Says nothing about significance "
+                          "at sigma_z 36 nm)'. Since v22 the numbers in the text "
+                          "are the widths actually used (pd_sz_lo_nm, pd_sz_main_nm, "
+                          "pd_sz_hi_nm; the pilot's 36 / 47 / 51 when pd_sz_source is "
+                          "'pilot 47'; the 77 nm upper bound never changes). Says "
+                          "nothing about significance "
                           "(pd_c_p_m1_p1). Origin: [derivation].",
 }
 # v21 (NeNA in z, 2026-11-17): the leak at the two ends of the measured range of sigma_z.
@@ -1429,6 +1435,61 @@ PERIMETER_V21: Dict[str, str] = {
     "pd_c_leak_r_0_p1_sz51nm": _LEAK_V20.format(pair="0 and +1", sz=51, why=_SZ51),
     "pd_c_leak_r_m1_p1_sz51nm": _LEAK_V20.format(pair="-1 and +1", sz=51, why=_SZ51),
 }
+
+# v22 (sigma_z measured per file, tools.mps_axial_sigma). Method: pairs of the SAME molecule in consecutive frames (<
+# 25 nm in x, y, unique partner) give the frame-to-frame error in z (a mixture of a good and a bad component); the same
+# molecule switched on again >= 1001 frames later (< 10 nm) gives the slow component; the file is resampled by blocks
+# of frames for the 95 % intervals. Origin: [derivation + real data, pilot: the method of the validation study].
+_SZ_ORIGIN = "Origin: [derivation]; method [real data, pilot]."
+_SZUSED = ("Expected correlation from axial leakage alone for the pair {pair}, with this axon's own slice fractions, at "
+           "the width the analysis used {which} (pd_sz_*; the pilot's 47 nm when pd_sz_source is 'pilot 47'). Noise-free: "
+           "an upper bound. " + _SZ_ORIGIN)
+PERIMETER_V22: Dict[str, str] = {
+    "pd_sz_source": "Where the axial width of the leak of C came from: 'measured' (the file's own sigma_z, "
+                    "reliable) or 'pilot 47' (the pilot's 47 nm, range 36-51 nm; used when the file cannot be "
+                    "measured, see pd_sz_status and pd_sz_note). " + _SZ_ORIGIN,
+    "pd_sz_main_nm": "Axial width (equivalent sd of the error in z) the leak of C was read against, in nm.",
+    "pd_sz_lo_nm": "Low end of the range of that width (95 % interval when measured; 36 nm for the pilot), in nm.",
+    "pd_sz_hi_nm": "High end of the range of that width (95 % interval when measured; 51 nm for the pilot), in nm.",
+    "pd_sz_status": "Result of the measurement in the file: measured, frame_only (no usable re-switch-ons: the "
+                    "slow component is missing, so not used), no_frame (no frame column), too_few_locs, "
+                    "too_few_pairs, contaminated (dense acquisition: other molecules would be taken for the same "
+                    "one) or interval_too_wide. Empty when the measurement was switched off.",
+    "pd_sz_frame_nm": "Frame-to-frame equivalent sd of the error in z, (1 - w) core + w bad, in nm (the '36-like' "
+                      "figure; it leaves out the slow component). " + _SZ_ORIGIN,
+    "pd_sz_frame_lo_nm": "Lower end of the 95 % interval of pd_sz_frame_nm (resampling blocks of frames), in nm.",
+    "pd_sz_frame_hi_nm": "Upper end of the 95 % interval of pd_sz_frame_nm, in nm.",
+    "pd_sz_slow_nm": "Slow component of the error in z (the same molecule switched on again >= 1001 frames later "
+                     "against consecutive frames), in nm. It may be real error (focus drift, a bias that changes "
+                     "between switch-ons) or neighbours of the same ring at < 10 nm: the data cannot tell. "
+                     + _SZ_ORIGIN,
+    "pd_sz_slow_lo_nm": "Lower end of the 95 % interval of pd_sz_slow_nm, in nm.",
+    "pd_sz_slow_hi_nm": "Upper end of the 95 % interval of pd_sz_slow_nm, in nm.",
+    "pd_sz_total_nm": "Equivalent sd of the error in z with the slow component added in quadrature (the '47-like' "
+                      "figure), in nm. It is the width used when pd_sz_source is 'measured'. Reported also when "
+                      "it was not used. " + _SZ_ORIGIN,
+    "pd_sz_total_lo_nm": "Lower end of the 95 % interval of pd_sz_total_nm, in nm.",
+    "pd_sz_total_hi_nm": "Upper end of the 95 % interval of pd_sz_total_nm, in nm.",
+    "pd_sz_n_pairs_frame": "Unique consecutive-frame pairs of one molecule (< 25 nm) the frame error rests on.",
+    "pd_sz_n_pairs_lag1": "Consecutive-frame pairs at < 10 nm, the reference of the slow component.",
+    "pd_sz_n_pairs_long": "Pairs at < 10 nm with a lag of 1001 frames or more, which give the slow component.",
+    "pd_sz_contamination": "Share of the 25 nm pairs that could be other molecules, scaled linearly from the pairs "
+                           "of consecutive frames at 100-300 nm (the pessimistic scale). Above 0.10 a warning; "
+                           "above 0.30 the file is not measured.",
+    "pd_sz_same_frame_fraction": "Share of the localizations with another one in the SAME frame within 300 nm "
+                                 "(different molecules for certain). Above 0.01 a warning; above 0.05 the file is "
+                                 "not measured.",
+    "pd_sz_note": "Why the measurement is not (fully) usable, or what to watch, in words ('|' separates reasons).",
+}
+for _suffix, _pair in (("m1_0", "-1 and 0"), ("0_p1", "0 and +1"), ("m1_p1", "-1 and +1")):
+    for _tag, _which in (("", "(main)"), ("_lo", "(low end of its range)"), ("_hi", "(high end of its range)")):
+        PERIMETER_V22[f"pd_c_leak_r_{_suffix}_szused{_tag}"] = _SZUSED.format(pair=_pair, which=_which)
+PERIMETER_V22_UNITS: Dict[str, str] = {
+    "pd_sz_contamination": "fraction (0-1)", "pd_sz_same_frame_fraction": "fraction (0-1)",
+    "pd_sz_n_pairs_frame": "pairs", "pd_sz_n_pairs_lag1": "pairs", "pd_sz_n_pairs_long": "pairs",
+    "pd_sz_source": "", "pd_sz_status": "", "pd_sz_note": "",
+}
+PERIMETER_V22_UNITS.update({k: "r (correlation)" for k in PERIMETER_V22 if "_leak_r_" in k})
 
 # Units that the name alone does not give (or gives wrongly: kappa_mean_per_nm ends in _nm but is 1 / nm).
 PERIMETER_UNITS: Dict[str, str] = {
@@ -1728,6 +1789,8 @@ def describe_perimeter(name: str) -> Optional[str]:
         return PERIMETER_V20[name]
     if name in PERIMETER_V21:
         return PERIMETER_V21[name]
+    if name in PERIMETER_V22:
+        return PERIMETER_V22[name]
     if name in PERIMETER_LONG:
         return PERIMETER_LONG[name]
     # n_ / mean_ / sd_ / p_ / p_holm_ / median_ / min_ / max_ + a summarised readout
@@ -1751,6 +1814,8 @@ def perimeter_unit(name: str) -> Optional[str]:
     """The unit of a perimeter column when it is not the one the name gives (None: use the name's)."""
     if name in PERIMETER_UNITS:
         return PERIMETER_UNITS[name]
+    if name in PERIMETER_V22_UNITS:
+        return PERIMETER_V22_UNITS[name]
     for prefix in sorted(_ROW_STATS, key=len, reverse=True):
         measure = name[len(prefix) + 1:] if name.startswith(prefix + "_") else ""
         if measure in _ROW_MEASURES:
@@ -1847,5 +1912,6 @@ def known_columns() -> List[str]:
     columns += list(UNANCHORED_COLUMNS)             # v18: the unanchored-cluster discard
     columns += list(PERIMETER_V19_COLUMNS)          # v19: contour assessment and pooling gate
     columns += list(PERIMETER_V20_COLUMNS)          # v20: slice criterion of C, leak with real fractions
-    columns += list(PERIMETER_V21_COLUMNS)          # v21: leak at the ends of the measured range of sigma_z, last
+    columns += list(PERIMETER_V21_COLUMNS)          # v21: leak at the ends of the measured range of sigma_z
+    columns += list(PERIMETER_V22_COLUMNS)          # v22: sigma_z measured per file, last
     return columns

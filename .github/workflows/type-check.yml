@@ -134,6 +134,12 @@ jobs:
             tools/unanchored_export.py \
             tools/mps_unanchored.py \
             batch_perimeter.py \
+            tools/mps_perimeter_window.py \
+            tools/mps_unanchored_window.py \
+            tools/mps_project.py \
+            tools/mps_precheck.py \
+            tools/launcher_check.py \
+            tools/make_synthetic_batch.py \
             config_loader.py \
             logging_config.py \
             --ignore-missing-imports \
@@ -181,6 +187,8 @@ jobs:
           grep -v -i -E '^(PyQt5|pyqtgraph)' requirements.txt > requirements-headless.txt
           pip install -r requirements-headless.txt pytest
 
+      # test_perimeter_cost.py is not in the list: it imports tools/perimeter_cost_ui.py, which needs PyQt5.
+      # The other test_perimeter_*.py and test_unanchored.py were run with PyQt5 and pyqtgraph blocked.
       - name: Run the headless tests
         env:
           OMP_NUM_THREADS: '1'
@@ -208,11 +216,25 @@ jobs:
             test_emitters_prior.py \
             test_file_match.py \
             test_gap_measures.py \
+            test_genotype_pattern.py \
             test_gpu_acceleration.py \
             test_h5e_selection.py \
+            test_launcher_precheck.py \
+            test_launcher_project.py \
             test_multimethod.py \
             test_nena.py \
             test_phase4_integration.py \
+            test_perimeter_a.py \
+            test_perimeter_analysis.py \
+            test_perimeter_b.py \
+            test_perimeter_c.py \
+            test_perimeter_contract.py \
+            test_perimeter_density.py \
+            test_perimeter_export.py \
+            test_perimeter_pool_gate.py \
+            test_perimeter_sim.py \
+            test_perimeter_slices.py \
+            test_perimeter_validation.py \
             test_phase_d_edge_margin.py \
             test_pipeline_null.py \
             test_selection.py \
@@ -223,4 +245,5 @@ jobs:
             test_viability_v2.py \
             test_viability_v2c.py \
             test_zcalibration.py \
-            test_zquality.py
+            test_zquality.py \
+            test_unanchored.py

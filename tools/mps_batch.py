@@ -619,14 +619,55 @@ def analyse_file(item: BatchFile, settings: BatchSettings,
                 integration[name] = BATCH_METHODS_NOT_RUN
         z_state = zcal.state_for(loc.info, zcal.store_entry(z_store,
                                                             item.path))
-        row = axon_row(analysis, identity=item.identity,
+        measured, discard, unanchored = unanchored_for_file(analysis, item.path)
+        row = axon_row(measured, identity=item.identity, discard=discard,
                        z_calibration=zcal.export_columns(z_state),
-                       eps_choice=settings.eps_choice, integration=integration)
+                       eps_choice=settings.eps_choice, integration=integration,
+                       unanchored=unanchored)
         null_rows = ci.null_closure_rows(row, by_closure) if by_closure else []
     except Exception as error:                        # noqa: BLE001
         return AxonRecord(source=item.path, identity=item.identity,
                           error=f"could not be analysed: {error}")
     return AxonRecord(source=item.path, identity=item.identity, row=row, null_rows=null_rows)
+
+
+def unanchored_for_file(analysis: Any, data_path: str) -> Tuple[Any, Optional[Any], Optional[Dict[str, Any]]]:
+    """(measured, discard, v18 block) of one file (package P15, decision D4: always with and without the discard).
+
+    The automatic rule of ``tools.mps_unanchored`` on the file's analysis, the decisions by hand saved beside the
+    file (``<data>_unanchored.json``, D11) when there are any, and the analysis without the excluded clusters
+    (``compare_unanchored``; as cheap as a copy when nothing is excluded). ``MPS_UNANCHORED_AUTO=0`` turns it off
+    (the row then says "not run", as before P15). Never raises: a failure keeps the analysis as it is and the block
+    says why."""
+    from tools import mps_unanchored as mu
+    if os.environ.get("MPS_UNANCHORED_AUTO", "").strip() == "0":
+        return analysis, None, None
+    block: Dict[str, Any]
+    try:
+        result = mu.auto_for_analysis(analysis)
+        note = ""
+        try:
+            decisions = mu.load_decisions(mu.decisions_path(data_path))
+        except mu.ManualDecisionsError as error:
+            decisions, note = mu.ManualDecisions(), f"decisions by hand not read: {error}"
+        flags = mu.final_flags(result, decisions, data_source=os.path.basename(data_path))
+        block = mu.unanchored_block(flags)
+        if getattr(analysis, "contour_2opt", None) == "one start":
+            # 'one start' was chosen for this file (a long perimeter): the discard column would rebuild the
+            # contour from every start, the cost that answer avoided; the flags are still written
+            note = "; ".join(w for w in (note, "discard column not computed: the perimeter of this file was built "
+                                         "from one start") if w)
+            block["unanchored_warnings"] = " | ".join(w for w in (block.get("unanchored_warnings"), note) if w)
+            return analysis, None, block
+        comparison = mu.compare_unanchored(analysis, flags)
+        if note:
+            block["unanchored_warnings"] = " | ".join(w for w in (block.get("unanchored_warnings"), note) if w)
+        return comparison.all_clusters, comparison.discard_applied, block
+    except Exception as error:                        # noqa: BLE001 - the row is written without the discard
+        block = mu.unanchored_block(None)
+        block["unanchored_status"] = "failed"
+        block["unanchored_failure"] = f"{type(error).__name__}: {error}"
+        return analysis, None, block
 
 
 NULL_BY_CLOSURE_SUFFIX = "_null_by_closure.csv"
@@ -811,6 +852,7 @@ COMPARISON_COLUMNS: Tuple[str, ...] = (
     "clusters_per_um", "median_1nn_nm", "median_r_eff_nm", "occupancy_percent",
     "n_clusters_kept", "time_s", "error")
 COMPARISON_FILE = "batch_methods_comparison.csv"
+COMPARISON_SUFFIX = "_methods_comparison.csv"
 
 
 def methods_to_compare(settings: BatchSettings) -> List[str]:
@@ -992,8 +1034,8 @@ def fill_methods_columns(rows: Sequence[Dict[str, Any]], results: Sequence[Any],
 
 
 def write_methods_comparison_long(results: Sequence[Any], table_path: str) -> Dict[str, str]:
-    """The batch's comparison as ``batch_methods_long.csv`` (+ agreement, summary, wide) beside the axon table
-    (open question A4; ``batch_methods_comparison.csv`` stays as it was). Never overwrites."""
+    """The batch's comparison as ``<table stem>_methods_long.csv`` (+ agreement, summary, wide) beside the axon table
+    (open question A4; ``<table stem>_methods_comparison.csv`` stays as it was). Never overwrites."""
     from tools import clustering_integration as ci
     if not results:
         return {}
@@ -1003,13 +1045,14 @@ def write_methods_comparison_long(results: Sequence[Any], table_path: str) -> Di
         wide_rows=[x for res in results for x in res.wide_rows],
         agreement_rows=[x for res in results for x in res.agreement_rows],
         summary_rows=[x for res in results for x in res.summary_rows])
-    stem = os.path.join(os.path.dirname(os.path.abspath(table_path)), "batch")
+    stem = os.path.splitext(os.path.abspath(table_path))[0]       # the table's own name, not a fixed "batch"
     return ci.write_comparison(stem, merged)
 
 
 def comparison_path(table_path: str) -> str:
-    """``batch_methods_comparison.csv`` beside the axon table."""
-    return os.path.join(os.path.dirname(os.path.abspath(table_path)), COMPARISON_FILE)
+    """``<table stem>_methods_comparison.csv`` beside the axon table: it takes the name the user chose for the table
+    (``COMPARISON_FILE`` is the old fixed name, kept for the files already written)."""
+    return os.path.splitext(os.path.abspath(table_path))[0] + COMPARISON_SUFFIX
 
 
 def write_methods_comparison_file(rows: Sequence[Dict[str, Any]], path: str) -> str:
