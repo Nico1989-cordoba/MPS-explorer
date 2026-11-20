@@ -398,10 +398,57 @@ def plan_batch(root: str, pattern: str = "",
                      duplicates=mps_io.duplicate_sources(found))
 
 
+# Methods the batch never runs on its own (BaGoL phase F5): they take
+# minutes per axon. They run only with the batch window's 'Slow methods
+# (Emitters)' box ticked (``allow_slow``); otherwise every file is reported
+# as not analysed, with the reason.
+BATCH_SLOW_METHODS = frozenset({"emitters_bagol_like"})
+SLOW_REFUSAL = ("not analysed: the saved clustering method, Emitters (BaGoL-like "
+                "reimplementation), is slow (minutes per axon); tick 'Slow methods "
+                "(Emitters)' in the batch window to run it")
+
+
+def needs_emitters_buffer(settings: BatchSettings, allow_slow: bool,
+                          compared: Sequence[str] = ()) -> bool:
+    """Whether this run will run Emitters, and so needs the imaging buffer asked once for the run (F5c: no
+    default buffer). Only with 'Slow methods (Emitters)' ticked: otherwise Emitters is refused anyway."""
+    if not allow_slow:
+        return False
+    return (settings.cluster_method in BATCH_SLOW_METHODS
+            or any(str(m) in BATCH_SLOW_METHODS for m in compared))
+
+
+def with_emitters_buffer(settings: BatchSettings, buffer: str) -> BatchSettings:
+    """The settings with the run's imaging buffer in the Emitters parameters (only when Emitters is the saved
+    method; the comparison passes it per method). Every row records it (emitters_buffer)."""
+    import dataclasses
+    from tools.emitters_prior import normalise_buffer
+    if settings.cluster_method not in BATCH_SLOW_METHODS:
+        return settings
+    params = dict(settings.cluster_params)
+    params["buffer"] = normalise_buffer(str(buffer))
+    return dataclasses.replace(settings, cluster_params=params)
+
+
+def _precisions(loc: Any, method: str) -> Optional[Any]:
+    """(n, 2) = (lpx, lpy) in nm for a method that models them, else None (nothing changes for the others)."""
+    if method not in BATCH_SLOW_METHODS:
+        return None
+    lpx, lpy = getattr(loc, "lpx_nm", None), getattr(loc, "lpy_nm", None)
+    if lpx is None or lpy is None:
+        return None
+    import numpy as np
+    return np.column_stack([np.asarray(lpx, dtype=float), np.asarray(lpy, dtype=float)])
+
+
 def analyse_file(item: BatchFile, settings: BatchSettings,
-                 z_store: Optional[Dict[str, Any]] = None) -> AxonRecord:
+                 z_store: Optional[Dict[str, Any]] = None,
+                 allow_slow: bool = False) -> AxonRecord:
     """
     Load one file, analyse it as the axon window would, and build its row.
+
+    ``allow_slow``: run a method of ``BATCH_SLOW_METHODS`` (the Emitters
+    layer); without it such a file comes back not analysed, with the reason.
 
     ``z_store`` is the settings' z-calibration store
     (``MPSSettings.z_calibration_by_folder``): the row carries the file's
@@ -415,6 +462,8 @@ def analyse_file(item: BatchFile, settings: BatchSettings,
     from tools.mps_analysis import analyze_axon
 
     name = os.path.basename(item.path)
+    if settings.cluster_method in BATCH_SLOW_METHODS and not allow_slow:
+        return AxonRecord(source=item.path, identity=item.identity, error=SLOW_REFUSAL)
     if item.unreadable:
         return AxonRecord(source=item.path, identity=item.identity,
                           error=item.unreadable)
@@ -433,9 +482,15 @@ def analyse_file(item: BatchFile, settings: BatchSettings,
     except Exception as error:                        # noqa: BLE001
         return AxonRecord(source=item.path, identity=item.identity,
                           error=f"could not be read: {error}")
+    extra: Dict[str, Any] = {}
+    sigma = _precisions(loc, settings.cluster_method)
+    if sigma is not None:
+        extra["localization_sigma_nm"] = sigma
+    if settings.cluster_method in BATCH_SLOW_METHODS and getattr(loc, "frame", None) is not None:
+        extra["localization_frame"] = loc.frame      # the Emitters layer links them into events
     try:
         analysis = analyze_axon(
-            loc.x_nm, loc.y_nm, loc.z_nm, source_name=item.path,
+            loc.x_nm, loc.y_nm, loc.z_nm, source_name=item.path, **extra,
             pixel_size_nm=loc.pixel_size_nm,
             pixel_size_source=loc.pixel_size_source,
             eps_nm=settings.eps_nm, min_samples=settings.min_samples,
@@ -469,6 +524,7 @@ def run_batch(
     on_done: Optional[Callable[[int, AxonRecord], None]] = None,
     cancelled: Optional[Callable[[], bool]] = None,
     z_store: Optional[Dict[str, Any]] = None,
+    allow_slow: bool = False,
 ) -> List[AxonRecord]:
     """
     Analyse ``items`` in order, one record each.
@@ -481,7 +537,10 @@ def run_batch(
     for index, item in enumerate(items):
         if cancelled is not None and cancelled():
             break
-        record = analyse_file(item, settings, z_store)
+        # allow_slow is passed only when given, so the call stays the one of
+        # before F5 for every batch that does not ask for it.
+        record = (analyse_file(item, settings, z_store, allow_slow=True) if allow_slow
+                  else analyse_file(item, settings, z_store))
         records.append(record)
         if on_done is not None:
             on_done(index, record)
@@ -529,6 +588,8 @@ def compare_methods(
     cancelled: Optional[Callable[[], bool]] = None,
     z_store: Optional[Dict[str, Any]] = None,
     on_done: Optional[Callable[[int, int], None]] = None,
+    allow_slow: bool = False,
+    emitters_buffer: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Every file by every method in ``methods``, one row each (D12: only
     when the batch window's 'Compare methods (slow)' box is ticked).
@@ -537,6 +598,8 @@ def compare_methods(
     the saved method); the file is loaded again per method [ad hoc: simple,
     and the box is declared slow]. ``on_done(file_index, method_index)``
     after each run. Never raises: a failed run is a row with ``error``.
+    ``emitters_buffer``: the imaging buffer asked for the run (F5c), put in
+    the parameters of a slow method (Emitters) when they have none.
     """
     import dataclasses
     import time as _time
@@ -550,10 +613,17 @@ def compare_methods(
             info = reg.get(method)
             params = (dict(settings.cluster_params) if method == settings.cluster_method
                       else {} if info is None else {k: info.defaults[k]["value"] for k in info.numeric_params()})
+            if method in BATCH_SLOW_METHODS and emitters_buffer and not params.get("buffer"):
+                params["buffer"] = str(emitters_buffer)
             per = dataclasses.replace(settings, cluster_method=method, cluster_params=params,
                                       cluster_methods_compared=list(methods))
             t0 = _time.perf_counter()
-            rec = analyse_file(item, per, z_store)
+            if method in BATCH_SLOW_METHODS and not allow_slow:
+                rec = AxonRecord(source=item.path, identity=item.identity, error=SLOW_REFUSAL)
+            elif method in BATCH_SLOW_METHODS:
+                rec = analyse_file(item, per, z_store, allow_slow=True)
+            else:
+                rec = analyse_file(item, per, z_store)
             row: Dict[str, Any] = {c: rec.row.get(c) for c in COMPARISON_COLUMNS}
             row["source"] = rec.source
             row["cluster_method"] = method

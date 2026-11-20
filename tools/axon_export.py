@@ -109,7 +109,17 @@ PROGRAM_VERSION = "MPS Explorer 2026.09"
 # of the row, after the cut clusters, so no earlier column moved (as every
 # version since v4). 'DBSCAN' with the same eps / min samples is the
 # analysis before Phase D, bit for bit (docs/clustering_methods.md).
-TABLE_VERSION = "axon tables v10"
+# v11 (2026-10-16, BaGoL phase F5): the Events -> Emitters layer's
+# readouts (EMITTERS_COLUMNS: emitters_method, emitters_n, ...), written
+# once at the very end of the row, after the method's four columns; empty
+# for every method but Emitters (BaGoL-like reimplementation)
+# (docs/emitters.md). No earlier column moved.
+# v12 (2026-10-19, F5c): three more columns at the end of the emitters
+# block -- emitters_buffer (the imaging buffer, chosen per file, no
+# default), emitters_nena_over_sigma and emitters_precision_flag (check T4)
+# -- empty for every method but Emitters. No earlier column moved.
+TABLE_VERSION = "axon tables v12"
+from tools.emitters_layer import EMITTERS_COLUMNS  # noqa: E402  (v11 block; tools.emitters_layer)
 
 CLUSTER_METHOD_COLUMNS: Tuple[str, ...] = (
     "cluster_method", "cluster_params", "cluster_scale_nm",
@@ -249,7 +259,7 @@ _SETTINGS: frozenset = frozenset({
     "randomization_band_half_width_nm", "randomization_smoothing_rms_nm",
     "randomization_max_attempts_factor", "randomization_grid_spacing_nm",
     "ks_band_alpha", "occupancy_sigma_cap_fraction",
-    "cut_nena_multiple",
+    "cut_nena_multiple", "emitters_r_mol_nm",
 })
 
 
@@ -520,6 +530,11 @@ def axon_row(
     method = measured.cluster_method_record()
     for name in CLUSTER_METHOD_COLUMNS:
         row[name] = _rounded(name, method.get(name))
+    # --- the Events -> Emitters layer (BaGoL F5, v11), last --------------
+    from tools.emitters_layer import export_columns as _emitter_columns
+    emitters = _emitter_columns(getattr(measured, "emitter_readouts", None))
+    for name in EMITTERS_COLUMNS:
+        row[name] = _rounded(name, emitters.get(name))
     return row
 
 

@@ -92,6 +92,8 @@ from numpy.typing import NDArray
 from scipy.interpolate import splev, splprep
 from scipy.spatial import cKDTree
 
+from tools import mps_cancel
+
 # The public methods page of this control (every choice, its origin and its calibration).
 METHODS_DOC = "docs/randomization_and_ks.md"
 # The central share of the iterations' regularity index r_i reported as this axon's null interval of r.
@@ -729,6 +731,8 @@ def randomize_cluster_positions(
     tries = 1 + (int(p.max_redraws) if p.exclude_incomplete else 0)
 
     for it in range(n_iterations):
+        # F5d: a cancelled run of the MPS analysis window stops here (a no-op elsewhere, tools.mps_cancel)
+        mps_cancel.check("randomization")
         centres = np.empty((0, 2))
         for attempt in range(tries):
             if attempt:

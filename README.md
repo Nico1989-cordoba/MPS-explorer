@@ -364,6 +364,20 @@ pytest test_mps_explorer.py -v
   the per-axon file or pointed to by hand; without it, or without a NeNA, the rule is not applied and the tables say
   so. Derivation, simulated validation and the comparison with centroid selection:
   [docs/cut_clusters.md](docs/cut_clusters.md).
+- **Emitters: the imaging buffer and the precision check (F5c).** The Emitters layer has no default buffer: MEA or
+  βME is chosen for each file (and once per batch run), sets the literature ξ (Dempsey et al. 2011, Table 1) and is
+  written to the axon table (v12, `emitters_buffer`). Before the run, a slab whose NeNA exceeds 1.2 × its median
+  reported precision is flagged with the suggested `se_adjust_nm` (apply / run as is / cancel); after a run the same
+  correction is one button away, and the table carries the ratio and the flag: [docs/emitters.md](docs/emitters.md).
+- **The perimeter with many clusters.** The contour is refined by 2-opt from every start, whose time grows roughly
+  with the cube of the clusters. When the estimate reaches one minute (518 clusters on this project's synthetic
+  timings), the MPS analysis asks first: continue, one start (as before 2026-09-19, recorded as such) or cancel. The
+  batch never asks; its Analysis notes say how many clusters and how long was expected:
+  [docs/perimeter_time.md](docs/perimeter_time.md).
+- **Slow methods run in the background (F5d).** In the MPS analysis window, Emitters, OPTICS and voronoi_csr run in
+  a worker thread with the time elapsed and a Cancel button; the window keeps responding, and its parameter strip
+  scrolls instead of growing past a laptop screen (the Emitters box is scrolled into sight when the method is
+  chosen). DBSCAN, the batch and the exports are unchanged: [docs/emitters.md](docs/emitters.md), section 5.
 
 ---
 

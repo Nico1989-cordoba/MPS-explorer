@@ -195,6 +195,12 @@ EPS_RANGE_NM = (0.1, 1000.0)
 EPS_DECIMALS = 1
 MIN_SAMPLES_RANGE = (1, 10000)
 LEFT_SHARE = 0.25
+# F5d: the parameter strip scrolls (tools.mps_window_scroll) once it would take more than this share of the window's
+# height [ad hoc: half, so the map and the table keep the other half; the strip of a DBSCAN analysis, two lines at
+# 1366 px, never reaches it].
+STRIP_MAX_SHARE = 0.5
+# How long the line "Cancelled ... the analysis shown is the previous one" stays after a cancelled run [ad hoc].
+CANCELLED_NOTE_MS = 15000
 # How many warnings the button's tooltip previews, and how long each line.
 WARNINGS_PREVIEW = 5
 WARNINGS_PREVIEW_CHARS = 180
@@ -339,6 +345,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             Callable[[AxonAnalysis], Optional[DiscardComparison]]] = None,
         export_callback: Optional[Callable[[], Any]] = None,
         links: Optional[WindowLinks] = None,
+        background: Optional[Callable[..., Any]] = None,
     ):
         """
         Parameters
@@ -363,6 +370,12 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         links : what the main window tells this window about the current
             selection, the Axoplasm panel and the rings (``WindowLinks``);
             None for a window on its own.
+        background : F5d. Called in the GUI thread with the same keywords
+            as ``rerun_callback`` when the method is slow
+            (``tools.cluster_method_ui.is_slow``); returns a
+            ``tools.mps_background_run.PreparedRun`` whose computation runs
+            in a worker thread while this window shows the time and a Cancel
+            button, or raises. None: every re-run is synchronous, as before.
         """
         super().__init__(parent)
         self.analysis = analysis
@@ -371,6 +384,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.discard_callback = discard_callback
         self.export_callback = export_callback
         self.links = links if links is not None else WindowLinks()
+        self.background = background
+        # F5d: the run in the background, if any, and how to give the controls back their states after it.
+        self._run: Any = None
+        self._restore_controls: Optional[Callable[[], None]] = None
         self.comparison: Optional[DiscardComparison] = None
         # Black on screen; white while a figure is being written.
         self.dark = True
@@ -391,11 +408,23 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(central)
         root = QtWidgets.QVBoxLayout(central)
 
-        root.addWidget(self._build_controls())
+        # F5d: the strip in a scroll area of its own: a group that grows (the Emitters box, a "More" line) scrolls
+        # inside it instead of pushing the window past the bottom of the screen (manual test of 2026-10-19).
+        from tools.mps_window_scroll import CappedScrollArea
+        self.strip_scroll = CappedScrollArea(self._build_controls(), object_name="param_strip_scroll")
+        root.addWidget(self.strip_scroll)
+        self.method_panel.combo.activated.connect(lambda _i: self._reveal_method_box())
         self.banner = StaleBanner(object_name="mps_stale_banner")
         self.banner.show_current_toggled.connect(self._on_show_current)
         self.banner.run_requested.connect(self._on_run_requested)
         root.addWidget(self.banner)
+        from tools.mps_background_run import RunProgress
+        self.run_progress = RunProgress()
+        self.run_progress.cancel_requested.connect(self.cancel_background)
+        self._progress_timer = QtCore.QTimer(self)
+        self._progress_timer.setSingleShot(True)
+        self._progress_timer.timeout.connect(self._hide_progress)
+        root.addWidget(self.run_progress)
 
         splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         splitter.addWidget(self._build_left_column())
@@ -573,6 +602,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.method_panel = MethodPanel()
         ld.addWidget(self.method_panel, 3, 0, 1, 2)
         self.method_panel.method_changed.connect(self._on_method_changed)
+        self.method_panel.layer_run_requested.connect(self._on_layer_run_requested)
         self.method_panel.compat_requested.connect(self._on_compat)
         self.method_panel.compare_requested.connect(self._on_compare)
 
@@ -726,6 +756,26 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         """A "More" line opened or closed: the flow re-places the groups."""
         self.strip_flow.invalidate()
         self.centralWidget().updateGeometry()
+        scroll = getattr(self, "strip_scroll", None)
+        if scroll is not None:
+            scroll.schedule_fit()
+
+    def _fit_strip(self) -> None:
+        """The strip's cap: STRIP_MAX_SHARE of the window's height (its minimum stays a constant, so the cap
+        never raises the window's minimum height)."""
+        scroll = getattr(self, "strip_scroll", None)
+        central = self.centralWidget()
+        if scroll is None or central is None:
+            return
+        scroll.set_cap(int(STRIP_MAX_SHARE * central.height()))
+        scroll.fit()
+
+    def _reveal_method_box(self) -> None:
+        """The user chose a method: its slow-method note and its Emitters box are scrolled into sight."""
+        p = self.method_panel
+        if not p.lbl_slow.isHidden() or not p.layer_box.isHidden():
+            # the note first; the box's title and first rows (the imaging buffer to choose) win on a short screen
+            self.strip_scroll.reveal(p.lbl_slow, p.layer_box)
 
     # ------------------------------------------------------------------
     # the strip and the one value (design 6.2, 6.3, 12.5)
@@ -836,6 +886,15 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             return
         self._on_param_changed()
 
+    def _on_layer_run_requested(self) -> None:
+        """'Run with these values' pressed. method_changed, emitted just before, has already stored the strip's
+        values (and re-run when there is an analysis). With no analysis yet that stops at the banner (B10), but
+        this button is an explicit run request (manual test step 14): it starts the run as the banner's 'Run the
+        MPS analysis' does. Choosing a method or editing a value with no analysis still runs nothing (D12)."""
+        if self.rerun_callback is None or self.analysis is not None:
+            return
+        self._on_run_requested()
+
     def _on_compat(self) -> None:
         """'Compatibility 25/10': DBSCAN, eps 25 nm, min samples 10 (the
         published pipeline, Gazal et al. 2026), saved and re-run."""
@@ -871,7 +930,10 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             ellipse_mode=a.ellipse_mode, run_randomization=False,
             contour_guide=a.contour_guide,
             sigma_cap_fraction=float(a.sigma_cap_fraction),
-            cluster_method=method, cluster_params=params)
+            cluster_method=method, cluster_params=params,
+            # the slab's own precisions, for a method that models them (Emitters, BaGoL F5)
+            localization_sigma_nm=a.localization_sigma_slab,
+            localization_frame=a.localization_frame_slab)
 
     def _on_compare(self) -> None:
         """'Compare methods...': the dialog; only what it ticks runs, only
@@ -1063,6 +1125,13 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.btn_warnings.setObjectName("btn_warnings")
         self.btn_warnings.clicked.connect(self._on_save_warnings)
         row.addWidget(self.btn_warnings)
+        # F5c: check T4 fired after an Emitters run (precision under-reported): the suggested se_adjust_nm in
+        # one click, then the analysis re-runs (hidden otherwise).
+        self.btn_apply_precision = QtWidgets.QPushButton("Apply suggested correction and re-run")
+        self.btn_apply_precision.setObjectName("btn_apply_precision")
+        self.btn_apply_precision.setVisible(False)
+        self.btn_apply_precision.clicked.connect(self._on_apply_precision)
+        row.addWidget(self.btn_apply_precision)
         row.addWidget(self.btn_reset)
         row.addStretch(1)
         lay.addLayout(row)
@@ -1180,6 +1249,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def showEvent(self, event: Any) -> None:
         super().showEvent(event)
+        self._fit_strip()
         if not self._split_done:
             self._apply_map_share()
         if not self._restored:
@@ -1206,6 +1276,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
 
     def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
+        self._fit_strip()
         if not self._split_done:
             QtCore.QTimer.singleShot(0, self._apply_map_share)
 
@@ -1732,6 +1803,32 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 "overwritten: a new name is chosen).")
         else:
             self.btn_warnings.setToolTip(lines[0] if lines else "")
+        self._sync_precision_button()
+
+    def suggested_se_adjust_nm(self) -> Optional[float]:
+        """The total se_adjust_nm check T4 suggests for the analysis shown (Emitters, precision under-reported),
+        else None."""
+        a = self._display_analysis()
+        em = None if a is None else getattr(a, "emitter_readouts", None)
+        return None if em is None else em.suggested_se_adjust_nm
+
+    def _sync_precision_button(self) -> None:
+        value = self.suggested_se_adjust_nm()
+        show = value is not None and self.rerun_callback is not None
+        self.btn_apply_precision.setVisible(show)
+        if show:
+            self.btn_apply_precision.setToolTip(
+                f"Check T4: NeNA / median reported precision > 1.2, the precisions look under-reported.\n"
+                f"Sets se_adjust_nm = {value:.1f} nm (NeNA - median precision) in the Emitters parameters\n"
+                f"and re-runs the analysis (slow). docs/emitters.md")
+
+    def _on_apply_precision(self) -> None:
+        """'Apply suggested correction and re-run': se_adjust_nm = NeNA - median precision, then the re-run."""
+        value = self.suggested_se_adjust_nm()
+        if value is None or self.rerun_callback is None:
+            return
+        self.method_panel.set_param_value("se_adjust_nm", float(value))
+        self._on_method_changed()
 
     def warning_lines(self) -> List[str]:
         """What the warnings list used to show, line by line ("No warnings." / the empty state included)."""
@@ -1816,6 +1913,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._draw_plots()
 
     def _on_run_requested(self) -> None:
+        if self.busy():
+            return
         if self.links.run_analysis is not None:
             self.links.run_analysis()
 
@@ -2099,9 +2198,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
     def _rerun(self, main_peak_override_nm: Optional[float], **extra: Any) -> None:
         if self.rerun_callback is None:
             return
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        try:
-            self.analysis = self.rerun_callback(
+        self._run_analysis(
+            dict(
                 **extra,
                 main_peak_override_nm=main_peak_override_nm,
                 slab_half_width_nm=float(self.spin_half.value()),
@@ -2120,18 +2218,124 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 # this program must not make on its own.
                 contour_guide=(None if self.analysis is None
                                else self.analysis.contour_guide),
-            )
+            ),
+            "Analysis failed", "Could not re-run the analysis with these parameters")
+
+    # ---------------- F5d: a slow method runs in the background ----------
+
+    def busy(self) -> bool:
+        """True while an analysis runs in the background for this window."""
+        return self._run is not None
+
+    def _run_analysis(self, kw: Dict[str, Any], fail_title: str, fail_text: str) -> None:
+        """Re-run with ``kw``: in the background when the method is slow and the main window gave the hook,
+        else here and now (DBSCAN and the fast methods: the path of before F5d, unchanged)."""
+        if self.rerun_callback is None or self.busy():
+            return
+        from tools.cluster_method_ui import is_slow
+        if self.background is not None and is_slow(str(kw.get("cluster_method", "DBSCAN"))):
+            self.start_background(kw, fail_title, fail_text)
+            return
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            self.analysis = self.rerun_callback(**kw)
         except Exception as exc:                      # noqa: BLE001
             QtWidgets.QApplication.restoreOverrideCursor()
-            QtWidgets.QMessageBox.critical(
-                self, "Analysis failed",
-                f"Could not re-run the analysis with these parameters:\n\n{exc}")
+            QtWidgets.QMessageBox.critical(self, fail_title, f"{fail_text}:\n\n{exc}")
             # The banner says what is shown was computed with the previous
             # values (design 6.3).
             self.refresh()
             return
         QtWidgets.QApplication.restoreOverrideCursor()
         self.refresh()
+
+    def _run_controls(self) -> List[QtWidgets.QWidget]:
+        """Everything that would start another analysis (or write a table of the one about to change)."""
+        return [self.strip_scroll.widget(), self.banner, self.btn_rings, self.btn_export,
+                self.btn_apply_precision, self.btn_reset, self.cut_strip]
+
+    def start_background(self, kw: Dict[str, Any], fail_title: str = "Analysis failed",
+                         fail_text: str = "Could not re-run the analysis with these parameters") -> bool:
+        """Prepare (GUI thread: the dialogs before a run show here), then run the analysis in a worker thread.
+        False when nothing started (a run is already going, no hook, or preparing failed and said why)."""
+        if self.background is None or self.busy():
+            return False
+        from tools.mps_background_run import BackgroundRun, disabled_while
+        try:
+            prepared = self.background(**kw)
+        except Exception as exc:                      # noqa: BLE001
+            QtWidgets.QMessageBox.critical(self, fail_title, f"{fail_text}:\n\n{exc}")
+            self.refresh()
+            return False
+        if prepared is None:
+            # nothing can run (no ROI, no imaging buffer, ...): the main window said why; the banner says the
+            # analysis shown is the previous one
+            self.refresh()
+            return False
+        run = BackgroundRun(prepared, parent=self)
+        run.tick.connect(lambda line: self.run_progress.show_line(line, cancelling=run.cancelled()))
+        run.ended.connect(lambda status, value, tb: self._on_run_ended(run, status, value, tb, fail_title,
+                                                                       fail_text))
+        self._run = run
+        self._progress_timer.stop()
+        self.run_progress.btn_cancel.setVisible(True)
+        self._restore_controls = disabled_while(self._run_controls())
+        run.start()
+        return True
+
+    def cancel_background(self) -> None:
+        """Cancel: the run stops at its next check; whatever it returns is not used."""
+        if self._run is not None:
+            self._run.cancel()
+
+    def _hide_progress(self) -> None:
+        if not self.busy():
+            self.run_progress.setVisible(False)
+
+    def _on_run_ended(self, run: Any, status: str, value: Any, tb: str, fail_title: str, fail_text: str) -> None:
+        """GUI thread: the worker has finished. Store the result, or say why there is none."""
+        from tools import emitters_layer as el
+        from tools import mps_cancel
+        from tools import mps_perimeter_cost as cost
+        from tools.mps_background_run import elapsed_words
+        if run is not self._run:
+            return
+        self._run = None
+        run.deleteLater()        # its worker is not its child: the module keeps that one until it is joined
+        restore, self._restore_controls = self._restore_controls, None
+        if restore is not None:
+            restore()
+        took = elapsed_words(run.elapsed_s())
+        if status == "done":
+            self.run_progress.setVisible(False)
+            try:
+                self.analysis = run.prepared.finish(value)
+            except Exception as exc:                  # noqa: BLE001
+                QtWidgets.QMessageBox.critical(self, fail_title, f"{fail_text}:\n\n{exc}")
+            self.refresh()
+            return
+        err = value if isinstance(value, BaseException) else mps_cancel.AnalysisCancelled()
+        try:
+            run.prepared.fail(err)
+        except Exception:                             # noqa: BLE001 - the window must stay usable
+            pass
+        user_stop = isinstance(err, (mps_cancel.AnalysisCancelled, cost.PerimeterCancelled, el.EmittersCancelled))
+        if status == "cancelled" or user_stop:
+            words = "Cancelled." if isinstance(err, mps_cancel.AnalysisCancelled) else str(err)
+            self.run_progress.show_line(f"{words} After {took}; nothing it computed is used: the analysis shown is "
+                                        f"the previous one.", cancelling=True)
+            self.run_progress.btn_cancel.setVisible(False)
+            self._progress_timer.start(CANCELLED_NOTE_MS)
+        else:
+            self.run_progress.setVisible(False)
+            QtWidgets.QMessageBox.critical(self, fail_title, f"{fail_text}:\n\n{err}")
+        self.refresh()
+
+    def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        """Closing while a run is in the background cancels it: the window only hides (the main window keeps it),
+        the worker is held until it ends (tools.mps_background_run, review A1) and its result is not used."""
+        self.cancel_background()
+        super().closeEvent(event)
 
     def _on_draw_contour(self) -> None:
         """Open the editor; re-run the analysis along what it returns."""
@@ -2155,9 +2359,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             return
         self._store_values()
         peak = self.combo_peak.currentData()
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-        try:
-            self.analysis = self.rerun_callback(
+        self._run_analysis(
+            dict(
                 main_peak_override_nm=(None if peak is None else float(peak)),
                 slab_half_width_nm=float(self.spin_half.value()),
                 eps_nm=float(self.spin_eps.value()),
@@ -2167,15 +2370,8 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 mahalanobis_threshold=float(self.spin_maha.value()),
                 run_randomization=bool(self.chk_random.isChecked()),
                 contour_guide=(path if answer == APPLY else None),
-            )
-        except Exception as exc:                      # noqa: BLE001
-            QtWidgets.QApplication.restoreOverrideCursor()
-            QtWidgets.QMessageBox.critical(
-                self, "Contour",
-                f"Could not re-run the analysis along that path:\n\n{exc}")
-            return
-        QtWidgets.QApplication.restoreOverrideCursor()
-        self.refresh()
+            ),
+            "Contour", "Could not re-run the analysis along that path")
 
     def _on_reset(self) -> None:
         """Reset to defaults (design 12.5): the same four values as before

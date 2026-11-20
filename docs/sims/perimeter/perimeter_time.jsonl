@@ -1,0 +1,16 @@
+{"n": 100, "seed": 1, "scatter_nm": 25.0, "mode": "every", "seconds": 0.227, "perimeter_um": 17.1022, "n_starts": 100, "improvements": 0}
+{"n": 100, "seed": 1, "scatter_nm": 25.0, "mode": "one", "seconds": 0.062, "perimeter_um": 17.1022, "n_starts": 1, "improvements": 0}
+{"n": 300, "seed": 1, "scatter_nm": 25.0, "mode": "every", "seconds": 7.497, "perimeter_um": 19.9322, "n_starts": 300, "improvements": 26}
+{"n": 300, "seed": 1, "scatter_nm": 25.0, "mode": "one", "seconds": 1.127, "perimeter_um": 19.9508, "n_starts": 1, "improvements": 26}
+{"n": 600, "seed": 1, "scatter_nm": 25.0, "mode": "every", "seconds": 55.154, "perimeter_um": 25.6697, "n_starts": 600, "improvements": 99}
+{"n": 600, "seed": 1, "scatter_nm": 25.0, "mode": "one", "seconds": 5.938, "perimeter_um": 25.7548, "n_starts": 1, "improvements": 100}
+{"n": 1000, "seed": 1, "scatter_nm": 25.0, "mode": "every", "seconds": 233.856, "perimeter_um": 32.4739, "n_starts": 1000, "improvements": 291}
+{"n": 1000, "seed": 1, "scatter_nm": 25.0, "mode": "one", "seconds": 27.333, "perimeter_um": 32.7302, "n_starts": 1, "improvements": 273}
+{"n": 100, "seed": 1, "scatter_nm": 60.0, "mode": "every", "seconds": 0.479, "perimeter_um": 19.0154, "n_starts": 100, "improvements": 5}
+{"n": 100, "seed": 1, "scatter_nm": 60.0, "mode": "one", "seconds": 0.087, "perimeter_um": 19.0154, "n_starts": 1, "improvements": 5}
+{"n": 300, "seed": 1, "scatter_nm": 60.0, "mode": "every", "seconds": 14.824, "perimeter_um": 26.6246, "n_starts": 300, "improvements": 73}
+{"n": 300, "seed": 1, "scatter_nm": 60.0, "mode": "one", "seconds": 1.875, "perimeter_um": 26.7914, "n_starts": 1, "improvements": 72}
+{"n": 600, "seed": 1, "scatter_nm": 60.0, "mode": "every", "seconds": 88.639, "perimeter_um": 39.4342, "n_starts": 600, "improvements": 289}
+{"n": 600, "seed": 1, "scatter_nm": 60.0, "mode": "one", "seconds": 7.402, "perimeter_um": 39.8173, "n_starts": 1, "improvements": 260}
+{"n": 1000, "seed": 1, "scatter_nm": 60.0, "mode": "every", "seconds": 379.756, "perimeter_um": 51.3486, "n_starts": 1000, "improvements": 715}
+{"n": 1000, "seed": 1, "scatter_nm": 60.0, "mode": "one", "seconds": 21.879, "perimeter_um": 51.4714, "n_starts": 1, "improvements": 715}

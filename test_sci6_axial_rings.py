@@ -196,7 +196,8 @@ def test_main_peak_disagreement_at_the_half_width_and_no_weight_test() -> None:
 
 
 def test_analysis_exports_the_axial_mixture_columns(tmp_path: Any) -> None:
-    from tools.axon_export import (AXIAL_MIXTURE_COLUMNS, CLUSTER_METHOD_COLUMNS, CUT_COLUMNS, EPS_CHOICE_COLUMNS,
+    from tools.axon_export import (AXIAL_MIXTURE_COLUMNS, CLUSTER_METHOD_COLUMNS, CUT_COLUMNS, EMITTERS_COLUMNS,
+                                   EPS_CHOICE_COLUMNS,
                                    TABLE_VERSION, axon_row)
     from tools.column_dictionary import describe, known_columns
     from tools.mps_analysis import analyze_axon
@@ -213,9 +214,10 @@ def test_analysis_exports_the_axial_mixture_columns(tmp_path: Any) -> None:
     row = axon_row(a, exported_at="t")
     # the axial mixture, then how eps was chosen (P-R58, v8), then the cut clusters (P-R59, v9), last
     tail = (list(AXIAL_MIXTURE_COLUMNS) + list(EPS_CHOICE_COLUMNS) + list(CUT_COLUMNS)
-            + list(CLUSTER_METHOD_COLUMNS))   # v10 (Phase D): the clustering method, last
+            + list(CLUSTER_METHOD_COLUMNS)   # v10 (Phase D): the clustering method
+            + list(EMITTERS_COLUMNS))        # v11 (BaGoL F5): the emitters' readouts, last
     assert list(row)[-len(tail):] == tail
-    assert row["table_version"] == TABLE_VERSION == "axon tables v10"  # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59, v10 Phase D
+    assert row["table_version"] == TABLE_VERSION == "axon tables v12"  # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59, v10 Phase D, v11 F5
     assert row["main_peak_mode"] == "density" and 0.0 <= row["slab_foreign_fraction"] <= 1.0
     assert all(describe(c) for c in AXIAL_MIXTURE_COLUMNS)
     assert known_columns()[-len(tail):] == tail

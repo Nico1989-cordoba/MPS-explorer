@@ -86,6 +86,7 @@ from tools.mps_periodicity import (
     foreign_fraction,
     select_mps_slab,
 )
+from tools import mps_cancel
 from tools.mps_randomization import (
     DEFAULT_N_RANDOMIZATIONS,
     NULL_R_LEVEL,
@@ -106,6 +107,7 @@ from tools.mps_spatial import (
     compute_nn_distances,
 )
 from tools import mps_cut_clusters as cut_rule
+from tools import mps_perimeter_cost as perimeter_cost
 from tools.mps_settings import DEFAULT_DBCV_THRESHOLD
 from tools.clustering_strategies import (
     COMPAT_METHOD, ClusteringStrategy, DBSCANStrategy, make_strategy,
@@ -270,6 +272,16 @@ class AxonAnalysis:
     cluster_scale_nm: Optional[float] = None
     cluster_methods_compared: Tuple[str, ...] = ()
     cluster_edge_margin_nm: Optional[float] = None
+    # --- the Events -> Emitters layer (BaGoL phase F5, axon tables v11) ---
+    # ``emitters``: tools.emitters_layer.EmittersLayerData when the method
+    # was Emitters (BaGoL-like reimplementation), else None.
+    # ``localization_sigma_slab``: the slab's per-localization precisions
+    # (nm, as given to the analysis), so a re-run on the slab (Compare
+    # methods) gives the model the same precisions. Neither is exported
+    # as such: the readouts are (emitter_readouts).
+    emitters: Optional[Any] = None
+    localization_sigma_slab: Optional[NDArray[np.float64]] = None
+    localization_frame_slab: Optional[NDArray[np.int64]] = None
 
     # ---------------- convenience accessors for the panel ----------------
 
@@ -330,6 +342,17 @@ class AxonAnalysis:
     @property
     def clusters_per_um(self) -> Optional[float]:
         return self.perimeter.clusters_per_um if self.perimeter else None
+
+    @property
+    def emitter_readouts(self) -> Optional[Any]:
+        """The Emitters layer's readouts on the clusters this analysis keeps
+        (curated and, with the discard applied, discarded ones left out),
+        or None when the layer did not run (tools.emitters_layer.readouts)."""
+        if self.emitters is None:
+            return None
+        from tools.emitters_layer import readouts
+        excluded = {int(v) for v in self.bad_report.bad_labels} | {int(v) for v in self.discarded_labels}
+        return readouts(self.emitters, self.labels, excluded, self.perimeter_um)
 
     @property
     def contour_health(self) -> Optional[ContourHealth]:
@@ -586,6 +609,12 @@ class AxonAnalysis:
                    f"{self.randomization.annulus_half_width_nm:g} nm from "
                    f"the smoothed contour")),
         ]
+        em = self.emitter_readouts
+        if em is not None:
+            # Only when the layer ran: the rows of the three columns of the
+            # results window come from the same analysis, so they match.
+            from tools.emitters_layer import summary_rows as emitter_rows
+            rows += emitter_rows(em)
         return rows
 
     def cluster_method_record(self) -> Dict[str, Any]:
@@ -989,6 +1018,8 @@ def analyze_axon(
     cluster_params: Optional[Dict[str, Any]] = None,
     cluster_methods_compared: Sequence[str] = (),
     strategy: Optional[ClusteringStrategy] = None,
+    localization_sigma_nm: Optional[Any] = None,
+    localization_frame: Optional[Any] = None,
 ) -> AxonAnalysis:
     """
     Run the full per-axon pipeline on one ROI's localizations.
@@ -1027,6 +1058,16 @@ def analyze_axon(
     exclude_cut_clusters : leave the cut clusters out of steps 3-6, as
         the curation leaves out its own (off by default: they are only
         flagged).
+
+    localization_sigma_nm : the per-localization lateral precisions in nm,
+        (n,) or (n, 2) = (lpx, lpy), aligned with x_nm. Used only by a
+        method that models them (Emitters, BaGoL-like reimplementation:
+        ``set_localization_precision`` is called with the slab's values
+        before the clustering); every other method ignores them.
+    localization_frame : the frame number (from 0) of each localization,
+        aligned with x_nm. The Emitters layer links the slab's
+        localizations into events with it (as the DNA-PAINT panel does);
+        without it the layer runs on raw localizations and says so.
 
     all_starts : build the contour with 2-opt from every start and keep
         the shortest tour (default). False refines it from one start, as
@@ -1154,8 +1195,71 @@ def analyze_axon(
     if strategy is None:
         if cluster_method == COMPAT_METHOD:
             strategy = DBSCANStrategy(eps=float(eps_nm), min_samples=int(min_samples))
+        elif cluster_method == "emitters_bagol_like":
+            # Events -> Emitters -> clusters (BaGoL phase F5): the layer
+            # resolves the xi source, the dye and r_mol (docs/emitters.md).
+            from tools.emitters_layer import make_layer_strategy
+            strategy = make_layer_strategy(cluster_params)
         else:
             strategy = make_strategy(cluster_method, cluster_params)
+    # The slab's precisions for a method that models them (Emitters): the
+    # file's values, cleaned of failed fits; without them it falls back to
+    # its own sigma_nm and says so.
+    sigma_slab: Optional[NDArray[np.float64]] = None
+    if localization_sigma_nm is not None:
+        s_all = np.asarray(localization_sigma_nm, dtype=np.float64)
+        if s_all.shape[0] == x_nm.size:
+            sigma_slab = s_all[slab_mask]
+        else:
+            warnings_.append(
+                f"{s_all.shape[0]} localization precisions for {x_nm.size} "
+                f"localizations: not used.")
+    if callable(getattr(strategy, "set_localization_precision", None)):
+        from tools.emitters_layer import EmittersLayerStrategy, clean_precisions
+        cleaned, n_replaced = clean_precisions(sigma_slab, int(xs.size))
+        if isinstance(strategy, EmittersLayerStrategy):
+            strategy.set_localization_precision(cleaned, n_replaced)
+        else:
+            getattr(strategy, "set_localization_precision")(cleaned)
+        if cleaned is None:
+            warnings_.append(
+                "No per-localization precision for the slab (lpx / lpy): "
+                "the Emitters model used its sigma_nm for every localization.")
+        elif n_replaced:
+            warnings_.append(
+                f"{n_replaced} localizations of the slab had a failed "
+                f"precision (0 or NaN): the median of their axis was used.")
+    base["localization_sigma_slab"] = sigma_slab
+    frame_slab: Optional[NDArray[np.int64]] = None
+    if localization_frame is not None:
+        f_all = np.asarray(localization_frame)
+        if f_all.shape[0] == x_nm.size:
+            frame_slab = f_all[slab_mask].astype(np.int64)
+    if callable(getattr(strategy, "set_localization_frames", None)):
+        getattr(strategy, "set_localization_frames")(frame_slab)
+        if frame_slab is None:
+            warnings_.append(
+                "No frame numbers for the slab: the Emitters model ran on raw "
+                "localizations, not on frame-linked events, while its xi counts "
+                "events (docs/emitters.md).")
+    base["localization_frame_slab"] = frame_slab
+    # Check T4 before the Emitters run (F5c): the slab's NeNA against its
+    # median reported precision. Flagged, the interactive program is asked
+    # (apply se_adjust_nm = NeNA - median / run as is / cancel); with no one
+    # to ask the run goes on as reported and the note says so. Before the
+    # parameters are recorded, so an applied se_adjust_nm is in them.
+    from tools.emitters_layer import EmittersLayerStrategy as _Layer
+    if isinstance(strategy, _Layer):
+        from tools import emitters_layer as _el
+        pre = strategy.precheck(np.column_stack([xs, ys]))
+        if pre.flagged:
+            asked = _el.current_precision_gate() is not None
+            answer = _el.decide_precision(pre)
+            if answer == _el.PRECISION_CANCEL:
+                raise _el.EmittersCancelled(pre)
+            if answer == _el.PRECISION_APPLY and pre.suggested_se_adjust_nm is not None:
+                strategy.apply_se_adjust(pre.suggested_se_adjust_nm)
+            warnings_.append(_el.precheck_note(pre, answer, asked))
     method_params = strategy_params_json(strategy)
     method_record: Dict[str, Any] = dict(
         cluster_method=cluster_method, cluster_params=method_params,
@@ -1183,11 +1287,21 @@ def analyze_axon(
 
     # ---------------- step 1: clustering + automatic curation -----------
     pts = np.column_stack([xs, ys])
+    # F5d: where a run in the MPS analysis window's worker thread may stop when cancelled (tools.mps_cancel; a
+    # no-op everywhere else).
+    mps_cancel.check("before the clustering")
     labels, edge_margin = cluster_slab(pts, strategy, fallback_scale_nm=float(eps_nm))
+    mps_cancel.check("after the clustering")
     scale = strategy.scale_nm()
     method_record["cluster_scale_nm"] = (float(scale) if scale is not None and np.isfinite(scale)
                                          and scale > 0 else None)
     method_record["cluster_edge_margin_nm"] = edge_margin
+    layer_data = getattr(strategy, "layer_data", None)
+    method_record["emitters"] = layer_data() if callable(layer_data) else None
+    em_checks = getattr(method_record["emitters"], "checks", None)
+    if em_checks is not None and em_checks.any:
+        # section 3.7 of the BaGoL plan (thresholds of F4): calibrate / xi mixture / precision under-reported
+        warnings_.extend(f"Emitters, xi check ({em_checks.short()}): {m}" for m in em_checks.messages)
     n_raw = len({int(l) for l in labels} - {-1})
 
     # When no explicit ROI shape is supplied, approximate the boundary with
@@ -1247,6 +1361,25 @@ def analyze_axon(
         centroids=centroids,
     )
 
+    # ---------------- before the perimeter: its expected time -----------
+    # 2-opt from every start grows roughly with the cube of the clusters
+    # (docs/perimeter_time.md). Where that is long, the interactive program
+    # is asked first (tools.mps_perimeter_cost.asking: every start, one
+    # start, or cancel); with no one to ask -- the batch, the tests -- it
+    # runs from every start. Either way the notes say it. The note is not
+    # an upstream warning: a re-run from every start (with_every_start,
+    # the discard) is not what it describes.
+    cost_notes: List[str] = []
+    if (all_starts and custom_contour_order is None and contour_guide is None
+            and perimeter_cost.needs_warning(n_kept)):
+        choice = perimeter_cost.decide(n_kept)
+        if choice == perimeter_cost.CANCEL:
+            raise perimeter_cost.PerimeterCancelled(
+                n_kept, perimeter_cost.estimate_perimeter_seconds(n_kept))
+        if choice == perimeter_cost.ONE_START:
+            all_starts = False
+        cost_notes.append(perimeter_cost.note(n_kept, choice))
+
     steps = _cluster_steps(
         xs, ys, labels, set(report.bad_labels), centroids,
         custom_contour_order=custom_contour_order,
@@ -1255,7 +1388,7 @@ def analyze_axon(
     return AxonAnalysis(
         perimeter=steps.perimeter, areas=steps.areas, nn=steps.nn,
         occupancy=steps.occupancy, randomization=steps.randomization,
-        warnings=warnings_ + steps.warnings,
+        warnings=warnings_ + cost_notes + steps.warnings,
         upstream_warnings=list(warnings_),
         edge_reference=edge_reference,
         cut=cut,
@@ -1343,6 +1476,7 @@ def _cluster_steps(
     # ---------------- step 3: perimeter ---------------------------------
     perimeter: Optional[PerimeterResult] = contour
     if perimeter is None and n_kept >= 3:
+        mps_cancel.check("before the perimeter")
         perimeter = reconstruct_perimeter(
             centroids, refine=True, custom_order=custom_contour_order,
             all_starts=all_starts, guide=contour_guide)
@@ -1364,6 +1498,7 @@ def _cluster_steps(
     # ---------------- step 5: perimeter occupancy -----------------------
     occupancy: Optional[OccupancyResult] = None
     if perimeter is not None:
+        mps_cancel.check("before the occupancy")
         try:
             occupancy = compute_occupancy(
                 xs, ys, labels, perimeter.contour,
@@ -1380,6 +1515,7 @@ def _cluster_steps(
     randomization: Optional[RandomizationResult] = None
     if (run_randomization and perimeter is not None and nn is not None
             and n_kept >= 2):
+        mps_cancel.check("before the randomization")
         try:
             randomization = randomize_cluster_positions(
                 centroids, perimeter.contour,

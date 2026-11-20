@@ -9,7 +9,7 @@ MANIFEST.json is a list of entries ``{"cell": "A:S2:E2", "snapshot": "entry", "p
 ``golden_ui_stage2_compare.py`` prints it after "<cell> / snapshots / <snapshot> / "; an entry may cover several
 differences under that prefix, and must cover at least one; a difference belongs to the longest prefix that matches
 it. ``b_change`` must be one of B1-B23, B26 or B27 (G6: no rev-3 item may appear; B19-B22 are the science PRs SCI-3, SCI-5,
-SCI-6 and channel 2's parameters, numbered in their planned merge order; B23 the beginner tour; B26 P-R58, how eps was chosen; B27 P-R59, the clusters cut by the Picasso pick; B30 Phase D / D0, the clustering method in the settings, the axon table v10 and the batch settings; B24, B25, B28, B29, B31 reserved). An empty list (``[]``) means "byte-identical": the expectation of every step before IMPL-D (IMPL-0 to
+SCI-6 and channel 2's parameters, numbered in their planned merge order; B23 the beginner tour; B26 P-R58, how eps was chosen; B27 P-R59, the clusters cut by the Picasso pick; B30 Phase D / D0, the clustering method in the settings, the axon table v10 and the batch settings; B31 BaGoL F5, the Events -> Emitters layer: the axon table v11 and the batch window's 'Slow methods (Emitters)' box, with no entries of its own (every difference v11 makes falls inside B30's table-level entries; F5 golden, 2026-10-16); B24, B25, B28, B29 reserved). An empty list (``[]``) means "byte-identical": the expectation of every step before IMPL-D (IMPL-0 to
 IMPL-C), since no B-change is implemented before it.
 
 Exit status 0 when the differences are exactly the manifest's, 1 otherwise. Nothing is normalised here (the golden
@@ -34,9 +34,12 @@ from golden_ui_stage2_compare import _diff, _load
 # B26 = P-R58 (eps = auto opens the k-distance graph; how eps was chosen is recorded in the
 # settings and the axon table, v8), B27 = P-R59 (the clusters cut by the Picasso pick: the axon
 # table's cut_ columns, v9, the clusters table's cut_by_pick, the results table's row, the
-# settings' store).
+# settings' store), B30 = Phase D / D0 (the clustering method; axon tables v10), B31 = BaGoL F5 (the Events ->
+# Emitters layer: axon tables v11, empty emitters_ columns for every other method; the batch window's
+# 'Slow methods (Emitters)' box). B31 has no entries: the golden of F5 differs from the reference exactly where
+# B30 already says (489,525 differences, all inside B30's table-level entries).
 # Each entry carries a one-line reason.
-B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26", "B27", "B30"}
+B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26", "B27", "B30", "B31"}
 # The path ends where the compare tool's ": <first> != <second>" (or ": only in ...", ": n items vs m") begins: at
 # the first colon followed by a space. A key may hold a colon of its own ("other:_columns.csv").
 _PREFIX = re.compile(r"^(?P<cell>[^ ]+) / snapshots / (?P<snap>[^ /]+) / (?P<path>.*?)(?:: .*)?$")
@@ -72,8 +75,8 @@ def check(ref_path: str, branch_path: str, manifest_path: str) -> int:
     problems: List[str] = []
     for i, e in enumerate(manifest):
         if e.get("b_change") not in B_CHANGES:
-            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B23, B26, B27 or B30 (G6, manual test 2, "
-                            f"species, the science PRs, beginner tour, P-R58, P-R59, Phase D)")
+            problems.append(f"manifest entry {i} names {e.get('b_change')!r}, not one of B1-B23, B26, B27, B30 or B31 (G6, manual test 2, "
+                            f"species, the science PRs, beginner tour, P-R58, P-R59, Phase D, BaGoL F5)")
     found, other = differences(ref, branch)
     problems.extend(f"not a snapshot difference: {o}" for o in other)
     used: Set[int] = set()

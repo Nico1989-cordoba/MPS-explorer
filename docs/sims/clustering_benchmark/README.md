@@ -151,6 +151,48 @@ labels = cb.ExternalLabelsStrategy("labels.csv").fit(sample.xy)
 metrics = cb.evaluate(labels, sample, cb.readouts(sample.xy, sample.oracle_labels, sample.arc_length_nm))
 ```
 
+## Emitter-level truth (antibody stacks)
+
+Methods such as BaGoL (Fazel et al., 2022) return **emitters**, not clusters.
+An emitter is a fluorescent label stack, not a protein: one secondary antibody
+with its dyes, whose dyes sit closer than the localization precision. To score
+such methods, a scenario can carry an `EmitterModel` (`Scenario.emitters`):
+
+| Step | Parameter | Default | Origin |
+|---|---|---|---|
+| epitope carries a primary | `ele` | 0.65 | [literature] Thevathasan et al. (2019), effective labelling efficiency of indirect immunofluorescence |
+| secondaries per primary (each one a stack) | `n_secondary` | P(1, 2, 3) = 0.554, 0.327, 0.119 (mean 1.57) | [derivation + ad hoc] 1 + Poisson(0.59) truncated at 3, near the 1.59 of Ehmann et al. (2014) |
+| dyes per secondary | `dol`, `dol_dist` | Poisson, mean 1.5 (0 = dark secondary) | [literature] Dempsey et al. (2011) Online Methods: ~1.5 Alexa 647 per secondary; Poisson shape [ad hoc] |
+| offset per antibody layer (primary, secondary) | `sigma_primary_nm`, `sigma_secondary_nm` | 6.5 nm per axis each | [literature] Jimenez et al. (2020): s.d. ~6.5 nm per layer (read as per axis [assumption]); 9.2 nm in total per axis, close to the legacy `SIGMA_LINK_NM` = 10 nm |
+| dye position on its secondary | `dye_spread_nm` | 3 nm per axis | [derivation] uniform in an IgG of radius ~6.5 nm: r / sqrt(5) |
+| switching cycles per dye | `cycles_dist`, `cycles_mean`, `cycles_shape` | geometric, mean 14 | [literature] Dempsey et al. (2011) Table 1, AF647 in MEA (a lower bound); "gamma" (Poisson-gamma, shape k) and "poisson" also available; `EmitterModel.from_prior(prior)` takes the cycles from a xi prior of `tools/emitters_prior.py` |
+
+Every sample then carries `stack_id` per localization (-1 for isolated
+background localizations), `stack_xy` (centroid of each stack's dyes),
+`stack_molecule` (<= -2 for non-specific stacks), `stack_epitope`, `label_xy`
+and `label_stack`. Without an `EmitterModel` the legacy labelling runs: one
+label per labelled epitope, exactly the samples of commit 26a1cd4 (bit for bit,
+tested), and every label is its own stack. The official benchmark and its
+verdicts use only the legacy presets; the emitter presets (`EMITTER_PRESETS`:
+`sparse_emitters`, `_bme`, `_af568`, `_dol1`) are listed by `--list` but are
+not part of `--all-scenarios`.
+
+`emitter_metrics(est_xy, sample)` pairs estimated and true emitters (stacks
+with at least one localization) with the Hungarian algorithm, a pair being
+valid within 3 sigma (Fazel et al., 2022, Fig. 4 and Methods). Sigma is the
+precision of each estimate when given (`est_sigma`, as in the paper), else the
+nominal localization precision of the scenario [ad hoc, lenient]. It reports
+JAC = TP / (TP + FP + FN), RMSE, over-grouping (true stacks absorbed by an
+emitter matched to a neighbour), under-grouping (extra emitters within the
+radius of a found stack) and emitters per molecule (true vs recovered, exact /
+under / over). `oracle_emitters(sample)` scores JAC = 1.
+
+`export_smd_csv(sample, path, level="localization" | "event")` writes the SMD
+columns BaGoL reads (`X, Y, X_SE, Y_SE, FrameNum`, nm; frames from 1 [ad hoc,
+to verify against the MATLAB run]); `write_stack_truth_csv` writes the truth
+next to it. From the command line:
+`python -m tools.cluster_benchmark --export-smd --scenario sparse_emitters --replicates 1 --out smd_out`.
+
 ## Tests
 
 `test_cluster_benchmark.py`: generator consistency, oracle = 100 % exact and ARI
@@ -161,9 +203,20 @@ and the grid (no leak between parameter sets), independent seeds per scenario,
 `reg:` specs with words and null, the OPTICS diagnostic verdict, presets and
 `--list`. Run: `py -3 -m pytest test_cluster_benchmark.py -q`.
 
+`test_cluster_benchmark_emitters.py`: the legacy generator against a frozen copy
+of the one of 26a1cd4, byte for byte on every preset; stack truth consistency;
+exact counts of a fixed hierarchy; sampling statistics of ELE, secondaries and
+DOL; the cycle distributions; the oracle at JAC = 1; hand-made matching cases
+(shift, misses, false positives, split, merge, a pairing where greedy matching
+fails); the SMD export and the `--export-smd` command.
+
 ## References
 
 - Nieves, D. J., et al. (2023). A framework for evaluating the performance of SMLM cluster analysis algorithms. *Nature Methods*, 20, 259-267.
 - Gazal, N. G., Escalante, G., Lopez, L. F., Goutebroze, L., Bisbal, M., Gorostiza, E. A., Szalai, A. M., Stefani, F. D., & Unsain, N. (2026). Nanoscale organization of betaII-spectrin within segments of the membrane-associated periodic skeleton in mouse sciatic nerve axons [Reviewed preprint, version 1]. *eLife*. https://doi.org/10.7554/elife.111108.1
 - Dempsey, G. T., et al. (2011). Evaluation of fluorophores for optimal performance in localization-based super-resolution imaging. *Nature Methods*, 8, 1027-1036.
+- Fazel, M., Wester, M. J., Schodt, D. J., et al. (2022). High-precision estimation of emitter positions using Bayesian grouping of localizations. *Nature Communications*, 13, 7152.
+- Thevathasan, J. V., et al. (2019). Nuclear pores as versatile reference standards for quantitative superresolution microscopy. *Nature Methods*, 16, 1045-1053.
+- Ehmann, N., et al. (2014). Quantitative super-resolution imaging of Bruchpilot distinguishes active zone states. *Nature Communications*, 5, 4650.
+- Jimenez, A., Friedl, K., & Leterrier, C. (2020). About samples, giving examples: optimized single molecule localization microscopy. *Methods*, 174, 100-114.
 - Früh, S. M., et al. (2021). Site-specifically-labeled antibodies for super-resolution microscopy reveal in situ linkage errors. *ACS Nano*, 15, 12161-12170.

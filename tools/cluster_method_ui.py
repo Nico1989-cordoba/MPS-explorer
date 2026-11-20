@@ -49,7 +49,26 @@ VERDICTS_PATH = os.path.join(REPO_ROOT, "docs", "sims", "clustering_benchmark", 
 SECONDS_PER_KLOC: Dict[str, float] = {
     "DBSCAN": 0.003, "HDBSCAN": 0.012, "OPTICS": 0.56, "FOCAL": 0.002, "HDBSCAN (scikit-learn)": 0.010,
     "voronoi_factor": 0.05, "voronoi_csr": 7.6, "ToMATo": 0.03, "GraphCommunity": 0.06,
+    # Emitters (BaGoL-like reimplementation), a LOWER BOUND [simulation, BaGoL F5b: the golden's simulated axon A,
+    # 4,314 slab localizations -> 2,821 events in 602 pre-clusters, xi literature MEA, Dirichlet allocation,
+    # 2000 + 3000 steps: 140 s with 1 process = 32.5 s per 1000, the layer alone; with 2 processes (the registry
+    # default) about 19 s per 1000, from the 1.7 x speed-up measured in F3 session 2 (47.6 s -> 27.5 s on a dense
+    # field of 9,842 localizations in 122 pre-clusters, 2.8 s per 1000 with 2 processes)]. The cost goes with
+    # the number of pre-clusters x steps (a Python loop per pre-cluster) more than with the localizations, so a
+    # dense field costs less per localization than an axon; the rest of the analysis comes on top (PIPELINE).
+    "emitters_bagol_like": 19.0,
 }
+# The parameters of the Emitters method that the 'Events -> Emitters' box sets from the xi source, and so are not
+# offered as free fields (tools.emitters_layer.DERIVED_KEYS).
+LAYER_HIDDEN: Tuple[str, ...] = ("xi_kind", "xi_mean", "xi_shape", "hierarchical")
+EMITTERS_METHOD = "emitters_bagol_like"
+# [simulation, F5b: on the golden's simulated axon the layer took 140 s with 1 process and the default chains;
+# when its emitters leave many small clusters (about 1,000 with the learned xi) the rest of the analysis takes
+# longer than the layer itself: 680-730 s for the whole analysis with 300 + 300 steps, 20-34 s of them in the layer
+# and 646 s in the perimeter's 2-opt from every start over ~1,040 clusters (tools.mps_geometry, profiled)]
+EMITTERS_SLOW_NOTE = (" The figure is a lower bound measured on a simulated axon: the cost grows with the number of "
+                      "pre-clusters (sparse data) and with the events per pre-cluster (dense data), and when the "
+                      "emitters leave many small clusters the rest of the analysis can take ten minutes or more.")
 PIPELINE_PER_KLOC = 0.3
 # Methods whose cost grows faster than linearly with the localizations:
 # seconds = SECONDS_PER_KLOC * (n/1000) ** exponent [simulation: OPTICS
@@ -59,6 +78,12 @@ PIPELINE_PER_KLOC = 0.3
 # dialog says the figure is a lower bound.
 SCALING_EXPONENT: Dict[str, float] = {"OPTICS": 1.5, "voronoi_csr": 1.2}
 NO_BENCHMARK = "no benchmark"
+
+
+def is_slow(method: str) -> bool:
+    """A method whose analysis the MPS analysis window runs in the background with a Cancel button (F5d): about
+    0.5 s or more per 1000 localizations, or growing faster than linearly [ad hoc threshold, review of D0 m7]."""
+    return SECONDS_PER_KLOC.get(method, 0.0) >= 0.5 or method in SCALING_EXPONENT
 
 
 def load_verdicts(path: str = VERDICTS_PATH) -> Dict[str, Any]:
@@ -90,6 +115,9 @@ class MethodPanel(QtWidgets.QWidget):
     """The 'Clustering method' row of the parameter strip."""
 
     method_changed = QtCore.pyqtSignal()
+    # 'Run with these values' (Emitters): an explicit request to run, emitted right after method_changed so a
+    # window with no analysis yet can start one (method_changed alone only stores the values then, B10).
+    layer_run_requested = QtCore.pyqtSignal()
     compat_requested = QtCore.pyqtSignal()
     compare_requested = QtCore.pyqtSignal()
 
@@ -143,6 +171,8 @@ class MethodPanel(QtWidgets.QWidget):
         self.lbl_slow.setWordWrap(True)
         self.lbl_slow.setVisible(False)
         lay.addWidget(self.lbl_slow, 5, 0, 1, 2)
+        self._build_layer_box()
+        lay.addWidget(self.layer_box, 6, 0, 1, 2)
 
         self.chk_experimental.toggled.connect(self._fill_combo)
         self.combo.currentIndexChanged.connect(self._on_method)
@@ -164,6 +194,8 @@ class MethodPanel(QtWidgets.QWidget):
         # the method's own default (no limit / automatic) and is left out, so
         # the recorded parameters stay what they were before the panel showed it.
         out.update(self._valid.get(name, {}))
+        if name == EMITTERS_METHOD:
+            out = {k: v for k, v in out.items() if k not in LAYER_HIDDEN or k == "xi_shape"}
         return {k: v for k, v in out.items() if v is not None}
 
     def experimental(self) -> bool:
@@ -217,6 +249,10 @@ class MethodPanel(QtWidgets.QWidget):
 
     def _on_method(self) -> None:
         self._build_params()
+        if self.current_method() == EMITTERS_METHOD:
+            # The Emitters layer takes minutes: choosing it shows its box and runs nothing; 'Run with these
+            # values' runs it (D12), after the chain lengths and xi have been set.
+            return
         self.method_changed.emit()
 
     def validation_error(self) -> str:
@@ -245,6 +281,220 @@ class MethodPanel(QtWidgets.QWidget):
             self._valid[name] = values
         self.lbl_invalid.setVisible(bool(why))
 
+    # -- the Events -> Emitters box (BaGoL phase F5) -------------------------
+    def _build_layer_box(self) -> None:
+        """xi source, dye, k, calibrated mean and r_mol for the Emitters method; hidden for every other one."""
+        from tools import emitters_layer as el
+        box = QtWidgets.QGroupBox("Events -> Emitters (experimental, slow)")
+        box.setObjectName("emitters_layer_box")
+        box.setToolTip(
+            "Emitters (BaGoL-like reimplementation; Fazel et al. 2022): the repeated localizations of each label\n"
+            "stack become one emitter, then emitters within r_mol become one cluster. Emitters are fluorescent\n"
+            "label stacks, not proteins. docs/emitters.md")
+        g = QtWidgets.QGridLayout(box)
+        self.combo_xi_source = QtWidgets.QComboBox()
+        self.combo_xi_source.setObjectName("combo_xi_source")
+        words = {"literature": "literature (Dempsey 2011)", "learned": "learned from this axon",
+                 "calibrated": "calibrated (your control)"}
+        for src in el.LAYER_XI_SOURCES:
+            self.combo_xi_source.addItem(words[src], src)
+        self.combo_xi_source.setToolTip("xi, localizations per emitter.\nOrigin: " + el.LAYER_ORIGINS["xi_source"])
+        # F5c: the imaging buffer, chosen for each file (no default; a new file empties it).
+        self.combo_emitters_buffer = QtWidgets.QComboBox()
+        self.combo_emitters_buffer.setObjectName("combo_emitters_buffer")
+        self.combo_emitters_buffer.addItem("(choose for this file)", None)
+        for buf in el.known_buffers():
+            self.combo_emitters_buffer.addItem(el.buffer_words(buf), buf)
+        self.combo_emitters_buffer.setToolTip("The imaging buffer of this file: it sets the literature xi and is\n"
+                                              "recorded with every source. No default.\nOrigin: "
+                                              + el.LAYER_ORIGINS["buffer"])
+        self.lbl_buffer_missing = QtWidgets.QLabel(el.BUFFER_MISSING + ".")
+        self.lbl_buffer_missing.setObjectName("lbl_emitters_buffer_missing")
+        self.lbl_buffer_missing.setWordWrap(True)
+        self.lbl_buffer_missing.setStyleSheet("color: #d55e00;")
+        self.combo_emitters_dye = QtWidgets.QComboBox()
+        self.combo_emitters_dye.setObjectName("combo_emitters_dye")
+        for dye in el.layer_dyes():
+            self.combo_emitters_dye.addItem(dye, dye)
+        self.combo_emitters_dye.setToolTip("The dye of channel 1.\nOrigin: " + el.LAYER_ORIGINS["dye"])
+        self.spin_xi_k = QtWidgets.QDoubleSpinBox()
+        self.spin_xi_k.setObjectName("spin_xi_k")
+        self.spin_xi_k.setDecimals(2)
+        self.spin_xi_k.setRange(0.1, 100.0)
+        self.spin_xi_k.setToolTip("k, the gamma shape of xi; 1 = exponential [lit].\nOrigin: "
+                                  + el.LAYER_ORIGINS["xi_shape"])
+        self.spin_xi_calibrated_mean = QtWidgets.QDoubleSpinBox()
+        self.spin_xi_calibrated_mean.setObjectName("spin_xi_calibrated_mean")
+        self.spin_xi_calibrated_mean.setDecimals(2)
+        self.spin_xi_calibrated_mean.setRange(0.1, 10000.0)
+        self.spin_xi_calibrated_mean.setValue(14.0)
+        self.spin_xi_calibrated_mean.setToolTip("Mean localizations per emitter on your control (only with the\n"
+                                                "source 'calibrated').\nOrigin: " + el.LAYER_ORIGINS["xi_calibrated_mean"])
+        self.spin_r_mol_nm = QtWidgets.QDoubleSpinBox()
+        self.spin_r_mol_nm.setObjectName("spin_r_mol_nm")
+        self.spin_r_mol_nm.setDecimals(1)
+        self.spin_r_mol_nm.setRange(0.0, 500.0)
+        self.spin_r_mol_nm.setSpecialValueText("0 (no linking)")
+        self.spin_r_mol_nm.setToolTip(f"r_mol = {el.R_MOL_NM_DEFAULT:g} nm [deriv]: emitters closer than this become "
+                                      f"one cluster.\nOrigin: " + el.LAYER_ORIGINS["r_mol_nm"])
+        self.spin_link_radius_nm = QtWidgets.QDoubleSpinBox()
+        self.spin_link_radius_nm.setObjectName("spin_link_radius_nm")
+        self.spin_link_radius_nm.setDecimals(1)
+        self.spin_link_radius_nm.setRange(0.0, 500.0)
+        self.spin_link_radius_nm.setSpecialValueText("auto (3 x median precision)")
+        self.spin_link_radius_nm.setToolTip("Events: localizations of consecutive frames within this radius are one\n"
+                                            "event, linked as in the DNA-PAINT panel; the model groups events.\n"
+                                            "Origin: " + el.LAYER_ORIGINS["link_radius_nm"])
+        self.spin_max_dark_frames = QtWidgets.QSpinBox()
+        self.spin_max_dark_frames.setObjectName("spin_max_dark_frames")
+        self.spin_max_dark_frames.setRange(0, 100)
+        self.spin_max_dark_frames.setToolTip("Frames that may be missing inside one event.\nOrigin: "
+                                             + el.LAYER_ORIGINS["max_dark_frames"])
+        self.btn_layer_run = QtWidgets.QPushButton("Run with these values")
+        self.btn_layer_run.setObjectName("btn_emitters_run")
+        self.btn_layer_run.setToolTip("Re-run the analysis with the Emitters values above (slow; nothing runs\n"
+                                      "until you press it or choose the method).")
+        rows = (("imaging buffer:", self.combo_emitters_buffer),
+                ("xi source:", self.combo_xi_source), ("dye (channel 1):", self.combo_emitters_dye),
+                ("k (xi shape):", self.spin_xi_k), ("calibrated mean:", self.spin_xi_calibrated_mean),
+                ("r_mol [nm]:", self.spin_r_mol_nm), ("event link radius [nm]:", self.spin_link_radius_nm),
+                ("max dark frames:", self.spin_max_dark_frames))
+        for r, (text, w) in enumerate(rows):
+            g.addWidget(QtWidgets.QLabel(text), r, 0)
+            g.addWidget(w, r, 1)
+        g.addWidget(self.lbl_buffer_missing, len(rows), 0, 1, 2)
+        g.addWidget(self.btn_layer_run, len(rows) + 1, 0, 1, 2)
+        self.layer_box = box
+        box.setVisible(False)
+        self.combo_emitters_buffer.currentIndexChanged.connect(self._on_layer_edit)
+        self.combo_xi_source.currentIndexChanged.connect(self._on_layer_edit)
+        self.combo_emitters_dye.currentIndexChanged.connect(self._on_layer_edit)
+        for sp in (self.spin_xi_k, self.spin_xi_calibrated_mean, self.spin_r_mol_nm, self.spin_link_radius_nm,
+                   self.spin_max_dark_frames):
+            sp.valueChanged.connect(self._on_layer_edit)
+        self.btn_layer_run.clicked.connect(self._on_layer_run)
+
+    def _on_layer_run(self) -> None:
+        """'Run with these values': method_changed first (the values are stored; with an analysis it re-runs, as
+        before), then layer_run_requested (the explicit run request, for the case with no analysis yet)."""
+        self.method_changed.emit()
+        self.layer_run_requested.emit()
+
+    def _layer_widgets(self) -> Tuple[QtWidgets.QWidget, ...]:
+        return (self.combo_xi_source, self.combo_emitters_dye, self.spin_xi_k, self.spin_xi_calibrated_mean,
+                self.spin_r_mol_nm, self.spin_link_radius_nm, self.spin_max_dark_frames, self.combo_emitters_buffer)
+
+    def buffer(self) -> Optional[str]:
+        """The imaging buffer chosen for this file ('MEA' / 'bME'), or None."""
+        data = self.combo_emitters_buffer.currentData()
+        return None if data in (None, "") else str(data)
+
+    def clear_buffer(self) -> None:
+        """A new file: the buffer is chosen again (F5c), the rest of the box is kept."""
+        was = self.combo_emitters_buffer.blockSignals(True)
+        try:
+            self.combo_emitters_buffer.setCurrentIndex(0)
+        finally:
+            self.combo_emitters_buffer.blockSignals(was)
+        if EMITTERS_METHOD in self._params:
+            self._params[EMITTERS_METHOD].pop("buffer", None)
+        self._sync_buffer_state()
+
+    def _sync_buffer_state(self) -> None:
+        """'Run with these values' only with a buffer chosen; the reason under the box otherwise."""
+        missing = self.buffer() is None
+        self.btn_layer_run.setEnabled(not missing)
+        self.btn_layer_run.setToolTip(
+            "Choose the imaging buffer (MEA or \u03b2ME) for this file first." if missing else
+            "Re-run the analysis with the Emitters values above (slow; nothing runs\n"
+            "until you press it or choose the method).")
+        self.lbl_buffer_missing.setVisible(missing)
+
+    def set_param_value(self, key: str, value: Any) -> None:
+        """Set one numeric parameter of the current method as if typed (the field too, without re-running)."""
+        name = self.current_method()
+        w = self._spins.get(key)
+        if isinstance(w, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
+            was = w.blockSignals(True)
+            try:
+                w.setValue(value)
+            finally:
+                w.blockSignals(was)
+        self._params.setdefault(name, {})[key] = value
+        self._valid.setdefault(name, {})[key] = value
+
+    def _layer_values(self) -> Dict[str, Any]:
+        src = str(self.combo_xi_source.currentData())
+        return {"xi_source": src, "dye": str(self.combo_emitters_dye.currentData()), "buffer": self.buffer(),
+                "xi_shape": float(self.spin_xi_k.value()), "r_mol_nm": float(self.spin_r_mol_nm.value()),
+                "xi_calibrated_mean": (float(self.spin_xi_calibrated_mean.value()) if src == "calibrated" else None),
+                "link_radius_nm": (float(self.spin_link_radius_nm.value()) or None),
+                "max_dark_frames": int(self.spin_max_dark_frames.value())}
+
+    def _show_layer(self, name: str) -> None:
+        """Show the box for the Emitters method with its saved values (signals blocked), else hide it."""
+        from tools import emitters_layer as el
+        on = name == EMITTERS_METHOD
+        self.layer_box.setVisible(on)
+        if not on:
+            return
+        saved = dict(el.LAYER_DEFAULTS)
+        saved.update({k: v for k, v in self._params.get(name, {}).items() if k in el.LAYER_KEYS})
+        blocked = [w.blockSignals(True) for w in self._layer_widgets()]
+        try:
+            # A source of F5b ('literature_MEA' / 'literature_bME') shows as 'literature'; its buffer is NOT
+            # taken from it: the buffer of the file is chosen here (only an explicit one is shown).
+            src = (el.SOURCE_LITERATURE if str(saved["xi_source"]) in el.LEGACY_LITERATURE_SOURCES
+                   else saved["xi_source"])
+            i = self.combo_xi_source.findData(src)
+            self.combo_xi_source.setCurrentIndex(i if i >= 0 else self.combo_xi_source.findData(el.XI_SOURCE_DEFAULT))
+            try:
+                buf = None if saved.get("buffer") in (None, "") else el.normalise_buffer(str(saved["buffer"]))
+            except ValueError:
+                buf = None
+            i = self.combo_emitters_buffer.findData(buf) if buf is not None else 0
+            self.combo_emitters_buffer.setCurrentIndex(max(i, 0))
+            try:
+                dye = el.normalise_dye(str(saved["dye"]))
+            except ValueError:
+                dye = el.DYE_DEFAULT
+            i = self.combo_emitters_dye.findData(dye)
+            self.combo_emitters_dye.setCurrentIndex(max(i, 0))
+            self.spin_xi_k.setValue(float(saved["xi_shape"] or el.GAMMA_SHAPE_DEFAULT))
+            if saved.get("xi_calibrated_mean"):
+                self.spin_xi_calibrated_mean.setValue(float(saved["xi_calibrated_mean"]))
+            self.spin_r_mol_nm.setValue(float(saved["r_mol_nm"]))
+            self.spin_link_radius_nm.setValue(float(saved.get("link_radius_nm") or 0.0))
+            self.spin_max_dark_frames.setValue(int(saved.get("max_dark_frames", el.DEFAULT_MAX_DARK_TIME)))
+        finally:
+            for w, b in zip(self._layer_widgets(), blocked):
+                w.blockSignals(b)
+        self.spin_xi_calibrated_mean.setEnabled(self.combo_xi_source.currentData() == "calibrated")
+        self._params.setdefault(name, {}).update(self._layer_values())
+        self._sync_buffer_state()
+
+    def _on_layer_edit(self) -> None:
+        """A field of the box edited: kept for the next run (nothing runs: 'Run with these values' does)."""
+        from tools import emitters_layer as el
+        self.spin_xi_calibrated_mean.setEnabled(self.combo_xi_source.currentData() == "calibrated")
+        self._sync_buffer_state()
+        values = self._layer_values()
+        if values["buffer"] is None:
+            # Not an error of the values: the buffer is simply not chosen yet (the label under the box says it).
+            self._params.setdefault(EMITTERS_METHOD, {}).update(values)
+            return
+        try:
+            el.LayerChoice.from_params(values)
+        except ValueError as exc:
+            self._invalid = str(exc)
+            self.lbl_invalid.setText(f"Not applied: {exc}.")
+            self.lbl_invalid.setVisible(True)
+            return
+        self._params.setdefault(EMITTERS_METHOD, {}).update(values)
+        if self._invalid and not validate_params(EMITTERS_METHOD, self._valid.get(EMITTERS_METHOD, {})):
+            self._invalid = ""
+            self.lbl_invalid.setVisible(False)
+
     def _build_params(self) -> None:
         while self.params_layout.count():
             item = self.params_layout.takeAt(0)
@@ -259,20 +509,25 @@ class MethodPanel(QtWidgets.QWidget):
         reg = strategy_registry()
         info: Optional[StrategyInfo] = reg.get(name)
         self.params_box.setVisible(name != COMPAT_METHOD and info is not None)
-        slow = SECONDS_PER_KLOC.get(name, 0.0) >= 0.5 or name in SCALING_EXPONENT
+        slow = is_slow(name)
         self.lbl_slow.setVisible(slow)
         if slow:
-            # Review of D0, m7: choosing a slow method re-runs the analysis in the window's own thread.
+            # Review of D0, m7; F5d: the window runs it in the background, with its time and a Cancel button.
             self.lbl_slow.setText(
                 f"{name} is slow (about {SECONDS_PER_KLOC.get(name, 0.5):g} s per 1000 localizations"
                 + (", growing faster than linearly" if name in SCALING_EXPONENT else "")
-                + "): the analysis in this window re-runs with it and the window waits until it ends.")
+                + "): the analysis runs in the background, with the time elapsed and a Cancel button above the "
+                  "results; the window stays usable meanwhile."
+                + (EMITTERS_SLOW_NOTE if name == EMITTERS_METHOD else ""))
+        self._show_layer(name)
         if info is None or name == COMPAT_METHOD:
             return
         saved = self._params.get(name, {})
         r = 0
         for spec in param_specs(info):
             key = spec.key
+            if name == EMITTERS_METHOD and key in LAYER_HIDDEN:
+                continue
             value = saved.get(key, spec.default)
             editor: QtWidgets.QWidget
             if spec.choices:

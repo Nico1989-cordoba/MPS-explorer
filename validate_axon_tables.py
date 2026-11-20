@@ -1086,12 +1086,14 @@ def test_schema_and_excel() -> None:
     def the_columns_are_the_layout_and_in_order():
         from tools.axon_export import (_AXOPLASM_DROPPED, AXIAL_MIXTURE_COLUMNS,
                                        CLUSTER_METHOD_COLUMNS, CUT_COLUMNS,
-                                       EPS_CHOICE_COLUMNS, Z_CALIBRATION_COLUMNS)
+                                       EMITTERS_COLUMNS, EPS_CHOICE_COLUMNS,
+                                       Z_CALIBRATION_COLUMNS)
         from tools.mps_axoplasm import SUMMARY_COLUMNS
         # v4 (SCI-1): the measurement's z calibration, last, so no earlier
         # column moved; v7 (SCI-6): the axial mixture after it; v8 (P-R58):
         # how eps was chosen; v9 (P-R59): the clusters cut by the pick;
-        # v10 (Phase D): the clustering method, last.
+        # v10 (Phase D): the clustering method; v11 (BaGoL F5): the
+        # Events -> Emitters readouts, last.
         expected = (list(HEAD_COLUMNS) + list(STATE_COLUMNS)
                     + list(SHARED_COLUMNS) + list(MEASURED_COLUMNS)
                     + [n + DISCARD_SUFFIX for n in MEASURED_COLUMNS]
@@ -1099,7 +1101,7 @@ def test_schema_and_excel() -> None:
                        if n not in _AXOPLASM_DROPPED]
                     + list(Z_CALIBRATION_COLUMNS) + list(AXIAL_MIXTURE_COLUMNS)
                     + list(EPS_CHOICE_COLUMNS) + list(CUT_COLUMNS)
-                    + list(CLUSTER_METHOD_COLUMNS))
+                    + list(CLUSTER_METHOD_COLUMNS) + list(EMITTERS_COLUMNS))
         assert list(row) == expected, [
             (a, b) for a, b in zip(list(row) + [""] * 5, expected + [""] * 5)
             if a != b][:4]

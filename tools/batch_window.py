@@ -73,6 +73,36 @@ def _item(text: str, editable: bool = False,
     return item
 
 
+def ask_emitters_buffer(parent: Optional[QtWidgets.QWidget]) -> Optional[str]:
+    """The imaging buffer of a batch that runs Emitters, asked once for the run (F5c): no default, OK stays
+    disabled until one is chosen; None when cancelled (the batch then does not start)."""
+    from tools import emitters_layer as el
+    dlg = QtWidgets.QDialog(parent)
+    dlg.setWindowTitle("Emitters: imaging buffer")
+    lay = QtWidgets.QVBoxLayout(dlg)
+    text = QtWidgets.QLabel(
+        "This batch runs Emitters (BaGoL-like reimplementation). Choose the imaging buffer of these files:\n"
+        "it sets the literature xi (Dempsey et al. 2011, Table 1) and every row records it.")
+    text.setWordWrap(True)
+    lay.addWidget(text)
+    combo = QtWidgets.QComboBox()
+    combo.setObjectName("combo_batch_buffer")
+    combo.addItem("(choose)", None)
+    for buf in el.known_buffers():
+        combo.addItem(el.buffer_words(buf), buf)
+    lay.addWidget(combo)
+    buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+    ok = buttons.button(QtWidgets.QDialogButtonBox.Ok)
+    ok.setEnabled(False)
+    combo.currentIndexChanged.connect(lambda _i: ok.setEnabled(combo.currentData() is not None))
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    lay.addWidget(buttons)
+    if dlg.exec_() != QtWidgets.QDialog.Accepted or combo.currentData() is None:
+        return None
+    return str(combo.currentData())
+
+
 def ask_pixel_size(parent: Optional[QtWidgets.QWidget], folder: str,
                    candidates: Sequence[Any] = (),
                    notes: Sequence[str] = ()) -> Optional[float]:
@@ -312,6 +342,18 @@ class BatchWindow(QtWidgets.QMainWindow):
         self.check_compare_methods.setObjectName("check_compare_methods")
         self.check_compare_methods.setChecked(False)
         row.addWidget(self.check_compare_methods)
+        # BaGoL F5: the Emitters layer takes minutes per axon, so the batch
+        # never runs it unless this box is ticked (off by default and not
+        # remembered); without it a file saved with that method is reported
+        # as not analysed, and Compare methods skips it.
+        self.check_slow_methods = QtWidgets.QCheckBox("Slow methods (Emitters)")
+        self.check_slow_methods.setObjectName("check_slow_methods")
+        self.check_slow_methods.setChecked(False)
+        self.check_slow_methods.setToolTip(
+            "Let the batch run Emitters (BaGoL-like reimplementation): minutes per axon.\n"
+            "Off: a file saved with that method is reported as not analysed, with the reason,\n"
+            "and 'Compare methods (slow)' leaves it out. docs/emitters.md")
+        row.addWidget(self.check_slow_methods)
         self.comparison_rows: List[Dict[str, Any]] = []
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
         self.btn_cancel.setToolTip(
@@ -658,8 +700,10 @@ class BatchWindow(QtWidgets.QMainWindow):
                 cell.setToolTip(f"Not the file's own: {resolution.source}. "
                                 f"Every lateral distance scales with it.")
 
-    def run(self, ask: Optional[Callable[..., Optional[float]]] = None) -> None:
-        """Analyse the ticked files in a worker thread."""
+    def run(self, ask: Optional[Callable[..., Optional[float]]] = None,
+            ask_buffer: Optional[Callable[..., Optional[str]]] = None) -> None:
+        """Analyse the ticked files in a worker thread. A run that will run Emitters asks the imaging buffer
+        once first (``ask_buffer``, the dialog by default; F5c): without it nothing starts."""
         if self.running or self.plan is None:
             return
         rows = self.ticked_rows()
@@ -671,6 +715,16 @@ class BatchWindow(QtWidgets.QMainWindow):
         if self._sync is not None:
             self._sync()
         settings = mb.BatchSettings.from_settings(self.settings)
+        allow_slow = bool(self.check_slow_methods.isChecked())
+        compare_list = mb.methods_to_compare(settings) if self.check_compare_methods.isChecked() else []
+        emitters_buffer: Optional[str] = None
+        if mb.needs_emitters_buffer(settings, allow_slow, compare_list):
+            emitters_buffer = (ask_buffer or ask_emitters_buffer)(self)
+            if not emitters_buffer:
+                self.label_status.setText(
+                    "Not started: choose the imaging buffer (MEA or \u03b2ME) for the Emitters run.")
+                return
+            settings = mb.with_emitters_buffer(settings, emitters_buffer)
         z_store = dict(getattr(self.settings, "z_calibration_by_folder",
                                None) or {})
         self._show_settings()
@@ -687,17 +741,18 @@ class BatchWindow(QtWidgets.QMainWindow):
         self._cancel.clear()
         self.label_status.setText(f"Analysing {len(rows)} file(s)...")
 
-        compare_list = mb.methods_to_compare(settings) if self.check_compare_methods.isChecked() else []
         self.comparison_rows = []
+        compare_kw: Dict[str, Any] = {} if emitters_buffer is None else {"emitters_buffer": emitters_buffer}
 
         def body() -> None:
             try:
                 mb.run_batch(items, settings,
                              on_done=lambda i, r: self._relay.done.emit(i, r),
-                             cancelled=self._cancel.is_set, z_store=z_store)
+                             cancelled=self._cancel.is_set, z_store=z_store, allow_slow=allow_slow)
                 if compare_list and not self._cancel.is_set():
                     self.comparison_rows = mb.compare_methods(
-                        items, settings, compare_list, cancelled=self._cancel.is_set, z_store=z_store)
+                        items, settings, compare_list, cancelled=self._cancel.is_set, z_store=z_store,
+                        allow_slow=allow_slow, **compare_kw)
             finally:
                 self._relay.finished.emit()
 
@@ -1050,6 +1105,7 @@ class BatchWindow(QtWidgets.QMainWindow):
         self.btn_set.setEnabled(have_files)
         self.btn_patterns.setEnabled(have_files and not running)
         self.check_compare_methods.setEnabled(not running and bool(self._compare_methods_list()))
+        self.check_slow_methods.setEnabled(not running)
         self.btn_export.setEnabled(not running and any(
             r.ok for r in self.records.values()))
 

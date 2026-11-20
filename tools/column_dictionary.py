@@ -26,7 +26,7 @@ from tools.axon_export import (
     MEASURED_COLUMNS, SHARED_COLUMNS, STATE_COLUMNS, Z_CALIBRATION_COLUMNS,
 )
 from tools.mps_cut_clusters import CUT_COLUMNS
-from tools.axon_export import CLUSTER_METHOD_COLUMNS
+from tools.axon_export import CLUSTER_METHOD_COLUMNS, EMITTERS_COLUMNS
 from tools.mps_identity import FIELD_HINTS, FIELDS as IDENTITY_FIELDS
 
 # Units, read off the end of the name. The rule is the convention: a
@@ -95,6 +95,79 @@ ANALYSIS: Dict[str, str] = {
                       "of the experimental methods of "
                       "docs/clustering_methods.md.",
     "cluster_params": "The parameters that method ran with, as JSON.",
+    # --- the Events -> Emitters layer (axon tables v11, BaGoL F5; written
+    # last; empty for every method but Emitters). docs/emitters.md
+    "emitters_method": "'Emitters (BaGoL-like reimplementation)' when the "
+                       "localizations were grouped into emitters before the "
+                       "clustering (Fazel et al. 2022, reimplemented; not "
+                       "the authors' code); empty otherwise. Emitters are "
+                       "fluorescent label stacks, not proteins.",
+    "emitters_n": "Emitters of the model in the axial slab (K of the most "
+                  "probable configuration, emitters without localizations "
+                  "included).",
+    "emitters_n_with_locs": "Emitters whose posterior mean of explained "
+                            "events is at least has_locs_min (0.5 by "
+                            "default).",
+    "emitters_n_nonsingleton": "Emitters that explain at least 1.5 events "
+                               "(posterior mean; rounded, two or more): the "
+                               "emitters the per-um and per-cluster readouts "
+                               "count.",
+    "emitters_n_singletons": "Emitters with localizations that explain fewer "
+                             "than 1.5 events (one event): mostly isolated "
+                             "background, a legitimate one-event emitter of "
+                             "the model, reported apart.",
+    "emitters_per_um": "Distinct non-singleton emitters in the kept clusters "
+                       "divided by the perimeter (the denominator of "
+                       "clusters_per_um), per um.",
+    "emitters_per_cluster_median": "Median number of distinct non-singleton "
+                                   "emitters per kept cluster (clusters of "
+                                   "singletons only left out): a readout, "
+                                   "never a constant of emitters per molecule.",
+    "emitters_per_cluster_q25": "First quartile of the non-singleton emitters "
+                                "per kept cluster.",
+    "emitters_per_cluster_q75": "Third quartile of the non-singleton emitters "
+                                "per kept cluster.",
+    "emitters_xi_mean": "Mean events (frame-linked localizations) per "
+                        "emitter of the prior xi the model used (learned: k x "
+                        "theta of the posterior means, learned on "
+                        "non-singleton emitters).",
+    "emitters_xi_source": "Where xi came from: literature (Dempsey et al. "
+                          "2011, Table 1, the channel's dye in the buffer of "
+                          "emitters_buffer), learned (from this axon, started "
+                          "from that literature value) or calibrated (the "
+                          "user's control). Tables before v12 wrote "
+                          "literature_MEA / literature_bME.",
+    "emitters_precision_nm_before": "Median lateral precision of the slab's "
+                                    "localizations, (sigma_x + sigma_y) / 2, "
+                                    "in nm, as the model received it.",
+    "emitters_precision_nm_after": "Median precision of the emitters with "
+                                   "localizations, (sigma_x + sigma_y) / 2 of "
+                                   "their posterior position, in nm.",
+    "emitters_r_mol_nm": "Emitters closer than this were linked into one "
+                         "cluster (single linkage; 50 nm by default, a "
+                         "derivation; 0 = no linking).",
+    "emitters_n_events": "Events the model grouped: the slab's localizations "
+                         "linked across frames as the DNA-PAINT panel links "
+                         "them. Empty when the file had no frame numbers "
+                         "(the model then ran on raw localizations).",
+    "emitters_link_radius_nm": "The linking radius used for the events: 3 x "
+                               "the median lateral precision of the slab "
+                               "unless set by hand.",
+    "emitters_max_dark_frames": "Frames that could be missing inside one "
+                                "event when linking (1 by default).",
+    # --- v12 (F5c): the buffer and check T4, last
+    "emitters_buffer": "The imaging buffer chosen for this file, MEA (GLOX + "
+                       "10 mM MEA) or bME (GLOX + 140 mM beta-mercaptoethanol), "
+                       "the two of Dempsey et al. 2011 Table 1. No default: it "
+                       "is chosen per file (per run in the batch).",
+    "emitters_nena_over_sigma": "Check T4: NeNA of the slab / (median reported "
+                                "lateral precision + se_adjust_nm). Empty when "
+                                "NeNA was not measured (fewer than 500 "
+                                "next-frame pairs, no frame numbers) or the file "
+                                "had no per-localization precision.",
+    "emitters_precision_flag": "ok, under-reported (emitters_nena_over_sigma "
+                               "above 1.2: raise se_adjust_nm to NeNA - median "
+                               "precision) or not measured.",
     "cluster_scale_nm": "The method's own length scale, informative: eps for "
                         "DBSCAN, the grid for FOCAL, the spacing of the dense "
                         "cells for Voronoi, the radius for ToMATo / "
@@ -857,4 +930,5 @@ def known_columns() -> List[str]:
     columns += list(EPS_CHOICE_COLUMNS)
     columns += list(CUT_COLUMNS)
     columns += list(CLUSTER_METHOD_COLUMNS)
+    columns += list(EMITTERS_COLUMNS)
     return columns

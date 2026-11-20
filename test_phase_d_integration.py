@@ -134,9 +134,10 @@ def test_export_columns_and_axon_id_stability():
     from tools import axon_export
     from tools.column_dictionary import describe, missing
     from tools.mps_analysis import analyze_axon
-    assert axon_export.TABLE_VERSION == "axon tables v10"
+    assert axon_export.TABLE_VERSION == "axon tables v12"
     from tools.column_dictionary import known_columns
-    assert known_columns()[-4:] == list(axon_export.CLUSTER_METHOD_COLUMNS)   # written last (v10)
+    n_em = len(axon_export.EMITTERS_COLUMNS)   # v11 (BaGoL F5): the emitters' block after the method's
+    assert known_columns()[-4 - n_em:-n_em] == list(axon_export.CLUSTER_METHOD_COLUMNS)   # v10
     for c in axon_export.CLUSTER_METHOD_COLUMNS:
         assert describe(c), c
     assert not missing(list(axon_export.CLUSTER_METHOD_COLUMNS))
@@ -145,7 +146,7 @@ def test_export_columns_and_axon_id_stability():
     b = analyze_axon(x, y, z, run_randomization=False, cluster_method="FOCAL")
     assert axon_export.analysis_id(a) != axon_export.analysis_id(b)
     # the methods compared add nothing to a DBSCAN row's analysis_id (the id still changes with
-    # TABLE_VERSION, v9 -> v10, as at every version)
+    # TABLE_VERSION, v9 -> v10 -> v11, as at every version)
     assert axon_export.analysis_id(a) == axon_export.analysis_id(
         analyze_axon(x, y, z, run_randomization=False, cluster_methods_compared=["FOCAL"]))
 
