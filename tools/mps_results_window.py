@@ -389,6 +389,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self._run: Any = None
         self._restore_controls: Optional[Callable[[], None]] = None
         self.comparison: Optional[DiscardComparison] = None
+        # A second method drawn over this analysis on the map ('Compare methods' -> 'Overlay on the map';
+        # tools.method_overlay.MethodOverlay), dropped when another analysis is shown.
+        self._overlay: Any = None
         # Black on screen; white while a figure is being written.
         self.dark = True
         # The selection as the main window last described it, whether the
@@ -955,11 +958,38 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         dlg = CompareMethodsDialog(self._compare_run, int(np.asarray(self.analysis.x_slab).size),
                                    panel.experimental(), panel.current_method(), params_for, parent=self)
         self._compare_dialog = dlg
-        if dlg.exec_() != QtWidgets.QDialog.Accepted or not dlg.chosen:
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        if dlg.overlay_method:
+            # 'Overlay on the map': drawn over the analysis shown; the method in use does not change
+            self.show_overlay(dlg.overlay_method, dlg.analyses.get(dlg.overlay_method))
+            return
+        if not dlg.chosen:
             return
         chosen = dlg.chosen[0]
         panel.set_state(chosen, params_for(chosen), panel.experimental() or chosen != "DBSCAN", dlg.ran)
         self._on_param_changed()
+
+    def show_overlay(self, method: str, other: Any) -> bool:
+        """Draw ``method``'s run (``other``, an AxonAnalysis of the same slab from 'Compare methods') over the
+        analysis shown, on the axon map (tools.method_overlay). False, with a message, when it cannot be drawn."""
+        from tools.method_overlay import build_overlay
+        if self.analysis is None or other is None:
+            return False
+        ov = build_overlay(self.analysis, other, method)
+        if not ov.ok:
+            QtWidgets.QMessageBox.information(self, "Overlay on the map", f"No overlay: {ov.note}.")
+            return False
+        self._overlay = ov
+        for key in ("ov_a", "ov_b"):
+            self.axon_map.layers.set_visible(key, True)
+        self._draw_map()
+        return True
+
+    def clear_overlay(self) -> None:
+        """'Clear the overlay': the second method's outlines leave the map."""
+        self._overlay = None
+        self._draw_map()
 
     def _on_slab_automatic(self) -> None:
         """Back to the automatic slab centre, and run the analysis."""
@@ -1156,6 +1186,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         # slab): one label, now above the map, where a figure is read.
         self.lbl_provenance = self.axon_map.lbl_line1
         self.axon_map.view_changed.connect(self._on_map_view)
+        self.axon_map.overlay_clear_requested.connect(self.clear_overlay)
         self.plot_splitter.addWidget(self.axon_map)
 
         self.tabs = QtWidgets.QTabWidget()
@@ -1291,6 +1322,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             # A new analysis is shown as itself.
             self._last_analysis = self.analysis
             self._show_current = False
+        if self._overlay is not None and self._overlay.base is not self.analysis:
+            # the second method was run on the previous analysis' slab
+            self._overlay = None
         self.comparison = self._ask_discard()
         self._read_selection()
         self._sync_controls()
@@ -1941,7 +1975,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             axoplasm=state, axoplasm_reason=state_reason or prev.axoplasm_reason,
             rings=ms, rings_reason=ms_reason or prev.rings_reason,
             source=prev.source, colour_by=prev.colour_by, image=prev.image,
-            selection_n=None if sel is None else sel.n_locs)
+            selection_n=None if sel is None else sel.n_locs,
+            overlay=(self._overlay if (a is not None and self._overlay is not None and self._overlay.base is a)
+                     else None))
 
     def _draw_map(self) -> None:
         self.axon_map.set_inputs(self._map_inputs())

@@ -194,6 +194,15 @@ ROLES: Dict[str, str] = {
     # green circle inside its hexagon), and the edge is a cased dashed
     # line, so neither relies on the hue (validate_plot_colours.py).
     "cut": OKABE_ITO["reddish_purple"],
+    # --- a second clustering method over the first (tools/method_overlay.py)
+    # The outlines of the clusters of the method chosen in "Compare
+    # methods", over the analysis shown, whose own outlines are thin solid
+    # lines in its localizations' sky blue. Reddish purple again: the one
+    # chromatic hue the MPS view leaves free; the outlines are DOTTED (no
+    # other row of the map is) and drawn thin around groups of
+    # localizations, which tells them from the pick's cased dashed edge and
+    # hexagons (validate_plot_colours.py).
+    "method_b": OKABE_ITO["reddish_purple"],
 }
 
 # What a finding of each kind is prefixed with. Colour says it twice; the
@@ -298,6 +307,30 @@ SEGMENT_SYMBOLS: Tuple[str, ...] = ("o", "s", "t", "d", "+")
 # checks that there are as many of each.
 SEGMENT_GLYPHS: Tuple[str, ...] = ("\u25cf", "\u25a0", "\u25bc",
                                    "\u25c6", "+")
+
+
+# --------------------------------------------------------------------------
+# A quantity rather than a category: the density of the Voronoi cells
+# --------------------------------------------------------------------------
+# The roles above name categories, eight at most. The Voronoi layer of the
+# axon map paints a QUANTITY - each cell by its density, in eight classes
+# (tools/voronoi_layer.py) - and a quantity wants a sequential map whose
+# lightness rises with it, so that it survives every dichromacy and a
+# photocopy: it is read from light and dark, not from hue. These are
+# viridis (van der Walt and Smith, matplotlib, CC0) sampled at 0.25 ... 1.0
+# in eight equal steps: its darkest quarter is left out because it is
+# near-black on the map's black (validate_plot_colours.py checks the
+# lightness steps under the three dichromacies and both ends against both
+# backgrounds). Never a role: no categorical mark uses these.
+DENSITY_RAMP: Tuple[str, ...] = (
+    "#3b528b", "#2e6e8e", "#24878e", "#1fa187",
+    "#3aba76", "#73d056", "#b8de29", "#fde725",
+)
+# How the cells of a cluster and the others are drawn with that fill is in
+# tools/mps_axon_map_layers.py ROW_STYLES ("vor_in", "vor_out"): the cells
+# of a cluster opaque with a thin outline in the neutral colour, the others
+# faint and without one - "in a cluster" is told by opacity and an outline,
+# never by hue.
 
 
 def segment_colour(index: int) -> str:

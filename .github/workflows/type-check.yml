@@ -73,6 +73,8 @@ jobs:
             tools/clustering_strategies.py \
             tools/cluster_density.py \
             tools/cluster_tessellation.py \
+            tools/voronoi_layer.py \
+            tools/method_overlay.py \
             tools/cluster_topological.py \
             tools/spatial_stats.py \
             tools/cluster_benchmark.py \

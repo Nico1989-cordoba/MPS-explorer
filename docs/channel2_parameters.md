@@ -104,6 +104,14 @@ again gives 5. In a simulation of molecules of 14 localizations with σ = 12 nm 
 within 25 nm is 9.63 against 9.61 from the formula, and about 60 % of a molecule's localizations are core points at
 Min Pts = 10: one labelled molecule forms a cluster. This check is a unit test (`test_channel2_params.py`).
 
+What the check assumes. Dempsey et al. (2011, Table 1) count **switching events** per molecule, for antibodies with
+0.2-0.8 dyes adsorbed on glass, under TIRF without 405 nm activation, from the first frame, and report the mean
+only, as a lower bound [lit: Dempsey et al. 2011, Table 1 and Online Methods]. `min_samples` counts
+**localizations**: one event that stays on for several frames gives several localizations unless the frames are
+linked first, and the frames per event depend on the illumination intensity and on the buffer pH
+[lit: Lin et al. 2015; Olivier et al. 2013]. The check therefore holds for linked localizations, or for movies
+whose events last about one frame; otherwise a molecule leaves more localizations than its switching cycles.
+
 ## 6. The dye table
 
 Mean number of switching cycles per molecule, from **Dempsey et al. (2011), Nature Methods 8:1027, Table 1**
@@ -195,9 +203,14 @@ written beside every export describes each of them.
   nerve axons. bioRxiv doi:10.64898/2026.02.19.705149; eLife Reviewed Preprint doi:10.7554/eLife.111108.1
 - Khater IM, Nabi IR, Hamarneh G (2020). A review of super-resolution single-molecule localization microscopy cluster
   analysis and quantification methods. *Patterns* 1(3):100038. doi:10.1016/j.patter.2020.100038
+- Lin Y, Long JJ, Huang F, Duim WC, Kirschbaum S, Zhang Y, Schroeder LK, Rebane AA, Velasco MGM, Virrueta A,
+  Moonan DW, Jiao J, Hernandez SY, Zhang Y, Bewersdorf J (2015). Quantifying and optimizing single-molecule switching
+  nanoscopy at high speeds. *PLOS ONE* 10(5):e0128135. doi:10.1371/journal.pone.0128135
 - Nieuwenhuizen RPJ, Bates M, Szymborska A, Lidke KA, Rieger B, Stallinga S (2015). Quantitative localization
   microscopy: effects of photophysics and labeling stoichiometry. *PLOS ONE* 10:e0127989.
   doi:10.1371/journal.pone.0127989
 - Nieves DJ, Pike JA, Levet F, Williamson DJ, Baragilly M, Oloketuyi S, de Marco A, Griffié J, Sage D, Cohen EAK,
   Sibarita J-B, Heilemann M, Owen DM (2023). A framework for evaluating the performance of SMLM cluster analysis
   algorithms. *Nature Methods* 20(2):259-267. doi:10.1038/s41592-022-01750-6
+- Olivier N, Keller D, Gönczy P, Manley S (2013). Resolution doubling in 3D-STORM imaging through improved buffers.
+  *PLOS ONE* 8(7):e69004. doi:10.1371/journal.pone.0069004

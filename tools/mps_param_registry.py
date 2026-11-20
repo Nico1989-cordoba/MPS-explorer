@@ -255,8 +255,13 @@ _ENTRIES: Tuple[ParamInfo, ...] = (
        shown_as="parameter strip; main-window mirror; batch label; rings parameter line", editable=True),
     _e(key="dbscan.min_samples", label="min samples", unit="", home="strip",
        default=_const(_S, "DEFAULT_MIN_SAMPLES"), origin="paper",
-       origin_note=f"the published DBSCAN minimum count of {PAPER}, matched to the mean switching cycles of the "
-                   "fluorophore (Dempsey et al. 2011); kept in every DBSCAN path",
+       origin_note=f"the published DBSCAN minimum count of {PAPER}, who set it 'following the mean number of "
+                   "switching cycles expected' for Alexa Fluor 568 and 647 (Dempsey et al. 2011, Table 1: 7 and "
+                   "14 in MEA, 52 and 26 in beta-mercaptoethanol); those are switching events per molecule on "
+                   "glass, a lower bound and without spread, while min samples counts localizations (one event "
+                   "can span several frames unless linked); with 14 cycles, eps 25 nm and NeNA 12 nm one "
+                   "molecule expects 9.6 neighbours (docs/channel2_parameters.md, section 5); kept in every "
+                   "DBSCAN path",
        shown_as="parameter strip; main-window mirror; batch label; rings parameter line",
        documented_range=(2.0, 50.0), range_text="2-50",
        records=("minsamples-fallback-5-and-hdbscan-defaults",), editable=True),

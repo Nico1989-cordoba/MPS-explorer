@@ -282,6 +282,13 @@ class AxonAnalysis:
     emitters: Optional[Any] = None
     localization_sigma_slab: Optional[NDArray[np.float64]] = None
     localization_frame_slab: Optional[NDArray[np.int64]] = None
+    # --- what a Voronoi method measured (display only) --------------------
+    # tools.cluster_tessellation.TessellationDiagnostics of the fit when the
+    # method was voronoi_factor / voronoi_csr (per-localization density of
+    # the slab, clip window, threshold, mean density), else None. Kept so
+    # the axon map can draw the cells without clustering again
+    # (tools.voronoi_layer); not exported, and no number is computed from it.
+    cluster_diagnostics: Optional[Any] = None
 
     # ---------------- convenience accessors for the panel ----------------
 
@@ -1298,6 +1305,10 @@ def analyze_axon(
     method_record["cluster_edge_margin_nm"] = edge_margin
     layer_data = getattr(strategy, "layer_data", None)
     method_record["emitters"] = layer_data() if callable(layer_data) else None
+    # The Voronoi methods' diagnostics, for the map's cell layer (read, never recomputed; tools.voronoi_layer).
+    from tools.cluster_tessellation import VoronoiDensityStrategy
+    method_record["cluster_diagnostics"] = (strategy.diagnostics if isinstance(strategy, VoronoiDensityStrategy)
+                                            else None)
     em_checks = getattr(method_record["emitters"], "checks", None)
     if em_checks is not None and em_checks.any:
         # section 3.7 of the BaGoL plan (thresholds of F4): calibrate / xi mixture / precision under-reported

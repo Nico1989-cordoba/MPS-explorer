@@ -30,14 +30,14 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 import pyqtgraph as pg
 from numpy.typing import NDArray
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools import mps_axon_map_layers as L
 from tools import mps_param_registry as reg
 from tools.mps_layer_panel import LayerPanel, Swatch
 from tools.mps_plot_style import (
-    fit_title_width, neutral, role, segment_colour, segment_symbol, set_title, style_dark, style_light,
-    title_natural_width)
+    DENSITY_RAMP, PLOT_BG, fit_title_width, neutral, role, segment_colour, segment_symbol, set_title, style_dark,
+    style_light, title_natural_width)
 
 __all__ = ["AxonMap", "render_layer", "swatch_for", "cased_edge_rgba", "colour_of"]
 
@@ -72,6 +72,9 @@ def colour_of(layer: L.Layer, dark: bool = True) -> str:
         return segment_colour(int(layer.segment or 0))
     if s.role == "image":
         return "#9a9a9a"
+    if s.role == "ramp":
+        # a quantity: the swatch shows a class above the threshold for the cells of a cluster, one below for the rest
+        return DENSITY_RAMP[5] if layer.key == "vor_in" else DENSITY_RAMP[2]
     return role(s.role)
 
 
@@ -109,12 +112,102 @@ def swatch_for(layer: L.Layer, dark: bool = True) -> Swatch:
         return Swatch("image")
     if layer.kind == "band":
         return Swatch("bar", _hex_rgba(colour, max(s.alpha, 120)))
-    return Swatch("line", colour, dash=s.pen == "dash", width=min(3.0, max(1.5, s.width)), cased=s.cased)
+    if layer.kind == "voronoi":
+        return Swatch("bar", _hex_rgba(colour, s.alpha))
+    return Swatch("line", colour, dash=s.pen == "dash", dot=s.pen == "dot", width=min(3.0, max(1.5, s.width)),
+                  cased=s.cased)
 
 
 def _brush(layer: L.Layer, dark: bool) -> Any:
     s = layer.style
     return pg.mkBrush(*_hex_rgba(colour_of(layer, dark), s.alpha))
+
+
+VORONOI_Z = {"vor_out": -18.0, "vor_in": -17.0}   # over the widefield image (-20), under its edges (-15)
+VORONOI_OUTLINE_ALPHA = 150                       # the thin neutral outline of a cluster's cells [ad hoc]
+
+
+def voronoi_items(layer: L.Layer, dark: bool = True) -> List[Any]:
+    """One QGraphicsPathItem per density class (not one item per cell): the polygons of the class joined into one
+    path (``pyqtgraph.arrayToQPath`` with a connect array), filled in the class colour. Empty when the row has nothing
+    to draw or its cells cannot be rebuilt (``tools.voronoi_layer.cell_drawing`` says why)."""
+    from tools import voronoi_layer as V
+    d = layer.data
+    if "diag" not in d:
+        return []
+    s = layer.style
+    drawing, why = V.cell_drawing(d["diag"], d["x"], d["y"], d["labels"], d["scale"], bool(d["in_clusters"]))
+    if why:
+        return []
+    if s.outline == "neutral":
+        pen = pg.mkPen(*_hex_rgba(neutral(dark), VORONOI_OUTLINE_ALPHA), width=s.width)
+        pen.setCosmetic(True)
+    else:
+        pen = QtGui.QPen(QtCore.Qt.PenStyle.NoPen)
+    items: List[Any] = []
+    for k in sorted(drawing.classes):
+        x, y, connect = drawing.classes[k]
+        path = pg.arrayToQPath(x, y, connect=connect)
+        item = QtWidgets.QGraphicsPathItem(path)
+        item.setBrush(pg.mkBrush(*_hex_rgba(d["scale"].colours[k], s.alpha)))
+        item.setPen(pen)
+        item.setZValue(VORONOI_Z.get(layer.key, -18.0))
+        items.append(item)
+    return items
+
+
+class DensityScaleBar(QtWidgets.QWidget):
+    """The Voronoi layer's scale under its rows: the classes in their colours, equal widths, with a white tick at the
+    threshold the method applied, and the densities at the ends and at the tick (localizations per um^2)."""
+
+    BAR_PX = (216, 14)
+
+    def __init__(self, scale: Any, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        from tools import voronoi_layer as V
+        self.setObjectName("voronoi_scale")
+        self.scale = scale
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(0, 2, 0, 2)
+        lay.setSpacing(1)
+        self.bar = QtWidgets.QLabel()
+        self.bar.setObjectName("voronoi_scale_bar")
+        self.bar.setPixmap(self.pixmap())
+        lay.addWidget(self.bar)
+        values = scale.edge_values_um2()
+        if scale.threshold_edge is not None:
+            words = (f"{V.density_words(values[0])}  |  threshold {V.density_words(scale.threshold * V.PER_UM2)}  |  "
+                     f"{V.density_words(values[-1])} loc/um^2")
+        else:
+            words = f"{V.density_words(values[0])} ... {V.density_words(values[-1])} loc/um^2 ({scale.note})"
+        self.text = QtWidgets.QLabel(words)
+        self.text.setObjectName("voronoi_scale_text")
+        self.text.setWordWrap(True)
+        self.text.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        lay.addWidget(self.text)
+        self.setToolTip("Density classes of the Voronoi cells, from sparse (left) to dense (right): equal steps of "
+                        "log density below the threshold and above it, so the tick sits on a class edge. The two "
+                        "ends are the 1 % and 99 % quantiles of the cells (denser or sparser cells take the end "
+                        "colour). Colours: viridis, lightness rising with density.")
+
+    def pixmap(self) -> QtGui.QPixmap:
+        w, h = self.BAR_PX
+        pm = QtGui.QPixmap(w, h + 6)
+        pm.fill(QtCore.Qt.GlobalColor.transparent)
+        p = QtGui.QPainter(pm)
+        p.fillRect(QtCore.QRectF(0, 0, w, h + 6), pg.mkColor(PLOT_BG))
+        n = len(self.scale.colours)
+        step = (w - 4) / float(n)
+        for k, colour in enumerate(self.scale.colours):
+            p.fillRect(QtCore.QRectF(2 + k * step, 3, step + 0.5, h), pg.mkColor(colour))
+        if self.scale.threshold_edge is not None:
+            x = 2 + self.scale.threshold_edge * step
+            p.setPen(QtGui.QPen(QtGui.QColor("#000000"), 4))
+            p.drawLine(QtCore.QPointF(x, 0), QtCore.QPointF(x, h + 6))
+            p.setPen(QtGui.QPen(pg.mkColor(neutral(dark=True)), 2))
+            p.drawLine(QtCore.QPointF(x, 0), QtCore.QPointF(x, h + 6))
+        p.end()
+        return pm
 
 
 def render_layer(layer: L.Layer, dark: bool = True) -> List[Any]:
@@ -123,6 +216,15 @@ def render_layer(layer: L.Layer, dark: bool = True) -> List[Any]:
     d = layer.data
     colour = colour_of(layer, dark)
     items: List[Any] = []
+    if layer.kind == "voronoi":
+        return voronoi_items(layer, dark)
+    if layer.kind == "outlines":
+        # every outline of the row in one item: a connect array ends each one
+        if "x" not in d or not np.asarray(d["x"]).size:
+            return items
+        return [pg.PlotDataItem(np.asarray(d["x"], float), np.asarray(d["y"], float),
+                                connect=np.asarray(d["connect"]),
+                                pen=pg.mkPen(colour, width=s.width, style=_pen_style(s.pen)))]
     if layer.kind == "scatter":
         x = np.asarray(d.get("x", ()), float)
         y = np.asarray(d.get("y", ()), float)
@@ -235,6 +337,8 @@ class AxonMap(QtWidgets.QWidget):
     # The widefield image chosen ("tubulin" | "spectrin"), each time it changes: the Axoplasm panel's own selector
     # follows it (the map's input is the one source of truth).
     image_changed = QtCore.pyqtSignal(str)
+    # "Clear the overlay" pressed under the second method's rows (tools.method_overlay): the window drops it.
+    overlay_clear_requested = QtCore.pyqtSignal()
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None, *, dark: bool = True) -> None:
         super().__init__(parent)
@@ -246,6 +350,8 @@ class AxonMap(QtWidgets.QWidget):
         self._applying = False
         self._groups: List[L.Group] = []
         self._layers: Dict[str, L.Layer] = {}
+        # rows whose items are built only when ticked (the Voronoi cells): their keys, until then
+        self._pending: Set[str] = set()
         self._fitted = False
         self._user_range = False
         self._user_split = False
@@ -535,12 +641,18 @@ class AxonMap(QtWidgets.QWidget):
         was = self._applying
         self._applying = True
         try:
+            self._pending = set()
             for g in self._groups:
                 header = headers.get(g.header or "")
                 self.layers.add_group(g.title, key=g.key, caption=g.caption, header=header, collapsible=True)
                 for layer in g.layers:
                     self._layers[layer.key] = layer
-                    items = render_layer(layer, self.dark)
+                    if layer.kind == "voronoi" and not (layer.enabled and g.enabled and self._starts_on(layer.key)):
+                        # thousands of cells: built when the row is ticked (_on_toggled), not at every redraw
+                        items = []
+                        self._pending.add(layer.key)
+                    else:
+                        items = render_layer(layer, self.dark)
                     for item in items:
                         self.plot.addItem(item)
                     self.layers.add_layer(layer.key, layer.label, swatch_for(layer, True), items=items,
@@ -548,6 +660,17 @@ class AxonMap(QtWidgets.QWidget):
                                           visible=L.view_on(self._base_view, layer.key))
                     if not layer.enabled:
                         self.layers.set_enabled(layer.key, False, layer.reason)
+                scale = next((layer.data.get("scale") for layer in g.layers if layer.kind == "voronoi"
+                              and layer.data.get("scale") is not None), None)
+                if scale is not None and g.layers:
+                    self.layers.add_widget(DensityScaleBar(scale), key=g.layers[-1].key)
+                if g.key == "overlay" and g.layers:
+                    clear = QtWidgets.QPushButton("Clear the overlay")
+                    clear.setObjectName("btn_clear_overlay")
+                    clear.setToolTip("Remove the second method's outlines from the map (the analysis shown does not "
+                                     "change; 'Compare methods...' can draw another).")
+                    clear.clicked.connect(self.overlay_clear_requested)
+                    self.layers.add_widget(clear, key=g.layers[-1].key)
                 if not g.enabled:
                     self.layers.set_group_enabled(g.key, False, g.reason)
         finally:
@@ -742,7 +865,25 @@ class AxonMap(QtWidgets.QWidget):
         self._apply_rules()
         self._retitle()
 
+    def _starts_on(self, key: str) -> bool:
+        """Whether the row of ``key`` is ticked in the drawing being built: its remembered state, else the view's."""
+        return bool(self.layers.state().get(key, L.view_on(self._base_view, key)))
+
+    def build_pending(self, key: str) -> List[Any]:
+        """Build the items of a row left empty at the redraw (the Voronoi cells), add them to the plot and bind them
+        to the row. Returns them ([] when there is nothing to build)."""
+        if key not in self._pending or key not in self._layers:
+            return []
+        self._pending.discard(key)
+        items = render_layer(self._layers[key], self.dark)
+        for item in items:
+            self.plot.addItem(item)
+        self.layers.bind(key, items)
+        return items
+
     def _on_toggled(self, key: str, _on: bool) -> None:
+        if _on and key in self._pending:
+            self.build_pending(key)
         if key == "image":
             self._apply_rules()
         self._retitle()

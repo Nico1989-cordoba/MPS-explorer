@@ -311,6 +311,22 @@ TOGETHER: Dict[str, Sequence[Tuple[str, int, str]]] = {
         ("image_tubulin", 255, "cased line and cased rings"),
         ("image_spectrin", 255, "cased line and cased squares"),
         ("cut", 255, "cased hollow hexagon and cased dashed line"),
+        ("method_b", 255, "dotted hull"),
+    ),
+    # A second clustering method over the analysis shown (Compare methods ->
+    # Overlay on the map, tools/method_overlay.py): the analysis' own kept
+    # clusters outlined thin and solid in its localizations' sky blue, the
+    # other method's dotted in reddish purple, over the MPS view's rows.
+    "the axon map with a second method's outlines": (
+        ("noise", 90, "dot"),
+        ("curated", 160, "x"),
+        ("locs", 200, "dot"),
+        ("centroid", 255, "circle"),
+        ("occupied", 255, "thick line"),
+        ("centre", 255, "plus"),
+        ("cut", 255, "cased hollow hexagon and cased dashed line"),
+        ("locs", 255, "thin solid hull"),
+        ("method_b", 255, "dotted hull"),
     ),
     # The single axial view, "MPS analysis slab": the ROI's z inside the
     # slab (sky blue) and outside it (grey, alpha 100: 80 is 19.9 off black,
@@ -500,6 +516,40 @@ BY_SHAPE: Dict[Tuple[str, str], str] = {
         "are coloured by the two widefield images, the only colouring with "
         "the spectrin squares; the spectrin interior's edge is a solid "
         "cased line against the pick's cased dashed line",
+    # --- a second method's outlines on the axon map (tools/method_overlay.py)
+    # The analysis' own clusters are outlined in the sky blue of its own
+    # localizations on purpose (they are the same clusters); the other
+    # method's outlines are the only DOTTED line of the map, thin closed
+    # loops around groups of localizations.
+    ("locs", "locs"):
+        "the analysis' own clusters: their 3 px dots and the thin solid loop "
+        "around each of them, the same clusters drawn twice",
+    ("locs", "method_b"):
+        "a dotted loop around a group of localizations against the 3 px dots "
+        "inside it and the thin solid loop of the analysis' own cluster; "
+        "apart for everyone but a protanope",
+    ("curated", "method_b"):
+        "a dotted loop against 5 px x marks of single localizations",
+    ("centroid", "method_b"):
+        "a dotted loop around a group against one 7 px filled circle with a "
+        "pale outline at its middle",
+    ("occupied", "method_b"):
+        "small dotted loops around the clusters against one thick solid line "
+        "along the contour",
+    ("centre", "method_b"):
+        "dotted loops on the ring against one 18 px cased plus at its middle",
+    ("image_spectrin", "method_b"):
+        "the same purple: the second method's rows are disabled while the "
+        "centres are coloured by the two widefield images, the only "
+        "colouring with the spectrin squares",
+    ("image_tubulin", "method_b"):
+        "disabled together, as above; and a thin dotted loop against a cased "
+        "solid mask edge and cased rings",
+    ("cut", "method_b"):
+        "the same reddish purple: the pick's rows are 16 px CASED hollow "
+        "hexagons around one centre and a CASED DASHED edge around the whole "
+        "field, the second method's are thin uncased DOTTED loops around "
+        "groups of localizations",
     # --- the single axial view --------------------------------------------
     ("dim", "slab"):
         "in the axial view they never overlap: the grey bars are the ROI "
@@ -894,6 +944,8 @@ def test_stage2_widgets() -> None:
             "nn_bars", "nn_median", "nn_reference"),
         "the 1NN CDF (nearest-neighbours tab)": (
             "cdf_observed", "cdf_randomized"),
+        "the axon map with a second method's outlines": (
+            "ov_a", "ov_b"),
     }
 
     def the_builders_follow_these_lists():
@@ -906,7 +958,7 @@ def test_stage2_widgets() -> None:
                                                      s.alpha)
                 n += 1
         drawn = {s.role for s in styles.values()}
-        stray = drawn - set(ROLES) - {"neutral", "segment", "image"}
+        stray = drawn - set(ROLES) - {"neutral", "segment", "image", "ramp"}
         assert not stray, stray
         return f"{n} rows drawn in the role and alpha their list gives"
 
@@ -1012,10 +1064,112 @@ def test_stage2_widgets() -> None:
         assert layers_spec.PICK_DISABLED_WITH_IMAGES
         return "hollow cased hexagons and a cased dashed line; off with the images' colouring and the segments"
 
+    def the_second_method_is_dotted():
+        # The second method shares the pick's purple: its outlines are the
+        # map's only dotted, uncased line, the pick's are cased and dashed.
+        b = styles["ov_b"]
+        assert b.role == "method_b" and b.pen == "dot" and not b.cased, b
+        map_keys = set(layers_spec.SEGMENTS_DISABLE) | set(layers_spec.SEGMENTS_ALLOW) | {
+            k for v in layers_spec.VIEW_ON.values() for k in v}
+        dotted = sorted(k for k in map_keys if k in styles and styles[k].pen == "dot")
+        assert dotted == ["ov_b"], dotted
+        assert styles["ov_a"].role == "locs" and styles["ov_a"].pen == "solid"
+        assert "same purple" in layers_spec.OVERLAY_DISABLED_WITH_IMAGES
+        assert {"ov_a", "ov_b"} <= set(layers_spec.SEGMENTS_DISABLE)
+        return ("ov_b dotted and uncased, ov_a solid in the localizations' colour; off with the images' colouring "
+                "and the segments")
+
     check("channel 2 and the components are never drawn together",
           channel_2_and_the_components_are_exclusive)
+    check("the second method's outlines are the map's only dotted line",
+          the_second_method_is_dotted)
     check("the Picasso pick's rows are told apart by their shapes",
           the_pick_is_told_apart_by_its_shapes)
+
+
+# The marks of the axon map that can be drawn over the Voronoi cells and come
+# within APART of a density class under some vision, each with what tells it
+# from the fill. As with BY_SHAPE, a mark close to the ramp and NOT here is a
+# failure: this list is the specification.
+OVER_THE_CELLS: Dict[str, str] = {
+    "locs": "3 px dots over cells that are each one localization's own cell: every dot sits at the middle of a "
+            "cell, and with the cells shown the dots can be hidden (the cells already say where they are)",
+    "noise": "2 px faint dots, each at the middle of a cell, never a cell's colour across its area",
+    "centroid": "7 px filled circles with a pale outline",
+    "occupied": "a 4 px line along the contour, across many cells of different classes",
+    "centre": "one 18 px plus with a dark casing",
+    "discarded": "9 px diamonds with a pale outline",
+    "cut": "16 px cased hollow hexagons and a cased dashed line",
+    "curated": "5 px x marks, each at the middle of a cell",
+    "image_tubulin": "a cased mask edge (dark rim) and 10 px cased rings; the cells sit over the image and under "
+                     "its edges",
+    "image_spectrin": "a cased image edge and 10 px cased squares",
+    "method_b": "thin dotted loops around groups of cells (the map's only dotted line)",
+}
+
+
+def test_density_ramp() -> None:
+    print("\n--- the Voronoi layer: a quantity on a sequential ramp ---")
+    from tools import mps_axon_map_layers as layers_spec
+    from tools.mps_plot_style import DENSITY_RAMP
+
+    styles = layers_spec.ROW_STYLES
+    alpha_in, alpha_out = styles["vor_in"].alpha, styles["vor_out"].alpha
+
+    def lightness_rises_for_everyone():
+        # A quantity is read from light and dark: every step of the ramp is
+        # lighter than the one below it under every kind of vision, and by
+        # enough to be seen (5 L*, ad hoc: about twice the just-noticeable
+        # difference), so the order survives a dichromacy and a photocopy.
+        worst = None
+        for kind in SIMULATIONS:
+            light = [to_lab(simulate(c, kind))[0] for c in DENSITY_RAMP]
+            steps = np.diff(light)
+            assert np.all(steps >= 5.0), (kind, [round(s, 1) for s in steps])
+            worst = min(worst, float(steps.min())) if worst is not None else float(steps.min())
+        return f"{len(DENSITY_RAMP)} classes, every step at least {worst:.1f} L* lighter"
+
+    def never_a_role():
+        assert not set(DENSITY_RAMP) & set(ROLES.values()), set(DENSITY_RAMP) & set(ROLES.values())
+        assert styles["vor_in"].role == styles["vor_out"].role == "ramp"
+        return "no class shares a colour with a categorical role"
+
+    def the_ends_stand_off_both_backgrounds():
+        # the faintest drawing of the darkest class on black, the lightest class on the white of an export
+        low = min(distance(blend(DENSITY_RAMP[0], alpha_out, DARK_BG), DARK_BG, k) for k in SIMULATIONS)
+        high = min(distance(DENSITY_RAMP[-1], LIGHT_BG, k) for k in SIMULATIONS)
+        assert low >= 20.0, low
+        assert high >= 20.0, high
+        return f"darkest class at alpha {alpha_out} {low:.0f} off black, lightest {high:.0f} off white"
+
+    def in_a_cluster_is_not_a_hue():
+        # The cells of a cluster and the others share the ramp; they differ
+        # by opacity and by the outline only the cells of a cluster have.
+        s_in, s_out = styles["vor_in"], styles["vor_out"]
+        assert s_in.outline == "neutral" and s_out.outline is None, (s_in.outline, s_out.outline)
+        assert alpha_in - alpha_out >= 80, (alpha_in, alpha_out)
+        gap = min(distance(blend(c, alpha_in, DARK_BG), blend(c, alpha_out, DARK_BG), "normal")
+                  for c in DENSITY_RAMP)
+        assert gap >= 8.0, gap
+        return f"alpha {alpha_in} with an outline against {alpha_out} without; same class at least {gap:.0f} apart"
+
+    def marks_over_the_cells():
+        close = {}
+        for name, _alpha, _shape in TOGETHER["the axon map (any combination on black)"]:
+            d = min(distance(role(name), blend(c, alpha_in, DARK_BG), k)
+                    for c in DENSITY_RAMP for k in SIMULATIONS)
+            if d < APART:
+                close[name] = d
+        stray = sorted(set(close) - set(OVER_THE_CELLS))
+        assert not stray, {n: round(close[n]) for n in stray}
+        return "close to a class and told apart otherwise: " + ", ".join(
+            f"{n} {close[n]:.0f}" for n in sorted(close))
+
+    check("the ramp's lightness rises under every vision", lightness_rises_for_everyone)
+    check("the ramp is never a role", never_a_role)
+    check("its ends stand off both backgrounds", the_ends_stand_off_both_backgrounds)
+    check("a cluster's cells differ by opacity and outline, not hue", in_a_cluster_is_not_a_hue)
+    check("the marks drawn over the cells", marks_over_the_cells)
 
 
 def main() -> int:
@@ -1029,6 +1183,7 @@ def main() -> int:
     test_segments()
     test_greyscale()
     test_stage2_widgets()
+    test_density_ramp()
     print("\n" + "=" * 72)
     print(f"{PASSED} passed, {FAILED} failed")
     print("=" * 72)
