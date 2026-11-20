@@ -1,0 +1,220 @@
+{
+  "seed": 0,
+  "n_replicates": 10,
+  "strategies": [
+    "dbscan_25_10",
+    "reg:voronoi_csr",
+    "reg:OPTICS",
+    "reg:GraphCommunity",
+    "reg:HDBSCAN",
+    "reg:FOCAL",
+    "reg:voronoi_factor",
+    "reg:ToMATo"
+  ],
+  "jobs": 4,
+  "replicate_seed": "numpy default_rng([seed, crc32(scenario name), replicate])",
+  "verdict_status": "defaults verificados 2026-10-16; benchmark sint\u00e9tico",
+  "strategy_params": {
+    "dbscan_25_10": {
+      "eps": 25.0,
+      "min_samples": 10,
+      "metric": "euclidean"
+    },
+    "reg:voronoi_csr": {
+      "strategy": "voronoi_density",
+      "threshold_mode": "csr",
+      "density_factor": 2.0,
+      "csr_quantile": 0.99,
+      "csr_iterations": 50,
+      "density_rank": 0,
+      "min_cluster_points": 5,
+      "roi_polygon": null,
+      "hull_margin_spacings": 1.0,
+      "rng_seed": 0,
+      "reference_region": "occupied",
+      "support_grid_nm": 100.0,
+      "support_dilation": 1,
+      "csr_locs_per_seed": 1,
+      "csr_seed_sigma_nm": 12.0
+    },
+    "reg:OPTICS": {
+      "min_samples": 10,
+      "xi": 0.1,
+      "max_eps": 100.0,
+      "cluster_method": "xi",
+      "eps": null,
+      "metric": "euclidean"
+    },
+    "reg:GraphCommunity": {
+      "radius_nm": 25.0,
+      "radii_nm": [
+        10.0,
+        15.0,
+        20.0,
+        25.0,
+        30.0,
+        35.0,
+        40.0,
+        45.0,
+        50.0,
+        55.0,
+        60.0
+      ],
+      "alpha": 0.05,
+      "n_random": 5,
+      "prune_quantile": null,
+      "min_cluster_size": 3,
+      "seed": 0,
+      "null_region": "occupied"
+    },
+    "reg:HDBSCAN": {
+      "min_samples": 5,
+      "min_cluster_size": 10,
+      "metric": "euclidean"
+    },
+    "reg:FOCAL": {
+      "grid_nm": 15.0,
+      "min_l": 6,
+      "min_c": 3
+    },
+    "reg:voronoi_factor": {
+      "strategy": "voronoi_density",
+      "threshold_mode": "factor",
+      "density_factor": 2.0,
+      "csr_quantile": 0.99,
+      "csr_iterations": 50,
+      "density_rank": 1,
+      "min_cluster_points": 5,
+      "roi_polygon": null,
+      "hull_margin_spacings": 1.0,
+      "rng_seed": 0,
+      "reference_region": "occupied",
+      "support_grid_nm": 100.0,
+      "support_dilation": 1,
+      "csr_locs_per_seed": 1,
+      "csr_seed_sigma_nm": 12.0
+    },
+    "reg:ToMATo": {
+      "k_density": 10,
+      "k_graph": null,
+      "radius_nm": 20.0,
+      "tau": null,
+      "density": "kde",
+      "bandwidth_nm": 10.0,
+      "density_floor": null,
+      "min_cluster_size": 3
+    }
+  },
+  "scenarios": [
+    {
+      "name": "sparse_lab1",
+      "geometry": "ring",
+      "spacing_nm": 200.0,
+      "p_label": 0.5,
+      "c_label": 14.0,
+      "sigma_loc": 12.0,
+      "bg_labels_per_um": 0.5,
+      "bg_locs_per_um2": 30.0,
+      "f_pair": 0.15,
+      "L_um_range": [
+        10.0,
+        30.0
+      ],
+      "window_um": 2.0,
+      "sigma_link": 10.0,
+      "pair_sep": [
+        30.0,
+        60.0
+      ],
+      "origin": "simulation: SIM_CLUSTERING_REPORT.md section 2.1"
+    },
+    {
+      "name": "sparse_lab2",
+      "geometry": "ring",
+      "spacing_nm": 200.0,
+      "p_label": 1.0,
+      "c_label": 14.0,
+      "sigma_loc": 12.0,
+      "bg_labels_per_um": 0.5,
+      "bg_locs_per_um2": 30.0,
+      "f_pair": 0.15,
+      "L_um_range": [
+        10.0,
+        30.0
+      ],
+      "window_um": 2.0,
+      "sigma_link": 10.0,
+      "pair_sep": [
+        30.0,
+        60.0
+      ],
+      "origin": "simulation: SIM_CLUSTERING_REPORT.md section 2.1"
+    },
+    {
+      "name": "medium_lab1",
+      "geometry": "ring",
+      "spacing_nm": 100.0,
+      "p_label": 0.5,
+      "c_label": 14.0,
+      "sigma_loc": 12.0,
+      "bg_labels_per_um": 0.5,
+      "bg_locs_per_um2": 30.0,
+      "f_pair": 0.15,
+      "L_um_range": [
+        10.0,
+        30.0
+      ],
+      "window_um": 2.0,
+      "sigma_link": 10.0,
+      "pair_sep": [
+        30.0,
+        60.0
+      ],
+      "origin": "simulation: SIM_CLUSTERING_REPORT.md section 2.1"
+    },
+    {
+      "name": "medium_lab2",
+      "geometry": "ring",
+      "spacing_nm": 100.0,
+      "p_label": 1.0,
+      "c_label": 14.0,
+      "sigma_loc": 12.0,
+      "bg_labels_per_um": 0.5,
+      "bg_locs_per_um2": 30.0,
+      "f_pair": 0.15,
+      "L_um_range": [
+        10.0,
+        30.0
+      ],
+      "window_um": 2.0,
+      "sigma_link": 10.0,
+      "pair_sep": [
+        30.0,
+        60.0
+      ],
+      "origin": "simulation: SIM_CLUSTERING_REPORT.md section 2.1"
+    }
+  ],
+  "n_rows": 360,
+  "elapsed_s": 1130.699494200002,
+  "constants": {
+    "SIGMA_LINK_NM": 10.0,
+    "EPITOPE_SEP_NM": [
+      5.0,
+      10.0
+    ],
+    "MEMBRANE_ROUGH_NM": 5.0,
+    "N_FRAMES": 20000,
+    "ON_FRAMES": [
+      1,
+      2,
+      3
+    ],
+    "BG_BAND_NM": 150.0,
+    "HARD_CORE_FRACTION": 0.4,
+    "SIGMA_LOC_CV": 0.25,
+    "TAU_EXACT": 0.8,
+    "PRESENT_SHARE": 0.2
+  },
+  "timing": "times of dbscan_25_10, reg:HDBSCAN, reg:FOCAL, reg:GraphCommunity, reg:voronoi_factor, reg:ToMATo re-measured serially, one process and one core (OMP/OPENBLAS/MKL/LOKY = 1), on the same samples; the others are from the run with 4 processes"
+}

@@ -14,7 +14,7 @@ Strategy Pattern Benefits:
 
 from abc import ABC, abstractmethod
 import numpy as np
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 from sklearn.cluster import DBSCAN
 import logging
 
@@ -49,6 +49,37 @@ class ClusteringStrategy(ABC):
     def get_strategy_name(self) -> str:
         """Return the name of the clustering strategy."""
         pass
+
+    def scale_nm(self) -> Optional[float]:
+        """The method's own length scale in nm, read after ``fit`` (informative).
+
+        Exported as ``cluster_scale_nm``. Each subclass documents where its
+        value comes from; ``None`` means the method has no length scale of
+        its own. It is NOT the edge-curation margin: for HDBSCAN / OPTICS /
+        ToMATo-kNN it is a median core distance and for Voronoi a cell
+        spacing, intra-cluster scales of 10-15 nm (VERIF_DEFAULTS_D0 section
+        9) that would under-protect the edge compared with eps 25 nm. The
+        margin is :meth:`edge_margin_nm`.
+        """
+        return None
+
+    def edge_margin_nm(self, compat_eps: float) -> float:
+        """Edge-curation margin in nm (``identify_bad_clusters(edge_margin_nm=...)``).
+
+        Default: ``max(compat_eps, scale_nm())`` [derivation: a cluster
+        within the separation scale of the ROI edge may be cut by it; the
+        method's own separation scale is used when it is larger, and the
+        reference pipeline's eps (25 nm, Gazal et al. 2026) is the floor so
+        no experimental method curates less than DBSCAN would; the floor is
+        ad hoc]. DBSCAN overrides it with eps itself (the compatibility
+        path, unchanged); HDBSCAN / OPTICS use the largest core distance of
+        the clustered points, the eps that would reproduce them.
+        """
+        s = self.scale_nm()
+        floor = float(compat_eps)
+        if s is None or not np.isfinite(s) or s <= 0:
+            return floor
+        return max(floor, float(s))
 
 
 class DBSCANStrategy(ClusteringStrategy):
@@ -135,6 +166,15 @@ class DBSCANStrategy(ClusteringStrategy):
         """Return strategy name."""
         return "DBSCAN"
 
+    def scale_nm(self) -> Optional[float]:
+        """eps itself [literature: Gazal et al. 2026, eps = 25 nm]."""
+        return float(self.eps)
+
+    def edge_margin_nm(self, compat_eps: float) -> float:
+        """eps itself, whatever ``compat_eps`` says: the edge margin of the
+        reference pipeline (compatibility path, bit for bit as before Phase D)."""
+        return float(self.eps)
+
     def get_params(self) -> dict:
         """Get strategy parameters."""
         return {
@@ -195,6 +235,8 @@ class HDBSCANStrategy(ClusteringStrategy):
 
         self.min_samples = min_samples
         self.min_cluster_size = min_cluster_size
+        self._scale: Optional[float] = None
+        self._max_core: Optional[float] = None
         self.metric = metric
         self.logger = logger
         # hdbscan is imported conditionally (may be absent) and has no
@@ -223,6 +265,10 @@ class HDBSCANStrategy(ClusteringStrategy):
         )
         self.model.fit(data)
         labels: np.ndarray = self.model.labels_
+        self._scale = core_distance_scale(np.asarray(data, dtype=float), labels,
+                                          int(self.min_samples or self.min_cluster_size))
+        self._max_core = core_distance_max(np.asarray(data, dtype=float), labels,
+                                           int(self.min_samples or self.min_cluster_size))
 
         if self.logger:
             n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
@@ -236,6 +282,25 @@ class HDBSCANStrategy(ClusteringStrategy):
     def get_strategy_name(self) -> str:
         """Return strategy name."""
         return "HDBSCAN"
+
+    def scale_nm(self) -> Optional[float]:
+        """Median core distance of the clustered points [derivation].
+
+        HDBSCAN has no eps: its density scale at each point is the distance
+        to its ``min_samples``-th neighbour (the core distance, Campello et
+        al. 2013). The median over the points inside clusters is the one
+        number that plays eps's role; ``None`` before ``fit``. Informative:
+        the edge margin is :meth:`edge_margin_nm`.
+        """
+        return self._scale
+
+    def edge_margin_nm(self, compat_eps: float) -> float:
+        """max(compat_eps, largest core distance of the clustered points)
+        [derivation: the eps at which DBSCAN would make every clustered
+        point a core point, i.e. HDBSCAN's effective separation scale]."""
+        return max(float(compat_eps), float(self._max_core or 0.0))
+
+
 
     def get_params(self) -> dict:
         """Get strategy parameters."""
@@ -484,3 +549,269 @@ def label_for(label: str) -> str:
     """The label shown today for a stored one ("Auto" -> the adaptive entry's name)."""
     kind = strategy_for_label(label)
     return {"auto": ADAPTIVE_LABEL, "hdbscan": "HDBSCAN"}.get(kind, "DBSCAN")
+
+
+# ===========================================================================
+# Phase D registry (D0, 2026-10-16)
+# ===========================================================================
+
+def core_distance_scale(xy: np.ndarray, labels: np.ndarray, k: int) -> Optional[float]:
+    """Median distance from each clustered point to its k-th neighbour [derivation].
+
+    The scale that methods without an eps (HDBSCAN, OPTICS-xi, ToMATo with a
+    k-NN density) actually work at: the core distance of Campello et al.
+    (2013) / the k-NN density scale. ``None`` when fewer than k+1 points are
+    inside clusters.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(xy, dtype=float)[:, :2]
+    inside = np.asarray(labels) >= 0
+    if int(inside.sum()) <= k:
+        return None
+    sub_pts = pts[inside]
+    d, _ = cKDTree(sub_pts).query(sub_pts, k=k + 1)
+    return float(np.median(d[:, -1]))
+
+
+def core_distance_max(xy: np.ndarray, labels: np.ndarray, k: int) -> Optional[float]:
+    """Largest distance from a clustered point to its k-th clustered neighbour [derivation].
+
+    The eps at which DBSCAN(eps, k + 1) would make every clustered point a
+    core point: the separation scale of a hierarchical density method, used
+    as its edge-curation margin (``ClusteringStrategy.edge_margin_nm``).
+    ``None`` when fewer than k+1 points are inside clusters.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(xy, dtype=float)[:, :2]
+    inside = np.asarray(labels) >= 0
+    if int(inside.sum()) <= k:
+        return None
+    sub_pts = pts[inside]
+    d, _ = cKDTree(sub_pts).query(sub_pts, k=k + 1)
+    return float(np.max(d[:, -1]))
+
+
+OCCUPIED_GRID_NM = 100.0
+"""Side of the grid that maps the region the localizations occupy [ad hoc: 4 x
+the compatibility eps of 25 nm, wider than one cluster (~60 nm across in the
+benchmark) and half the cluster spacing of the sparse regime (200 nm), so the
+occupied cells of consecutive clusters touch after one dilation]."""
+
+OCCUPIED_DILATION = 1
+"""Grid cells added around every occupied cell (8-connected) [ad hoc: one cell
+closes the gaps between consecutive clusters of a ring without filling the
+empty axoplasm of an axon wider than ~3 cells]."""
+
+
+class OccupiedSupport:
+    """The region the localizations occupy, as a dilated occupancy grid (2-D).
+
+    Every null model of Phase D that draws "random localizations" must draw
+    them where the data could be, not in the bounding box or the convex hull
+    of a ring, which include the empty axoplasm (REVIEW_D0_MODULES A3 / M3:
+    on a 20-um ring the hull is ~5x the band the localizations occupy). Levet
+    et al. (2015) take the mean density as n / image area and Andronov et al.
+    (2016) draw their random sets "throughout the ROI"; on an axon ring both
+    regions include the empty interior, so here the region is the set of
+    ``cell_nm`` grid cells holding at least one localization, dilated by
+    ``dilation`` cells [derivation: the reference region of the null is the
+    region of support of the data; grid side and dilation are ad hoc, see
+    OCCUPIED_GRID_NM / OCCUPIED_DILATION]. Only x and y are used.
+    """
+
+    def __init__(self, xy: np.ndarray, cell_nm: float = OCCUPIED_GRID_NM,
+                 dilation: int = OCCUPIED_DILATION) -> None:
+        from scipy import ndimage
+        pts = np.asarray(xy, dtype=float)
+        if pts.ndim != 2 or pts.shape[0] == 0:
+            raise ValueError("OccupiedSupport needs at least one (x, y) point")
+        pts = pts[:, :2]
+        if float(cell_nm) <= 0:
+            raise ValueError("cell_nm must be > 0")
+        self.cell_nm = float(cell_nm)
+        self.dilation = max(int(dilation), 0)
+        self.origin = pts.min(axis=0) - (self.dilation + 1) * self.cell_nm
+        idx = np.floor((pts - self.origin) / self.cell_nm).astype(np.int64)
+        shape = (int(idx[:, 0].max()) + self.dilation + 2, int(idx[:, 1].max()) + self.dilation + 2)
+        mask = np.zeros(shape, dtype=bool)
+        mask[idx[:, 0], idx[:, 1]] = True
+        if self.dilation:
+            mask = ndimage.binary_dilation(mask, structure=np.ones((3, 3), dtype=bool),
+                                           iterations=self.dilation)
+        self.mask = mask
+        self._cells = np.argwhere(mask)
+
+    @property
+    def area_nm2(self) -> float:
+        """Area of the occupied region in nm^2."""
+        return float(self._cells.shape[0]) * self.cell_nm ** 2
+
+    def contains(self, points: np.ndarray) -> np.ndarray:
+        """Boolean mask of the points (x, y in the first two columns) inside the region."""
+        p = np.asarray(points, dtype=float)[:, :2]
+        idx = np.floor((p - self.origin) / self.cell_nm).astype(np.int64)
+        ok = ((idx[:, 0] >= 0) & (idx[:, 1] >= 0)
+              & (idx[:, 0] < self.mask.shape[0]) & (idx[:, 1] < self.mask.shape[1]))
+        out = np.zeros(p.shape[0], dtype=bool)
+        out[ok] = self.mask[idx[ok, 0], idx[ok, 1]]
+        return out
+
+    def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
+        """``n`` points uniform over the region (every cell has the same area)."""
+        pick = rng.integers(0, self._cells.shape[0], size=int(n))
+        return np.asarray(self.origin + (self._cells[pick] + rng.random((int(n), 2))) * self.cell_nm,
+                          dtype=np.float64)
+
+
+class StrategyInfo:
+    """One entry of :data:`STRATEGY_REGISTRY`.
+
+    ``defaults`` maps a constructor parameter to ``{"value", "origin"}`` so
+    the interface shows each number with where it comes from (literature /
+    derivation / simulation / ad hoc). ``experimental`` is False only for
+    DBSCAN (D10): every other method is hidden until the user ticks
+    'Experimental clustering methods'.
+    """
+
+    def __init__(self, name: str, cls: Type[ClusteringStrategy], family: str, description: str,
+                 defaults: Dict[str, Dict[str, Any]], experimental: bool = True,
+                 available: bool = True, citation: str = "") -> None:
+        self.name = name
+        self.cls = cls
+        self.family = family
+        self.description = description
+        self.defaults = defaults
+        self.experimental = experimental
+        self.available = available
+        self.citation = citation
+
+    def default_params(self) -> Dict[str, Any]:
+        return {k: v["value"] for k, v in self.defaults.items()}
+
+    def numeric_params(self) -> List[str]:
+        """Parameters the interface edits with a spinbox (ints and floats; None/str/bool are left as they are)."""
+        return [k for k, v in self.defaults.items()
+                if isinstance(v["value"], (int, float)) and not isinstance(v["value"], bool)]
+
+
+COMPAT_METHOD = "DBSCAN"
+STRATEGY_REGISTRY: Dict[str, StrategyInfo] = {}
+
+
+def _merge_defaults(defaults: Dict[str, Any], origins: Dict[str, str]) -> Dict[str, Dict[str, Any]]:
+    out: Dict[str, Dict[str, Any]] = {}
+    for k, v in defaults.items():
+        if isinstance(v, dict) and "value" in v:
+            out[k] = {"value": v["value"], "origin": str(v.get("origin", "ad hoc"))}
+        else:
+            out[k] = {"value": v, "origin": origins.get(k, "ad hoc")}
+    return out
+
+
+def strategy_registry() -> Dict[str, StrategyInfo]:
+    """Build (once) and return the registry: DBSCAN (compatibility, not
+    experimental), HDBSCAN (the ``hdbscan`` package, optional D9), the density,
+    tessellation and topological families, and external labels.
+
+    The families are imported here, not at module level, because they import
+    :class:`ClusteringStrategy` from this module.
+    """
+    if STRATEGY_REGISTRY:
+        return STRATEGY_REGISTRY
+    reg = STRATEGY_REGISTRY
+    reg[COMPAT_METHOD] = StrategyInfo(
+        COMPAT_METHOD, DBSCANStrategy, "density",
+        "DBSCAN(eps, min samples): the reference pipeline (compatibility mode 25/10).",
+        {"eps": {"value": 25.0, "origin": "literature: Gazal et al. (2026), eps = 25 nm"},
+         "min_samples": {"value": 10, "origin": "the reference pipeline's value (Gazal et al., 2026, preprint; only eps = 25 nm is among the verified sentences of the paper)"}},
+        experimental=False, citation="Ester, Kriegel, Sander & Xu (1996), KDD")
+    reg["HDBSCAN"] = StrategyInfo(
+        "HDBSCAN", HDBSCANStrategy, "density",
+        "Hierarchical DBSCAN (hdbscan package; optional dependency, D9).",
+        {"min_samples": {"value": 5, "origin": "simulation: verification run A of the project (2026-10-16), = min_cluster_size / 2"},
+         "min_cluster_size": {"value": 10, "origin": "derivation: about a third of the localizations of one labelled molecule in the benchmark (28 / 3)"}},
+        available=HDBSCAN_AVAILABLE, citation="Campello, Moulavi & Sander (2013), PAKDD")
+    try:
+        from tools.cluster_density import density_family
+        for name, e in density_family().items():
+            reg[name] = StrategyInfo(name, e["cls"], "density", e["description"],
+                                     _merge_defaults(e["defaults"], {}),
+                                     available=bool(e.get("available", True)), citation=e.get("citation", ""))
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        from tools.cluster_tessellation import tessellation_family
+        for name, e in tessellation_family().items():
+            reg[name] = StrategyInfo(name, e["cls"], "tessellation", e["description"],
+                                     _merge_defaults(e["defaults"], e.get("origins", {})),
+                                     citation="Levet et al. (2015); Andronov et al. (2016)")
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        from tools.cluster_topological import topological_family
+        for name, e in topological_family().items():
+            reg[name] = StrategyInfo(name, e["cls"], "topological", e["description"],
+                                     _merge_defaults(e["defaults"], e.get("origins", {})),
+                                     citation="Chazal et al. (2013); Scurll et al. (2019)")
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        from tools.cluster_benchmark import ExternalLabelsStrategy
+        reg["External labels"] = StrategyInfo(
+            "External labels", ExternalLabelsStrategy, "external",
+            "Labels computed outside (CSV with x, y, label); the scale is the one the user declares.",
+            {"csv_path": {"value": "", "origin": "user: file chosen in the interface"},
+             "scale_nm": {"value": 25.0, "origin": "user: declared scale; default = DBSCAN eps [ad hoc]"},
+             "tol_nm": {"value": 1e-3, "origin": "ad hoc: exact round trips"}})
+    except ImportError:  # pragma: no cover
+        pass
+    return reg
+
+
+def registry_names(include_experimental: bool = True, available_only: bool = True) -> List[str]:
+    """Names in interface order: DBSCAN first, then the families; hides the experimental ones on request (D10)."""
+    return [n for n, e in strategy_registry().items()
+            if (include_experimental or not e.experimental) and (e.available or not available_only)]
+
+
+def make_strategy(name: str, params: Optional[Dict[str, Any]] = None) -> ClusteringStrategy:
+    """Instantiate a registered strategy with ``params`` over its defaults.
+
+    Unknown parameter names are ignored (a settings file of a newer version
+    must not break an older program). Raises ``KeyError`` for an unknown
+    method and ``ImportError`` for one whose package is missing.
+    """
+    info = strategy_registry()[name]
+    if not info.available:
+        raise ImportError(f"{name}: its package is not installed (optional dependency)")
+    kw = info.default_params()
+    for k, v in (params or {}).items():
+        if k in kw:
+            kw[k] = v
+    if info.cls is HDBSCANStrategy or info.cls is DBSCANStrategy:
+        kw = {k: v for k, v in kw.items() if k in ("eps", "min_samples", "min_cluster_size")}
+    # A None default means "the constructor's own default" (OPTICS max_eps is
+    # declared None = unbounded but the constructor takes a number).
+    kw = {k: v for k, v in kw.items() if v is not None}
+    return info.cls(**kw)
+
+
+def strategy_params_json(strategy: ClusteringStrategy) -> Dict[str, Any]:
+    """The parameters actually used, JSON-safe (numpy scalars and tuples become plain values)."""
+    getter = getattr(strategy, "get_params", None)
+    raw = dict(getter()) if callable(getter) else {}
+    out: Dict[str, Any] = {}
+    for k, v in raw.items():
+        if isinstance(v, (tuple, list)):
+            out[k] = [float(x) for x in v]
+        elif isinstance(v, (np.integer,)):
+            out[k] = int(v)
+        elif isinstance(v, (np.floating,)):
+            out[k] = float(v)
+        elif isinstance(v, np.ndarray):
+            out[k] = v.tolist()
+        elif k in ("logger", "roi_polygon"):
+            continue
+        else:
+            out[k] = v
+    return out

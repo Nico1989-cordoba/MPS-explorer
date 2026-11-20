@@ -1,0 +1,468 @@
+{
+  "criterion": {
+    "reference": "dbscan_25_10",
+    "delta": 0.05,
+    "time_factor": 10.0,
+    "metrics": [
+      "exact",
+      "merge",
+      "missed"
+    ],
+    "paired": true,
+    "interval": "95 % t, paired by scenario and replicate; scenarios use independent seeds (crc32 of the name)",
+    "status": "defaults verificados 2026-10-16; benchmark sint\u00e9tico",
+    "real_regime": "sparse (the project's axons, ~5 clusters/um); medium is a stress test"
+  },
+  "verdicts": {
+    "voronoi_csr": {
+      "medium": {
+        "spec": "reg:voronoi_csr",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.34762093681393746,
+            "ci95": [
+              -0.3858109123194122,
+              -0.3094309613084627
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.08915358320647826,
+            "ci95": [
+              -0.1164122000155812,
+              -0.06189496639737532
+            ]
+          },
+          "missed": {
+            "mean_diff": 0.08657089271474307,
+            "ci95": [
+              0.07732748534791745,
+              0.09581430008156869
+            ]
+          }
+        },
+        "median_time_s": 29.36329530000512,
+        "reference_median_time_s": 0.028262449995963834,
+        "time_ok": false,
+        "label": "no recomendable"
+      },
+      "sparse": {
+        "spec": "reg:voronoi_csr",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.4426928447641408,
+            "ci95": [
+              -0.4724092653409329,
+              -0.41297642418734865
+            ]
+          },
+          "merge": {
+            "mean_diff": 0.0004730838621510705,
+            "ci95": [
+              -0.010245632198950678,
+              0.011191799923252818
+            ]
+          },
+          "missed": {
+            "mean_diff": 0.04084879374226298,
+            "ci95": [
+              0.029935055644451227,
+              0.05176253184007473
+            ]
+          }
+        },
+        "median_time_s": 22.492352900007972,
+        "reference_median_time_s": 0.01496570001472719,
+        "time_ok": false,
+        "label": "no recomendable"
+      }
+    },
+    "OPTICS": {
+      "medium": {
+        "spec": "reg:OPTICS",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.07791857848969155,
+            "ci95": [
+              -0.10606243359670951,
+              -0.049774723382673594
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.28543894469093256,
+            "ci95": [
+              -0.332582444390029,
+              -0.23829544499183614
+            ]
+          },
+          "missed": {
+            "mean_diff": 0.2964382081309966,
+            "ci95": [
+              0.2427293571236625,
+              0.35014705913833066
+            ]
+          }
+        },
+        "median_time_s": 6.101493850001134,
+        "reference_median_time_s": 0.028262449995963834,
+        "time_ok": false,
+        "label": "no recomendable",
+        "role": "no recomendable / diagn\u00f3stico: usar el reachability plot, no la segmentaci\u00f3n xi (corrida F de verificaci\u00f3n, 2026-10-16: ning\u00fan xi / min_samples / max_eps alcanza a DBSCAN 25/10 y tarda ~200x)"
+      },
+      "sparse": {
+        "spec": "reg:OPTICS",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.21995994354372678,
+            "ci95": [
+              -0.2377065201768139,
+              -0.20221336691063965
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.07685527485598828,
+            "ci95": [
+              -0.10688908831486915,
+              -0.04682146139710741
+            ]
+          },
+          "missed": {
+            "mean_diff": 0.18141723042039673,
+            "ci95": [
+              0.13954412719714288,
+              0.22329033364365058
+            ]
+          }
+        },
+        "median_time_s": 3.9620626000105403,
+        "reference_median_time_s": 0.01496570001472719,
+        "time_ok": false,
+        "label": "no recomendable",
+        "role": "no recomendable / diagn\u00f3stico: usar el reachability plot, no la segmentaci\u00f3n xi (corrida F de verificaci\u00f3n, 2026-10-16: ning\u00fan xi / min_samples / max_eps alcanza a DBSCAN 25/10 y tarda ~200x)"
+      }
+    },
+    "GraphCommunity": {
+      "medium": {
+        "spec": "reg:GraphCommunity",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.06677668815605241,
+            "ci95": [
+              -0.08216346755541336,
+              -0.05138990875669146
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.020618379350524928,
+            "ci95": [
+              -0.03184816310257551,
+              -0.009388595598474344
+            ]
+          },
+          "missed": {
+            "mean_diff": -0.03452415438799428,
+            "ci95": [
+              -0.051750091569916216,
+              -0.017298217206072337
+            ]
+          }
+        },
+        "median_time_s": 0.04344250001304317,
+        "reference_median_time_s": 0.028262449995963834,
+        "time_ok": true,
+        "label": "no recomendable"
+      },
+      "sparse": {
+        "spec": "reg:GraphCommunity",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.055034307551955396,
+            "ci95": [
+              -0.06812258352401317,
+              -0.041946031579897625
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.0010389551649747253,
+            "ci95": [
+              -0.005655743632828616,
+              0.003577833302879166
+            ]
+          },
+          "missed": {
+            "mean_diff": -0.0675902995743057,
+            "ci95": [
+              -0.09283090520772534,
+              -0.04234969394088607
+            ]
+          }
+        },
+        "median_time_s": 0.022576099989237264,
+        "reference_median_time_s": 0.01496570001472719,
+        "time_ok": true,
+        "label": "no recomendable"
+      }
+    },
+    "HDBSCAN": {
+      "medium": {
+        "spec": "reg:HDBSCAN",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": 0.059336550601280756,
+            "ci95": [
+              0.03247547275732001,
+              0.08619762844524151
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.12920719331771943,
+            "ci95": [
+              -0.17344017079436702,
+              -0.08497421584107183
+            ]
+          },
+          "missed": {
+            "mean_diff": -0.042794363330891205,
+            "ci95": [
+              -0.0625552352077475,
+              -0.023033491454034917
+            ]
+          }
+        },
+        "median_time_s": 0.0779517499904614,
+        "reference_median_time_s": 0.028262449995963834,
+        "time_ok": true,
+        "label": "preferible"
+      },
+      "sparse": {
+        "spec": "reg:HDBSCAN",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.013169732866745753,
+            "ci95": [
+              -0.037077157988908066,
+              0.010737692255416561
+            ]
+          },
+          "merge": {
+            "mean_diff": 0.016568842182187897,
+            "ci95": [
+              -0.013768283988580422,
+              0.04690596835295621
+            ]
+          },
+          "missed": {
+            "mean_diff": -0.08428369526929651,
+            "ci95": [
+              -0.11322732091861507,
+              -0.05534006961997795
+            ]
+          }
+        },
+        "median_time_s": 0.044696850003674626,
+        "reference_median_time_s": 0.01496570001472719,
+        "time_ok": true,
+        "label": "preferible"
+      }
+    },
+    "FOCAL": {
+      "medium": {
+        "spec": "reg:FOCAL",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": 0.0016267741579573864,
+            "ci95": [
+              -0.008636097065593158,
+              0.01188964538150793
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.034534888049873515,
+            "ci95": [
+              -0.04474680693043586,
+              -0.02432296916931117
+            ]
+          },
+          "missed": {
+            "mean_diff": -0.033307654045024844,
+            "ci95": [
+              -0.04531354489104489,
+              -0.021301763199004797
+            ]
+          }
+        },
+        "median_time_s": 0.006335800004308112,
+        "reference_median_time_s": 0.028262449995963834,
+        "time_ok": true,
+        "label": "preferible"
+      },
+      "sparse": {
+        "spec": "reg:FOCAL",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.027061784801666645,
+            "ci95": [
+              -0.04048207002526289,
+              -0.013641499578070397
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.010575643408716823,
+            "ci95": [
+              -0.01836920674976448,
+              -0.0027820800676691664
+            ]
+          },
+          "missed": {
+            "mean_diff": -0.04768266910171973,
+            "ci95": [
+              -0.0655858488421987,
+              -0.02977948936124076
+            ]
+          }
+        },
+        "median_time_s": 0.005326099999365397,
+        "reference_median_time_s": 0.01496570001472719,
+        "time_ok": true,
+        "label": "preferible"
+      }
+    },
+    "voronoi_factor": {
+      "medium": {
+        "spec": "reg:voronoi_factor",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.5038177024694213,
+            "ci95": [
+              -0.5457920434223746,
+              -0.4618433615164678
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.008888774200595048,
+            "ci95": [
+              -0.0336503628442265,
+              0.015872814443036405
+            ]
+          },
+          "missed": {
+            "mean_diff": 0.21185381478082044,
+            "ci95": [
+              0.19881418829848851,
+              0.22489344126315236
+            ]
+          }
+        },
+        "median_time_s": 0.5157394499983639,
+        "reference_median_time_s": 0.028262449995963834,
+        "time_ok": false,
+        "label": "no recomendable"
+      },
+      "sparse": {
+        "spec": "reg:voronoi_factor",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.6694377800563115,
+            "ci95": [
+              -0.6992713064649159,
+              -0.6396042536477071
+            ]
+          },
+          "merge": {
+            "mean_diff": 0.06556412626466837,
+            "ci95": [
+              0.04322757789527211,
+              0.08790067463406463
+            ]
+          },
+          "missed": {
+            "mean_diff": 0.20980003110752293,
+            "ci95": [
+              0.1928534735809307,
+              0.22674658863411518
+            ]
+          }
+        },
+        "median_time_s": 0.287314500004868,
+        "reference_median_time_s": 0.01496570001472719,
+        "time_ok": false,
+        "label": "no recomendable"
+      }
+    },
+    "ToMATo": {
+      "medium": {
+        "spec": "reg:ToMATo",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": 0.12979933830937393,
+            "ci95": [
+              0.10293267302076278,
+              0.15666600359798508
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.240276183242202,
+            "ci95": [
+              -0.27081647814629506,
+              -0.209735888338109
+            ]
+          },
+          "missed": {
+            "mean_diff": -0.06707311895087356,
+            "ci95": [
+              -0.08936411427242873,
+              -0.044782123629318396
+            ]
+          }
+        },
+        "median_time_s": 0.22678330000780988,
+        "reference_median_time_s": 0.028262449995963834,
+        "time_ok": true,
+        "label": "preferible"
+      },
+      "sparse": {
+        "spec": "reg:ToMATo",
+        "n_pairs": 20,
+        "metrics": {
+          "exact": {
+            "mean_diff": -0.026231914358984275,
+            "ci95": [
+              -0.04684327082105175,
+              -0.0056205578969167995
+            ]
+          },
+          "merge": {
+            "mean_diff": -0.07520930165422275,
+            "ci95": [
+              -0.09229519455440845,
+              -0.058123408754037056
+            ]
+          },
+          "missed": {
+            "mean_diff": -0.0900817452938206,
+            "ci95": [
+              -0.12036355775976225,
+              -0.059799932827878946
+            ]
+          }
+        },
+        "median_time_s": 0.11865839999518357,
+        "reference_median_time_s": 0.01496570001472719,
+        "time_ok": true,
+        "label": "preferible"
+      }
+    }
+  }
+}

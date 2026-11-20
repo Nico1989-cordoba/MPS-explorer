@@ -302,6 +302,17 @@ class BatchWindow(QtWidgets.QMainWindow):
             "background. A few seconds per axon; the window stays usable.")
         self.btn_run.clicked.connect(self.run)
         row.addWidget(self.btn_run)
+        # Phase D (D12, review of D0 M4): off by default; ticked, every
+        # ticked file is also clustered, after the batch, by exactly the
+        # methods compared in the axon window's 'Compare methods...'
+        # (mb.methods_to_compare, DBSCAN added as the reference), into
+        # batch_methods_comparison.csv beside the exported table. Disabled
+        # while none has been compared. _show_settings keeps it current.
+        self.check_compare_methods = QtWidgets.QCheckBox("Compare methods (slow)")
+        self.check_compare_methods.setObjectName("check_compare_methods")
+        self.check_compare_methods.setChecked(False)
+        row.addWidget(self.check_compare_methods)
+        self.comparison_rows: List[Dict[str, Any]] = []
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
         self.btn_cancel.setToolTip(
             "Stop after the axon being analysed. What was analysed is "
@@ -328,7 +339,32 @@ class BatchWindow(QtWidgets.QMainWindow):
         self._show_settings()
         return page
 
+    def _compare_methods_list(self) -> List[str]:
+        """What 'Compare methods (slow)' would run with the settings in force (mb.methods_to_compare)."""
+        try:
+            return mb.methods_to_compare(mb.BatchSettings.from_settings(self.settings))
+        except (AttributeError, TypeError, ValueError):
+            return []
+
+    def _show_compare_methods(self) -> None:
+        methods = self._compare_methods_list()
+        box = self.check_compare_methods
+        box.setEnabled(bool(methods) and not self.running)
+        if not methods:
+            box.setChecked(False)
+            box.setToolTip("Elegí métodos en Compare methods… primero.\n"
+                           "(Choose methods in the axon window's 'Compare methods...' first: this box\n"
+                           "runs only the methods compared there, never all of them.)")
+            return
+        box.setToolTip(
+            "After the batch, cluster every ticked file with the methods you compared in\n"
+            f"'Compare methods...': {', '.join(methods)} (DBSCAN is the reference).\n"
+            "Saved parameters for the saved method, registry defaults for the others;\n"
+            "the file is loaded again per method. Writes batch_methods_comparison.csv\n"
+            "next to the exported table; the axon table itself uses only the saved method.")
+
     def _show_settings(self) -> None:
+        self._show_compare_methods()
         try:
             described = mb.BatchSettings.from_settings(self.settings).describe()
         except (AttributeError, TypeError, ValueError):
@@ -651,11 +687,17 @@ class BatchWindow(QtWidgets.QMainWindow):
         self._cancel.clear()
         self.label_status.setText(f"Analysing {len(rows)} file(s)...")
 
+        compare_list = mb.methods_to_compare(settings) if self.check_compare_methods.isChecked() else []
+        self.comparison_rows = []
+
         def body() -> None:
             try:
                 mb.run_batch(items, settings,
                              on_done=lambda i, r: self._relay.done.emit(i, r),
                              cancelled=self._cancel.is_set, z_store=z_store)
+                if compare_list and not self._cancel.is_set():
+                    self.comparison_rows = mb.compare_methods(
+                        items, settings, compare_list, cancelled=self._cancel.is_set, z_store=z_store)
             finally:
                 self._relay.finished.emit()
 
@@ -751,6 +793,11 @@ class BatchWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "Not written", str(error))
             return None
         rows = check.rows_to_write()
+        if self.comparison_rows:
+            try:
+                mb.write_methods_comparison(self.comparison_rows, mb.comparison_path(path))
+            except OSError as error:
+                QtWidgets.QMessageBox.warning(self, "Comparison not written", str(error))
         left_out = {r.source: "the table already holds this file, exported "
                               "from the axon window with its ROI"
                     for r in records if r.ok and os.path.basename(
@@ -1002,6 +1049,7 @@ class BatchWindow(QtWidgets.QMainWindow):
         self.btn_cancel.setEnabled(running)
         self.btn_set.setEnabled(have_files)
         self.btn_patterns.setEnabled(have_files and not running)
+        self.check_compare_methods.setEnabled(not running and bool(self._compare_methods_list()))
         self.btn_export.setEnabled(not running and any(
             r.ok for r in self.records.values()))
 

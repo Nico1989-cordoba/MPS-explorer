@@ -36,6 +36,7 @@ that is wrong in a way no reader could detect.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 from dataclasses import dataclass, field
@@ -102,7 +103,17 @@ from tools.results_table import cell_text
 # were left out; "boundary unknown: not evaluated" when no pick boundary
 # was known. The clusters table ends with cut_by_pick.
 PROGRAM_VERSION = "MPS Explorer 2026.09"
-TABLE_VERSION = "axon tables v9"
+# v10 (2026-10-16, Phase D / D0): which clustering method made the
+# clusters (CLUSTER_METHOD_COLUMNS: cluster_method, cluster_params,
+# cluster_scale_nm, cluster_methods_compared), written once at the very end
+# of the row, after the cut clusters, so no earlier column moved (as every
+# version since v4). 'DBSCAN' with the same eps / min samples is the
+# analysis before Phase D, bit for bit (docs/clustering_methods.md).
+TABLE_VERSION = "axon tables v10"
+
+CLUSTER_METHOD_COLUMNS: Tuple[str, ...] = (
+    "cluster_method", "cluster_params", "cluster_scale_nm",
+    "cluster_methods_compared")
 
 # Which rows describe the same thing, for the duplicate check. ``axon_id``
 # is the file and the selection, and nothing else: the same axon exported
@@ -232,6 +243,7 @@ _FOUR_DECIMALS = frozenset({"ks_statistic", "contour_tour_over_hull",
 # it was given, however many digits that takes.
 _SETTINGS: frozenset = frozenset({
     "pixel_size_nm", "eps_nm", "min_samples", "dbcv_threshold",
+    "cluster_method", "cluster_params", "cluster_methods_compared",
     "mahalanobis_threshold", "slab_half_width_nm", "discard_margin_nm",
     "random_seed", "randomization_requested", "randomization_min_sep_nm",
     "randomization_band_half_width_nm", "randomization_smoothing_rms_nm",
@@ -300,6 +312,12 @@ def analysis_id(analysis: AxonAnalysis) -> str:
         f"{analysis.pixel_size_nm}", analysis.pixel_size_source,
         f"{analysis.eps_nm}", f"{analysis.min_samples}",
         f"{analysis.dbcv_threshold}", analysis.edge_reference,
+        # Phase D: another method is another analysis_id; nothing about the
+        # method is appended for DBSCAN rows. The id of a DBSCAN analysis
+        # still changes from v9 to v10, because TABLE_VERSION is part of it
+        # (as at every version): v9 and v10 rows do not join on analysis_id.
+        *([analysis.cluster_method, json.dumps(analysis.cluster_params, sort_keys=True)]
+          if analysis.cluster_method != "DBSCAN" else []),
         f"{analysis.slab_zmin_nm:.4f}", f"{analysis.slab_zmax_nm:.4f}",
         analysis.slab_source, f"{analysis.mahalanobis_threshold}",
         analysis.ellipse_mode, f"{analysis.random_seed}",
@@ -498,6 +516,10 @@ def axon_row(
     cut = _cut.export_columns(getattr(measured, "cut", None))
     for name in CUT_COLUMNS:
         row[name] = _rounded(name, cut.get(name))
+    # --- which clustering method (Phase D, v10), last --------------------
+    method = measured.cluster_method_record()
+    for name in CLUSTER_METHOD_COLUMNS:
+        row[name] = _rounded(name, method.get(name))
     return row
 
 

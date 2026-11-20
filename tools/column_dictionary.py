@@ -26,6 +26,7 @@ from tools.axon_export import (
     MEASURED_COLUMNS, SHARED_COLUMNS, STATE_COLUMNS, Z_CALIBRATION_COLUMNS,
 )
 from tools.mps_cut_clusters import CUT_COLUMNS
+from tools.axon_export import CLUSTER_METHOD_COLUMNS
 from tools.mps_identity import FIELD_HINTS, FIELDS as IDENTITY_FIELDS
 
 # Units, read off the end of the name. The rule is the convention: a
@@ -88,6 +89,23 @@ ANALYSIS: Dict[str, str] = {
                          "earlier (remembered), or typed by hand now.",
     "eps_nm": "DBSCAN's neighbourhood radius.",
     "min_samples": "DBSCAN's minimum number of localizations for a cluster.",
+    # --- which clustering method (axon tables v10, Phase D; written last)
+    "cluster_method": "Which clustering method made the clusters: 'DBSCAN' "
+                      "(the reference pipeline, eps_nm / min_samples) or one "
+                      "of the experimental methods of "
+                      "docs/clustering_methods.md.",
+    "cluster_params": "The parameters that method ran with, as JSON.",
+    "cluster_scale_nm": "The method's own length scale, informative: eps for "
+                        "DBSCAN, the grid for FOCAL, the spacing of the dense "
+                        "cells for Voronoi, the radius for ToMATo / "
+                        "GraphCommunity, the median core distance for "
+                        "HDBSCAN / OPTICS; empty when the method has none. "
+                        "The edge-curation margin is eps for DBSCAN and, for "
+                        "the other methods, the larger of eps and the "
+                        "method's separation scale (not this column).",
+    "cluster_methods_compared": "The methods compared in 'Compare methods' "
+                                "before this one was chosen, separated by "
+                                "'|'; empty when none were.",
     "dbcv_threshold": "Below this DBCV score a cluster is curated away. "
                       "-1 means the criterion is off.",
     "edge_reference": "What the edge criterion measured against: the drawn "
@@ -838,4 +856,5 @@ def known_columns() -> List[str]:
     columns += list(AXIAL_MIXTURE_COLUMNS)
     columns += list(EPS_CHOICE_COLUMNS)
     columns += list(CUT_COLUMNS)
+    columns += list(CLUSTER_METHOD_COLUMNS)
     return columns

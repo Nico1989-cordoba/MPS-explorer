@@ -296,6 +296,10 @@ class WindowLinks:
     store: Optional[Callable[[Dict[str, Any]], Any]] = None
     slab_state: Callable[[], Tuple[str, Optional[float], Optional[Tuple[float, float]]]] = field(
         default=_no_slab_state)
+    # Phase D (D0): the clustering method in use (name, its parameters, the 'Experimental' box, the methods
+    # compared before choosing); the strip writes them through ``store`` (cluster_method, cluster_params,
+    # experimental_methods_enabled, cluster_methods_compared). None: the window's own panel keeps them.
+    method_state: Optional[Callable[[], Tuple[str, Dict[str, Any], bool, List[str]]]] = None
     apply_typed: Optional[Callable[[Optional[Tuple[float, float]]], Any]] = None
     # The clusters cut by the Picasso pick (P-R59): the switch "Exclude cut clusters" and what the next analysis
     # will do before there is one (``cut_state``), the switch's setter (it re-runs) and the Pick boundary dialog.
@@ -562,6 +566,15 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         ld.addWidget(self.field_min, 1, 1)
         self.more_dbscan = MoreLine("dbscan")
         ld.addWidget(self.more_dbscan, 2, 0, 1, 2)
+        # Phase D (D0): which method makes the clusters. DBSCAN (above) is
+        # the default and the compatibility path; the rest sit behind the
+        # 'Experimental' box (D10). Nothing here runs on its own (D12).
+        from tools.cluster_method_ui import MethodPanel
+        self.method_panel = MethodPanel()
+        ld.addWidget(self.method_panel, 3, 0, 1, 2)
+        self.method_panel.method_changed.connect(self._on_method_changed)
+        self.method_panel.compat_requested.connect(self._on_compat)
+        self.method_panel.compare_requested.connect(self._on_compare)
 
         # A "DBCV thr." spin box stood here until 2026-09-20. On real axons
         # the per-cluster score falls with the cluster's extent, and in
@@ -688,7 +701,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                   self.chk_random, self.btn_reset, self.btn_contour,
                   self.more_randomization.edit_button, self.more_occupancy.edit_button,
                   self.btn_slab_auto, self.chk_typed, self.edit_typed_min,
-                  self.edit_typed_max, self.btn_typed_apply):
+                  self.edit_typed_max, self.btn_typed_apply, self.method_panel):
             w.setEnabled(enabled)
         # A typed range needs the main window's cut: a window on its own
         # has none.
@@ -729,7 +742,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             min_samples=int(self.spin_min.value()),
             slab_half_width_nm=float(self.spin_half.value()),
             mahalanobis_threshold=float(self.spin_maha.value()),
-            randomization=bool(self.chk_random.isChecked()))
+            randomization=bool(self.chk_random.isChecked()),
+            cluster_method=self.method_panel.current_method(),
+            cluster_params=self.method_panel.current_params(),
+            experimental_methods_enabled=self.method_panel.experimental(),
+            cluster_methods_compared=self.method_panel.compared())
         _mode, _centre, typed = self.links.slab_state()
         i, n = self.combo_peak.currentIndex(), self.combo_peak.count()
         if typed is None and 0 <= i < n - 1:
@@ -799,6 +816,88 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
             ("slab.half_width_nm", float(self.spin_half.value())),
             ("occupancy.mahalanobis", float(self.spin_maha.value()))))
         self.btn_reset.setStyleSheet("font-weight: bold;" if departs else "")
+
+    # ---------------- Phase D: the clustering method (D10-D12) ----------
+
+    def _method_kwargs(self) -> Dict[str, Any]:
+        """What the re-run passes for the method: nothing for DBSCAN (the
+        compatibility path: analyze_axon's defaults, bit for bit)."""
+        name = self.method_panel.current_method()
+        if name == "DBSCAN":
+            compared = self.method_panel.compared()
+            return {"cluster_methods_compared": compared} if compared else {}
+        return dict(cluster_method=name, cluster_params=self.method_panel.current_params(),
+                    cluster_methods_compared=self.method_panel.compared())
+
+    def _on_method_changed(self) -> None:
+        """Another method chosen in the strip: saved, and the analysis re-run
+        with it (the user asked for it by choosing; nothing runs on load)."""
+        if self.rerun_callback is None:
+            return
+        self._on_param_changed()
+
+    def _on_compat(self) -> None:
+        """'Compatibility 25/10': DBSCAN, eps 25 nm, min samples 10 (the
+        published pipeline, Gazal et al. 2026), saved and re-run."""
+        from tools.mps_settings import DEFAULT_EPS_NM, DEFAULT_MIN_SAMPLES
+        for w in (self.spin_eps, self.spin_min):
+            w.blockSignals(True)
+        self.spin_eps.setValue(DEFAULT_EPS_NM)
+        self.spin_min.setValue(DEFAULT_MIN_SAMPLES)
+        for w in (self.spin_eps, self.spin_min):
+            w.blockSignals(False)
+        self.method_panel.set_compat()
+        self._on_param_changed()
+
+    def _compare_run(self, method: str, params: Dict[str, Any]) -> Any:
+        """One method on the slab of the analysis shown, in the worker
+        thread: the same slab (slab_override), ROI, eps / min samples,
+        occupancy threshold and contour (2-opt from every start, the
+        default since 2026-09-19, and the same contour guide), so the
+        DBSCAN row is the analysis shown; randomization off for speed
+        [ad hoc]. The clusters cut by the Picasso pick are not left out
+        (review m3: said in the dialog)."""
+        from tools.mps_analysis import analyze_axon
+        a = self.analysis
+        assert a is not None
+        return analyze_axon(
+            np.asarray(a.x_slab, dtype=np.float64), np.asarray(a.y_slab, dtype=np.float64),
+            np.asarray(a.z_slab, dtype=np.float64),
+            source_name=a.source_name, pixel_size_nm=a.pixel_size_nm,
+            pixel_size_source=a.pixel_size_source, eps_nm=float(a.eps_nm),
+            min_samples=int(a.min_samples), slab_half_width_nm=float(a.slab_half_width_nm),
+            roi=a.roi, slab_override=(float(a.slab_zmin_nm), float(a.slab_zmax_nm)),
+            dbcv_threshold=float(a.dbcv_threshold), mahalanobis_threshold=float(a.mahalanobis_threshold),
+            ellipse_mode=a.ellipse_mode, run_randomization=False,
+            contour_guide=a.contour_guide,
+            sigma_cap_fraction=float(a.sigma_cap_fraction),
+            cluster_method=method, cluster_params=params)
+
+    def _on_compare(self) -> None:
+        """'Compare methods...': the dialog; only what it ticks runs, only
+        when it says Run (D12). 'Use this method' saves the choice and
+        re-runs the analysis with the first chosen method."""
+        if self.analysis is None or self.analysis.x_slab is None:
+            QtWidgets.QMessageBox.information(self, "Compare methods", "Run an analysis first.")
+            return
+        from tools.cluster_method_ui import CompareMethodsDialog
+        from tools.clustering_strategies import strategy_registry
+        panel = self.method_panel
+
+        def params_for(name: str) -> Dict[str, Any]:
+            if name == panel.current_method():
+                return panel.current_params()
+            info = strategy_registry().get(name)
+            return {} if info is None else {k: info.defaults[k]["value"] for k in info.numeric_params()}
+
+        dlg = CompareMethodsDialog(self._compare_run, int(np.asarray(self.analysis.x_slab).size),
+                                   panel.experimental(), panel.current_method(), params_for, parent=self)
+        self._compare_dialog = dlg
+        if dlg.exec_() != QtWidgets.QDialog.Accepted or not dlg.chosen:
+            return
+        chosen = dlg.chosen[0]
+        panel.set_state(chosen, params_for(chosen), panel.experimental() or chosen != "DBSCAN", dlg.ran)
+        self._on_param_changed()
 
     def _on_slab_automatic(self) -> None:
         """Back to the automatic slab centre, and run the analysis."""
@@ -1458,6 +1557,12 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 # threshold, and reading it back from the widget is what let
                 # 0.1 through.
                 self.spin_maha.setValue(a.mahalanobis_threshold)
+            if self.links.method_state is not None:
+                m_name, m_params, m_exp, m_cmp = self.links.method_state()
+                self.method_panel.set_state(m_name, m_params, m_exp, m_cmp)
+            else:
+                self.method_panel.set_state(a.cluster_method, dict(a.cluster_params), False,
+                                            list(a.cluster_methods_compared))
         else:
             # No analysis yet: the values the next run will use.
             params = self.links.params()
@@ -2002,6 +2107,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 slab_half_width_nm=float(self.spin_half.value()),
                 eps_nm=float(self.spin_eps.value()),
                 min_samples=int(self.spin_min.value()),
+                **self._method_kwargs(),
                 # Always off: see the note where the control used to be.
                 dbcv_threshold=DEFAULT_DBCV_THRESHOLD,
                 mahalanobis_threshold=float(self.spin_maha.value()),
@@ -2056,6 +2162,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                 slab_half_width_nm=float(self.spin_half.value()),
                 eps_nm=float(self.spin_eps.value()),
                 min_samples=int(self.spin_min.value()),
+                **self._method_kwargs(),
                 dbcv_threshold=DEFAULT_DBCV_THRESHOLD,
                 mahalanobis_threshold=float(self.spin_maha.value()),
                 run_randomization=bool(self.chk_random.isChecked()),
