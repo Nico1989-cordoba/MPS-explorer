@@ -371,6 +371,123 @@ def test_export_image_offers_the_legend_on_the_regularity_plots(app, monkeypatch
         w.close()
 
 
+def test_results_window_says_when_the_discard_leaves_nothing_out_and_who_discarded(app, analysis):
+    """Manual test of 2026-11-19: with nothing left out 'Measured' and 'Discard applied' were the same and the choice
+    looked broken; a cluster excluded by hand was named 'Discarded by the axoplasm panel' on the map."""
+    from tools import mps_analysis as ma
+    from tools.mps_results_window import _COL_DISCARD, _COL_MEASURED, MPSResultsWindow
+    res = mu.auto_for_analysis(analysis, noise_replicates=0, compare_references=False)
+    k = analysis.n_clusters_kept
+    held = {"cmp": mu.compare_unanchored(analysis, mu.final_flags(res, method="off"))}
+    w = MPSResultsWindow(analysis, discard_callback=lambda a: held["cmp"])
+    try:
+        w.refresh()
+        assert w.radio_measured.text() == f"measured ({k} clusters)"
+        assert w.radio_discard.text() == f"discard applied ({k}, nothing left out)", w.radio_discard.text()
+        assert "Nothing is left out now" in w.radio_discard.toolTip()
+        assert "Nothing is left out now" in w.table.horizontalHeaderItem(_COL_DISCARD).toolTip()
+        assert not w.table.isColumnHidden(_COL_DISCARD) and not w.table.isColumnHidden(_COL_MEASURED)
+        # the rule's two and one by hand left out: the count alone on the button, who left them out in the tooltip
+        flags = mu.final_flags(res)
+        anchored = int(np.flatnonzero(~flags.excluded)[0])
+        hand = mu.add_decision(mu.ManualDecisions(), *np.asarray(analysis.centroids)[anchored], mu.ACTION_EXCLUDE,
+                               "glia")
+        held["cmp"] = mu.compare_unanchored(analysis, mu.final_flags(res, hand))
+        w.refresh()
+        n_out = k - held["cmp"].discard_applied.n_clusters_kept
+        assert n_out == 3
+        assert w.radio_discard.text() == f"discard applied ({k - n_out})"
+        tip = w.radio_discard.toolTip()
+        now = tip.split("\n\n")[-1]                  # after the common text, which names both sources
+        assert f"Now {n_out} of the {k} clusters are left out" in now and "Unanchored clusters window" in now
+        head = w.table.horizontalHeaderItem(_COL_DISCARD).toolTip()
+        assert "Nothing is left out" not in head and "Unanchored clusters window" in head
+        assert "axoplasm panel\ndiscarded" not in head
+        w.radio_discard.setChecked(True)
+        w.refresh()
+        box = w.axon_map.layers.checkbox("c_discarded")
+        assert box.text() == f"Discarded (unanchored rule / by hand) ({n_out})", box.text()
+        # the Axoplasm panel's own discard keeps its name
+        held["cmp"] = ma.compare_discard(analysis, flags.excluded, margin_nm=400.0)
+        w.refresh()
+        assert w.axon_map.layers.checkbox("c_discarded").text().startswith("Discarded by the axoplasm panel")
+        assert "Axoplasm panel" in w.radio_discard.toolTip().split("\n\n")[-1]
+    finally:
+        w.close()
+
+
+LONG_REASON = "debris beside the ring, probably a glial process seen in the widefield tubulin image"
+
+
+def _window_with_two_decisions(analysis, tmp_path, width, room_for_the_record=False):
+    """The window as it opens (1200 x 820) with two decisions by hand of a long reason, then ``width`` wide (or its
+    minimum, if wider: offscreen every character is a box about twice as wide as on a Windows screen, so the top
+    bar alone asks for more than 1920 px there - pixel widths of a real screen cannot be reproduced; the rule can).
+    ``room_for_the_record``: at least wide enough that half of it holds the record (the case of a 1920 px screen)."""
+    inputs = muw.UnanchoredInputs(analysis=analysis, data_path=str(tmp_path / "axon1.hdf5"))
+    w = muw.UnanchoredWindow(inputs=inputs, noise_replicates=REPS, ask_reason=lambda action, label: LONG_REASON)
+    w.resize(1200, 820)
+    w.show()
+    _run(w)
+    for row in np.flatnonzero(~w.flags.excluded)[:2]:
+        assert w.toggle_cluster(int(row))
+    width = max(width, w.minimumSizeHint().width())
+    if room_for_the_record:
+        width = max(width, 2 * (w.log_width_needed() + muw.MARGIN) + 20)
+    w.resize(width, 900)
+    for _ in range(5):
+        QtWidgets.QApplication.processEvents()
+    assert w.width() == width
+    return w
+
+
+def test_decisions_table_shows_the_date_without_a_horizontal_bar(app, analysis, tmp_path):
+    """Manual test of 2026-11-19: maximized at 1920 px the record's last column (Date) was cut off and a horizontal
+    bar appeared. Every column but the reason fits its text, the reason takes what is left (elided, whole in its
+    tooltip), and the splitter gives the record the width it needs when the map keeps half."""
+    w = _window_with_two_decisions(analysis, tmp_path, 1920, room_for_the_record=True)
+    try:
+        t = w.table
+        assert t.rowCount() == 2
+        left, side = w.split.sizes()
+        assert w.log_width_needed() <= (left + side) // 2, "the case where it fits"
+        assert side >= w.log_width_needed() and left >= side, w.split.sizes()
+        date = muw.LOG_HEADERS.index("Date")
+        right = t.columnViewportPosition(date) + t.columnWidth(date)
+        assert right <= t.viewport().width(), (right, t.viewport().width(), w.split.sizes())
+        assert not t.horizontalScrollBar().isVisible()
+        assert t.columnWidth(date) >= t.sizeHintForColumn(date) and t.item(0, date).text()
+        for j in range(t.columnCount()):
+            if j != muw.LOG_STRETCH:                   # whole: no column but the reason is ever squeezed
+                assert t.columnWidth(j) >= max(t.sizeHintForColumn(j), t.horizontalHeader().sectionSizeHint(j))
+        reason = t.item(0, muw.LOG_STRETCH)
+        assert reason.text() == LONG_REASON and reason.toolTip() == LONG_REASON
+        # a narrower side the user dragged is widened again only up to what the record needs
+        w.split.setSizes([left + side - 400, 400])
+        w.resize(w.width() + 10, w.height())
+        QtWidgets.QApplication.processEvents()
+        assert w.split.sizes()[1] >= w.log_width_needed()
+    finally:
+        w.close()
+
+
+def test_decisions_table_never_takes_more_than_half_the_window(app, analysis, tmp_path):
+    """When the record needs more than half the width (here: a table font three times as large), the map keeps its
+    half and the record gets the other half."""
+    w = _window_with_two_decisions(analysis, tmp_path, 1366)
+    try:
+        f = w.table.font()
+        f.setPointSizeF(f.pointSizeF() * 3)
+        w.table.setFont(f)
+        w._fill_log()
+        QtWidgets.QApplication.processEvents()
+        left, side = w.split.sizes()
+        assert w.log_width_needed() > (left + side) // 2, "the case where it does not fit"
+        assert abs(left - side) <= 1, w.split.sizes()
+    finally:
+        w.close()
+
+
 # ------------------------------------------------------------------------------------------------ the batch
 def test_batch_row_carries_both_columns_and_the_block(app, analysis, tmp_path):
     from tools import mps_batch as mb
