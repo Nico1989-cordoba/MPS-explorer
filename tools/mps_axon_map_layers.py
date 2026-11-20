@@ -41,7 +41,7 @@ __all__ = [
     "cdf_layers", "cdf_title", "cdf_details", "area_details", "distances_table", "default_distances_name",
     "shown_words", "region_rect", "axoplasm_map_state", "provenance_line2", "closed", "occupied_runs",
     "write_distances_csv", "located_points", "image_levels", "component_curves", "rz_grid", "axial_edges",
-    "style_of", "view_on", "axial_on",
+    "style_of", "view_on", "axial_on", "discard_by",
 ]
 
 # ============================================================================ styles
@@ -271,6 +271,46 @@ def shown_words(shown: Any, comparison: Any, measured: Any) -> str:
     return "measured"
 
 
+# Who left a discard's clusters out, by the method an Unanchored-window discard records (tools.mps_unanchored).
+_DISCARD_RULE_WORDS = {"automatic": "unanchored rule", "widefield": "widefield images"}
+_DISCARD_RULE_SENTENCES = {
+    "automatic": "the automatic rule (clusters deeper than its threshold below the reference ring)",
+    "widefield": "the widefield images (the Axoplasm panel's flags, used as that window's method)",
+}
+
+
+def discard_by(applied: Any) -> Tuple[str, str]:
+    """Who left out the clusters of the 'discard applied' analysis ``applied``: (the label of its centres' row,
+    one sentence for the tooltips that name it). Two sources write that analysis: the Axoplasm panel's widefield
+    discard, which records no ``discard_source``, and Apply in the Unanchored clusters window, which records its
+    method and decisions by hand (``tools.mps_unanchored.record_sources``). ``applied`` None or without a discard
+    (none compared yet): a label that names no source."""
+    if applied is None or not getattr(applied, "discard_applied", False):
+        return "Discarded", "The clusters a discard leaves out; no discard has been compared for this analysis yet."
+    source = str(getattr(applied, "discard_source", "") or "")
+    if not source:
+        return ("Discarded by the axoplasm panel",
+                "Left out by the Axoplasm panel: the clusters both widefield images place inside the axon by more "
+                "than its margin.")
+    from tools.mps_unanchored import record_sources
+    method, n_hand = record_sources(source)
+    rule = _DISCARD_RULE_WORDS.get(method, "")
+    if rule and n_hand:
+        label = f"Discarded ({rule} / by hand)"
+    elif rule:
+        label = f"Discarded by the {rule}"
+    elif n_hand:
+        label = "Discarded by hand"
+    else:
+        label = "Discarded (Unanchored window)"
+    what = [w for w in (_DISCARD_RULE_SENTENCES.get(method, ""),
+                        f"{n_hand} decision(s) by hand, each excluding or restoring one cluster" if n_hand else "")
+            if w]
+    tip = ("Left out by the Unanchored clusters window (Apply)" + (": " + " and ".join(what) if what else "")
+           + f". Recorded as: {source}.")
+    return label, tip
+
+
 # ============================================================================ the axoplasm panel's state
 @dataclass
 class AxoplasmMapState:
@@ -494,6 +534,14 @@ def _seg_words(ms: Any) -> str:
             f"Mahalanobis {p['maha']:g}{reg.user_mark('occupancy.mahalanobis', p['maha'])}")
 
 
+def _applied(inp: MapInputs, shown: Any) -> Any:
+    """The 'discard applied' analysis of the map: the one shown when it is that one, else the comparison's (None
+    without a comparison) - what ``discard_by`` names the source of."""
+    if getattr(shown, "discard_applied", False):
+        return shown
+    return None if inp.comparison is None else inp.comparison.discard_applied
+
+
 def _localization_group(inp: MapInputs, shown: Any) -> Group:
     g = Group("localizations", "Localizations", header="source")
     src = inp.source
@@ -538,7 +586,8 @@ def _localization_group(inp: MapInputs, shown: Any) -> Group:
             Layer("slab_curated", curated_word, g.key, "scatter", {"x": x[bad_mask], "y": y[bad_mask]},
                   int(np.sum(bad_mask)), "Localizations in clusters the automatic curation removed."),
             Layer("slab_discarded", "In discarded clusters", g.key, "scatter", {"x": x[gone], "y": y[gone]},
-                  int(np.sum(gone)), "Localizations in the clusters the Axoplasm panel discarded.",
+                  int(np.sum(gone)),
+                  "Localizations in the clusters the discard left out. " + discard_by(_applied(inp, shown))[1],
                   enabled=bool(shown.discard_applied),
                   reason="" if shown.discard_applied else "shown only with the discard applied"),
         ]
@@ -605,17 +654,20 @@ def _centres_group(inp: MapInputs, shown: Any) -> Group:
         g.layers.append(Layer("c_kept", "Kept", g.key, "scatter", {"x": c[:, 0], "y": c[:, 1]}, int(len(c)),
                               "The centre of mass of each cluster the analysis shown kept (the green centres the "
                               "main window drew)."))
+        # Named by who discarded them: the Axoplasm panel or the Unanchored clusters window (manual test of
+        # 2026-11-19: a cluster excluded by hand read "Discarded by the axoplasm panel").
+        label, tip = discard_by(_applied(inp, shown))
+        if label == "Discarded by the axoplasm panel":
+            tip += " The same clusters as 'Inside both images' in the other colouring."
         if shown.discard_applied and inp.comparison is not None:
             labels = _good_labels(measured)
             out = np.isin(labels, list(shown.discarded_labels))
             d = np.asarray(measured.centroids, float).reshape(-1, 2)[out]
-            g.layers.append(Layer("c_discarded", "Discarded by the axoplasm panel", g.key, "scatter",
-                                  {"x": d[:, 0], "y": d[:, 1]}, int(len(d)),
-                                  "The same clusters as 'Inside both images' in the other colouring."))
+            g.layers.append(Layer("c_discarded", label, g.key, "scatter",
+                                  {"x": d[:, 0], "y": d[:, 1]}, int(len(d)), tip))
         else:
-            g.layers.append(Layer("c_discarded", "Discarded by the axoplasm panel", g.key, "scatter",
-                                  {"x": np.empty(0), "y": np.empty(0)}, 0,
-                                  "The same clusters as 'Inside both images' in the other colouring.",
+            g.layers.append(Layer("c_discarded", label, g.key, "scatter",
+                                  {"x": np.empty(0), "y": np.empty(0)}, 0, tip,
                                   enabled=False, reason="shown only with the discard applied"))
         return g
     # the two widefield images

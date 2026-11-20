@@ -381,8 +381,8 @@ pytest test_mps_explorer.py -v
 - **Every analysis, for every clustering method.** 'Compare methods...' runs the analyses (events and probable
   fusions, eclipse tolerance, apparent size; the sweep on request) on every method, DBSCAN 25/10 first as the
   reference, and the DBSCAN rule of the file beside it; the Working scale panel and the Perimeter arrangement tab
-  (the per-axon null of each method, re-running that method, with the regularity reading) complete it; the axon
-  table is v14: [docs/clustering_integration.md](docs/clustering_integration.md).
+  (the per-axon null of each method, re-running that method, with the regularity reading) complete it; its columns
+  entered the axon table in v13-v16: [docs/clustering_integration.md](docs/clustering_integration.md).
 - **What to report.** A checklist for a thesis or a paper: each item (algorithm and version, eps and min_samples
   with the NeNA and c_label, linking, the global test, the sweep, precision, density, unassigned fraction, d50,
   flagged clusters, controls, the experimental unit, the expected bias of each readout) with the column or file it
@@ -391,17 +391,22 @@ pytest test_mps_explorer.py -v
 - **Perimeter density analysis (no clusters).** Three 170 nm slices around the peak or the focus, an automatic
   contour fitted to the localizations, density profiles of a ±100 nm band in 100 nm arc bins, and three questions
   (A: the density around its maximum; B: density against curvature; C: correlation between slices), each with its
-  Monte Carlo null and the way to read it. Command line `batch_perimeter.py`; axon table v21 (`pd_*` columns, 662 columns in all) and
+  Monte Carlo null and the way to read it. Command line `batch_perimeter.py`; axon tables v22 (`pd_*` columns, 691 columns in all) and
   long tables with dictionaries; the "Perimeter..." window runs it from the MPS analysis window, with progress, Cancel
-  and Save...: [docs/perimeter_density.md](docs/perimeter_density.md). The axial width of the leak between slices is
-  47 nm (range 36-51 nm; 77 nm only as an upper bound), measured on pilot data of one animal, and the interior trim of
-  the contour fit applies only when the polar curve passes the strict rules of the automatic contour.
+  and Save...: [docs/perimeter_density.md](docs/perimeter_density.md). The axial width σ_z of the leak between slices
+  is measured in each file (a NeNA in z plus the slow component of molecules switched on again,
+  `tools/mps_axial_sigma.py`) and used when the measurement is reliable; otherwise the program falls back to the 47 nm
+  (range 36-51 nm) measured on pilot data of one animal and says so (`pd_sz_source`); 77 nm is only an upper bound.
+  The interior trim of the contour fit applies only when the polar curve passes the strict rules of the automatic
+  contour.
 - **Unanchored clusters (without tubulin).** The "Unanchored..." window finds clusters that lie under the membrane
   ring by their depth below the ring the spectrin itself draws (more than 400 nm: excluded, provisional; 250-400 nm:
   doubtful, only marked), always reports the analysis with and without the discard, keeps decisions by hand by
   position in `<data>_unanchored.json`, and exports its origin per cluster (v18 columns). The old tubulin plus
   widefield method stays as an option. No threshold comes from the literature: every number is labelled with its
-  origin (pilot data of one animal, own simulation, ad hoc): [docs/unanchored.md](docs/unanchored.md).
+  origin (pilot data of one animal, own simulation, ad hoc). In simulation (`validate_unanchored_threshold.py`) the
+  400 nm rule almost never excludes membrane but lets about 72 % of the interior clusters through, so "with discard"
+  is a floor, not a full clean-up: [docs/unanchored.md](docs/unanchored.md).
 
 ---
 
@@ -651,7 +656,7 @@ for roi_name, roi_data in roi_datasets.items():
 | **What's the minimum RAM needed?** | 4GB for small datasets, 8GB+ for large |
 | **Can I use it on macOS/Linux?** | Yes, fully cross-platform |
 | **How do I debug issues?** | Check `logs/` directory for detailed logs |
-| **Can I batch process multiple files?** | Yes: the **Batch** button analyses every picked axon under a folder with the main window's settings and writes the same per-axon table as **Export axon**. Its second tab summarises one column per group, per axon and per animal, without computing a p-value. |
+| **Can I batch process multiple files?** | Yes: the **Batch** button analyses every picked axon under a folder with the main window's settings and writes the same per-axon table as **Save axon...**. Its second tab summarises one column per group, per axon and per animal, without computing a p-value. |
 | **What file formats are supported?** | Localization tables only: Picasso .hdf5/.h5, ThunderSTORM .csv, custom .csv. Images are not supported. |
 | **How do I export results?** | Use Export button → Choose CSV/JSON/HDF5 |
 | **Is there a GUI?** | Yes, PyQt5-based interactive interface |

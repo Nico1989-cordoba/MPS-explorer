@@ -65,6 +65,12 @@ REFERENCE_ITEMS: Tuple[Tuple[str, str], ...] = (
 )
 LOG_HEADERS: Tuple[str, ...] = ("Cluster", "x [nm]", "y [nm]", "Depth [nm]", "Automatic", "Decision", "Reason",
                                 "Date")
+# The free text: it takes the width left and is elided (whole in its tooltip), so the date after it stays in sight
+# (manual test of 2026-11-19: Date cut and a horizontal bar, maximized at 1920 px).
+LOG_STRETCH = LOG_HEADERS.index("Reason")
+# Width kept for the reason when the record asks the splitter for room, in average characters [ad hoc: the longest
+# suggested reason, "neighbouring axon" (mu.SUGGESTED_REASONS), whole with a little room]
+LOG_REASON_CHARS = 22
 MARGIN = 16
 SPACING = 12
 MIN_POINT_SIZE = 10.0
@@ -346,6 +352,11 @@ class UnanchoredWindow(QtWidgets.QMainWindow):
         head.setFont(fh)
         lay.addWidget(head)
         self.table = _table("unanchored_log", LOG_HEADERS)
+        hh = self.table.horizontalHeader()
+        hh.setStretchLastSection(False)
+        for j in range(len(LOG_HEADERS)):
+            hh.setSectionResizeMode(j, QtWidgets.QHeaderView.Stretch if j == LOG_STRETCH
+                                    else QtWidgets.QHeaderView.ResizeToContents)
         lay.addWidget(self.table, 1)
         row = QtWidgets.QHBoxLayout()
         row.setSpacing(SPACING)
@@ -361,11 +372,13 @@ class UnanchoredWindow(QtWidgets.QMainWindow):
         row.addWidget(self.btn_back)
         row.addStretch(1)
         lay.addLayout(row)
-        side.setMinimumWidth(520)                  # [ad hoc] the record table whole at 10 pt
+        side.setMinimumWidth(520)                  # [ad hoc] the record's floor; _fit_side widens it to its columns
         split.addWidget(side)
+        # The map takes the width a larger window adds; the record gets what it needs (_fit_side), not more.
         split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 1)
+        split.setStretchFactor(1, 0)
         root.addWidget(split, 1)
+        self.split = split
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(150)
         self._timer.timeout.connect(self._show_progress)
@@ -937,14 +950,47 @@ class UnanchoredWindow(QtWidgets.QMainWindow):
                 item = QtWidgets.QTableWidgetItem(text)
                 if j in (1, 2, 3):
                     item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
+                if j == LOG_STRETCH and text:
+                    item.setToolTip(text)              # elided when the column is narrow
                 self.table.setItem(i, j, item)
-        self.table.resizeColumnsToContents()
-        pad = 2 * self.table.fontMetrics().horizontalAdvance("M")
-        for j in range(self.table.columnCount()):
-            head = self.table.horizontalHeaderItem(j)
-            need = (self.table.fontMetrics().horizontalAdvance(head.text()) if head is not None else 0) + pad
-            self.table.setColumnWidth(j, max(self.table.columnWidth(j), need))
-        self.table.horizontalHeader().setStretchLastSection(True)
+        # Every column but the reason fits its cells and header (ResizeToContents, set once); the reason takes
+        # what is left. Room for that is asked of the splitter, never more than half of it.
+        self._fit_side()
+
+    def log_width_needed(self) -> int:
+        """Width the record table needs to show every column but the reason whole, the reason
+        ``LOG_REASON_CHARS`` characters wide (or its header, if wider), and no horizontal scroll bar."""
+        t = self.table
+        hh = t.horizontalHeader()
+        cols = sum(max(t.sizeHintForColumn(j), hh.sectionSizeHint(j))
+                   for j in range(t.columnCount()) if j != LOG_STRETCH)
+        reason = max(hh.sectionSizeHint(LOG_STRETCH),
+                     min(t.sizeHintForColumn(LOG_STRETCH),
+                         LOG_REASON_CHARS * t.fontMetrics().averageCharWidth()))
+        bar = t.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent, None, t)
+        return int(cols + reason + bar + 2 * t.frameWidth())
+
+    def _fit_side(self) -> None:
+        """Widen the record's side of the splitter to ``log_width_needed`` when it is narrower and the map keeps at
+        least half of the width; never narrows it (a width the user dragged stays when it is enough)."""
+        split = getattr(self, "split", None)           # a resize event before __init__ built it
+        if split is None:
+            return
+        sizes = split.sizes()
+        total = sum(sizes)
+        if len(sizes) != 2 or total <= 0:
+            return
+        want = min(self.log_width_needed(), total // 2)
+        if sizes[1] < want:
+            split.setSizes([total - want, want])
+
+    def showEvent(self, event: QtGui.QShowEvent) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._fit_side()
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._fit_side()
 
     # ---------------------------------------------------------------- closing
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802

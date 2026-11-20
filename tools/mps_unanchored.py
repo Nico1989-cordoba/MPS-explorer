@@ -938,6 +938,26 @@ class FinalFlags:
         return "; ".join(parts)
 
 
+def record_sources(record: str) -> Tuple[str, int]:
+    """(method, number of decisions by hand) of a ``FinalFlags.record`` line, as an analysis with this window's
+    discard keeps it in ``discard_source``; ("", 0) for any other text, e.g. "" (the Axoplasm panel's widefield
+    discard records no source). What a legend needs to name who left the clusters out; kept beside ``record`` so
+    the two change together."""
+    parts = [p.strip() for p in str(record or "").split(";")]
+    head = parts[0] if parts else ""
+    if not head.startswith("method "):
+        return "", 0
+    method = head[len("method "):].strip()
+    if method not in METHODS:
+        return "", 0
+    n_hand = 0
+    for part in parts[1:]:
+        words = part.split()
+        if len(words) >= 4 and words[0].isdigit() and words[1:4] == ["decision(s)", "by", "hand"]:
+            n_hand = int(words[0])
+    return method, n_hand
+
+
 def final_flags(result: Optional[UnanchoredResult], decisions: Optional[ManualDecisions] = None, *,
                 method: str = METHOD_AUTOMATIC, widefield: Optional[Any] = None,
                 centroids: Optional[Any] = None, labels: Optional[Sequence[int]] = None,
@@ -1255,7 +1275,8 @@ __all__ = [
     "FinalFlags", "Preview", "Trim", "points_in_polygon", "distance_to_polygon", "signed_depth",
     "smooth_ring_polygon", "inner_band_arc_nm", "reference_ring", "depth_noise", "classify", "auto_unanchored",
     "auto_for_analysis", "decisions_path", "load_decisions", "save_decisions", "add_decision", "remove_decision",
-    "match_decisions", "final_flags", "preview", "compare_unanchored", "trim_interior", "strict_polar_reference",
+    "match_decisions", "final_flags", "record_sources", "preview", "compare_unanchored", "trim_interior",
+    "strict_polar_reference",
     "TRIM_STRICT_PREFIX", "unanchored_block",
     "cluster_rows", "UNANCHORED_COLUMNS", "CLUSTER_UNANCHORED_COLUMNS",
 ]

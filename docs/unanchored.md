@@ -11,7 +11,9 @@
 > animal + criterio ad hoc) hasta etiquetar a mano axones; el 250 nm es el margen que ya usaba el método viejo
 > (tubulina + widefield), que sigue disponible como opción. Excluir espectrina interior es una decisión de análisis,
 > no un hecho biológico. Los números rotulados [pilot] son datos piloto de un solo animal (18 axones de un
-> experimento): sirven para elegir un criterio, no para validarlo.
+> experimento): sirven para elegir un criterio, no para validarlo. En simulación con verdad conocida
+> (`validate_unanchored_threshold.py`, [own sim]), a 400 nm la regla casi no excluye membrana (0,01 %) pero deja pasar
+> ~72 % de los clusters interiores: «con descarte» es un piso, no una limpieza completa.
 
 This page is the public methods record of the **automatic discard of unanchored clusters** (`tools/mps_unanchored.py`,
 `tools/unanchored_export.py`, the window `tools/mps_unanchored_window.py`). It is the counterpart, for data without a
@@ -87,7 +89,7 @@ therefore a floor, not a truth. It stays available (`widefield` method) and its 
 
 | parameter | value | origin | why this number |
 |---|---|---|---|
-| `exclude_nm` | **400 nm, PROVISIONAL** | [pilot + ad hoc] | Above it, in the field where tubulin is a usable cross-check, tubulin puts 71 % of the flagged clusters inside (20 of 28) against a 24 % background for membrane clusters; only 5 of 51 verdicts change with a 70 % subsample; the 8 deepest widefield positives are at ≥ 737 nm. One experiment, one animal. It stays provisional until axons are labelled by hand (decision D6) |
+| `exclude_nm` | **400 nm, PROVISIONAL** | [pilot + ad hoc] | Above it, in the field where tubulin is a usable cross-check, tubulin puts 71 % of the flagged clusters inside (20 of 28) against a 24 % background for membrane clusters; only 5 of 51 verdicts change with a 70 % subsample; the 8 deepest widefield positives are at ≥ 737 nm. One experiment, one animal. It stays provisional until axons are labelled by hand (decision D6). Its error curve with known truth: "finding interior clusters" below [own sim] |
 | `doubt_nm` | 250 nm | [code + ad hoc] | The margin the widefield method already used (`DEFAULT_MARGIN_NM`). Between 250 and 400 nm tubulin does not decide (36 % inside, 32 % at the edge) and most of the instability sits there (24 verdicts change at 250 nm, 5 at 400) |
 | reference ring | polar, 72 sectors, 40 nm bins | [own sim] (contour package) | Uses localizations, not centres; least noisy; independent of whether the final contour comes out well |
 | noise replicates | 20 at 70 % (polar) / 90 % (smooth) | [ad hoc] | Enough to see whether a verdict is stable; not tuned |
@@ -128,6 +130,61 @@ Anything flagged is membrane wrongly flagged.
 For comparison, the radial robust SD of the real localizations in one slice was 95 nm (median) and 131 nm (worst axon)
 in the pilot. The weak point is a **narrow, deep bay**: the polar ring smooths by sectors and cuts it, and the bay's
 floor is excluded. Such axons have to be restored by hand.
+
+### What the simulations say about finding interior clusters (`validate_unanchored_threshold.py`)
+
+The simulation above has no interior clusters, so it can only say how much membrane is lost. The script
+`validate_unanchored_threshold.py` (generic: no data paths) adds interior clusters of known depth and scores the rule
+exactly as the program applies it [own sim].
+
+- **Design.** Each simulated axon draws: a closed membrane (a circle of 900, 1500 or 2200 nm radius, an ellipse of
+  semi-axes 2000 × 1100 nm, or a three-lobed curve); the radial SD of the membrane cluster centres (30, 60 or 100 nm;
+  150 nm as a stress case); a concave bay (none, 300 nm × 40°, 500 nm × 40°, 500 nm × 20°; 800 nm × 20° as a stress
+  case); 0, 3, 8 or 15 interior clusters at a true depth uniform in 150-800 nm below the true membrane, scattered or
+  grouped; diffuse interior lumps too small to be clusters (0, 5 or 15 % of the other localizations); 25 or 80
+  localizations per cluster; gaps of 0 or 25 % of the membrane arc. The rule is `tools.mps_unanchored` as it is: depth
+  below the polar ring and below the smooth ring, star-shape test included (an axon whose ring is rejected excludes
+  nothing). Simplifications: the cluster centres are the centroids of the planted localizations (no DBSCAN step, so
+  no merged or split clusters); 2D, one slice; smooth shapes; interior and membrane clusters equally bright.
+- **Result.** 800 axons (seeds 0-799). Main set: the 484 axons with a radial SD of at most 100 nm and without the
+  800 nm bay (20 721 membrane and 3 129 interior clusters); polar ring; 95 % bootstrap intervals over whole axons:
+
+  | threshold | membrane clusters excluded (FPR) | interior clusters kept (FNR) |
+  |---|---|---|
+  | 250 nm | 0.58 % (0.47-0.71) | 55 % (51-58) |
+  | 300 nm | 0.29 % (0.22-0.38) | 60 % (57-64) |
+  | **400 nm** | **0.01 %** (0-0.02) | **72 %** (69-75) |
+  | 500 nm | 0 % | 81 % (79-84) |
+
+  At 400 nm, 13 of the 484 axons had their ring rejected and excluded nothing (counted as such). With the stress cases
+  included (800 axons) the 400 nm rule excludes 0.47 % of the membrane and keeps 75 % of the interior clusters; the
+  smooth ring at 400 nm (main set) excludes 0.24 % and keeps 69 %.
+- **Why so many interior clusters are missed.** The polar ring is pulled inward by the interior clusters themselves:
+  the measured depth falls short of the true one by a median of 128-189 nm depending on the true depth (robust SD
+  134-255 nm). With an error-free depth, interior clusters uniform in 150-800 nm would be missed at 400 nm only 38 % of
+  the time [derivation: 250 / 650]. At 400 nm it is worse when the interior clusters are grouped (83 % kept, against
+  61 % when scattered), when a quarter of the membrane arc is missing (81 % against 62 %), and the more of them there
+  are (60, 69 and 76 % kept with 3, 8 and 15).
+- **Reading.** At 400 nm the rule almost never removes real membrane, but it lets most interior clusters through: the
+  "with discard" column is a floor, not a full clean-up. Which threshold has the lowest expected error E = p · FNR +
+  (1 − p) · FPR depends on two numbers nobody has measured, the share p of interior clusters and the cost of a false
+  discard: in this simulation it is 250-300 nm with p = 0.05, 250 nm with p = 0.10, 350 nm with p = 0.02, and 400 nm
+  when a false discard counts three times. The 400 nm therefore stays provisional.
+- **How to run it.**
+
+  ```
+  python validate_unanchored_threshold.py sim --out DIR --seeds 0:80      (then 80:160, ..., 720:800)
+  python validate_unanchored_threshold.py summarize --out DIR
+  ```
+
+  `sim` writes, per seed range, each cluster's depth under both rings with its truth and one row per axon, so that any
+  threshold can be scored afterwards; it stops after `--max-seconds` (default 480) and skips a range already written
+  (80 seeds took 3-5 minutes on a laptop). `summarize` (`--prevalence`, default 0.05) writes `summary_curves.csv`
+  (FPR, FNR and E from 250 to 550 nm, per factor and for the sensitivity analyses), `summary_detection_by_depth.csv`
+  and `summary_membrane_depth.csv`. On real files, `real --file PATH --tag NAME --out DIR [--reference-flags CSV]`
+  (one file per process, read only) writes each cluster's depth and the analysis without the clusters deeper than
+  250, 300, 400 and 500 nm; `agree --out DIR` pools those tables against the flags of a reference method (Cohen's
+  kappa with a bootstrap interval over files, sensitivity with an exact interval).
 
 ## 3. What it measures, and what it does NOT
 
@@ -188,7 +245,9 @@ scripted references).
 
 - One experiment, one animal: every [pilot] number is exploratory.
 - The 400 nm is **provisional**; the band 250–400 nm cannot be resolved with the pilot's data.
-- The 400 nm was simulated only for membrane loss (section 2), not for a real axon with bays.
+- The 400 nm was simulated for membrane loss and for interior clusters missed (section 2), on smooth simulated shapes
+  only, never against real axons with an independent truth; the threshold with the lowest error depends on the unknown
+  share of interior clusters.
 - The polar ring is valid only for star-shaped clouds; the star-shape test was calibrated in simulation only.
 - Cause of a ring that changes radius or shifts between the three z slices (tilt, depth-dependent lateral distortion of
   the optics, Carlini 2015, or different clusters at different heights): not established.

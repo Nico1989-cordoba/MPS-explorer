@@ -5,7 +5,7 @@ previous selection, or rings computed for another selection or with other parame
 
 Its text is built from the state (the pure functions below), so it never claims more than is true: which selection
 the analysis is of and which one is current; whether the comparison without the discarded clusters was dropped when
-the Axoplasm panel moved to the new selection; and what "Export axon" does meanwhile. Its two actions are
+the Axoplasm panel moved to the new selection; and what "Save axon" does meanwhile. Its two actions are
 "Show the current selection" (the window draws the current selection with no analysis, as the Axoplasm panel's image
 used to follow an ROI drag; "Show the analysed selection" goes back) and "Run the MPS analysis" (the main window's
 "MPS analysis"). Nothing is recomputed by the banner itself.
@@ -39,7 +39,7 @@ RUN_TIP = "The main window's \"MPS analysis\": analyse the current selection."
 def analysis_stale_lines(*, analysed_words: str, current_words: str, discard_dropped: bool,
                          cut_only: bool = False) -> List[str]:
     """The banner over an analysis of a previous selection (3.4 rule 5). ``cut_only``: the ROI is the analysed one
-    and only the axial cut changed - "Export axon" then does not refuse (it compares the file and the ROI), so the
+    and only the axial cut changed - "Save axon" then does not refuse (it compares the file and the ROI), so the
     banner must not say it does."""
     lines = [f"This analysis is of the previous selection ({analysed_words}); the current selection is "
              f"{current_words}."]

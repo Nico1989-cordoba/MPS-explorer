@@ -384,6 +384,67 @@ def test_contour_kind_names():
     assert mpw.contour_kind_text(None) == "none"
 
 
+def test_a_zero_is_never_written_with_a_sign():
+    # the manual test showed "-0" for a nominal focus of a fraction of a nanometre below zero
+    assert mpw._num(-0.3, "{:.0f}") == "0" and mpw._num(-0.0, "{:.0f}", " nm") == "0 nm"
+    assert mpw._num(-0.0) == "0" and mpw._num(-0.004, "{:.2f}") == "0.00"
+    assert mpw._signed(-0.2) == "0 nm" and mpw._signed(0.2, "") == "0"
+    assert mpw._num(-1.0, "{:.0f}") == "-1" and mpw._signed(21.4) == "+21 nm" and mpw._signed(-22.0) == "-22 nm"
+    assert mpw._num(-1e-5) == "-1e-05" and mpw._num(float("nan")) == "n/a"
+
+
+def test_z0_line_and_table_say_zero_without_a_sign(window):
+    r = window.result
+    z = replace(r.z0, z0_nm=-0.3, peak_nm=-22.0, focus_nominal_nm=-0.3, focus_empirical_nm=-43.0,
+                peak_minus_focus_nominal_nm=-21.7, peak_minus_focus_empirical_nm=21.0)
+    line = mpw.z0_line(replace(r, z0=z))
+    assert "z0 = 0 nm" in line and "-0" not in line
+    rows = mpw.z0_table_rows(z)
+    assert [row[0] for row in rows] == ["Peak (density curve)", "Focus, nominal", "Focus, empirical", "z0 used"]
+    assert [row[1] for row in rows] == ["-22", "0", "-43", "0"]
+    # "Peak - this": the reference mark, then peak minus each z (the z0 row computed here: -22 - (-0.3))
+    assert [row[2] for row in rows] == [mpw.REFERENCE_MARK, "-22", "+21", "-22"]
+    same = mpw.z0_table_rows(replace(z, z0_nm=-22.0))
+    assert same[3][2] == "0"                                                   # z0 is the peak: no sign
+    absent = mpw.z0_table_rows(replace(z, focus_nominal_nm=None, peak_minus_focus_nominal_nm=None))
+    assert absent[1][1:] == [mpw.FOCUS_ABSENT, mpw.FOCUS_ABSENT]
+
+
+def test_every_cell_of_the_z0_table_is_filled_and_its_header_reads(window):
+    t = window.table_z0
+    heads = [t.horizontalHeaderItem(j).text() for j in range(t.columnCount())]
+    assert heads == ["Reference", "z [nm]", "Peak − this [nm]"]
+    assert t.horizontalHeaderItem(2).toolTip()
+    assert all(t.item(i, j).text() for i in range(t.rowCount()) for j in range(t.columnCount()))
+    assert t.item(0, 2).text() == mpw.REFERENCE_MARK
+    z = window.result.z0
+    assert t.item(3, 2).text() == mpw._signed(z.peak_nm - z.z0_nm, "")
+
+
+def test_z_coverage_is_written_and_explained(window):
+    t = window.table_slices
+    assert t.horizontalHeaderItem(5).text() == "z coverage" and t.horizontalHeaderItem(5).toolTip()
+    cov = [float(t.item(i, 5).text()) for i in range(3)]
+    assert cov == [pytest.approx(c, abs=0.005) for c in window.result.slices.z_coverage]
+    assert all(0.0 <= c <= 1.0 for c in cov)
+
+
+def test_tables_are_as_wide_as_their_columns_and_do_not_grow(window):
+    # the stretched last column grew at every fill and pushed its right-aligned numbers out of view
+    tables = (window.table_slices, window.table_z0, window.table_pairs, window.table_a, window.table_b)
+    before = [[t.columnWidth(j) for j in range(t.columnCount())] for t in tables]
+    for _ in range(3):
+        window._fill_slices(window.result)
+        window._fill_profile(window.result)
+        window._fill_curvature(window.result)
+        QtWidgets.QApplication.processEvents()
+    after = [[t.columnWidth(j) for j in range(t.columnCount())] for t in tables]
+    assert after == before
+    for t in tables:
+        assert not t.horizontalHeader().stretchLastSection()
+        assert t.width() == mpw.table_content_width(t) == t.minimumWidth() == t.maximumWidth(), t.objectName()
+
+
 def test_the_tour_of_the_window_exists_and_its_targets_resolve(window):
     from tools import mps_tour
     steps = mps_tour.steps_for(mpw.TOUR_ID)

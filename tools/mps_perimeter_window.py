@@ -82,6 +82,14 @@ B_SIGN_LINE = "Spearman is NEGATIVE when density rises where the membrane is mor
 C_CLEAN_PAIR_LINE = "z-1 vs z+1 do not touch: that pair is the clean reading; neighbours share the axial leak."
 C_CONTOUR_LINE = "Not measured: a contour error shared by the three slices can make them look alike."
 FOCUS_ABSENT = "none"
+REFERENCE_MARK = "—"          # the "Peak - this" cell of the peak's own row: the reference, not a distance
+# The two tables of the Slices tab: headers and their tooltips (one line each, the export's words)
+SLICE_HEADERS: Tuple[str, ...] = ("Slice", "z from [nm]", "z to [nm]", "n", "% of central", "z coverage")
+Z0_HEADERS: Tuple[str, ...] = ("Reference", "z [nm]", "Peak − this [nm]")
+HEADER_TIPS: Dict[str, str] = {
+    "z coverage": "Fraction of the slice's z interval inside the file's z range (1 = whole; < 1 = truncated).",
+    "Peak − this [nm]": "z of the density-curve peak minus the z of this row (signed, nm).",
+}
 ALPHA = 0.05                      # [lit] the conventional level the analysis' own readings use (mps_perimeter_bc)
 # Points drawn per slice in the cloud (a stride; the analysis always uses every localization)
 MAX_DRAWN_PER_SLICE = 20000
@@ -140,7 +148,12 @@ def _num(v: Optional[float], fmt: str = "{:.3g}", unit: str = "") -> str:
         f = float(v)
     except (TypeError, ValueError):
         return "n/a"
-    return "n/a" if not math.isfinite(f) else fmt.format(f) + unit
+    if not math.isfinite(f):
+        return "n/a"
+    text = fmt.format(f)
+    if text[:1] in ("-", "+") and not any(c in "123456789" for c in text):
+        text = text[1:]                                # "-0", "+0", "-0.00": a zero that rounds to zero has no sign
+    return text + unit
 
 
 def _signed(v: Optional[float], unit: str = " nm") -> str:
@@ -235,6 +248,28 @@ def z0_line(result: Result) -> str:
         return f"z0: none ({result.status.value})."
     return (f"z0 = {_num(z.z0_nm, '{:.0f}', ' nm')} ({z.criterion.value.replace('_', ' ')}); peak - focus: "
             f"nominal {_signed(z.peak_minus_focus_nominal_nm)}, empirical {_signed(z.peak_minus_focus_empirical_nm)}.")
+
+
+def z0_table_rows(z: pdt.Z0Choice) -> List[List[str]]:
+    """The rows of the table "z0 and the foci": reference, its z and the peak minus that z (signed, nm).
+
+    The peak's own row holds the reference mark; a focus the file lacks reads ``FOCUS_ABSENT`` in both cells. The
+    foci's distances are the analysis' own; the z0 row's is the peak minus the z0 used (0 when z0 is the peak)."""
+    def z_text(v: Optional[float]) -> str:
+        return FOCUS_ABSENT if v is None else _num(v, "{:.0f}")
+
+    def diff_text(v: Optional[float], focus: Optional[float]) -> str:
+        return FOCUS_ABSENT if focus is None else _signed(v, "")
+
+    peak_minus_z0: Optional[float] = None
+    if z.peak_nm is not None and z.z0_nm is not None and _finite(z.peak_nm) and _finite(z.z0_nm):
+        peak_minus_z0 = float(z.peak_nm) - float(z.z0_nm)
+    return [["Peak (density curve)", _num(z.peak_nm, "{:.0f}"), REFERENCE_MARK],
+            ["Focus, nominal", z_text(z.focus_nominal_nm),
+             diff_text(z.peak_minus_focus_nominal_nm, z.focus_nominal_nm)],
+            ["Focus, empirical", z_text(z.focus_empirical_nm),
+             diff_text(z.peak_minus_focus_empirical_nm, z.focus_empirical_nm)],
+            ["z0 used", _num(z.z0_nm, "{:.0f}"), _signed(peak_minus_z0, "")]]
 
 
 def a_line(result: Result) -> str:
@@ -441,11 +476,18 @@ def _table(name: str, headers: Sequence[str]) -> QtWidgets.QTableWidget:
     t.verticalHeader().setVisible(False)
     t.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
     t.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+    for j, head in enumerate(headers):
+        tip = HEADER_TIPS.get(head)
+        item = t.horizontalHeaderItem(j)
+        if tip and item is not None:
+            item.setToolTip(tip)
     t.setWordWrap(False)
     t.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     t.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    t.horizontalHeader().setStretchLastSection(True)
-    t.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+    # Every column as wide as its contents and the table as wide as its columns (``_fill``): a stretched last
+    # column grew at every fill and pushed its right-aligned numbers out of the side column's view.
+    t.horizontalHeader().setStretchLastSection(False)
+    t.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
     try:
         from tools.copyable import copyable_table
         copyable_table(t)
@@ -462,20 +504,26 @@ def _fill(t: QtWidgets.QTableWidget, rows: Sequence[Sequence[str]]) -> None:
             if j > 0:
                 item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
             t.setItem(i, j, item)
+    header = t.horizontalHeader()
+    header.setStretchLastSection(False)                # measured from the contents at every fill: no growth
     t.resizeColumnsToContents()
     pad = 2 * t.fontMetrics().horizontalAdvance("M")
-    header = t.horizontalHeader()
     for j in range(t.columnCount()):                   # every header whole: no cut headers
         head = t.horizontalHeaderItem(j)
         need = (t.fontMetrics().horizontalAdvance(head.text()) if head is not None else 0) + pad
         t.setColumnWidth(j, max(t.columnWidth(j) + pad // 2, need))
-    header.setStretchLastSection(True)
     t.resizeRowsToContents()
     head_h = max(header.height(), header.sizeHint().height())
     height = head_h + 2 * t.frameWidth() + sum(t.rowHeight(i) for i in range(len(rows)))
     t.setFixedHeight(max(height, head_h + 4))
-    # the whole table, never a scroll bar inside it: the side column scrolls instead
-    t.setMinimumWidth(sum(t.columnWidth(j) for j in range(t.columnCount())) + 2 * t.frameWidth())
+    # the whole table and nothing more: never a scroll bar inside it (the side column scrolls instead) and never a
+    # stretched column with empty room in it
+    t.setFixedWidth(table_content_width(t))
+
+
+def table_content_width(t: QtWidgets.QTableWidget) -> int:
+    """The width of a table's columns plus its frame: the width ``_fill`` gives the table."""
+    return int(sum(t.columnWidth(j) for j in range(t.columnCount())) + 2 * t.frameWidth())
 
 
 def _heading(text: str, object_name: str = "") -> QtWidgets.QLabel:
@@ -688,13 +736,12 @@ class MPSPerimeterWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.plot_z, 1)
         lay.addSpacing(SPACING // 2)
         lay.addWidget(_heading("Slices"))
-        self.table_slices = _table("perimeter_slices", ["Slice", "z from [nm]", "z to [nm]", "n", "% of central",
-                                                        "z coverage"])
-        lay.addWidget(self.table_slices)
+        self.table_slices = _table("perimeter_slices", SLICE_HEADERS)
+        lay.addWidget(self.table_slices, 0, QtCore.Qt.AlignmentFlag.AlignLeft)
         lay.addSpacing(SPACING // 2)
         lay.addWidget(_heading("z0 and the foci"))
-        self.table_z0 = _table("perimeter_z0", ["Reference", "z [nm]", "Peak - it [nm]"])
-        lay.addWidget(self.table_z0)
+        self.table_z0 = _table("perimeter_z0", Z0_HEADERS)
+        lay.addWidget(self.table_z0, 0, QtCore.Qt.AlignmentFlag.AlignLeft)
         split.addWidget(_scrolled(side, SIDE_MIN_WIDTH))
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 1)
@@ -710,7 +757,7 @@ class MPSPerimeterWindow(QtWidgets.QMainWindow):
     def _question_block(self, lay: QtWidgets.QVBoxLayout, title: str, name: str,
                         table: QtWidgets.QTableWidget) -> Tuple[_Line, List[_Line]]:
         lay.addWidget(_heading(title, f"perimeter_heading_{name}"))
-        lay.addWidget(table)
+        lay.addWidget(table, 0, QtCore.Qt.AlignmentFlag.AlignLeft)
         reading = _Line("", f"perimeter_reading_{name}")
         f = reading.font()
         f.setBold(True)
@@ -967,14 +1014,7 @@ class MPSPerimeterWindow(QtWidgets.QMainWindow):
             rows = [[SLICE_NAME[k], "", "", "", "", ""] for k in pdt.SLICES]
         z = None if r is None else r.z0
         if z is not None:
-            z_rows = [["Peak (density curve)", _num(z.peak_nm, "{:.0f}"), "-"],
-                      ["Focus, nominal", _num(z.focus_nominal_nm, "{:.0f}") if z.focus_nominal_nm is not None
-                       else FOCUS_ABSENT, _signed(z.peak_minus_focus_nominal_nm, "")
-                       if z.peak_minus_focus_nominal_nm is not None else "-"],
-                      ["Focus, empirical", _num(z.focus_empirical_nm, "{:.0f}") if z.focus_empirical_nm is not None
-                       else FOCUS_ABSENT, _signed(z.peak_minus_focus_empirical_nm, "")
-                       if z.peak_minus_focus_empirical_nm is not None else "-"],
-                      ["z0 used", _num(z.z0_nm, "{:.0f}"), ""]]
+            z_rows = z0_table_rows(z)
         else:
             z_rows = [["Peak (density curve)", "", ""], ["Focus, nominal", "", ""], ["Focus, empirical", "", ""],
                       ["z0 used", "", ""]]

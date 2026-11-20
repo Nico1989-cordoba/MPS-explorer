@@ -4,11 +4,17 @@ The project file of the automatic launcher (``proyecto.yaml``): one per batch of
 
 What it is for
 --------------
-The windowless launcher (stage F4, not built yet) must not read the main window's live settings
+The windowless launcher must not read the main window's live settings
 (``mps_analysis_settings.json``): those change every time an axon is explored, so a batch run from them can carry a
 parameter someone tried an hour earlier. User decision P1 (a), 2026-11-07: the parameters of a launcher run come ONLY
 from this file; what the file leaves out takes the program's default; the window's settings are only copied to the
 run's manifest as a reference. This module reads and validates the file; it never touches the window's settings.
+
+What of the launcher this repository holds: this module (a commented example is ``docs/launcher_project_example.yaml``;
+``batch_settings_from_project`` turns a project into the Batch's settings); the pre-checks, ``tools/mps_precheck.py``,
+run on their own with ``python -m tools.launcher_check <proyecto.yaml>`` (nothing is analysed; an axon estimated
+above 2 hours waits for a confirmation); and ``tools/make_synthetic_batch.py``, a simulated batch to try them on. The
+launcher that runs the analysis itself (stage F4) is not part of this repository.
 
 The rules
 ---------

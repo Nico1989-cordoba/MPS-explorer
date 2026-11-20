@@ -5,8 +5,8 @@ Run ONLY the launcher's pre-checks on a project file and write the report. Nothi
     venv/Scripts/python.exe -m tools.launcher_check <proyecto.yaml> [--aceptar-axones-largos]
                                                    [--sin-contar-clusteres] [--informe-en <carpeta>]
 
-The full launcher (stage F4) is built after the manual test and merge of these pre-checks; this entry point is the
-part of it that decides whether a batch may start. It does not depend on Claude: it runs from a terminal, or with
+The full launcher (stage F4) is not part of this repository; this entry point is the part of it that decides whether
+a batch may start. It does not depend on Claude: it runs from a terminal, or with
 ``pythonw`` from a double-click (then there is no console and nothing is asked).
 
 What it writes: ``chequeos_previos.txt`` (to read) and ``chequeos_previos.csv`` (one row per check) in a new folder

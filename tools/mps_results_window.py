@@ -143,6 +143,24 @@ MC_P_TIP = (
     "separation of the null is estimated from the same data.")
 CROSSING_TIP = ("Reported only where the observed CDF leaves the band the randomizations themselves give; called "
                 "significant when the crossing is stronger than the randomizations themselves reach (Monte Carlo).")
+# "Draw the plots with": the three radios' common tooltip. 'Discard applied' adds who discarded and how many
+# (_sync_discard_widgets): two sources write it, the Axoplasm panel and the Unanchored clusters window.
+_SHOWN_TIP = (
+    "Which clusters every plot is drawn from. The axon map, the areas, the nearest neighbours and the randomization "
+    "all\nfollow this, and each plot's own title says which one it is showing.\n\n"
+    "'Discard applied' leaves out the discarded clusters: those both widefield images place inside the axon\n"
+    "(Axoplasm panel, section 5) or those the Unanchored clusters window excludes (its rule and the decisions by\n"
+    "hand, after Apply). On the axon map they are vermillion diamonds, and the contour with every cluster stays as\n"
+    "a dashed line.")
+# Who discarded, in the tooltips (one sentence of tools.mps_axon_map_layers.discard_by), wrapped at this width.
+_TIP_WRAP = 90
+
+
+def _wrapped(text: str) -> str:
+    import textwrap
+    return textwrap.fill(" ".join(str(text).split()), _TIP_WRAP)
+
+
 # The public methods page of the randomization rows (tools.mps_randomization.METHODS_DOC).
 METHODS_TIP = "Methods: docs/randomization_and_ks.md"
 REGULARITY_TIP = (
@@ -1165,12 +1183,6 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         if self.links.store is not None:
             self.links.store({"cluster_methods_compared": ran})
 
-    def _on_null_shortcut(self) -> None:
-        """'Null (per axon)...' in the strip: the Perimeter arrangement tab, with its estimate; it runs from there
-        (the estimate is read first: a null of a slow method takes hours)."""
-        self.tabs.setCurrentWidget(self.arrangement_scroll)
-        self._sync_integration()
-
     def _sync_integration(self) -> None:
         """The Working scale panel and the Perimeter arrangement tab follow the analysis shown: its working scale,
         the DBSCAN rule with the panel's c_label, the double table, and the runs a null can be run for (the
@@ -1439,15 +1451,7 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         self.radio_discard = QtWidgets.QRadioButton("discard applied")
         for radio in (self.radio_measured, self.radio_every,
                       self.radio_discard):
-            radio.setToolTip(
-                "Which clusters every plot is drawn from. The axon map, the "
-                "areas, the nearest neighbours and the randomization all\n"
-                "follow this, and each plot's own title says which one it "
-                "is showing.\n\n"
-                "'Discard applied' leaves out the clusters both widefield "
-                "images place inside the axon (axoplasm panel,\n"
-                "section 5); on the axon map they are vermillion diamonds, "
-                "and the contour with every cluster stays as a dashed line.")
+            radio.setToolTip(_SHOWN_TIP)
         self.radio_measured.setChecked(True)
         self._shown_group = QtWidgets.QButtonGroup(self)
         for radio in (self.radio_measured, self.radio_every,
@@ -1618,8 +1622,9 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         from tools.arrangement_ui import TAB_TITLE, ArrangementPanel, WorkingScalePanel
         self.arrangement = ArrangementPanel(dark=self.dark)
         # The working scale of the analysis shown (A9 sec. 4.1; A5 inside it), the editable c_label and the DBSCAN
-        # rule beside 25/10 (D2), at the top of the tab whose tests start at its marks (the left column keeps every
-        # row of the results table in sight at 1366 x 728).
+        # rule beside 25/10 (D2), in the tab whose tests start at its marks, below the 'Null (per axon)' row and its
+        # estimate so that row stays in sight (the left column keeps every row of the results table in sight at
+        # 1366 x 728).
         self.working_scale = WorkingScalePanel()
         # the c_label kept in the settings (2026-10-29): the panel starts at it, and an edit is written back through
         # the store, so the next session and the Batch use it
@@ -2041,15 +2046,34 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
         compared = self.comparison is not None
         every = self._every_column()
         self.box_shown.setVisible(compared)
+        # The column 'Discard applied' differs from this one only by the
+        # discarded clusters.
+        reference = "'All clusters'" if every else "'Measured'"
+        nothing_out = ""
+        who = ""
         if compared and self.comparison is not None:
             # The counts on the buttons themselves: the row is one line
             # above a long table, and "89" beside "discard applied" is
             # what makes it read as a choice rather than a label.
             total = self.comparison.all_clusters.n_clusters_kept
             left = self.comparison.discard_applied.n_clusters_kept
+            who = _wrapped(L.discard_by(self.comparison.discard_applied)[1])
             self.radio_measured.setText(f"measured ({total} clusters)")
             self.radio_every.setText(f"all clusters ({total})")
-            self.radio_discard.setText(f"discard applied ({left})")
+            if total - left == 0:
+                # Manual test of 2026-11-19: with nothing left out the two
+                # columns are the same and the choice looked broken. Said
+                # on the button; both columns stay (the axon's row has both).
+                self.radio_discard.setText(f"discard applied ({left}, nothing left out)")
+                nothing_out = _wrapped(
+                    f"Nothing is left out now: the discard flags none of the {total} clusters, so 'Discard "
+                    f"applied' gives the same numbers and plots as {reference}. Both columns still go into the "
+                    f"axon's row ('Save axon...'); they differ once the discard leaves a cluster out.")
+                self.radio_discard.setToolTip(f"{_SHOWN_TIP}\n\n{nothing_out}\n\n{who}")
+            else:
+                self.radio_discard.setText(f"discard applied ({left})")
+                self.radio_discard.setToolTip(
+                    f"{_SHOWN_TIP}\n\nNow {total - left} of the {total} clusters are left out.\n{who}")
         self.box_export.setVisible(compared)
         self.radio_every.setVisible(every)
         if not every and self.radio_every.isChecked():
@@ -2064,10 +2088,11 @@ class MPSResultsWindow(QtWidgets.QMainWindow):
                if one_start else
                "by 2-opt from every start, keeping the shortest tour."))
         self.table.horizontalHeaderItem(_COL_DISCARD).setToolTip(
-            "Every parameter again without the clusters the axoplasm panel\n"
-            "discarded, the contour also from every start: it differs from\n"
-            + ("'All clusters'" if every else "'Measured'")
-            + " only by those clusters. Values in bold changed.")
+            "Every parameter again without the discarded clusters, the\n"
+            "contour also from every start: it differs from\n"
+            + reference + " only by those clusters. Values in bold changed."
+            + (f"\n\n{who}" if who else "")
+            + (f"\n\n{nothing_out}" if nothing_out else ""))
         if compared and not self._widened:
             # Before the window is first laid out the splitter has no size
             # yet; its width will be the window's.

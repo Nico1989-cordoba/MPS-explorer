@@ -20,12 +20,11 @@ Nothing here renames "Cluster area", and no analysis uses r_eff as a size (decis
 | In the program | What it does | Methods page |
 |---|---|---|
 | Tab **Perimeter arrangement**, top: **Working scale** | the marks below which this file's pipeline cannot tell two objects apart (eps, min samples, NeNA, near-total fusion, d50, slab), each with its origin; the editable **c_label**; the DBSCAN rule of this file beside 25/10 and, after a comparison with the rule, the double table "25/10 vs rule" | `docs/null_and_scale.md` §2, `docs/dbscan_rule.md` |
-| Strip, Randomization group: **Null (per axon)...** | opens the Perimeter arrangement tab (the estimate is read there before anything runs) | `docs/null_and_scale.md` |
-| Tab **Perimeter arrangement** | **Null (per axon)** for the method shown and every method compared, each re-running its own method; B 199 (999 on demand); Cancel; slow methods refused unless ticked; H1 on the arc and H2 in the band against the null; the regularity reading with its plots; **Show synthetic axon**; **Export curves...** | `docs/null_and_scale.md`, `docs/regularity.md` |
+| Tab **Perimeter arrangement** | **Null (per axon)**, the program's only button for it (the strip's shortcut was removed on 2026-11-17), for the method shown and every method compared, each re-running its own method; the time estimate is read there before anything runs; B 199 (999 on demand); Cancel; slow methods refused unless ticked; H1 on the arc and H2 in the band against the null; the regularity reading with its plots; **Show synthetic axon**; **Export curves...** | `docs/null_and_scale.md`, `docs/regularity.md` |
 | **Compare methods...** | the methods, then the analyses on each result; the DBSCAN rule as two more runs; tabs "Readouts by method", "Does the conclusion depend on the method?", "Agreement between methods", "25/10 vs rule"; **Export tables...** | `docs/clustering_methods.md` §9 |
 | Axon map, group **Events: probable fusions** | kept clusters whose events / c_label exceed 2 (c_label of the panel, solid; 26, dotted); off by default | `docs/dbscan_rule.md` |
 | Column review (H-ECL), under the arc test | the axon's footprint, the c_label warning, the scalar tau and the per-pair tolerance with their roles | `docs/eclipse_tolerance.md` |
-| Export axon / Batch | the axon table's block (§4; v13, v14, v15, v16); Batch: **Null per axon (B = 199)**, the comparison's long tables, the regularity summary per animal | this page; what to report: `docs/reporting_checklist.md` |
+| Save axon... / Batch | the axon table's block (§4; v13, v14, v15, v16); Batch: **Null per axon (B = 199)**, the comparison's long tables, the regularity summary per animal | this page; what to report: `docs/reporting_checklist.md` |
 
 ## 3. Running the analyses on every method
 

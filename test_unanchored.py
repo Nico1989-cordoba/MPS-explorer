@@ -361,6 +361,63 @@ def test_widefield_and_off_methods(planted):
     assert none.discard_source == "none"
 
 
+def test_record_sources_reads_what_record_writes(planted):
+    x, y, cents, _ = planted
+    res = mu.auto_unanchored(x, y, cents, **FAST)
+    hand = mu.add_decision(mu.ManualDecisions(), *cents[2], "exclude", "glia")
+    wf = np.zeros(len(cents), bool)
+    wf[-1] = True
+    assert mu.record_sources(mu.final_flags(res).record()) == ("automatic", 0)
+    assert mu.record_sources(mu.final_flags(res, hand).record()) == ("automatic", 1)
+    assert mu.record_sources(mu.final_flags(res, method="widefield", widefield=wf).record()) == ("widefield", 0)
+    assert mu.record_sources(mu.final_flags(None, hand, method="off", centroids=cents).record()) == ("off", 1)
+    # not a record of this window: the Axoplasm panel's discard keeps "", anything else names no method
+    for other in ("", "method", "method bogus; 2 decision(s) by hand", "widefield", None):
+        assert mu.record_sources(other) == ("", 0), other
+
+
+def test_the_discarded_row_names_who_discarded(axon_with_lumps):
+    """Manual test of 2026-11-19: a cluster excluded by hand in the Unanchored window was drawn on the map as
+    'Discarded by the axoplasm panel'. The row's label names the real source; the Axoplasm panel's stays."""
+    from tools import mps_analysis as ma
+    from tools import mps_axon_map_layers as L
+    an = axon_with_lumps
+    res = mu.auto_for_analysis(an, **FAST)
+    flags = mu.final_flags(res)
+    anchored = int(np.flatnonzero(~flags.excluded)[0])
+    hand = mu.add_decision(mu.ManualDecisions(), *np.asarray(an.centroids)[anchored], "exclude", "glia")
+
+    def row(cmp, shown):
+        groups = L.build_map(L.MapInputs(analysis=an, comparison=cmp, shown=shown))
+        return next(layer for g in groups for layer in g.layers if layer.key == "c_discarded")
+
+    rule = mu.compare_unanchored(an, flags)
+    both = mu.compare_unanchored(an, mu.final_flags(res, hand))
+    by_hand = mu.compare_unanchored(an, mu.final_flags(None, hand, method="off", centroids=an.centroids,
+                                                       labels=flags.labels))
+    panel = ma.compare_discard(an, flags.excluded, margin_nm=400.0)
+    for cmp, label, n in ((rule, "Discarded by the unanchored rule", 2),
+                          (both, "Discarded (unanchored rule / by hand)", 3),
+                          (by_hand, "Discarded by hand", 1),
+                          (panel, "Discarded by the axoplasm panel", 2)):
+        shown = row(cmp, "discard")
+        assert shown.label == label and shown.enabled and shown.count == n, (label, shown.label, shown.count)
+        measured = row(cmp, "measured")                  # the same name, greyed, while the measured one is shown
+        assert measured.label == label and not measured.enabled, (label, measured.label)
+        if cmp is panel:
+            assert "Axoplasm panel" in shown.tip and "Inside both images" in shown.tip
+        else:
+            assert "Unanchored clusters window" in shown.tip and cmp.discard_applied.discard_source in shown.tip
+            assert "axoplasm panel" not in shown.label.lower()
+    assert "1 decision(s) by hand" in row(both, "discard").tip
+    slab = next(layer for g in L.build_map(L.MapInputs(analysis=an, comparison=both, shown="discard"))
+                for layer in g.layers if layer.key == "slab_discarded")
+    assert "Unanchored clusters window" in slab.tip and "Axoplasm panel discarded" not in slab.tip
+    # no comparison yet: a name that claims no source
+    assert row(None, "measured").label == "Discarded"
+    assert L.discard_by(None)[0] == L.discard_by(rule.all_clusters)[0] == "Discarded"
+
+
 def test_preview_changes_nothing(planted):
     x, y, cents, n_mem = planted
     res = mu.auto_unanchored(x, y, cents, **FAST)
