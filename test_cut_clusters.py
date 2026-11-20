@@ -251,11 +251,11 @@ def export_columns() -> str:
     kw = dict(run_randomization=False, source_name="ring.hdf5", pixel_size_nm=PIXEL, pixel_size_source="yaml")
     a = analyze_axon(d["x"], d["y"], d["z"], cut_context=ctx, **kw)
     row = axon_export.axon_row(a, exported_at="2026-10-14T00:00:00Z")
-    names = list(row)[:len(row) - len(axon_export.integration_columns())]   # v13: the integration block, last
+    names = list(row)[:len(row) - len(axon_export.trailing_columns())]   # v13: the integration block, then v17's, last
     # v10 (Phase D): the method's four columns come after the cut's; v11 (BaGoL F5): the emitters', last
     n_cm = len(axon_export.CLUSTER_METHOD_COLUMNS) + len(axon_export.EMITTERS_COLUMNS)
     assert names[-len(axon_export.CUT_COLUMNS) - n_cm:-n_cm] == list(axon_export.CUT_COLUMNS), names[-30:]
-    assert row["table_version"] == "axon tables v16"  # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59, v10 Phase D, v11 F5
+    assert row["table_version"] == "axon tables v21"  # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59, v10 Phase D, v11 F5
     assert row["cut_status"] == "evaluated" and row["cut_nena_nm"] == 8.0 and row["cut_margin_nm"] == 8.0
     assert row["cut_nena_multiple"] == 1.0 and row["cut_excluded"] is False
     assert row["n_clusters_cut"] == a.cut.k and row["n_clusters_cut_of"] == a.n_clusters_kept
@@ -263,7 +263,8 @@ def export_columns() -> str:
     assert row["cut_rule"] == "cut if any localization lies within 1 NeNA of the pick boundary"
     assert abs(row["cut_percent"] - 100.0 * a.cut.k / a.n_clusters_kept) < 0.01
     clusters = axon_export.cluster_table(a)
-    assert list(clusters[0])[-1] == "cut_by_pick"
+    n_un = len(axon_export.CLUSTER_UNANCHORED_COLUMNS)              # v18 (P14): the unanchored-cluster columns follow it
+    assert list(clusters[0])[-1 - n_un] == "cut_by_pick"
     flagged = sorted(int(r["cluster_label"]) for r in clusters if r["cut_by_pick"])
     assert flagged == sorted(a.cut.cut_labels)
     assert column_dictionary.missing(list(row)) == [] and column_dictionary.missing(list(clusters[0])) == []

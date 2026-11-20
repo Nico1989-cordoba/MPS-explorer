@@ -261,9 +261,9 @@ def test_axon_row_v12_puts_the_emitters_block_last(emitters_analysis):
     from tools import axon_export
     from tools.column_dictionary import describe, known_columns, missing
     a, _ = emitters_analysis
-    assert axon_export.TABLE_VERSION == "axon tables v16"
+    assert axon_export.TABLE_VERSION == "axon tables v21"
     row = axon_export.axon_row(a, exported_at="t")
-    n13 = len(axon_export.integration_columns())     # v13: the clustering integration's block after the emitters'
+    n13 = len(axon_export.trailing_columns())     # v13: the clustering integration's block, then v17's, after the emitters'
     names = list(row)[:-n13]
     n = len(el.EMITTERS_COLUMNS)
     assert names[-n:] == list(el.EMITTERS_COLUMNS)

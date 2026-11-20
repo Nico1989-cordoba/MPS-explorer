@@ -444,9 +444,9 @@ def test_own_record_comes_first() -> None:
 def test_axon_row_columns_and_dictionary() -> None:
     from tools import axon_export, column_dictionary
 
-    assert axon_export.TABLE_VERSION == "axon tables v16"  # v6: SCI-3; v7: SCI-6; v8: P-R58; v9: P-R59; v10: Phase D; v11: F5
+    assert axon_export.TABLE_VERSION == "axon tables v21"  # v6: SCI-3; v7: SCI-6; v8: P-R58; v9: P-R59; v10: Phase D; v11: F5
     assert tuple(axon_export.Z_CALIBRATION_COLUMNS) == zcal.Z_CALIBRATION_COLUMNS
-    known = column_dictionary.known_columns()[:-len(axon_export.integration_columns())]   # v13 block, last
+    known = column_dictionary.known_columns()[:-len(axon_export.trailing_columns())]   # v13 block, then v17's, last
     tail = (len(axon_export.AXIAL_MIXTURE_COLUMNS) + len(axon_export.EPS_CHOICE_COLUMNS)
             + len(axon_export.CUT_COLUMNS) + len(axon_export.CLUSTER_METHOD_COLUMNS)    # v10: the method
             + len(axon_export.EMITTERS_COLUMNS))                                          # v11: the emitters, last

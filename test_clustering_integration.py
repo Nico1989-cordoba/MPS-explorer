@@ -262,10 +262,15 @@ def test_arc_fraction_does_not_change_the_occupancy_and_is_in_the_row(observed):
 
 def test_the_table_is_v16_and_the_report_v15_v16_columns_are_last_and_described():
     from tools import axon_export, column_dictionary
-    assert axon_export.TABLE_VERSION == "axon tables v16"
+    assert axon_export.TABLE_VERSION == "axon tables v21"
     known = column_dictionary.known_columns()
     tail = list(ci.REPORT_COLUMNS) + list(ci.v15_columns()) + list(ci.v16_columns())
-    assert known[-len(tail):] == tail
+    from tools.perimeter_export import (PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, PERIMETER_V20_COLUMNS,
+                                        PERIMETER_V21_COLUMNS)
+    from tools.unanchored_export import UNANCHORED_COLUMNS
+    n_last = (len(PERIMETER_COLUMNS) + len(UNANCHORED_COLUMNS) + len(PERIMETER_V19_COLUMNS)
+              + len(PERIMETER_V20_COLUMNS) + len(PERIMETER_V21_COLUMNS))
+    assert known[:-n_last][-len(tail):] == tail   # v17: the perimeter block, v18: the unanchored block, v19: last
     for c in tail:
         assert column_dictionary.describe(c), c
     assert column_dictionary.unit_of("link_radius_nm") == "nm"

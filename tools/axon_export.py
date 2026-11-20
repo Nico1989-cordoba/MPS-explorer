@@ -41,7 +41,7 @@ import math
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -154,8 +154,44 @@ PROGRAM_VERSION = "MPS Explorer 2026.09"
 # export says which radius each used), null_membrane and the membrane
 # deformation indicator (C2: the null's membrane is DBSCAN 25/10's centroid
 # curve by default, the localizations as an option). No earlier column moved.
-TABLE_VERSION = "axon tables v16"
+# v17 (2026-11-16, the perimeter density analysis): a block at the very end of
+# the row, after v16's six columns (tools.perimeter_export.PERIMETER_COLUMNS:
+# trace_label ... pd_*), empty with pd_status "not run" when the analysis was
+# not run. No earlier column moved and no setting was added (the parameters of
+# the analysis travel in the block itself: pd_*_nm, pd_n_null, pd_seed).
+# v18 (2026-11-17, package P14, the automatic discard of unanchored clusters
+# without tubulin): a block at the very end of the row, after v17's
+# (tools.unanchored_export.UNANCHORED_COLUMNS: unanchored_method ...
+# pd_contour_n_locs_trimmed), empty with unanchored_status "not run" when the
+# discard was not evaluated; and five columns at the end of the clusters
+# table, after cut_by_pick (CLUSTER_UNANCHORED_COLUMNS: depth_below_ring_nm,
+# anchor_state, anchor_borderline, anchor_source, anchor_reason). No earlier
+# column moved.
+# v19 (2026-11-17, package P10b of the perimeter density analysis): a block at
+# the very end of the row, after v18's (tools.perimeter_export.
+# PERIMETER_V19_COLUMNS: trace_roi ... pd_a_reading): the automatic contour's
+# assessment (curve kind, reliability and its reasons, slice misfit, support,
+# trim), the quality gate of the pooled analyses (decisions D9, D12) and the
+# per-axon reading of question A; empty when the analysis was not run. No
+# earlier column moved.
+# v20 (2026-11-17, decision P-R3-1 of the perimeter density analysis): a block
+# at the very end of the row, after v19's (tools.perimeter_export.
+# PERIMETER_V20_COLUMNS: pd_c_slices_coincide ... pd_c_m1_p1_vs_leak): the
+# calibrated slice criterion of question C, whether the axon is in the main
+# reading of C, the axial leak expected for each pair with the axon's own
+# slice fractions at 47 and 77 nm, and r(-1, +1) against it; empty when the
+# analysis was not run. No earlier column moved.
+# v21 (2026-11-17, NeNA in z: sigma_z 47 nm main, measured range 36-51 nm,
+# 77 nm upper bound): a block at the very end of the row, after v20's
+# (tools.perimeter_export.PERIMETER_V21_COLUMNS): the axial leak of each pair
+# at 36 and 51 nm. No earlier column moved.
+TABLE_VERSION = "axon tables v21"
 from tools.emitters_layer import EMITTERS_COLUMNS  # noqa: E402  (v11 block; tools.emitters_layer)
+from tools.perimeter_export import (  # noqa: E402  (v17, v19, v20, v21)
+    PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, PERIMETER_V20_COLUMNS, PERIMETER_V21_COLUMNS, not_run_block)
+from tools.unanchored_export import (  # noqa: E402  (v18 block)
+    CLUSTER_UNANCHORED_COLUMNS, UNANCHORED_COLUMNS, empty_cluster_row,
+    not_run_block as unanchored_not_run_block)
 
 CLUSTER_METHOD_COLUMNS: Tuple[str, ...] = (
     "cluster_method", "cluster_params", "cluster_scale_nm",
@@ -375,6 +411,12 @@ def analysis_id(analysis: AxonAnalysis) -> str:
         repr(sorted(analysis.randomization_params.to_dict().items())),
         f"{analysis.sigma_cap_fraction}",
     ]
+    # P14: a discard that is not the widefield one is another analysis
+    # (its method, ring, threshold and decisions by hand); nothing is
+    # appended for the widefield discard or for no discard.
+    source = getattr(analysis, "discard_source", "")
+    if source:
+        parts.append(f"discard source {source}")
     # Leaving the cut clusters out is another analysis of the same slab
     # (P-R59); flagging them changes no number, so it adds nothing here.
     cut = getattr(analysis, "cut", None)
@@ -447,6 +489,8 @@ def axon_row(
     z_calibration: Optional[Dict[str, Any]] = None,
     eps_choice: Optional[Dict[str, Any]] = None,
     integration: Optional[Dict[str, Any]] = None,
+    perimeter: Optional[Dict[str, Any]] = None,
+    unanchored: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     One axon as one row: who it is, what state it is in, the analysis of
@@ -467,6 +511,13 @@ def axon_row(
     (``tools.clustering_integration.axon_columns``: the caller passes the
     file's NeNA, c_label and the null it ran); None builds it here without
     a NeNA (its NeNA-dependent columns then stay empty, and say why).
+    ``perimeter`` is the v17 and v19 blocks of the perimeter density
+    analysis (``tools.perimeter_export.perimeter_block`` of the axon's
+    result); None writes them empty with ``pd_status`` "not run". The v17
+    columns go before v18's block and the v19 columns after it.
+    ``unanchored`` is the v18 block of the automatic discard of unanchored
+    clusters (``tools.mps_unanchored.unanchored_block``); None writes it
+    empty with ``unanchored_status`` "not run".
     """
     if measured.discard_applied:
         raise ValueError(
@@ -587,6 +638,35 @@ def axon_row(
             f"{', '.join(unplaced_i)}.")
     for name in columns:
         row[name] = _rounded(name, block.get(name))
+    # --- the perimeter density analysis (v17), the very last ---------------
+    pd_block = perimeter if perimeter is not None else not_run_block()
+    unplaced_p = sorted(set(pd_block) - set(PERIMETER_COLUMNS) - set(PERIMETER_V19_COLUMNS)
+                        - set(PERIMETER_V20_COLUMNS) - set(PERIMETER_V21_COLUMNS))
+    if unplaced_p:
+        raise ValueError(
+            f"The perimeter density analysis exports columns this table does not place: "
+            f"{', '.join(unplaced_p)}. Add them to PERIMETER_V21_COLUMNS (at its end) in "
+            "tools/perimeter_export.py.")
+    for name in PERIMETER_COLUMNS:
+        row[name] = _rounded(name, pd_block.get(name))
+    # --- the automatic discard of unanchored clusters (v18), the very last --
+    un_block = unanchored if unanchored is not None else unanchored_not_run_block()
+    unplaced_u = sorted(set(un_block) - set(UNANCHORED_COLUMNS))
+    if unplaced_u:
+        raise ValueError(
+            f"The unanchored-cluster discard exports columns this table does not place: "
+            f"{', '.join(unplaced_u)}. Add them to UNANCHORED_COLUMNS in tools/unanchored_export.py.")
+    for name in UNANCHORED_COLUMNS:
+        row[name] = _rounded(name, un_block.get(name))
+    # --- the perimeter analysis' contour assessment and pooling gate (v19), the very last
+    for name in PERIMETER_V19_COLUMNS:
+        row[name] = _rounded(name, pd_block.get(name))
+    # --- the slice criterion of C and the leak with the real fractions (v20), the very last
+    for name in PERIMETER_V20_COLUMNS:
+        row[name] = _rounded(name, pd_block.get(name))
+    # --- the leak at the ends of the measured range of sigma_z (v21), the very last
+    for name in PERIMETER_V21_COLUMNS:
+        row[name] = _rounded(name, pd_block.get(name))
     return row
 
 
@@ -594,6 +674,14 @@ def integration_columns() -> Tuple[str, ...]:
     """The integration block's columns (v13, and v14's last three), in order (tools.clustering_integration)."""
     from tools import clustering_integration as _ci
     return _ci.integration_columns()
+
+
+def trailing_columns() -> Tuple[str, ...]:
+    """Every column from the integration block (v13) to the end of the row: that block, v17's perimeter block,
+    v18's unanchored-cluster block, v19's contour assessment and pooling gate, v20's slice criterion of C, then
+    v21's leak at the ends of the measured range of sigma_z."""
+    return (tuple(integration_columns()) + tuple(PERIMETER_COLUMNS) + tuple(UNANCHORED_COLUMNS)
+            + tuple(PERIMETER_V19_COLUMNS) + tuple(PERIMETER_V20_COLUMNS) + tuple(PERIMETER_V21_COLUMNS))
 
 
 # --------------------------------------------------------------------------
@@ -662,6 +750,7 @@ def cluster_table(
     *,
     discard: Optional[AxonAnalysis] = None,
     axoplasm_rows: Optional[Sequence[Dict[str, Any]]] = None,
+    unanchored_rows: Optional[Mapping[int, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     One row per kept cluster: where it is, how big it is, who its nearest
@@ -725,6 +814,11 @@ def cluster_table(
         # a row here, like any other cluster the curation removed.
         out[_cut.CLUSTER_CUT_COLUMN] = (int(label) in cut.cut_labels
                                         if cut_known else None)
+        # Last (v18, P14): the automatic discard of unanchored clusters,
+        # empty when it was not evaluated (tools.mps_unanchored.cluster_rows).
+        un = (unanchored_rows or {}).get(label) or empty_cluster_row()
+        for name in CLUSTER_UNANCHORED_COLUMNS:
+            out[name] = un.get(name)
         rows.append(out)
     return rows
 
@@ -953,6 +1047,9 @@ def build_tables(
     z_calibration: Optional[Dict[str, Any]] = None,
     eps_choice: Optional[Dict[str, Any]] = None,
     integration: Optional[Dict[str, Any]] = None,
+    perimeter: Optional[Dict[str, Any]] = None,
+    unanchored: Optional[Dict[str, Any]] = None,
+    unanchored_rows: Optional[Mapping[int, Dict[str, Any]]] = None,
 ) -> AxonTables:
     """
     Build the axon's row, and the tables that were asked for, from one
@@ -966,13 +1063,15 @@ def build_tables(
     row = axon_row(measured, identity=identity, discard=discard,
                    axoplasm=axoplasm, exported_at=stamp,
                    z_calibration=z_calibration, eps_choice=eps_choice,
-                   integration=integration)
+                   integration=integration, perimeter=perimeter,
+                   unanchored=unanchored)
     tables = AxonTables(axon=row)
     tables.warnings.extend(
         w for w in (identity.warnings() if identity is not None else []))
     if with_clusters:
         tables.clusters = cluster_table(
-            measured, discard=discard, axoplasm_rows=axoplasm_clusters)
+            measured, discard=discard, axoplasm_rows=axoplasm_clusters,
+            unanchored_rows=unanchored_rows)
     if with_localizations:
         rows, warnings = localization_table(
             measured, discard=discard, x_nm=x_nm, y_nm=y_nm, z_nm=z_nm,

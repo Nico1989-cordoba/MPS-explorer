@@ -134,10 +134,10 @@ def test_export_columns_and_axon_id_stability():
     from tools import axon_export
     from tools.column_dictionary import describe, missing
     from tools.mps_analysis import analyze_axon
-    assert axon_export.TABLE_VERSION == "axon tables v16"
+    assert axon_export.TABLE_VERSION == "axon tables v21"
     from tools.column_dictionary import known_columns
     n_em = len(axon_export.EMITTERS_COLUMNS)   # v11 (BaGoL F5): the emitters' block after the method's
-    known = known_columns()[:-len(axon_export.integration_columns())]   # v13: the integration block, last
+    known = known_columns()[:-len(axon_export.trailing_columns())]   # v13: the integration block, then v17's, last
     assert known[-4 - n_em:-n_em] == list(axon_export.CLUSTER_METHOD_COLUMNS)   # v10
     for c in axon_export.CLUSTER_METHOD_COLUMNS:
         assert describe(c), c

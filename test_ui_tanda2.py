@@ -34,7 +34,7 @@ def test_radii_default_words_and_exploratory_mark():
 
 def test_v16_columns_are_last_and_described():
     from tools import axon_export, column_dictionary
-    assert axon_export.TABLE_VERSION == "axon tables v16"
+    assert axon_export.TABLE_VERSION == "axon tables v21"
     cols = ci.integration_columns()
     assert cols[-len(ci.V16_COLUMNS):] == ci.V16_COLUMNS
     for c in ci.V16_COLUMNS:

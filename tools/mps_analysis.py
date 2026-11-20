@@ -245,6 +245,12 @@ class AxonAnalysis:
     # good as that placement, and this row is where a reader of the table
     # can see it; the panel's own table carries the same column.
     discard_registration: str = ""
+    # Where the discard came from when it is not the widefield one (package
+    # P14, tools.mps_unanchored): the method, the ring, the threshold and
+    # the decisions by hand ("method automatic; polar_localizations,
+    # exclude > 400 nm; 2 decision(s) by hand 1a2b3c4d5e"). Empty: the
+    # widefield discard of the axoplasm panel, as before P14.
+    discard_source: str = ""
 
     # --- SCI-6: the single-ring window's expected foreign fraction --------
     # F, the share of the slab's localizations the fitted mixture expects
@@ -496,8 +502,9 @@ class AxonAnalysis:
              + (f" ({len(self.bad_report.cut_by_pick)} as cut by the pick)"
                 if self.bad_report.cut_by_pick else "")
              + ("" if not self.discard_applied else
-                f"; discarded: inside both widefield images by more than "
-                f"{self.discard_margin_nm:,.0f} nm")),
+                (f"; discarded: inside both widefield images by more than "
+                 f"{self.discard_margin_nm:,.0f} nm") if not self.discard_source
+                else f"; discarded ({self.discard_source})")),
             ("Clusters cut by the pick",
              (self.cut or cut_rule.not_evaluated(
                  cut_rule.STATUS_NO_BOUNDARY, "")).count_words(), "-",
@@ -1551,6 +1558,7 @@ def without_clusters(
     margin_nm: float,
     registration: str = "",
     contour: Optional[PerimeterResult] = None,
+    source: str = "",
 ) -> AxonAnalysis:
     """
     The same analysis with some of its kept clusters left out.
@@ -1570,7 +1578,7 @@ def without_clusters(
     that remain.
     """
     return _rerun(analysis, discarded, contour=contour, margin_nm=margin_nm,
-                  registration=registration)
+                  registration=registration, source=source)
 
 
 def with_every_start(
@@ -1616,6 +1624,7 @@ def _rerun(
     contour: Optional[PerimeterResult],
     margin_nm: Optional[float],
     registration: str = "",
+    source: str = "",
 ) -> AxonAnalysis:
     """Steps 3-6 again, 2-opt from every start, without the flagged
     clusters; ``margin_nm`` None records that nothing was discarded."""
@@ -1663,7 +1672,7 @@ def _rerun(
                     else "curation and the discard"))
     notes = ([] if margin_nm is None else
              [_discard_note(len(dropped), analysis.n_clusters_kept,
-                            margin_nm)])
+                            margin_nm, source)])
     return dataclasses.replace(
         analysis,
         n_clusters_kept=int(len(centroids)), centroids=centroids,
@@ -1674,6 +1683,7 @@ def _rerun(
         discard_margin_nm=None if margin_nm is None else float(margin_nm),
         discarded_labels=dropped,
         discard_registration="" if margin_nm is None else registration,
+        discard_source="" if margin_nm is None else source,
     )
 
 
@@ -1698,6 +1708,7 @@ def compare_discard(
     contour_kept: Optional[PerimeterResult] = None,
     all_clusters: Optional[AxonAnalysis] = None,
     registration: str = "",
+    source: str = "",
 ) -> DiscardComparison:
     """
     with_every_start and without_clusters of ``analysis``.
@@ -1718,23 +1729,32 @@ def compare_discard(
     if flags.any():
         applied = without_clusters(analysis, flags, margin_nm=margin_nm,
                                    contour=contour_kept,
-                                   registration=registration)
+                                   registration=registration, source=source)
     else:
         if flags.size != analysis.n_clusters_kept:
             raise ValueError(
                 f"{flags.size} discard flag(s) for the "
                 f"{analysis.n_clusters_kept} clusters the analysis kept.")
         upstream = list(every.upstream_warnings)
-        note = _discard_note(0, analysis.n_clusters_kept, margin_nm)
+        note = _discard_note(0, analysis.n_clusters_kept, margin_nm, source)
         applied = dataclasses.replace(
             every, discard_margin_nm=float(margin_nm),
             discarded_labels=frozenset(),
             discard_registration=registration,
+            discard_source=source,
             warnings=upstream + [note] + every.warnings[len(upstream):])
     return DiscardComparison(all_clusters=every, discard_applied=applied)
 
 
-def _discard_note(n_dropped: int, n_before: int, margin_nm: float) -> str:
+def _discard_note(n_dropped: int, n_before: int, margin_nm: float,
+                  source: str = "") -> str:
+    if source:
+        # Not the widefield discard (package P14): say what it was.
+        return (
+            f"Discard applied ({source}): {n_dropped} of {n_before} clusters "
+            f"left out. Gazal et al. (2026) do not describe leaving out "
+            f"clusters that lie inside the axon: this step goes beyond their "
+            f"Methods.")
     if n_dropped == 0:
         return (
             f"Discard applied: none of the {n_before} clusters is more than "
