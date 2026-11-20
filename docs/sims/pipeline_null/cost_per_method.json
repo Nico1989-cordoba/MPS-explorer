@@ -1,0 +1,133 @@
+{
+ "what": "seconds per replicate of the pipeline null, one synthetic axon, one process",
+ "origin": "simulation (synthetic only)",
+ "dense": false,
+ "probes": 2,
+ "seed": 20261022,
+ "machine": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+ "python": "3.14.5",
+ "date": "2026-10-22",
+ "rows": [
+  {
+   "method": "DBSCAN",
+   "slow": false,
+   "n_locs_total": 7402,
+   "n_locs_slab_observed": 2446,
+   "k_observed": 35,
+   "observed_analysis_s": 2.26,
+   "seconds_per_replicate": 0.734,
+   "null_n_locs_slab": 2442.0,
+   "table_estimate_s": 0.741,
+   "minutes_for_199": 2.4,
+   "minutes_for_999": 12.2
+  },
+  {
+   "method": "HDBSCAN",
+   "slow": false,
+   "n_locs_total": 7402,
+   "n_locs_slab_observed": 2446,
+   "k_observed": 40,
+   "observed_analysis_s": 0.98,
+   "seconds_per_replicate": 0.783,
+   "null_n_locs_slab": 2446.0,
+   "table_estimate_s": 0.763,
+   "minutes_for_199": 2.6,
+   "minutes_for_999": 13.0
+  },
+  {
+   "method": "HDBSCAN (scikit-learn)",
+   "slow": false,
+   "n_locs_total": 7402,
+   "n_locs_slab_observed": 2446,
+   "k_observed": 38,
+   "observed_analysis_s": 0.92,
+   "seconds_per_replicate": 0.904,
+   "null_n_locs_slab": 2449.0,
+   "table_estimate_s": 0.758,
+   "minutes_for_199": 3.0,
+   "minutes_for_999": 15.1
+  },
+  {
+   "method": "FOCAL",
+   "slow": false,
+   "n_locs_total": 7402,
+   "n_locs_slab_observed": 2446,
+   "k_observed": 40,
+   "observed_analysis_s": 0.75,
+   "seconds_per_replicate": 0.678,
+   "null_n_locs_slab": 2438.0,
+   "table_estimate_s": 0.739,
+   "minutes_for_199": 2.2,
+   "minutes_for_999": 11.3
+  },
+  {
+   "method": "ToMATo",
+   "slow": false,
+   "n_locs_total": 7402,
+   "n_locs_slab_observed": 2446,
+   "k_observed": 51,
+   "observed_analysis_s": 0.99,
+   "seconds_per_replicate": 1.022,
+   "null_n_locs_slab": 2438.0,
+   "table_estimate_s": 0.807,
+   "minutes_for_199": 3.4,
+   "minutes_for_999": 17.0
+  },
+  {
+   "method": "GraphCommunity",
+   "slow": false,
+   "n_locs_total": 7402,
+   "n_locs_slab_observed": 2446,
+   "k_observed": 39,
+   "observed_analysis_s": 0.82,
+   "seconds_per_replicate": 0.782,
+   "null_n_locs_slab": 2432.0,
+   "table_estimate_s": 0.881,
+   "minutes_for_199": 2.6,
+   "minutes_for_999": 13.0
+  },
+  {
+   "method": "voronoi_factor",
+   "slow": false,
+   "n_locs_total": 7402,
+   "n_locs_slab_observed": 2446,
+   "k_observed": 31,
+   "observed_analysis_s": 0.93,
+   "seconds_per_replicate": 0.859,
+   "null_n_locs_slab": 2450.0,
+   "table_estimate_s": 0.856,
+   "minutes_for_199": 2.8,
+   "minutes_for_999": 14.3
+  },
+  {
+   "method": "OPTICS",
+   "slow": true,
+   "n_locs_total": 7402,
+   "n_locs_slab_observed": 2446,
+   "k_observed": 43,
+   "observed_analysis_s": 2.9,
+   "seconds_per_replicate": 2.515,
+   "null_n_locs_slab": 2436.0,
+   "table_estimate_s": 2.876,
+   "minutes_for_199": 8.3,
+   "minutes_for_999": 41.9
+  },
+  {
+   "method": "voronoi_csr",
+   "slow": true,
+   "n_locs_total": 7402,
+   "n_locs_slab_observed": 2446,
+   "k_observed": 35,
+   "observed_analysis_s": 11.13,
+   "seconds_per_replicate": 9.15,
+   "null_n_locs_slab": 2421.0,
+   "table_estimate_s": 22.965,
+   "minutes_for_199": 30.3,
+   "minutes_for_999": 152.3
+  },
+  {
+   "method": "emitters_bagol_like",
+   "error": "ValueError: Choose the imaging buffer (MEA or \u03b2ME) for this file"
+  }
+ ]
+}

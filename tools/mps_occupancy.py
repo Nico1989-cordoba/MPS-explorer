@@ -395,3 +395,102 @@ def compute_occupancy(
         mahalanobis_threshold=float(mahalanobis_threshold),
         warnings=warnings_,
     )
+
+
+# ---------------------------------------------------------------------------
+# P-R103: the occupancy re-expressed as "fraction of arc within d of a centre"
+# ---------------------------------------------------------------------------
+
+# The distance of the re-expression, in nm: the eps of the reference pipeline
+# [lit: Gazal et al. 2026, DBSCAN eps 25 nm], so the number reads "how much of
+# the membrane lies within one eps of a kept cluster's centre". It is NOT a
+# precision or a cluster size; it is a fixed, stated radius that makes the
+# reading comparable across files and methods (P-R103; clustering plan A8).
+ARC_FRACTION_DISTANCE_NM = 25.0
+
+
+def arc_fraction_within(
+    contour: NDArray[np.float64],
+    centres: NDArray[np.float64],
+    distance_nm: float = ARC_FRACTION_DISTANCE_NM,
+) -> float:
+    """
+    Fraction (0-1) of a closed polygonal contour that lies within
+    ``distance_nm`` (Euclidean, in the plane) of at least one centre.
+
+    P-R103 asked for the perimeter occupancy to be stated also in words a
+    reader can check by hand: "the fraction of the arc within 25 nm of a
+    cluster centre". It does not replace :func:`compute_occupancy` (the
+    paper's constrained Gaussian, which depends on the localizations of each
+    cluster and on their number); it depends only on the centres and the
+    contour, so with K centres on the contour itself and no two closer than
+    2 d it is exactly 2 d K / P [derivation: each centre covers d of arc on
+    each side along a straight edge].
+
+    The computation is exact, not sampled: for every edge A -> B (unit
+    direction u, length L) and centre C, the points A + t u within d of C
+    are the interval t in [-b - sqrt(b^2 - c), -b + sqrt(b^2 - c)] clipped
+    to [0, L], with b = u.(A - C) and c = |A - C|^2 - d^2 [derivation]; the
+    intervals of one edge are merged (a union, so overlapping centres never
+    count an arc twice) and summed.
+
+    Parameters
+    ----------
+    contour : (K, 2) vertices in contour order, open (the closing edge back
+        to the first vertex is added here), in nm.
+    centres : (M, 2) centres, in nm (the kept clusters' centres of mass in
+        the analysis; there they are the contour's own vertices).
+    distance_nm : the radius d, > 0.
+
+    Returns
+    -------
+    The covered length over the contour length, in [0, 1].
+    """
+    poly = np.asarray(contour, dtype=np.float64)
+    pts = np.asarray(centres, dtype=np.float64).reshape(-1, 2)
+    if poly.ndim != 2 or poly.shape[1] != 2:
+        raise ValueError(f"contour must be (K, 2), got {poly.shape}")
+    if len(poly) < 3:
+        raise ValueError(
+            f"Need at least 3 vertices to close a contour, got {len(poly)}.")
+    d = float(distance_nm)
+    if not (d > 0 and np.isfinite(d)):
+        raise ValueError(f"distance_nm must be > 0, got {distance_nm!r}")
+    start = poly
+    end = np.roll(poly, -1, axis=0)
+    seg = end - start
+    length = np.linalg.norm(seg, axis=1)
+    total = float(length.sum())
+    if total <= 0:
+        raise ValueError("Contour has zero length.")
+    if len(pts) == 0:
+        return 0.0
+    covered = 0.0
+    for a, v, L in zip(start, seg, length):
+        if L <= 0:
+            continue
+        u = v / L
+        rel = a - pts                                   # (M, 2): A - C
+        b = rel @ u
+        c = np.einsum("ij,ij->i", rel, rel) - d * d
+        disc = b * b - c
+        hit = disc > 0
+        if not np.any(hit):
+            continue
+        root = np.sqrt(disc[hit])
+        lo = np.clip(-b[hit] - root, 0.0, L)
+        hi = np.clip(-b[hit] + root, 0.0, L)
+        keep = hi > lo
+        if not np.any(keep):
+            continue
+        order = np.argsort(lo[keep])
+        lo_s, hi_s = lo[keep][order], hi[keep][order]
+        run_lo, run_hi = float(lo_s[0]), float(hi_s[0])
+        for x0, x1 in zip(lo_s[1:], hi_s[1:]):
+            if x0 > run_hi:
+                covered += run_hi - run_lo
+                run_lo, run_hi = float(x0), float(x1)
+            elif x1 > run_hi:
+                run_hi = float(x1)
+        covered += run_hi - run_lo
+    return float(min(1.0, max(0.0, covered / total)))

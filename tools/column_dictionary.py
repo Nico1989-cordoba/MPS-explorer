@@ -878,7 +878,10 @@ def describe(name: str) -> Optional[str]:
         base = name[len(AXOPLASM_PREFIX):]
         if base in _PANEL:
             return f"From the axoplasm panel. {_PANEL[base]}"
-    return None
+    # v13: the clustering integration's block and the comparison tables (tools.clustering_integration,
+    # tools.multimethod), described where they are defined
+    from tools import clustering_integration
+    return clustering_integration.describe_column(name)
 
 
 def missing(columns: Sequence[str]) -> List[str]:
@@ -931,4 +934,6 @@ def known_columns() -> List[str]:
     columns += list(CUT_COLUMNS)
     columns += list(CLUSTER_METHOD_COLUMNS)
     columns += list(EMITTERS_COLUMNS)
+    from tools.axon_export import integration_columns
+    columns += list(integration_columns())          # v13 (v14: three more at its end), last
     return columns

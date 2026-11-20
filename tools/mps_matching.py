@@ -1140,12 +1140,18 @@ def _dummy_cost(tau_nm: float, k_a: int, k_b: int) -> float:
     return float(tau_nm) * (int(k_a) + int(k_b) + 1)
 
 
-def _assign_within_tau(D: NDArray[np.float64], tau_nm: float) -> Tuple[NDArray[np.intp], NDArray[np.intp]]:
+def _assign_within_tau(D: NDArray[np.float64], tau_nm: Union[float, NDArray[np.float64]]
+                       ) -> Tuple[NDArray[np.intp], NDArray[np.intp]]:
     """
     The pairs (rows, cols) of the truncated assignment on a (K_a, K_b)
     distance matrix: cost d for a pair within tau, ``BIG_COST`` beyond
     it, M = tau (K_a + K_b + 1) for leaving a row or a column on a dummy
-    (``_dummy_cost``, D-24b), 0 for a dummy on a dummy. Rows and columns
+    (``_dummy_cost``, D-24b), 0 for a dummy on a dummy. ``tau_nm`` may
+    also be a (K_a, K_b) matrix of per-pair tolerances t_ij (P-R61, the
+    per-pair rule of ``tools.mps_eclipse_tolerance``): pair (i, j) is
+    admissible when d_ij <= t_ij and M uses the largest t_ij, which keeps
+    D-24b's argument (any matching's distance sum is at most min(K_a,
+    K_b) max t < M); a scalar gives exactly the old arithmetic. Rows and columns
     with no admissible partner are left out before the solver (they end
     on a dummy whatever happens; M is still computed from the full K_a
     and K_b), and when every remaining row and column has exactly one
@@ -1164,7 +1170,7 @@ def _assign_within_tau(D: NDArray[np.float64], tau_nm: float) -> Tuple[NDArray[n
         r, c = np.nonzero(sub)
         return rows[r], cols[c]
     ka, kb = rows.size, cols.size
-    dummy = _dummy_cost(tau_nm, D.shape[0], D.shape[1])
+    dummy = _dummy_cost(tau_nm if np.ndim(tau_nm) == 0 else float(np.max(tau_nm)), D.shape[0], D.shape[1])
     cost = np.zeros((ka + kb, ka + kb), dtype=np.float64)
     cost[:ka, :kb] = np.where(sub, D[np.ix_(rows, cols)], BIG_COST)
     cost[:ka, kb:] = dummy
@@ -1256,7 +1262,8 @@ def match_rings(
     return i_a[order], j_b[order], d[order]
 
 
-def assign_within_tau(D_nm: NDArray[np.float64], tau_nm: float) -> Tuple[NDArray[np.intp], NDArray[np.intp]]:
+def assign_within_tau(D_nm: NDArray[np.float64], tau_nm: Union[float, NDArray[np.float64]]
+                      ) -> Tuple[NDArray[np.intp], NDArray[np.intp]]:
     """
     The pairs (rows, cols) of the truncated assignment on ANY finite
     (K_a, K_b) distance matrix: the maximum-cardinality matching among
@@ -1270,18 +1277,36 @@ def assign_within_tau(D_nm: NDArray[np.float64], tau_nm: float) -> Tuple[NDArray
     value: they are never chosen. Two empty arrays when either side is
     empty or no entry is within tau; ValueError on a non-2-D or
     non-finite matrix or a tau that is not positive and finite.
+    ``tau_nm`` may be a (K_a, K_b) matrix of per-pair tolerances (P-R61):
+    every entry positive and finite, the shape of ``D_nm``.
     """
     D = np.asarray(D_nm, dtype=np.float64)
     if D.ndim != 2:
         raise ValueError(f"assign_within_tau: expected a 2-D distance matrix, got shape {D.shape}")
     if D.size and not np.isfinite(D).all():
         raise ValueError("assign_within_tau: non-finite distance")
-    tau = float(tau_nm)
-    if not (math.isfinite(tau) and tau > 0.0):
-        raise ValueError(f"assign_within_tau: tau_nm must be a positive finite number, got {tau}")
+    if np.ndim(tau_nm) == 0:
+        tau = float(tau_nm)
+        if not (math.isfinite(tau) and tau > 0.0):
+            raise ValueError(f"assign_within_tau: tau_nm must be a positive finite number, got {tau}")
+        if D.shape[0] == 0 or D.shape[1] == 0:
+            return np.zeros(0, dtype=np.intp), np.zeros(0, dtype=np.intp)
+        return _assign_within_tau(D, tau)
+    T = _tolerance_matrix(tau_nm, D.shape, "assign_within_tau")
     if D.shape[0] == 0 or D.shape[1] == 0:
         return np.zeros(0, dtype=np.intp), np.zeros(0, dtype=np.intp)
-    return _assign_within_tau(D, tau)
+    return _assign_within_tau(D, T)
+
+
+def _tolerance_matrix(values: Any, shape: Tuple[int, ...], what: str) -> NDArray[np.float64]:
+    """A (K_a, K_b) matrix of per-pair tolerances (P-R61), validated: the given shape, every entry positive and
+    finite."""
+    T = np.asarray(values, dtype=np.float64)
+    if T.shape != tuple(shape):
+        raise ValueError(f"{what}: tolerance matrix of shape {T.shape}, expected {tuple(shape)}")
+    if T.size and not (np.isfinite(T).all() and (T > 0.0).all()):
+        raise ValueError(f"{what}: every per-pair tolerance must be a positive finite number")
+    return T
 
 
 def cyclic_arc_distance_nm(d_nm: NDArray[np.float64], length_nm: float) -> NDArray[np.float64]:
@@ -1307,6 +1332,7 @@ def match_arcs(
     *,
     usable_a: Optional[NDArray[np.bool_]] = None,
     usable_b: Optional[NDArray[np.bool_]] = None,
+    tolerance_nm: Optional[NDArray[np.float64]] = None,
 ) -> Tuple[NDArray[np.intp], NDArray[np.intp], NDArray[np.float64]]:
     """
     One-to-one matching of two point sets on a circle of length L
@@ -1336,6 +1362,11 @@ def match_arcs(
         The arc tolerance, nm (> 0).
     usable_a, usable_b : (K_a,), (K_b,) bool, optional
         Clusters allowed to enter; all when None.
+    tolerance_nm : (K_a, K_b), optional
+        Per-pair tolerances t_ij (P-R61, ``tools.mps_eclipse_tolerance``):
+        when given, pair (i, j) is admissible when its cyclic distance is
+        <= t_ij instead of <= ``tau_nm`` (which is then only validated and
+        recorded by the caller). None: the scalar rule, exactly as before.
 
     Returns
     -------
@@ -1356,11 +1387,12 @@ def match_arcs(
         raise ValueError(f"match_arcs: tau_nm must be a positive finite number, got {tau}")
     ia = np.flatnonzero(_mask(usable_a, s_a.size, "usable_a"))
     jb = np.flatnonzero(_mask(usable_b, s_b.size, "usable_b"))
+    T_full = None if tolerance_nm is None else _tolerance_matrix(tolerance_nm, (s_a.size, s_b.size), "match_arcs")
     empty = (np.zeros(0, dtype=np.intp), np.zeros(0, dtype=np.intp), np.zeros(0, dtype=np.float64))
     if ia.size == 0 or jb.size == 0:
         return empty
     D = cyclic_arc_distance_nm(s_a[ia][:, None] - s_b[jb][None, :], length)
-    r, c = _assign_within_tau(D, tau)
+    r, c = _assign_within_tau(D, tau if T_full is None else T_full[np.ix_(ia, jb)])
     if r.size == 0:
         return empty
     i_a = np.asarray(ia[r], dtype=np.intp)

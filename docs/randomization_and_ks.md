@@ -351,6 +351,9 @@ its ~200 nm peak without stating bin width or smoothing.
   band-free alternative and belongs to the two-channel work, not to this control.
 - The 1NN controls run with today's clustering parameters and are re-run when the clustering batch settles eps and
   min samples.
+- This control takes the detected clusters as given: it cannot say whether the clusters themselves are a blinking
+  artefact. The per-axon pipeline null, which randomises the molecules and re-runs the whole pipeline with the same
+  clustering method, answers that question: [null_and_scale.md](null_and_scale.md).
 
 ## 10. Decision record
 

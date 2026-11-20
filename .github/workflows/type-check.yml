@@ -74,6 +74,7 @@ jobs:
             tools/cluster_density.py \
             tools/cluster_tessellation.py \
             tools/voronoi_layer.py \
+            tools/plot_mouse.py \
             tools/method_overlay.py \
             tools/cluster_topological.py \
             tools/spatial_stats.py \
@@ -86,6 +87,28 @@ jobs:
             tools/perimeter_cost_ui.py \
             tools/emitters_precision_ui.py \
             tools/mps_cancel.py \
+            tools/method_diagnostics.py \
+            tools/ui_search.py \
+            tools/mps_progress.py \
+            tools/method_costs.py \
+            tools/multimethod.py \
+            tools/clustering_integration.py \
+            tools/compare_analyses_ui.py \
+            tools/arrangement_ui.py \
+            tools/mps_pipeline_null.py \
+            tools/mps_working_scale.py \
+            tools/mps_events.py \
+            tools/dbscan_rule.py \
+            tools/dbscan_sweep.py \
+            tools/events_sweep_plugins.py \
+            tools/mps_eclipse_tolerance.py \
+            tools/mps_apparent_size.py \
+            tools/mps_curvature.py \
+            tools/mps_size_stats.py \
+            tools/mps_size_synth.py \
+            tools/size_plugins.py \
+            tools/mps_gap_measures.py \
+            tools/mps_gap_batch.py \
             tools/mps_background_run.py \
             tools/mps_window_scroll.py \
             tools/parallel_clustering.py \

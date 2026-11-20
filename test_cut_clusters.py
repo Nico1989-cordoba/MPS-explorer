@@ -251,11 +251,11 @@ def export_columns() -> str:
     kw = dict(run_randomization=False, source_name="ring.hdf5", pixel_size_nm=PIXEL, pixel_size_source="yaml")
     a = analyze_axon(d["x"], d["y"], d["z"], cut_context=ctx, **kw)
     row = axon_export.axon_row(a, exported_at="2026-10-14T00:00:00Z")
-    names = list(row)
+    names = list(row)[:len(row) - len(axon_export.integration_columns())]   # v13: the integration block, last
     # v10 (Phase D): the method's four columns come after the cut's; v11 (BaGoL F5): the emitters', last
     n_cm = len(axon_export.CLUSTER_METHOD_COLUMNS) + len(axon_export.EMITTERS_COLUMNS)
     assert names[-len(axon_export.CUT_COLUMNS) - n_cm:-n_cm] == list(axon_export.CUT_COLUMNS), names[-30:]
-    assert row["table_version"] == "axon tables v12"  # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59, v10 Phase D, v11 F5
+    assert row["table_version"] == "axon tables v14"  # v6 SCI-3, v7 SCI-6, v8 P-R58, v9 P-R59, v10 Phase D, v11 F5
     assert row["cut_status"] == "evaluated" and row["cut_nena_nm"] == 8.0 and row["cut_margin_nm"] == 8.0
     assert row["cut_nena_multiple"] == 1.0 and row["cut_excluded"] is False
     assert row["n_clusters_cut"] == a.cut.k and row["n_clusters_cut_of"] == a.n_clusters_kept

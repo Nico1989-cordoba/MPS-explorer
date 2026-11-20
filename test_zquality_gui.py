@@ -5,7 +5,7 @@ only (R8: no column statistic on a real axon; tools.mps_simulate_axon through ba
 
   "viable"   tools.mps_sim_harness's circle contour, seed 39, axial leak x0.3 -> both pairs VIABLE under rule v2
   "none"     circle, seed 30, leak x0.7                                     -> no viable pair (wide rings, much leak)
-  "marginal" circle, seed 22, leak x0.6                                     -> one VIABLE, one MARGINAL pair
+  "marginal" circle, seed 22, leak x0.55                                    -> one VIABLE, one MARGINAL pair
 
 What is checked (the numbers print with each check):
   1. the Z quality view: computed in the background (the call returns at once), the verdicts of the pair table equal
@@ -49,7 +49,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-CASES = {"viable": ("circle", 39, 0.3), "none": ("circle", 30, 0.7), "marginal": ("circle", 22, 0.6)}
+CASES = {"viable": ("circle", 39, 0.3), "none": ("circle", 30, 0.7), "marginal": ("circle", 22, 0.55)}
 N_NULL = 19
 PASSED = 0
 FAILED = 0

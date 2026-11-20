@@ -15,14 +15,23 @@ curves stay curves, so the figure can be scaled and its text edited. PNG
 is what a slide or a draft needs, and 600 dpi is the usual floor for line
 art.
 
+Since 2026-10-22 (F6): the title can be edited for the figure only, a
+legend of the rows the plot draws (the methods on the axon map among them)
+can be put in it (``dressed``: both are taken away again after the export),
+the dialog never proposes or writes over an existing file unless the
+user chose it through Browse... (``free_path``: _2, _3...), and a widget
+that is not a plot (the table of 'Compare methods...') is written at a
+print resolution (``write_widget``).
+
 @author: Nicolas (ngomez) + Claude
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from pyqtgraph.exporters import ImageExporter, SVGExporter
 
@@ -55,6 +64,10 @@ class FigureRequest:
     width_mm: float = DEFAULT_WIDTH_MM
     dpi: int = DEFAULT_DPI
     white: bool = True
+    # F6 (2026-10-22): the figure's title as typed in the dialog (None: the plot's own; lines joined by " | "), and
+    # whether a legend of the rows drawn is put in the figure (the caller gives its entries to ``write``).
+    title: Optional[str] = None
+    legend: bool = False
 
     @property
     def is_svg(self) -> bool:
@@ -107,7 +120,94 @@ def _why_not_written(path: str) -> str:
             f"choose .png or .svg")
 
 
-def write(plot_item: Any, request: FigureRequest) -> str:
+# A legend with more rows than this is laid out in two columns [ad hoc: keeps it within a map's height].
+LEGEND_ONE_COLUMN = 6
+# Title lines are typed on one line, joined by this (the plots' titles are HTML lines joined by <br>).
+TITLE_LINE_JOIN = " | "
+
+
+def plain_title(plot_item: Any) -> str:
+    """A plot's title as one line of plain text, its lines joined by TITLE_LINE_JOIN (for the dialog's field)."""
+    import re
+    text = str(getattr(getattr(plot_item, "titleLabel", None), "text", "") or "")
+    lines = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", part)).strip() for part in text.split("<br>")]
+    return TITLE_LINE_JOIN.join(line for line in lines if line)
+
+
+def free_path(path: str) -> str:
+    """``path``, or ``stem_2.ext``, ``stem_3.ext``... : the first that does not exist (F6: an export never
+    overwrites a file it was not told to)."""
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    n = 2
+    while os.path.exists(f"{stem}_{n}{ext}"):
+        n += 1
+    return f"{stem}_{n}{ext}"
+
+
+@contextlib.contextmanager
+def dressed(plot_item: Any, title: Optional[str] = None,
+            legend: Optional[Sequence[Tuple[str, Any]]] = None, white: bool = True) -> Iterator[None]:
+    """Inside this block the plot carries ``title`` (lines joined by TITLE_LINE_JOIN) and a legend of
+    ``legend`` ((label, sample item) pairs, tools.mps_axon_map.legend_entries); both are taken away after it, so
+    the window shows what it showed. ``white``: the legend's text and box for a white background."""
+    import pyqtgraph as pg
+    old_title = None
+    old_colour = None
+    added = None
+    try:
+        if title is not None:
+            old_title = str(getattr(plot_item.titleLabel, "text", "") or "")
+            old_colour = getattr(plot_item.titleLabel, "opts", {}).get("color")
+            # the figure's own colour (manual test of 2026-10-23: a plot titled for the dark screen kept its pale
+            # grey title on the white figure)
+            plot_item.setTitle("<br>".join(part.strip() for part in str(title).split(TITLE_LINE_JOIN.strip()))
+                               if title.strip() else None, color="#000000" if white else "#ffffff")
+        if legend:
+            text = "#000000" if white else "#ffffff"
+            fill = (255, 255, 255, 220) if white else (0, 0, 0, 200)
+            # compact [ad hoc: 7 pt, two columns past LEGEND_ONE_COLUMN rows], top right, over the data
+            added = pg.LegendItem(offset=(-6, 6), labelTextColor=text, brush=pg.mkBrush(*fill),
+                                  pen=pg.mkPen(text, width=0.5), labelTextSize="7pt", verSpacing=-6,
+                                  colCount=2 if len(legend) > LEGEND_ONE_COLUMN else 1)
+            added.setParentItem(plot_item.vb)
+            for label, sample in legend:
+                added.addItem(sample, label)
+        yield
+    finally:
+        if added is not None:
+            scene = added.scene()
+            if scene is not None:
+                scene.removeItem(added)
+        if old_title is not None:
+            if old_colour is not None:
+                plot_item.setTitle(old_title or None, color=old_colour)
+            else:
+                plot_item.setTitle(old_title or None)
+
+
+def write_widget(widget: Any, path: str, dpi: int = DEFAULT_DPI, white: bool = True) -> str:
+    """Write a widget (a table, a dialog's content) as a PNG at ``dpi`` (the screen is taken as 96 dpi): for what
+    is not a plot, e.g. the table of 'Compare methods...'. Never over an existing file (``free_path``)."""
+    from PyQt5 import QtCore, QtGui
+    target = free_path(with_known_extension(path))
+    scale = max(1.0, float(dpi) / 96.0)
+    size = widget.size()
+    image = QtGui.QImage(int(size.width() * scale), int(size.height() * scale), QtGui.QImage.Format.Format_ARGB32)
+    image.setDotsPerMeterX(int(round(dpi / MM_PER_INCH * 1000)))
+    image.setDotsPerMeterY(int(round(dpi / MM_PER_INCH * 1000)))
+    image.fill(QtGui.QColor("white") if white else QtGui.QColor("black"))
+    painter = QtGui.QPainter(image)
+    painter.scale(scale, scale)
+    widget.render(painter, QtCore.QPoint(0, 0))
+    painter.end()
+    if not image.save(target):
+        raise FigureNotWritten(f"The figure was not written: {_why_not_written(target)}.")
+    return target
+
+
+def write(plot_item: Any, request: FigureRequest, legend: Optional[List[Tuple[str, Any]]] = None) -> str:
     """
     Write one plot to ``request.path`` and return the path written.
 
@@ -129,8 +229,32 @@ def write(plot_item: Any, request: FigureRequest) -> str:
     if folder and not os.path.isdir(folder):
         raise FigureNotWritten(f"There is no folder {folder}")
     before = (os.path.getmtime(request.path), os.path.getsize(request.path))         if os.path.exists(request.path) else None
+    with dressed(plot_item, request.title, legend if request.legend else None, white=request.white):
+        ok = _export(plot_item, request)
+    written = os.path.isfile(request.path) and os.path.getsize(request.path) > 0
+    if written and before is not None and not ok:
+        written = (os.path.getmtime(request.path), os.path.getsize(request.path)) != before
+    if not (ok and written):
+        raise FigureNotWritten(
+            f"The figure was not written: {_why_not_written(request.path)}.")
+    return request.path
 
+
+def _settle(plot_item: Any) -> None:
+    """Lay out a plot drawn (or restyled) just before its export, so that its items sit where its axes say: a
+    ViewBox maps its items to the view range only when it is next painted, and a plot drawn while its tab was
+    hidden was exported with axes and no curve (manual test of 2026-10-23, H1 after the null)."""
+    from PyQt5 import QtWidgets
+    QtWidgets.QApplication.processEvents()
+    vb = plot_item.getViewBox() if hasattr(plot_item, "getViewBox") else None
+    if vb is not None and hasattr(vb, "prepareForPaint"):
+        vb.prepareForPaint()
+
+
+def _export(plot_item: Any, request: FigureRequest) -> bool:
+    """pyqtgraph's exporter for the request's format; True when it says it wrote."""
     if request.is_svg:
+        _settle(plot_item)
         exporter = SVGExporter(plot_item)
         # SVG has no resolution: its width is in points, and the journal
         # scales it. The width asked for in millimetres is kept by
@@ -141,19 +265,11 @@ def write(plot_item: Any, request: FigureRequest) -> str:
         except OSError:
             raise FigureNotWritten(
                 f"The figure was not written: {_why_not_written(request.path)}.") from None
-        ok = True
-    else:
-        exporter = ImageExporter(plot_item)
-        exporter.parameters()["width"] = pixels_for(request.width_mm,
-                                                    request.dpi)
-        ok = bool(exporter.export(request.path))
-    written = os.path.isfile(request.path) and os.path.getsize(request.path) > 0
-    if written and before is not None and not ok:
-        written = (os.path.getmtime(request.path), os.path.getsize(request.path)) != before
-    if not (ok and written):
-        raise FigureNotWritten(
-            f"The figure was not written: {_why_not_written(request.path)}.")
-    return request.path
+        return True
+    _settle(plot_item)
+    exporter = ImageExporter(plot_item)
+    exporter.parameters()["width"] = pixels_for(request.width_mm, request.dpi)
+    return bool(exporter.export(request.path))
 
 
 def describe(request: FigureRequest) -> str:

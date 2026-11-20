@@ -180,8 +180,10 @@ predicted (6-26 % below the first-order value, i.e. the formula is slightly cons
 2 % equals the 0.25 sd tolerance at about 50-60 clusters per ring and the fixed 5 % the 0.5 sd one at about 30-45; a
 fixed fraction corresponds to a fixed bias for one ring size only, which is why the tolerance is computed per pair.
 
-**On synthetic axons** (section 11): with τ_0 = 80.6 nm and 30-45 clusters per ring the tolerance came out
-1.44-1.68 % (viable) and 2.88-3.36 % (marginal).
+**On synthetic axons** (section 11): with the pilot-derived τ_0 then in force (since replaced, P-R61) and 30-45
+clusters per ring the tolerance came out 1.44-1.68 % (viable) and 2.88-3.36 % (marginal). With the derived τ_0 = 31 nm
+p0 is smaller, so the copy tolerance computed per pair changes with it (it is computed, not fixed); these two ranges
+are to be re-run at 31 nm.
 
 ## 6. The leak diagnostics: what was removed, and why
 
@@ -355,9 +357,9 @@ and after this change with `docs/sims/viability/viability_numbers.py` (outputs `
   global factor (`lpz_scale`, 1.0, range 0.5-3) is a sensitivity knob. Averaging the tail over each localization's
   own width matters where the boundary is more than √2 widths away (there the mean-width shortcut under-estimates the
   leak, Jensen 1906); nearer the boundary the shortcut over-estimates it.
-- **The tolerance uses today's τ.** p0 is computed from the eclipse tolerance the column test uses now (τ_0 = 80.6
-  nm, a pilot-derived value). When the derived tolerance replaces it, the per-pair tolerance follows automatically;
-  the bias simulation of section 5 will be re-run at the new τ.
+- **The tolerance uses today's τ.** p0 is computed from the eclipse tolerance the column test uses now (τ_0 = 31 nm,
+  derived in `docs/eclipse_tolerance.md`; it replaced a pilot-derived value on 2026-10-22). The per-pair copy
+  tolerance follows it automatically; the bias simulation of section 5 (run at τ = 80 nm) is to be re-run at 31 nm.
 - **Which leak estimate is THE criterion** stays the user's choice until the synthetic calibration of the ring-level,
   cluster-level and own-width estimates is run; the own-width estimate becomes a selectable criterion then.
 - The detection rates of "explained by leak" on synthetic axons depend on the simulated regime and on the axial

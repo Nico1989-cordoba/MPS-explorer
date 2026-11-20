@@ -1,0 +1,452 @@
+{
+ "elapsed_s": 93.8,
+ "generator": "P-R61 research sims/common.py + sim2 geometry (copied here)",
+ "merged": {
+  "H0_rho25_ztp3": {
+   "detection_rate_dbscan_merged": 0.6219512195121951,
+   "flag_rate_dbscan_singles": 0.0,
+   "flag_rate_oracle_singles": 0.0,
+   "n_axons": 40,
+   "n_dbscan_merged": 164,
+   "n_dbscan_singles": 1985,
+   "n_identifiable_dbscan": 40,
+   "n_oracle_clusters": 2460,
+   "rho_pool_dbscan_all": [
+    37.21591782158992,
+    6.811165886082074
+   ],
+   "rho_pool_dbscan_excluded": [
+    26.60777704233206,
+    3.6752180175611286
+   ],
+   "rho_pool_oracle": [
+    26.249539425198822,
+    3.1857132930275647
+   ],
+   "rho_pool_oracle_excluded": [
+    26.249539425198822,
+    3.1857132930275647
+   ],
+   "rho_true_rms": [
+    25.0,
+    0.0
+   ],
+   "threshold_nm": 74.48054276118025
+  },
+  "H1_mixed_ztp3": {
+   "detection_rate_dbscan_merged": 0.5972222222222222,
+   "flag_rate_dbscan_singles": 0.00046061722708429296,
+   "flag_rate_oracle_singles": 0.0027068832173240526,
+   "n_axons": 40,
+   "n_dbscan_merged": 144,
+   "n_dbscan_singles": 2171,
+   "n_identifiable_dbscan": 40,
+   "n_oracle_clusters": 2586,
+   "rho_pool_dbscan_all": [
+    32.27959125807613,
+    9.084816731468997
+   ],
+   "rho_pool_dbscan_excluded": [
+    22.799960666542756,
+    4.374583841618143
+   ],
+   "rho_pool_oracle": [
+    23.79801916814684,
+    4.028284892121009
+   ],
+   "rho_pool_oracle_excluded": [
+    23.155933528467052,
+    3.77691301979107
+   ],
+   "rho_true_rms": [
+    22.565247712196815,
+    1.3820969713216362
+   ],
+   "threshold_nm": 74.48054276118025
+  },
+  "H2_rho0_one_label": {
+   "detection_rate_dbscan_merged": 0.0,
+   "flag_rate_dbscan_singles": 0.0,
+   "flag_rate_oracle_singles": 0.0,
+   "n_axons": 40,
+   "n_dbscan_merged": 11,
+   "n_dbscan_singles": 1857,
+   "n_identifiable_dbscan": 0,
+   "n_oracle_clusters": 2576,
+   "rho_pool_dbscan_all": null,
+   "rho_pool_dbscan_excluded": null,
+   "rho_pool_oracle": null,
+   "rho_pool_oracle_excluded": null,
+   "rho_true_rms": [
+    0.0,
+    0.0
+   ],
+   "threshold_nm": 74.48054276118025
+  },
+  "H4_rho40_ztp3": {
+   "detection_rate_dbscan_merged": 0.5576208178438662,
+   "flag_rate_dbscan_singles": 0.002126528442317916,
+   "flag_rate_oracle_singles": 0.007880220646178092,
+   "n_axons": 40,
+   "n_dbscan_merged": 269,
+   "n_dbscan_singles": 1881,
+   "n_identifiable_dbscan": 40,
+   "n_oracle_clusters": 2538,
+   "rho_pool_dbscan_all": [
+    49.85822298150625,
+    9.951896462245763
+   ],
+   "rho_pool_dbscan_excluded": [
+    36.1756934822341,
+    4.431050995952352
+   ],
+   "rho_pool_oracle": [
+    39.47444212094272,
+    4.051504985429678
+   ],
+   "rho_pool_oracle_excluded": [
+    38.54882082703188,
+    3.8516217484349755
+   ],
+   "rho_true_rms": [
+    40.0,
+    0.0
+   ],
+   "threshold_nm": 74.48054276118025
+  }
+ },
+ "merged_z_sweep": {
+  "2.576": {
+   "H0_rho25_ztp3": {
+    "detection_rate_dbscan_merged": 0.8658536585365854,
+    "flag_rate_dbscan_singles": 0.0015113350125944584,
+    "flag_rate_oracle_singles": 0.004878048780487805,
+    "n_axons": 40,
+    "n_dbscan_merged": 164,
+    "n_dbscan_singles": 1985,
+    "n_identifiable_dbscan": 40,
+    "n_oracle_clusters": 2460,
+    "rho_pool_dbscan_all": [
+     37.21591782158992,
+     6.811165886082074
+    ],
+    "rho_pool_dbscan_excluded": [
+     23.78939223118341,
+     3.035797410432303
+    ],
+    "rho_pool_oracle": [
+     26.249539425198822,
+     3.1857132930275647
+    ],
+    "rho_pool_oracle_excluded": [
+     25.630481345240135,
+     2.7062133394203274
+    ],
+    "rho_true_rms": [
+     25.0,
+     0.0
+    ],
+    "threshold_nm": 58.31668028960497
+   },
+   "H1_mixed_ztp3": {
+    "detection_rate_dbscan_merged": 0.9097222222222222,
+    "flag_rate_dbscan_singles": 0.009672961768770152,
+    "flag_rate_oracle_singles": 0.019721577726218097,
+    "n_axons": 40,
+    "n_dbscan_merged": 144,
+    "n_dbscan_singles": 2171,
+    "n_identifiable_dbscan": 40,
+    "n_oracle_clusters": 2586,
+    "rho_pool_dbscan_all": [
+     32.27959125807613,
+     9.084816731468997
+    ],
+    "rho_pool_dbscan_excluded": [
+     17.575305683914138,
+     3.4605973662737544
+    ],
+    "rho_pool_oracle": [
+     23.79801916814684,
+     4.028284892121009
+    ],
+    "rho_pool_oracle_excluded": [
+     20.549909484411817,
+     3.366122053596758
+    ],
+    "rho_true_rms": [
+     22.565247712196815,
+     1.3820969713216362
+    ],
+    "threshold_nm": 58.31668028960497
+   },
+   "H4_rho40_ztp3": {
+    "detection_rate_dbscan_merged": 0.7730769230769231,
+    "flag_rate_dbscan_singles": 0.02075765438505449,
+    "flag_rate_oracle_singles": 0.05745341614906832,
+    "n_axons": 40,
+    "n_dbscan_merged": 260,
+    "n_dbscan_singles": 1927,
+    "n_identifiable_dbscan": 40,
+    "n_oracle_clusters": 2576,
+    "rho_pool_dbscan_all": [
+     50.65890515202874,
+     7.21003900671945
+    ],
+    "rho_pool_dbscan_excluded": [
+     32.726220054703184,
+     2.8581922253396166
+    ],
+    "rho_pool_oracle": [
+     41.18054599481725,
+     4.12059111788428
+    ],
+    "rho_pool_oracle_excluded": [
+     37.0679683119047,
+     2.9992981058418318
+    ],
+    "rho_true_rms": [
+     40.0,
+     0.0
+    ],
+    "threshold_nm": 58.31668028960497
+   }
+  },
+  "3.29": {
+   "H0_rho25_ztp3": {
+    "detection_rate_dbscan_merged": 0.6219512195121951,
+    "flag_rate_dbscan_singles": 0.0,
+    "flag_rate_oracle_singles": 0.0,
+    "n_axons": 40,
+    "n_dbscan_merged": 164,
+    "n_dbscan_singles": 1985,
+    "n_identifiable_dbscan": 40,
+    "n_oracle_clusters": 2460,
+    "rho_pool_dbscan_all": [
+     37.21591782158992,
+     6.811165886082074
+    ],
+    "rho_pool_dbscan_excluded": [
+     26.60777704233206,
+     3.6752180175611286
+    ],
+    "rho_pool_oracle": [
+     26.249539425198822,
+     3.1857132930275647
+    ],
+    "rho_pool_oracle_excluded": [
+     26.249539425198822,
+     3.1857132930275647
+    ],
+    "rho_true_rms": [
+     25.0,
+     0.0
+    ],
+    "threshold_nm": 74.48054276118025
+   },
+   "H1_mixed_ztp3": {
+    "detection_rate_dbscan_merged": 0.5972222222222222,
+    "flag_rate_dbscan_singles": 0.00046061722708429296,
+    "flag_rate_oracle_singles": 0.0027068832173240526,
+    "n_axons": 40,
+    "n_dbscan_merged": 144,
+    "n_dbscan_singles": 2171,
+    "n_identifiable_dbscan": 40,
+    "n_oracle_clusters": 2586,
+    "rho_pool_dbscan_all": [
+     32.27959125807613,
+     9.084816731468997
+    ],
+    "rho_pool_dbscan_excluded": [
+     22.799960666542756,
+     4.374583841618143
+    ],
+    "rho_pool_oracle": [
+     23.79801916814684,
+     4.028284892121009
+    ],
+    "rho_pool_oracle_excluded": [
+     23.155933528467052,
+     3.77691301979107
+    ],
+    "rho_true_rms": [
+     22.565247712196815,
+     1.3820969713216362
+    ],
+    "threshold_nm": 74.48054276118025
+   },
+   "H4_rho40_ztp3": {
+    "detection_rate_dbscan_merged": 0.5538461538461539,
+    "flag_rate_dbscan_singles": 0.0005189413596263622,
+    "flag_rate_oracle_singles": 0.006211180124223602,
+    "n_axons": 40,
+    "n_dbscan_merged": 260,
+    "n_dbscan_singles": 1927,
+    "n_identifiable_dbscan": 40,
+    "n_oracle_clusters": 2576,
+    "rho_pool_dbscan_all": [
+     50.65890515202874,
+     7.21003900671945
+    ],
+    "rho_pool_dbscan_excluded": [
+     37.3598385453382,
+     3.6621188079730507
+    ],
+    "rho_pool_oracle": [
+     41.18054599481725,
+     4.12059111788428
+    ],
+    "rho_pool_oracle_excluded": [
+     40.54835828352462,
+     3.7787636678890437
+    ],
+    "rho_true_rms": [
+     40.0,
+     0.0
+    ],
+    "threshold_nm": 74.48054276118025
+   }
+  },
+  "3.89": {
+   "H0_rho25_ztp3": {
+    "detection_rate_dbscan_merged": 0.2682926829268293,
+    "flag_rate_dbscan_singles": 0.0,
+    "flag_rate_oracle_singles": 0.0,
+    "n_axons": 40,
+    "n_dbscan_merged": 164,
+    "n_dbscan_singles": 1985,
+    "n_identifiable_dbscan": 40,
+    "n_oracle_clusters": 2460,
+    "rho_pool_dbscan_all": [
+     37.21591782158992,
+     6.811165886082074
+    ],
+    "rho_pool_dbscan_excluded": [
+     31.41606875197628,
+     5.035707742779271
+    ],
+    "rho_pool_oracle": [
+     26.249539425198822,
+     3.1857132930275647
+    ],
+    "rho_pool_oracle_excluded": [
+     26.249539425198822,
+     3.1857132930275647
+    ],
+    "rho_true_rms": [
+     25.0,
+     0.0
+    ],
+    "threshold_nm": 88.06362046838638
+   },
+   "H1_mixed_ztp3": {
+    "detection_rate_dbscan_merged": 0.2638888888888889,
+    "flag_rate_dbscan_singles": 0.0,
+    "flag_rate_oracle_singles": 0.0003866976024748647,
+    "n_axons": 40,
+    "n_dbscan_merged": 144,
+    "n_dbscan_singles": 2171,
+    "n_identifiable_dbscan": 40,
+    "n_oracle_clusters": 2586,
+    "rho_pool_dbscan_all": [
+     32.27959125807613,
+     9.084816731468997
+    ],
+    "rho_pool_dbscan_excluded": [
+     27.09006260939186,
+     5.762053648969974
+    ],
+    "rho_pool_oracle": [
+     23.79801916814684,
+     4.028284892121009
+    ],
+    "rho_pool_oracle_excluded": [
+     23.655442591950113,
+     4.114410073779028
+    ],
+    "rho_true_rms": [
+     22.565247712196815,
+     1.3820969713216362
+    ],
+    "threshold_nm": 88.06362046838638
+   },
+   "H4_rho40_ztp3": {
+    "detection_rate_dbscan_merged": 0.3384615384615385,
+    "flag_rate_dbscan_singles": 0.0,
+    "flag_rate_oracle_singles": 0.0011645962732919255,
+    "n_axons": 40,
+    "n_dbscan_merged": 260,
+    "n_dbscan_singles": 1927,
+    "n_identifiable_dbscan": 40,
+    "n_oracle_clusters": 2576,
+    "rho_pool_dbscan_all": [
+     50.65890515202874,
+     7.21003900671945
+    ],
+    "rho_pool_dbscan_excluded": [
+     41.04449305693119,
+     4.617376644031587
+    ],
+    "rho_pool_oracle": [
+     41.18054599481725,
+     4.12059111788428
+    ],
+    "rho_pool_oracle_excluded": [
+     40.96424272726841,
+     4.002390121214525
+    ],
+    "rho_true_rms": [
+     40.0,
+     0.0
+    ],
+    "threshold_nm": 88.06362046838638
+   }
+  }
+ },
+ "rules": {
+  "H1_mixed_ztp3|f=0.0": {
+   "n_axons": 100,
+   "n_null": 199,
+   "per_pair": 0.03,
+   "scalar31": 0.02,
+   "scalar80_wide": 0.03
+  },
+  "H1_mixed_ztp3|f=0.3": {
+   "n_axons": 100,
+   "n_null": 199,
+   "per_pair": 0.55,
+   "scalar31": 0.63,
+   "scalar80_wide": 0.09
+  },
+  "H2_rho0_one_label|f=0.0": {
+   "n_axons": 100,
+   "n_null": 199,
+   "per_pair": 0.01,
+   "scalar31": 0.06,
+   "scalar80_wide": 0.01
+  },
+  "H4_rho40_ztp3|f=0.0": {
+   "n_axons": 100,
+   "n_null": 199,
+   "per_pair": 0.03,
+   "scalar31": 0.03,
+   "scalar80_wide": 0.03
+  }
+ },
+ "rules_dbscan": {
+  "H1_mixed_ztp3|f=0.0": {
+   "n_axons": 100,
+   "n_null": 199,
+   "per_pair": 0.02,
+   "scalar31": 0.06,
+   "scalar80_wide": 0.05
+  },
+  "H1_mixed_ztp3|f=0.3": {
+   "n_axons": 100,
+   "n_null": 199,
+   "per_pair": 0.38,
+   "scalar31": 0.33,
+   "scalar80_wide": 0.12
+  }
+ },
+ "seed": 20261022
+}

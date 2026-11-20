@@ -85,6 +85,90 @@ def save_sizes(key: str, sizes: List[int]) -> bool:
         return False
 
 
+def load_flag(key: str, default: bool = False) -> bool:
+    """A yes/no the user left in a window (F4: the clustering method's panel collapsed), stored as [1] or [0]."""
+    data = _read()
+    if key not in data:
+        return bool(default)
+    return bool(data[key] and data[key][0])
+
+
+def save_flag(key: str, on: bool) -> bool:
+    """Store a yes/no under ``key``. False when the file cannot be written."""
+    return save_sizes(key, [1 if on else 0])
+
+
+# A window that opens without a stored size takes this share of the screen's available area (manual test of
+# 2026-10-23: "the information is very compressed in a window that could grow") [ad hoc].
+WINDOW_SCREEN_SHARE = 0.85
+# Table columns sized to their contents are capped at this width; the last one stretches to the table's width.
+TABLE_COLUMN_MAX_PX = 320
+
+
+class _SizeKeeper(QtCore.QObject):
+    """Stores the window's size under ``key`` each time it is hidden (closed, accepted, rejected)."""
+
+    def __init__(self, window: QtWidgets.QWidget, key: str) -> None:
+        super().__init__(window)
+        self.key = key
+        window.installEventFilter(self)
+
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # noqa: N802 - Qt's name
+        # never raise out of a filter: PyQt aborts the program on an exception here (a window being destroyed)
+        try:
+            if event.type() == QtCore.QEvent.Type.Hide and isinstance(obj, QtWidgets.QWidget) and obj.isWindow():
+                remember_size(obj, self.key)
+        except Exception:                                  # noqa: BLE001
+            pass
+        return False
+
+
+def open_sized(window: QtWidgets.QWidget, key: str, share: float = WINDOW_SCREEN_SHARE) -> None:
+    """Give a window with maximize buttons the size the user left it at (``key`` = [width, height, maximized]),
+    or ``share`` of its screen's available area, centred; never larger than the screen. The size is stored again
+    each time the window is hidden."""
+    if getattr(window, "_size_keeper", None) is None:
+        setattr(window, "_size_keeper", _SizeKeeper(window, key))
+    flags = window.windowFlags() | QtCore.Qt.WindowType.WindowMaximizeButtonHint         | QtCore.Qt.WindowType.WindowMinimizeButtonHint
+    window.setWindowFlags(flags)
+    if isinstance(window, QtWidgets.QDialog):
+        window.setSizeGripEnabled(True)
+    screen = None
+    parent = window.parentWidget()
+    if parent is not None and parent.window().windowHandle() is not None:
+        screen = parent.window().windowHandle().screen()
+    screen = screen or QtWidgets.QApplication.primaryScreen()
+    if screen is None:
+        return
+    avail = screen.availableGeometry()
+    stored = load_sizes(key)
+    if stored is not None and len(stored) >= 2:
+        w, h = min(stored[0], avail.width()), min(stored[1], avail.height())
+    else:
+        w, h = int(avail.width() * share), int(avail.height() * share)
+    window.resize(max(w, 200), max(h, 150))
+    window.move(avail.x() + (avail.width() - window.width()) // 2, avail.y() + (avail.height() - window.height()) // 2)
+    if stored is not None and len(stored) >= 3 and stored[2]:
+        window.setWindowState(window.windowState() | QtCore.Qt.WindowState.WindowMaximized)
+
+
+def remember_size(window: QtWidgets.QWidget, key: str) -> bool:
+    """Store the window's size (its normal size when maximized) and whether it was maximized, under ``key``."""
+    maxed = bool(window.isMaximized())
+    size = window.normalGeometry().size() if maxed and window.normalGeometry().isValid() else window.size()
+    return save_sizes(key, [int(size.width()), int(size.height()), 1 if maxed else 0])
+
+
+def fit_columns(table: QtWidgets.QTableView, cap: int = TABLE_COLUMN_MAX_PX) -> None:
+    """Columns as wide as their contents up to ``cap``, the last one stretched to the table's width."""
+    table.resizeColumnsToContents()
+    header = table.horizontalHeader()
+    for c in range(header.count()):
+        if header.sectionSize(c) > cap:
+            header.resizeSection(c, cap)
+    header.setStretchLastSection(True)
+
+
 def style_splitter(splitter: QtWidgets.QSplitter) -> None:
     """A handle that is seen and caught."""
     splitter.setHandleWidth(HANDLE_PX)

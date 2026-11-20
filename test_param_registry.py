@@ -322,7 +322,9 @@ def main() -> int:
                                    "dbscan.min_samples", "occupancy.mahalanobis", "rings.mode", "rings.guard_nm",
                                    "axoplasm.threshold", "axoplasm.smoothing_px", "axoplasm.margin_nm",
                                    "measurement.z_calibration", "measurement.z_magnification",
-                                   "measurement.bead_stack", "rings.frame", "rings.empty_bins"] + SCI3_EDITABLE
+                                   "measurement.bead_stack", "rings.frame", "rings.empty_bins",
+                                   # the clustering integration: c_label in the Working scale panel (plan A2, D1)
+                                   "dbscan_rule.c_label"] + SCI3_EDITABLE
                                   # SCI-5: the viability's values, edited in the Z quality window's Criteria dialog
                                   + [e.key for e in reg.by_home("zquality")]), editable
         rule_e = ("curation.edge_criterion", "curation.dbcv_threshold", "contour.two_opt_starts",

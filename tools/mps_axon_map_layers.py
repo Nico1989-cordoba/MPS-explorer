@@ -55,7 +55,7 @@ class Style:
     symbol: str = "o"
     size: float = 3.0
     width: float = 1.0
-    pen: str = "solid"            # "solid" | "dash" | "dot"
+    pen: str = "solid"            # "solid" | "dash" | "dot" | "dashdot" | "dashdotdot"
     outline: Optional[str] = None  # marker outline: "neutral" | "dark" | None
     cased: bool = False
     hollow: bool = False
@@ -104,6 +104,23 @@ ROW_STYLES: Dict[str, Style] = {
     # analysis' own (A) thin and solid in its localizations' colour, the other method's (B) dotted
     "ov_a": Style("locs", 255, "thin solid hull", width=1.0),
     "ov_b": Style("method_b", 255, "dotted hull", width=2.0, pen="dot"),
+    # map: the event layer's "probable fusion" mark (clustering plan A4; the clustering integration): a ring drawn
+    # AROUND the centre of a kept cluster whose events / c_label exceed 2. Neutral, not a role: it is a mark on a
+    # centre that keeps its own colour, told apart by its shape (a large hollow ring; the sensitivity c_label 26
+    # dotted), as the pick's hexagons are.
+    "fus14": Style("neutral", 255, "hollow ring", "o", 22.0, width=1.5, hollow=True),
+    "fus26": Style("neutral", 255, "dotted hollow ring", "o", 28.0, width=1.0, pen="dot", hollow=True),
+    # map: every method of a comparison (F5, tools.method_overlay.MethodLayers): row keys meth<slot>_<method>, the
+    # style of slot % 8. Slot 0 is the analysis shown, drawn as ov_a; slot 1 as ov_b. Colour and pattern together
+    # tell the methods apart (tools.mps_plot_style, "every method of a comparison").
+    "meth0": Style("locs", 255, "thin solid hull", width=1.0),
+    "meth1": Style("method_b", 255, "dotted hull", width=2.0, pen="dot"),
+    "meth2": Style("method_c", 255, "dashed hull", width=1.5, pen="dash"),
+    "meth3": Style("method_d", 255, "dash-dot hull", width=1.5, pen="dashdot"),
+    "meth4": Style("method_e", 255, "dash-dot-dot hull", width=1.5, pen="dashdotdot"),
+    "meth5": Style("neutral", 255, "thin dashed hull", width=1.0, pen="dash"),
+    "meth6": Style("locs", 255, "thick dashed hull", width=2.5, pen="dash"),
+    "meth7": Style("method_c", 255, "thick dash-dot hull", width=3.0, pen="dashdot"),
     # axial view
     "roi_in": Style("locs", 170, "bars"),
     "roi_out": Style("dim", 100, "bars"),
@@ -128,10 +145,30 @@ ROW_STYLES: Dict[str, Style] = {
 }
 
 
+# How many method outline styles there are (meth0..meth7 above; tools.method_overlay.METHOD_SLOTS).
+METHOD_SLOT_COUNT = 8
+METHOD_STYLE_KEYS: Tuple[str, ...] = tuple(f"meth{i}" for i in range(METHOD_SLOT_COUNT))
+# The words of each line pattern, for the rows' labels and the exported legend.
+PEN_WORDS = {"solid": "solid", "dot": "dotted", "dash": "dashed", "dashdot": "dash-dot", "dashdotdot": "dash-dot-dot"}
+
+
+def is_method_key(key: str) -> bool:
+    """A row of the methods on the map (F5) or of another method's Voronoi cells."""
+    return ((key.startswith("meth") and "_" in key and key[4:key.index("_")].isdigit())
+            or key.startswith(("vor_in_", "vor_out_")))
+
+
 def style_of(key: str) -> Style:
     """The style of a row key (``seg3`` -> the ``seg`` entry)."""
     if key in ROW_STYLES:
         return ROW_STYLES[key]
+    if key.startswith("meth") and "_" in key and key[4:key.index("_")].isdigit():
+        # a method of the comparison (F5): the style of its slot
+        return ROW_STYLES[f"meth{int(key[4:key.index('_')]) % METHOD_SLOT_COUNT}"]
+    for prefix in ("vor_in_", "vor_out_"):
+        if key.startswith(prefix):
+            # another method's Voronoi cells (F5): the same style as the analysis shown's
+            return ROW_STYLES[prefix[:-1]]
     for prefix in ("segband", "seghist", "seg"):
         if key.startswith(prefix) and key[len(prefix):].isdigit():
             return ROW_STYLES[prefix]
@@ -412,6 +449,8 @@ class MapInputs:
     image: str = "tubulin"
     selection_n: Optional[int] = None               # the plain selection, with no axoplasm panel
     overlay: Any = None                             # tools.method_overlay.MethodOverlay on this analysis, or None
+    fusion: Any = None                              # FusionState of the analysis (the event layer), or None
+    methods: Any = None                             # F5: tools.method_overlay.MethodLayers on this analysis, or None
 
     def shown_analysis(self) -> Any:
         if self.analysis is None:
@@ -464,10 +503,18 @@ def _localization_group(inp: MapInputs, shown: Any) -> Group:
             g.enabled, g.reason = False, "no MPS analysis of this selection yet"
             return g
         given = ("the main-window cut selection" if inp.given_after_cut else "the ROI before the Z cut")
+        method = str(getattr(shown, "cluster_method", "DBSCAN") or "DBSCAN")
+        if method == "DBSCAN":
+            clustered_by = (f"DBSCAN eps {shown.eps_nm:g} nm"
+                            f"{reg.user_mark('dbscan.eps_nm', float(shown.eps_nm))}, min samples "
+                            f"{int(shown.min_samples)}{reg.user_mark('dbscan.min_samples', int(shown.min_samples))}")
+        else:
+            # F5 (question 7 of the overlay's report): the map named DBSCAN whatever the method was
+            params = getattr(shown, "cluster_params", None) or {}
+            clustered_by = method + (" " + ", ".join(f"{k} {v}" for k, v in sorted(dict(params).items()))
+                                     if params else " (its defaults)")
         g.caption = (f"analyze_axon on {given}, then its own slab {shown.slab_zmin_nm:,.0f} <= z <= "
-                     f"{shown.slab_zmax_nm:,.0f} nm; DBSCAN eps {shown.eps_nm:g} nm"
-                     f"{reg.user_mark('dbscan.eps_nm', float(shown.eps_nm))}, min samples {int(shown.min_samples)}"
-                     f"{reg.user_mark('dbscan.min_samples', int(shown.min_samples))} (of the analysis shown)")
+                     f"{shown.slab_zmax_nm:,.0f} nm; {clustered_by} (of the analysis shown)")
         if shown.bad_report.edge_criterion_disabled:
             g.caption += f". Edge criterion off: {shown.bad_report.edge_criterion_disabled}"
         x, y = np.asarray(shown.x_slab, float), np.asarray(shown.y_slab, float)
@@ -485,8 +532,9 @@ def _localization_group(inp: MapInputs, shown: Any) -> Group:
         g.layers = [
             Layer("slab_kept", "In kept clusters", g.key, "scatter", {"x": x[kept], "y": y[kept]},
                   int(kept.sum()), "Localizations of the analysis slab in the clusters the analysis kept."),
-            Layer("slab_noise", "DBSCAN noise", g.key, "scatter", {"x": x[noise], "y": y[noise]}, int(noise.sum()),
-                  "Localizations of the slab DBSCAN put in no cluster."),
+            Layer("slab_noise", "DBSCAN noise" if method == "DBSCAN" else f"{method}: in no cluster", g.key,
+                  "scatter", {"x": x[noise], "y": y[noise]}, int(noise.sum()),
+                  f"Localizations of the slab {method} put in no cluster."),
             Layer("slab_curated", curated_word, g.key, "scatter", {"x": x[bad_mask], "y": y[bad_mask]},
                   int(np.sum(bad_mask)), "Localizations in clusters the automatic curation removed."),
             Layer("slab_discarded", "In discarded clusters", g.key, "scatter", {"x": x[gone], "y": y[gone]},
@@ -793,7 +841,8 @@ VORONOI_TIP_IN = ("The Voronoi cell of every localization the method put in a cl
                   "of the plane closer to it than to any other, and the method calls a cell dense from its area. "
                   "Filled by the cell's density class (the scale under the rows; the threshold the method applied is "
                   "the white tick), opaque, with a thin outline. The cells are the method's own, read from its fit: "
-                  "nothing is clustered again (docs/clustering_methods.md, 'The Voronoi layer').")
+                  "nothing is clustered again (docs/clustering_methods.md, 'The Voronoi layer'). The localizations are "
+                  "drawn over their cells: ticking this row with no localization row on ticks 'In kept clusters'.")
 VORONOI_TIP_OUT = ("The Voronoi cells of the localizations in no cluster: faint, no outline, on the same scale. A dense "
                    "cell here belongs to a group of dense cells smaller than min_cluster_points.")
 VORONOI_SLOW_NOTE = "drawn when ticked (thousands of cells)"
@@ -802,14 +851,20 @@ VORONOI_SLOW_NOTE = "drawn when ticked (thousands of cells)"
 def _voronoi_group(inp: MapInputs) -> Optional[Group]:
     """The cells of a Voronoi analysis (voronoi_factor / voronoi_csr), by density; None for any other method. The
     rows carry the analysis' own diagnostics; the widget builds the polygons only when a row is ticked."""
+    return _voronoi_group_for(inp.analysis)
+
+
+def _voronoi_group_for(a: Any, suffix: str = "") -> Optional[Group]:
+    """The Voronoi group of analysis ``a``; ``suffix`` (F5: "_<method>") makes the keys of another method's run of
+    the comparison distinct from the analysis shown's (vor_in_voronoi_csr ...), with the same style."""
     from tools import voronoi_layer as V
-    a = inp.analysis
     if a is None or not V.has_tessellation(a):
         return None
     method = str(a.cluster_method)
-    g = Group("voronoi", f"Voronoi cells ({method})")
+    g = Group("voronoi" + suffix, f"Voronoi cells ({method})" + (" - a compared method" if suffix else ""))
     diag = getattr(a, "cluster_diagnostics", None)
-    rows = (("vor_in", "Cells in clusters", VORONOI_TIP_IN), ("vor_out", "Cells outside clusters", VORONOI_TIP_OUT))
+    rows = (("vor_in" + suffix, "Cells in clusters" + (f" ({method})" if suffix else ""), VORONOI_TIP_IN),
+            ("vor_out" + suffix, "Cells outside clusters" + (f" ({method})" if suffix else ""), VORONOI_TIP_OUT))
     if diag is None:
         g.caption = "the cells of the tessellation"
         g.enabled, g.reason = False, "this analysis kept no tessellation (re-run it)"
@@ -837,9 +892,9 @@ def _voronoi_group(inp: MapInputs) -> Optional[Group]:
                  + f"; in a cluster = the method's label, before the edge curation; {VORONOI_SLOW_NOTE}")
     n_in, n_out = V.cell_counts(diag, x, y, labels)
     data = {"x": x, "y": y, "labels": labels, "diag": diag, "scale": scale}
-    g.layers = [Layer("vor_in", "Cells in clusters", g.key, "voronoi", dict(data, in_clusters=True), n_in,
+    g.layers = [Layer(rows[0][0], rows[0][1], g.key, "voronoi", dict(data, in_clusters=True), n_in,
                       VORONOI_TIP_IN),
-                Layer("vor_out", "Cells outside clusters", g.key, "voronoi", dict(data, in_clusters=False), n_out,
+                Layer(rows[1][0], rows[1][1], g.key, "voronoi", dict(data, in_clusters=False), n_out,
                       VORONOI_TIP_OUT)]
     n_cells = n_in + n_out
     if n_cells > V.MAX_DRAWN_CELLS:
@@ -891,6 +946,142 @@ def _overlay_group(inp: MapInputs) -> Optional[Group]:
     return g
 
 
+FUSION_TIP = ("The event layer (clustering plan A4, docs/dbscan_rule.md): the localizations of each kept cluster linked "
+              "into switching events (3 NeNA, 1 dark frame); a cluster whose events divided by c_label exceed 2 is "
+              "marked as a probable fusion of neighbours -- a mark only, never split, and in a sparse arrangement it "
+              "also marks clusters that hold one molecule. c_label 14 (Dempsey et al. 2011, MEA; provisional; the "
+              "Working scale panel's value) solid, 26 (beta-ME, sensitivity) dotted.")
+
+
+@dataclass
+class FusionState:
+    """The kept clusters' event counts and the centres marked "probable fusion" with c_label and with 26."""
+    c_label: float
+    centres: NDArray[np.float64]
+    n_events: NDArray[np.int64]
+    flag: NDArray[np.bool_]
+    flag26: NDArray[np.bool_]
+    reason: str = ""
+
+
+def fusion_state(analysis: Any, nena_nm: Optional[float], c_label: float = 14.0) -> FusionState:
+    """The event layer of one analysis for the map: events per kept cluster (tools.mps_events.cluster_events) and
+    the fusion marks; an empty state with the reason without frames or NeNA."""
+    empty = FusionState(float(c_label), np.zeros((0, 2)), np.zeros(0, dtype=np.int64), np.zeros(0, dtype=bool),
+                        np.zeros(0, dtype=bool))
+    frames = getattr(analysis, "localization_frame_slab", None)
+    if frames is None:
+        empty.reason = "this file has no frame numbers: events cannot be linked"
+        return empty
+    if nena_nm is None or not (np.isfinite(float(nena_nm)) and float(nena_nm) > 0):
+        empty.reason = "no NeNA measured for this file: the linking radius is 3 NeNA"
+        return empty
+    from tools import mps_events
+    labels = np.array(analysis.labels, dtype=np.int64)
+    bad = getattr(getattr(analysis, "bad_report", None), "bad_labels", None) or set()
+    if bad:
+        labels[np.isin(labels, list(bad))] = -1
+    x = np.asarray(analysis.x_slab, dtype=np.float64)
+    y = np.asarray(analysis.y_slab, dtype=np.float64)
+    ce = mps_events.cluster_events(np.asarray(frames), x, y, labels, nena_nm=float(nena_nm))
+    ids = np.asarray(ce.cluster_ids, dtype=np.int64)
+    if ids.size == 0:
+        empty.reason = "no kept cluster"
+        return empty
+    centres = np.array([[x[labels == c].mean(), y[labels == c].mean()] for c in ids.tolist()], dtype=np.float64)
+    n = np.asarray(ce.n_events, dtype=np.int64)
+    _e, flag = mps_events.fusion_flags(n, float(c_label))
+    _e2, flag26 = mps_events.fusion_flags(n, 26.0)
+    return FusionState(float(c_label), centres, n, np.asarray(flag, bool), np.asarray(flag26, bool))
+
+
+def _fusion_group(inp: MapInputs) -> Optional[Group]:
+    """The probable-fusion marks of the event layer over the kept centres (off by default)."""
+    st = inp.fusion
+    if inp.analysis is None or st is None:
+        return None
+    g = Group("events", "Events: probable fusions")
+    rows = (("fus14", f"probable fusion, c_label {st.c_label:g} (solid)", st.flag),
+            ("fus26", "probable fusion, c_label 26 (dotted)", st.flag26))
+    if st.reason:
+        g.caption = "the event layer"
+        g.enabled, g.reason = False, st.reason
+        g.layers = [Layer(k, label, g.key, "scatter", {}, None, FUSION_TIP) for k, label, _f in rows]
+        return g
+    g.caption = (f"{int(st.flag.sum())} of {st.flag.size} kept clusters marked with c_label {st.c_label:g}, "
+                 f"{int(st.flag26.sum())} with 26; median events per cluster {float(np.median(st.n_events)):.0f}")
+    for key, label, flag in rows:
+        c = st.centres[flag] if st.centres.size else np.zeros((0, 2))
+        g.layers.append(Layer(key, label, g.key, "scatter", {"x": c[:, 0], "y": c[:, 1]}, int(flag.sum()),
+                              FUSION_TIP))
+    return g
+
+
+METHODS_TIP = ("Every method 'Compare methods...' ran on this analysis' slab, and the analysis shown, each a row: "
+               "its kept clusters outlined by the convex hulls of their localizations, in a colour and a line "
+               "pattern of its own. Tick and untick them freely to see two or more methods together or apart. The "
+               "caption counts how each corresponds to the reference (DBSCAN when it ran, else the analysis shown) "
+               "with the benchmark's matching rules (docs/clustering_methods.md, 'Every method on the map'). "
+               "Display only: the analysis shown and every number stay as they are.")
+METHODS_DISABLED_WITH_IMAGES = ("the widefield images' colouring uses these colours: colour the centres by status to "
+                                "see the methods")
+
+
+def method_label(run: Any) -> str:
+    """A method row's label: the method, its line, and 'shown' for the analysis shown."""
+    s = style_of(run.key)
+    colour = {"locs": "blue", "method_b": "purple", "method_c": "orange", "method_d": "green", "method_e": "red",
+              "neutral": "grey"}.get(s.role, s.role)
+    return (f"{run.method}{' (shown)' if run.is_shown else ''}: {PEN_WORDS.get(s.pen, s.pen)} "
+            f"{'thick ' if s.width >= 2.5 else ''}{colour}")
+
+
+def _methods_group(inp: MapInputs) -> Optional[Group]:
+    """F5: every method of the comparison as a row of its own (tools.method_overlay.MethodLayers)."""
+    from tools import method_overlay as MO
+    ml = inp.methods
+    a = inp.analysis
+    if ml is None or a is None or ml.base is not a or len(ml.runs) < 2:
+        return None
+    g = Group("methods", "Methods on the map")
+    lines = [f"reference: {ml.reference}"]
+    for run in ml.runs:
+        if run.note:
+            lines.append(f"{run.method}: not drawn, {run.note}")
+        elif run.summary is not None:
+            lines.append(run.summary.words(ml.reference, run.method))
+    g.caption = ("; ".join(lines) + ". Each method's kept clusters, outlined by their convex hulls (clusters of "
+                 "fewer than three distinct localizations have none); counted with the benchmark's matching rules")
+    for run in ml.runs:
+        x, y, connect = MO.joined_outlines(run.hulls)
+        layer = Layer(run.key, method_label(run), g.key, "outlines", {"x": x, "y": y, "connect": connect},
+                      len(run.hulls), METHODS_TIP + (f" {run.n_without_hull} cluster(s) without a hull."
+                                                     if run.n_without_hull else ""))
+        if run.note:
+            layer.enabled, layer.reason = False, run.note
+        elif inp.colour_by == "images":
+            layer.enabled, layer.reason = False, METHODS_DISABLED_WITH_IMAGES
+        g.layers.append(layer)
+    return g
+
+
+def method_voronoi_groups(inp: MapInputs) -> List[Group]:
+    """F5: the Voronoi cells of every compared Voronoi method other than the analysis shown (whose cells are the
+    'voronoi' group), built from the run's own fit as for the analysis shown."""
+    ml = inp.methods
+    a = inp.analysis
+    if ml is None or a is None or ml.base is not a:
+        return []
+    out: List[Group] = []
+    for run in ml.runs:
+        if run.is_shown or run.note:
+            continue
+        g = _voronoi_group_for(run.analysis, "_" + "".join(c if c.isalnum() else "_" for c in run.method))
+        if g is not None:
+            out.append(g)
+    return out
+
+
 def build_map(inp: MapInputs) -> List[Group]:
     """Every group of the map for these inputs, with the rows of the chosen source and colouring only, each with
     its availability and reason (3.3, 3.4, 3.5)."""
@@ -900,14 +1091,23 @@ def build_map(inp: MapInputs) -> List[Group]:
     vor = _voronoi_group(inp)
     if vor is not None:
         groups.insert(3, vor)
+    for k, extra in enumerate(method_voronoi_groups(inp)):
+        groups.insert(3 + (vor is not None) + k, extra)
+    meth = _methods_group(inp)
+    if meth is not None:
+        # first: the user has just run the comparison
+        groups.insert(0, meth)
     ov = _overlay_group(inp)
     if ov is not None:
         # first: the user has just asked for it, it opens above the fold
         groups.insert(0, ov)
+    fus = _fusion_group(inp)
+    if fus is not None:
+        groups.append(fus)
     if inp.source == "segments":
         for g in groups:
             for layer in g.layers:
-                if layer.key in SEGMENTS_DISABLE:
+                if layer.key in SEGMENTS_DISABLE or is_method_key(layer.key):
                     layer.enabled, layer.reason = False, SEGMENT_COLOUR_REASON
     return groups
 
@@ -948,6 +1148,17 @@ def map_title(inp: MapInputs, ticked: Set[str]) -> str:
         drawn = [f"{m} {how}" for k, m, how in (("ov_a", ov.method_a, "solid"), ("ov_b", ov.method_b, "dotted"))
                  if k in ticked]
         parts.append("cluster outlines: " + ", ".join(drawn))
+    ml = inp.methods
+    if ml is not None and ml.base is inp.analysis:
+        drawn = [f"{r.method} {PEN_WORDS.get(style_of(r.key).pen, '')}" for r in ml.runs
+                 if r.key in ticked and not r.note]
+        if drawn:
+            parts.append("methods' cluster outlines: " + ", ".join(drawn))
+        cells = sorted({r.method for r in ml.runs if not r.is_shown
+                        for k in ticked if k.startswith(("vor_in_", "vor_out_")) and k.endswith(
+                            "_" + "".join(c if c.isalnum() else "_" for c in r.method))})
+        if cells:
+            parts.append("Voronoi cells of " + ", ".join(cells))
     diag = getattr(inp.analysis, "cluster_diagnostics", None)
     if ticked & {"vor_in", "vor_out"} and diag is not None:
         which = ("cells in and outside clusters" if {"vor_in", "vor_out"} <= ticked

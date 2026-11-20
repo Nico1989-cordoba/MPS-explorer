@@ -732,7 +732,7 @@ def randomize_cluster_positions(
 
     for it in range(n_iterations):
         # F5d: a cancelled run of the MPS analysis window stops here (a no-op elsewhere, tools.mps_cancel)
-        mps_cancel.check("randomization")
+        mps_cancel.check("randomization", it, n_iterations)
         centres = np.empty((0, 2))
         for attempt in range(tries):
             if attempt:

@@ -25,7 +25,7 @@ it too.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pyqtgraph as pg
@@ -33,6 +33,7 @@ from numpy.typing import NDArray
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools import mps_axon_map_layers as L
+from tools.plot_mouse import RIGHT_DRAG_HELP, install_right_drag_pan
 from tools import mps_param_registry as reg
 from tools.mps_layer_panel import LayerPanel, Swatch
 from tools.mps_plot_style import (
@@ -74,7 +75,7 @@ def colour_of(layer: L.Layer, dark: bool = True) -> str:
         return "#9a9a9a"
     if s.role == "ramp":
         # a quantity: the swatch shows a class above the threshold for the cells of a cluster, one below for the rest
-        return DENSITY_RAMP[5] if layer.key == "vor_in" else DENSITY_RAMP[2]
+        return DENSITY_RAMP[5] if layer.key.startswith("vor_in") else DENSITY_RAMP[2]
     return role(s.role)
 
 
@@ -91,7 +92,8 @@ def cased_edge_rgba(edge: NDArray[np.bool_], colour: Tuple[int, int, int, int]) 
 
 
 def _pen_style(name: str) -> Any:
-    return {"dash": QtCore.Qt.PenStyle.DashLine, "dot": QtCore.Qt.PenStyle.DotLine}.get(
+    return {"dash": QtCore.Qt.PenStyle.DashLine, "dot": QtCore.Qt.PenStyle.DotLine,
+            "dashdot": QtCore.Qt.PenStyle.DashDotLine, "dashdotdot": QtCore.Qt.PenStyle.DashDotDotLine}.get(
         name, QtCore.Qt.PenStyle.SolidLine)
 
 
@@ -114,8 +116,8 @@ def swatch_for(layer: L.Layer, dark: bool = True) -> Swatch:
         return Swatch("bar", _hex_rgba(colour, max(s.alpha, 120)))
     if layer.kind == "voronoi":
         return Swatch("bar", _hex_rgba(colour, s.alpha))
-    return Swatch("line", colour, dash=s.pen == "dash", dot=s.pen == "dot", width=min(3.0, max(1.5, s.width)),
-                  cased=s.cased)
+    return Swatch("line", colour, dash=s.pen in ("dash", "dashdot", "dashdotdot"), dot=s.pen == "dot",
+                  width=min(3.0, max(1.5, s.width)), cased=s.cased)
 
 
 def _brush(layer: L.Layer, dark: bool) -> Any:
@@ -125,6 +127,13 @@ def _brush(layer: L.Layer, dark: bool) -> Any:
 
 VORONOI_Z = {"vor_out": -18.0, "vor_in": -17.0}   # over the widefield image (-20), under its edges (-15)
 VORONOI_OUTLINE_ALPHA = 150                       # the thin neutral outline of a cluster's cells [ad hoc]
+# The localizations drawn inside each row's cells (z 0, over the cells at -17/-18).
+VORONOI_POINTS = {"vor_in": "slab_kept", "vor_out": "slab_noise"}
+SLAB_POINT_KEYS = frozenset({"slab_kept", "slab_noise", "slab_curated", "slab_discarded"})
+# Over the cells the points get a dark rim and a little more size, so a sky-blue dot reads on a green or yellow cell
+# (manual test of 2026-10-23: no point could be told inside the cells) [ad hoc: 1 px black rim, 5 px].
+POINTS_OVER_CELLS_SIZE = 5.0
+POINTS_OVER_CELLS_RIM = 1.0
 
 
 def voronoi_items(layer: L.Layer, dark: bool = True) -> List[Any]:
@@ -151,9 +160,52 @@ def voronoi_items(layer: L.Layer, dark: bool = True) -> List[Any]:
         item = QtWidgets.QGraphicsPathItem(path)
         item.setBrush(pg.mkBrush(*_hex_rgba(d["scale"].colours[k], s.alpha)))
         item.setPen(pen)
-        item.setZValue(VORONOI_Z.get(layer.key, -18.0))
+        item.setZValue(VORONOI_Z.get(layer.key[:7] if layer.key.startswith("vor_out") else layer.key[:6], -18.0))
         items.append(item)
     return items
+
+
+def legend_sample(layer: L.Layer, dark: bool = True) -> Any:
+    """F6: a stand-in item drawn in the exported figure's legend like the row's own items (not added to the plot);
+    None for a row with no mark of its own (the widefield image)."""
+    s = layer.style
+    colour = colour_of(layer, dark)
+    if layer.kind == "image":
+        return None
+    if layer.kind == "scatter":
+        symbol = segment_symbol(int(layer.segment or 0)) if s.role == "segment" else s.symbol
+        if s.hollow or s.role == "segment" or symbol in ("x", "+"):
+            return pg.ScatterPlotItem(symbol=symbol, size=min(12.0, max(5.0, s.size)),
+                                      pen=pg.mkPen(colour, width=1.5), brush=None)
+        pen = (None if s.outline is None else pg.mkPen(neutral(dark) if s.outline == "neutral" else DARK_RIM))
+        return pg.ScatterPlotItem(symbol=symbol, size=min(12.0, max(5.0, s.size)), pen=pen,
+                                  brush=pg.mkBrush(*_hex_rgba(colour, max(s.alpha, 160))))
+    if layer.kind in ("bars", "band", "voronoi"):
+        return pg.BarGraphItem(x=[0.0], height=[1.0], width=1.0, brush=pg.mkBrush(*_hex_rgba(colour, max(s.alpha, 140))),
+                               pen=None)
+    return pg.PlotDataItem(pen=pg.mkPen(colour, width=max(1.5, s.width), style=_pen_style(s.pen)))
+
+
+def legend_entries(layers: Dict[str, L.Layer], panel: Any, dark: bool = True,
+                   keep: Optional[Callable[[str], bool]] = None) -> List[Tuple[str, Any]]:
+    """F6: (label, sample) for every row the plot draws now (ticked, enabled and with an item shown), in the
+    panel's order; ``keep`` narrows the rows (the NN panel's two plots)."""
+    out: List[Tuple[str, Any]] = []
+    in_panel = set(panel.keys())
+    for key, layer in layers.items():
+        if (keep is not None and not keep(key)) or key not in in_panel:
+            continue
+        if not panel.is_visible(key) or not layer.enabled:
+            continue
+        items = panel.items(key)
+        if not items or not any(getattr(it, "isVisible", lambda: True)() for it in items):
+            continue
+        sample = legend_sample(layer, dark)
+        if sample is not None:
+            label = layer.label + (f" (n = {layer.count:,})" if layer.count is not None and layer.kind in
+                                   ("scatter", "outlines") else "")
+            out.append((label, sample))
+    return out
 
 
 class DensityScaleBar(QtWidgets.QWidget):
@@ -339,6 +391,9 @@ class AxonMap(QtWidgets.QWidget):
     image_changed = QtCore.pyqtSignal(str)
     # "Clear the overlay" pressed under the second method's rows (tools.method_overlay): the window drops it.
     overlay_clear_requested = QtCore.pyqtSignal()
+    # F5: "Clear the methods" under the methods' rows; "Method diagnostics..." beside it.
+    methods_clear_requested = QtCore.pyqtSignal()
+    diagnostics_requested = QtCore.pyqtSignal()
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None, *, dark: bool = True) -> None:
         super().__init__(parent)
@@ -388,13 +443,28 @@ class AxonMap(QtWidgets.QWidget):
         self.lbl_line2.setObjectName("map_provenance_2")
         self.lbl_line2.setWordWrap(True)
         self.lbl_line2.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
-        side.addWidget(self.lbl_line1)
-        side.addWidget(self.lbl_line2)
+        # Manual test of 2026-10-23: the two provenance lines (four to eight lines once wrapped) sat above the
+        # layers' scroll area and left it a strip of ~150 px at 1366 x 700, where a group's caption looked as if it
+        # ran over them. They are the first thing in that scroll area now: shown as before, scrolled with the rows.
+        self.provenance = QtWidgets.QWidget()
+        self.provenance.setObjectName("map_provenance")
+        prov = QtWidgets.QVBoxLayout(self.provenance)
+        prov.setContentsMargins(0, 0, 0, 4)
+        prov.setSpacing(2)
+        prov.addWidget(self.lbl_line1)
+        prov.addWidget(self.lbl_line2)
+        self.lbl_mouse = QtWidgets.QLabel(RIGHT_DRAG_HELP)
+        self.lbl_mouse.setObjectName("map_mouse_help")
+        self.lbl_mouse.setWordWrap(True)
+        self.lbl_mouse.setStyleSheet("color: gray;")
+        prov.addWidget(self.lbl_mouse)
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.plot = pg.PlotWidget()
         self.plot.setObjectName("map_plot")
         self.plot.setAspectLocked(True)
         self.plot.setLabels(bottom="x [nm]", left="y [nm]")
+        # manual test of 2026-10-23: a right-button drag moves the map too (tools.plot_mouse)
+        install_right_drag_pan(self.plot.getViewBox())
         self.layers = LayerPanel(scroll=True, max_width=SIDE_DRAG_MAX, hide_disabled=True, elide=True)
         self.layers.setObjectName("map_layers")
         self.layers.toggled.connect(self._on_toggled)
@@ -420,7 +490,9 @@ class AxonMap(QtWidgets.QWidget):
                                                  | QtCore.Qt.TextInteractionFlag.TextSelectableByKeyboard)
         self.lbl_cluster.setToolTip(CLUSTER_INFO_TIP)
         self.lbl_cluster.setVisible(False)
-        side.insertWidget(side.indexOf(self.lbl_line2) + 1, self.lbl_cluster)
+        # the clicked cluster's line stays in sight above the layers (it is hidden until a click)
+        side.insertWidget(side.indexOf(self.layers), self.lbl_cluster)
+        self.layers.set_preamble(self.provenance)
         self._cluster_items: List[Any] = []
         self._cluster_info: Optional[Dict[str, Any]] = None
         self.plot.scene().sigMouseClicked.connect(self._on_scene_click)
@@ -466,8 +538,24 @@ class AxonMap(QtWidgets.QWidget):
         if view is not None:
             self.set_view(view)
             return
+        note = self._fall_back_from_selection()
         self._sync_selectors()
         self.redraw()
+        if note and "localizations" in self.layers.groups():
+            self.layers.set_group_caption("localizations", note + " " + self.layers.group_caption("localizations"))
+
+    def _fall_back_from_selection(self) -> str:
+        """Manual test of 2026-10-23: a remembered 'Main-window selection (axoplasm classes)' with the Axoplasm
+        panel closed left the Localizations group greyed out. New inputs that cannot place the selection show the
+        MPS analysis slab instead, and the group's caption says why. Returns that note ('' when nothing fell
+        back). A source chosen by hand in the selector is left as chosen (its group says what is missing)."""
+        inp = self._inputs
+        st = inp.axoplasm
+        if inp.source != "selection" or (st is not None and st.loc_x is not None):
+            return ""
+        inp.source = "slab"
+        return (f"{L.SOURCES['selection']} is not available ({inp.axoplasm_reason}): showing the "
+                f"{L.SOURCES['slab']}.")
 
     def view(self) -> str:
         return self._view
@@ -671,11 +759,30 @@ class AxonMap(QtWidgets.QWidget):
                                      "change; 'Compare methods...' can draw another).")
                     clear.clicked.connect(self.overlay_clear_requested)
                     self.layers.add_widget(clear, key=g.layers[-1].key)
+                if g.key == "methods" and g.layers:
+                    row = QtWidgets.QWidget()
+                    hl = QtWidgets.QHBoxLayout(row)
+                    hl.setContentsMargins(0, 0, 0, 0)
+                    diag = QtWidgets.QPushButton("Method diagnostics...")
+                    diag.setObjectName("btn_method_diagnostics")
+                    diag.setToolTip("Each method's own diagnostic plot, where one is already computed or cheap: "
+                                    "the k-distance graph of DBSCAN, the density of the Voronoi cells, the "
+                                    "persistence diagram of ToMATo. Each can be exported as a PNG.")
+                    diag.clicked.connect(self.diagnostics_requested)
+                    clear = QtWidgets.QPushButton("Clear the methods")
+                    clear.setObjectName("btn_clear_methods")
+                    clear.setToolTip("Remove the compared methods' rows from the map (the analysis shown does not "
+                                     "change; 'Compare methods...' can run them again).")
+                    clear.clicked.connect(self.methods_clear_requested)
+                    hl.addWidget(diag)
+                    hl.addWidget(clear)
+                    self.layers.add_widget(row, key=g.layers[-1].key)
                 if not g.enabled:
                     self.layers.set_group_enabled(g.key, False, g.reason)
         finally:
             self._applying = was
         self._apply_rules()
+        self._mark_points_over_cells()
         self._retitle()
         self._data_extent = self._extent()
         if not self._user_range:
@@ -881,9 +988,51 @@ class AxonMap(QtWidgets.QWidget):
         self.layers.bind(key, items)
         return items
 
+    def _points_for_cells(self, key: str) -> Optional[str]:
+        """The localization row drawn over the cells of ``key`` ("vor_in" -> "slab_kept", "vor_out" ->
+        "slab_noise"; a compared method's cells have no points of their own on this map), or None."""
+        return VORONOI_POINTS.get(key)
+
+    def _tick_points_under_cells(self, key: str) -> None:
+        """Plan E's picture is every localization inside its own cell (manual test of 2026-10-23: with the
+        localization rows off the cells were drawn with no point in them, and read as "the cells are gone"). A
+        Voronoi row ticked while none of the slab's localization rows is drawn ticks the matching one, once; it
+        can be unticked again."""
+        points = self._points_for_cells(key)
+        if points is None or points not in self.layers.keys():
+            return
+        if set(self.layers.shown_keys()) & SLAB_POINT_KEYS:
+            return
+        self.layers.set_visible(points, True)
+
+    def _mark_points_over_cells(self) -> None:
+        """While some Voronoi cells of the analysis shown are drawn, the slab's points carry a dark rim and are a
+        little larger; otherwise they are drawn as their style says. Display only."""
+        shown = set(self.layers.shown_keys())
+        cells = bool(shown & set(VORONOI_POINTS))
+        for key in SLAB_POINT_KEYS:
+            if key not in self._layers:
+                continue
+            for item in self.layers.items(key):
+                if not isinstance(item, pg.ScatterPlotItem):
+                    continue
+                if not hasattr(item, "_style_pen"):
+                    item._style_pen = item.opts.get("pen")
+                    item._style_size = item.opts.get("size")
+                if cells:
+                    item.setPen(pg.mkPen(DARK_RIM, width=POINTS_OVER_CELLS_RIM))
+                    item.setSize(max(float(item._style_size or 0.0), POINTS_OVER_CELLS_SIZE))
+                else:
+                    item.setPen(item._style_pen)
+                    item.setSize(item._style_size)
+
     def _on_toggled(self, key: str, _on: bool) -> None:
         if _on and key in self._pending:
             self.build_pending(key)
+        if _on and not self._applying:
+            self._tick_points_under_cells(key)
+        if key in VORONOI_POINTS or key in SLAB_POINT_KEYS:
+            self._mark_points_over_cells()
         if key == "image":
             self._apply_rules()
         self._retitle()

@@ -20,11 +20,12 @@ import pytest
 import batch_columns as bc
 
 N_NULL = "49"
-# (file name, contour, seed, leak scale s): s 0.3 every pair viable, 0.6 one marginal + one viable pair (seed 22),
+# (file name, contour, seed, leak scale s): s 0.3 every pair viable, 0.55 one marginal + one viable pair (seed 22; 0.6
+# before tau_0 became 31 nm, P-R61: the copy tolerance follows tau_0),
 # 0.7 every pair not viable (seed 30); the last one differs only by a name that matches the ROI 2 pattern
 SIMS = (
     ("sim_viable_roi1.npz", "circle", 11, 0.3),
-    ("sim_mixed_roi3.npz", "circle", 22, 0.6),
+    ("sim_mixed_roi3.npz", "circle", 22, 0.55),
     ("sim_notviable_roi4.npz", "circle", 30, 0.7),
     ("sim_viable_ROI2.npz", "circle", 21, 0.3),
 )

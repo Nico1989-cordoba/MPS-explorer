@@ -134,10 +134,11 @@ def test_export_columns_and_axon_id_stability():
     from tools import axon_export
     from tools.column_dictionary import describe, missing
     from tools.mps_analysis import analyze_axon
-    assert axon_export.TABLE_VERSION == "axon tables v12"
+    assert axon_export.TABLE_VERSION == "axon tables v14"
     from tools.column_dictionary import known_columns
     n_em = len(axon_export.EMITTERS_COLUMNS)   # v11 (BaGoL F5): the emitters' block after the method's
-    assert known_columns()[-4 - n_em:-n_em] == list(axon_export.CLUSTER_METHOD_COLUMNS)   # v10
+    known = known_columns()[:-len(axon_export.integration_columns())]   # v13: the integration block, last
+    assert known[-4 - n_em:-n_em] == list(axon_export.CLUSTER_METHOD_COLUMNS)   # v10
     for c in axon_export.CLUSTER_METHOD_COLUMNS:
         assert describe(c), c
     assert not missing(list(axon_export.CLUSTER_METHOD_COLUMNS))
@@ -307,19 +308,30 @@ def test_batch_compare_methods_rows(monkeypatch, tmp_path):
     from tools import mps_batch as mb
     from tools.mps_settings import MPSSettings
 
-    def fake_analyse(item, settings, z_store=None):
-        return mb.AxonRecord(source=item.path, row={
-            "axon_id": "x1", "cluster_method": settings.cluster_method,
-            "cluster_params": json.dumps(settings.cluster_params), "cluster_scale_nm": 25.0,
-            "clusters_per_um": 5.0, "median_1nn_nm": 190.0, "median_r_eff_nm": 20.0,
-            "occupancy_percent": 60.0, "n_clusters_kept": 40})
+    # The clustering integration: the file is loaded once and every method runs on its localizations through
+    # tools.multimethod (DBSCAN 25/10 first, as the reference); the analysis itself is faked here.
+    import types
+    xs = np.arange(30, dtype=float)
+    loc = types.SimpleNamespace(x_nm=xs, y_nm=xs, z_nm=xs, frame=None)
+    seen = []
 
-    monkeypatch.setattr(mb, "analyse_file", fake_analyse)
+    def fake_analyse(loc_, item, settings):
+        seen.append((settings.cluster_method, settings.eps_nm, dict(settings.cluster_params)))
+        return types.SimpleNamespace(
+            source_name=item.path, roi=None, cluster_method=settings.cluster_method, cluster_scale_nm=25.0,
+            clusters_per_um=5.0, median_1nn_nm=190.0, median_r_eff_nm=20.0, occupancy_percent=60.0,
+            n_clusters_kept=40, x_slab=xs, y_slab=xs, labels=np.zeros(30, dtype=np.int64))
+
+    monkeypatch.setattr(mb, "_load", lambda item: (loc, None))
+    monkeypatch.setattr(mb, "_analyze_loaded", fake_analyse)
     settings = mb.BatchSettings.from_settings(MPSSettings())
     item = mb.BatchFile(path=str(tmp_path / "a.hdf5"), identity=mb.AxonIdentity())
-    rows = mb.compare_methods([item], settings, ["DBSCAN", "FOCAL"])
+    results = []
+    rows = mb.compare_methods([item], settings, ["DBSCAN", "FOCAL"], results_out=results)
     assert [r["cluster_method"] for r in rows] == ["DBSCAN", "FOCAL"]
     assert all(r["error"] == "" for r in rows)
+    assert [s[0] for s in seen] == ["DBSCAN", "FOCAL"] and seen[0][1] == 25.0
+    assert results and results[0].runs[0].is_reference and results[0].long_rows
     out = mb.comparison_path(str(tmp_path / "mps_axons.csv"))
     assert os.path.basename(out) == "batch_methods_comparison.csv"
     assert mb.write_methods_comparison(rows, out) == 2

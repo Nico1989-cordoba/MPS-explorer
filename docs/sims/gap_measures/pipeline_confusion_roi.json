@@ -1,0 +1,320 @@
+{
+ "script": "pipeline_confusion.py",
+ "seed": 2810,
+ "n_axons_per_truth": 12,
+ "B_stage1": 199,
+ "B_matched": 49,
+ "pipeline_bisection": [
+  5,
+  16
+ ],
+ "semi_axes_nm": [
+  2000.0,
+  1400.0
+ ],
+ "molecules_per_um": 4.0,
+ "method": "DBSCAN 25/10",
+ "roi": "membrane box + 500 nm",
+ "cells": [
+  {
+   "truth": "contact",
+   "n": 12,
+   "n_refused": 0,
+   "labels_pipeline": {
+    "random_with_contact": 12,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 0,
+    "periodic_component": 0,
+    "lattice_rho1_only": 0,
+    "lattice": 0,
+    "not_testable": 0
+   },
+   "rates_pipeline": {
+    "random_with_contact": [
+     1.0,
+     0.7575059904469021,
+     1.0
+    ]
+   },
+   "labels_centres": {
+    "random_with_contact": 12,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 0,
+    "periodic_component": 0,
+    "lattice_rho1_only": 0,
+    "lattice": 0,
+    "not_testable": 0
+   },
+   "rates_centres": {
+    "random_with_contact": [
+     1.0,
+     0.7575059904469021,
+     1.0
+    ]
+   },
+   "stage1_reject_cv": 0.0,
+   "bragg_vs_contact_reject": 0.08333333333333333,
+   "mean_n_edge_removed": 0.0,
+   "mean_k": 36.333333333333336,
+   "mean_cv": 0.6915824377534346,
+   "mean_rho1": -0.11005664240045016,
+   "mean_excess_cv": 0.9251417056661709,
+   "mean_bragg_s": 3.124513663784512,
+   "mean_d_m_pipeline": null,
+   "mean_d_m_centres": null,
+   "mean_d_contact_nm": 55.1722076417936,
+   "mean_k_null_mean": 36.29438860971524,
+   "mean_closure_ratio": 0.9998695181918018,
+   "mean_seconds": 127.7333781416819,
+   "n_capped_pipeline": 0,
+   "n_null_not_interpretable": 0
+  },
+  {
+   "truth": "excl150",
+   "n": 12,
+   "n_refused": 0,
+   "labels_pipeline": {
+    "random_with_contact": 0,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 11,
+    "periodic_component": 1,
+    "lattice_rho1_only": 0,
+    "lattice": 0,
+    "not_testable": 0
+   },
+   "rates_pipeline": {
+    "more_regular_kind_not_identified": [
+     0.9166666666666666,
+     0.6461200862787544,
+     0.9851349057603305
+    ],
+    "periodic_component": [
+     0.08333333333333333,
+     0.014865094239669363,
+     0.35387991372124555
+    ]
+   },
+   "labels_centres": {
+    "random_with_contact": 0,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 12,
+    "periodic_component": 0,
+    "lattice_rho1_only": 0,
+    "lattice": 0,
+    "not_testable": 0
+   },
+   "rates_centres": {
+    "more_regular_kind_not_identified": [
+     1.0,
+     0.7575059904469021,
+     1.0
+    ]
+   },
+   "stage1_reject_cv": 1.0,
+   "bragg_vs_contact_reject": 0.5,
+   "mean_n_edge_removed": 0.0,
+   "mean_k": 40.25,
+   "mean_cv": 0.4012040612847132,
+   "mean_rho1": -0.02999623525035341,
+   "mean_excess_cv": 0.727842524702143,
+   "mean_bragg_s": 4.8804827481586255,
+   "mean_d_m_pipeline": 152.74228128018254,
+   "mean_d_m_centres": 143.67740087921206,
+   "mean_d_contact_nm": 54.05735049802581,
+   "mean_k_null_mean": 35.87730318257957,
+   "mean_closure_ratio": 0.9996763031917638,
+   "mean_seconds": 210.63682093333531,
+   "n_capped_pipeline": 3,
+   "n_null_not_interpretable": 0
+  },
+  {
+   "truth": "lattice",
+   "n": 12,
+   "n_refused": 0,
+   "labels_pipeline": {
+    "random_with_contact": 0,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 0,
+    "periodic_component": 8,
+    "lattice_rho1_only": 0,
+    "lattice": 4,
+    "not_testable": 0
+   },
+   "rates_pipeline": {
+    "periodic_component": [
+     0.6666666666666666,
+     0.3906220869404939,
+     0.86187990987514
+    ],
+    "lattice": [
+     0.3333333333333333,
+     0.13812009012485987,
+     0.6093779130595061
+    ]
+   },
+   "labels_centres": {
+    "random_with_contact": 0,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 0,
+    "periodic_component": 9,
+    "lattice_rho1_only": 0,
+    "lattice": 3,
+    "not_testable": 0
+   },
+   "rates_centres": {
+    "periodic_component": [
+     0.75,
+     0.4676946629183366,
+     0.9110583323051143
+    ],
+    "lattice": [
+     0.25,
+     0.08894166769488562,
+     0.5323053370816633
+    ]
+   },
+   "stage1_reject_cv": 1.0,
+   "bragg_vs_contact_reject": 1.0,
+   "mean_n_edge_removed": 0.0,
+   "mean_k": 40.583333333333336,
+   "mean_cv": 0.3282659884387977,
+   "mean_rho1": -0.167150130731302,
+   "mean_excess_cv": 0.6352662728803611,
+   "mean_bragg_s": 20.894972367718616,
+   "mean_d_m_pipeline": 165.52132175492406,
+   "mean_d_m_centres": 156.86067189440624,
+   "mean_d_contact_nm": 53.569207867017575,
+   "mean_k_null_mean": 35.515494137353436,
+   "mean_closure_ratio": 1.0000479898345596,
+   "mean_seconds": 183.70904243334857,
+   "n_capped_pipeline": 9,
+   "n_null_not_interpretable": 0
+  },
+  {
+   "truth": "vacancies",
+   "n": 12,
+   "n_refused": 0,
+   "labels_pipeline": {
+    "random_with_contact": 2,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 0,
+    "periodic_component": 10,
+    "lattice_rho1_only": 0,
+    "lattice": 0,
+    "not_testable": 0
+   },
+   "rates_pipeline": {
+    "random_with_contact": [
+     0.16666666666666666,
+     0.04696514175692082,
+     0.4480308646118111
+    ],
+    "periodic_component": [
+     0.8333333333333334,
+     0.5519691353881888,
+     0.9530348582430792
+    ]
+   },
+   "labels_centres": {
+    "random_with_contact": 2,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 0,
+    "periodic_component": 10,
+    "lattice_rho1_only": 0,
+    "lattice": 0,
+    "not_testable": 0
+   },
+   "rates_centres": {
+    "random_with_contact": [
+     0.16666666666666666,
+     0.04696514175692082,
+     0.4480308646118111
+    ],
+    "periodic_component": [
+     0.8333333333333334,
+     0.5519691353881888,
+     0.9530348582430792
+    ]
+   },
+   "stage1_reject_cv": 0.8333333333333334,
+   "bragg_vs_contact_reject": 1.0,
+   "mean_n_edge_removed": 0.0,
+   "mean_k": 39.833333333333336,
+   "mean_cv": 0.4531776898263762,
+   "mean_rho1": 0.030262942486856712,
+   "mean_excess_cv": 0.7748159921769927,
+   "mean_bragg_s": 14.838412498549884,
+   "mean_d_m_pipeline": 136.12669388015425,
+   "mean_d_m_centres": 134.45199165369468,
+   "mean_d_contact_nm": 54.678810806394175,
+   "mean_k_null_mean": 37.779731993299826,
+   "mean_closure_ratio": 0.9996543796865268,
+   "mean_seconds": 208.979513266638,
+   "n_capped_pipeline": 2,
+   "n_null_not_interpretable": 0
+  },
+  {
+   "truth": "m8",
+   "n": 12,
+   "n_refused": 0,
+   "labels_pipeline": {
+    "random_with_contact": 0,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 10,
+    "periodic_component": 0,
+    "lattice_rho1_only": 2,
+    "lattice": 0,
+    "not_testable": 0
+   },
+   "rates_pipeline": {
+    "more_regular_kind_not_identified": [
+     0.8333333333333334,
+     0.5519691353881888,
+     0.9530348582430792
+    ],
+    "lattice_rho1_only": [
+     0.16666666666666666,
+     0.04696514175692082,
+     0.4480308646118111
+    ]
+   },
+   "labels_centres": {
+    "random_with_contact": 0,
+    "less_regular_than_random": 0,
+    "more_regular_kind_not_identified": 10,
+    "periodic_component": 0,
+    "lattice_rho1_only": 2,
+    "lattice": 0,
+    "not_testable": 0
+   },
+   "rates_centres": {
+    "more_regular_kind_not_identified": [
+     0.8333333333333334,
+     0.5519691353881888,
+     0.9530348582430792
+    ],
+    "lattice_rho1_only": [
+     0.16666666666666666,
+     0.04696514175692082,
+     0.4480308646118111
+    ]
+   },
+   "stage1_reject_cv": 1.0,
+   "bragg_vs_contact_reject": 0.3333333333333333,
+   "mean_n_edge_removed": 0.0,
+   "mean_k": 40.5,
+   "mean_cv": 0.3563383922409878,
+   "mean_rho1": -0.06363314818611929,
+   "mean_excess_cv": 0.5986694250815212,
+   "mean_bragg_s": 4.511640884950936,
+   "mean_d_m_pipeline": 152.17949270472454,
+   "mean_d_m_centres": 153.78519873506184,
+   "mean_d_contact_nm": 55.44002542880997,
+   "mean_k_null_mean": 38.00083752093802,
+   "mean_closure_ratio": 0.9995917902119501,
+   "mean_seconds": 199.11824965834967,
+   "n_capped_pipeline": 8,
+   "n_null_not_interpretable": 0
+  }
+ ]
+}

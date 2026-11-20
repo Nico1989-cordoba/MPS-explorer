@@ -39,7 +39,7 @@ from tools import mps_selection as ms
 HERE = os.path.dirname(os.path.abspath(__file__))
 PRIVATE_V2 = "viability_v2_geometry.json"     # under $MPS_PRIVATE_DATA (unpublished data, never in this repository)
 PRIVATE_V2C = "viability_v2c_geometry.json"
-DEMO = {"viable": ("circle", 39, 0.3), "marginal": ("circle", 22, 0.6), "none": ("circle", 30, 0.7)}
+DEMO = {"viable": ("circle", 39, 0.3), "marginal": ("circle", 22, 0.55), "none": ("circle", 30, 0.7)}
 MORE = [("circle", 21, 0.3), ("circle", 22, 0.45), ("circle", 23, 0.6), ("circle", 31, 0.35), ("circle", 32, 0.5),
         ("circle", 33, 0.65), ("circle", 41, 0.4), ("circle", 42, 0.55), ("circle", 43, 0.25)]
 RANK = {ms.VERDICT_NOT_VIABLE: 0, ms.VERDICT_MARGINAL: 1, ms.VERDICT_VIABLE: 2}

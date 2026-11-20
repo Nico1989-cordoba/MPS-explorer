@@ -1049,7 +1049,7 @@ def reconstruct_perimeter(
         best: Optional[Tuple[float, NDArray[np.intp], int]] = None
         for start in range(k):
             # F5d: a cancelled run of the MPS analysis window stops here (a no-op elsewhere, tools.mps_cancel)
-            mps_cancel.check("perimeter, 2-opt from every start")
+            mps_cancel.check("perimeter, 2-opt from every start", start, k)
             tour, n_imp = _two_opt_fast(centroids, np.roll(order, -start))
             lengths[start] = _tour_length(centroids, tour)
             # Strictly shorter, so ties go to the earliest start and the

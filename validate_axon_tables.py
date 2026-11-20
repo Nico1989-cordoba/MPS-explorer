@@ -1087,13 +1087,14 @@ def test_schema_and_excel() -> None:
         from tools.axon_export import (_AXOPLASM_DROPPED, AXIAL_MIXTURE_COLUMNS,
                                        CLUSTER_METHOD_COLUMNS, CUT_COLUMNS,
                                        EMITTERS_COLUMNS, EPS_CHOICE_COLUMNS,
-                                       Z_CALIBRATION_COLUMNS)
+                                       Z_CALIBRATION_COLUMNS, integration_columns)
         from tools.mps_axoplasm import SUMMARY_COLUMNS
         # v4 (SCI-1): the measurement's z calibration, last, so no earlier
         # column moved; v7 (SCI-6): the axial mixture after it; v8 (P-R58):
         # how eps was chosen; v9 (P-R59): the clusters cut by the pick;
         # v10 (Phase D): the clustering method; v11 (BaGoL F5): the
-        # Events -> Emitters readouts, last.
+        # Events -> Emitters readouts; v13 (the clustering integration): its
+        # block, last.
         expected = (list(HEAD_COLUMNS) + list(STATE_COLUMNS)
                     + list(SHARED_COLUMNS) + list(MEASURED_COLUMNS)
                     + [n + DISCARD_SUFFIX for n in MEASURED_COLUMNS]
@@ -1101,7 +1102,8 @@ def test_schema_and_excel() -> None:
                        if n not in _AXOPLASM_DROPPED]
                     + list(Z_CALIBRATION_COLUMNS) + list(AXIAL_MIXTURE_COLUMNS)
                     + list(EPS_CHOICE_COLUMNS) + list(CUT_COLUMNS)
-                    + list(CLUSTER_METHOD_COLUMNS) + list(EMITTERS_COLUMNS))
+                    + list(CLUSTER_METHOD_COLUMNS) + list(EMITTERS_COLUMNS)
+                    + list(integration_columns()))
         assert list(row) == expected, [
             (a, b) for a, b in zip(list(row) + [""] * 5, expected + [""] * 5)
             if a != b][:4]
@@ -1200,6 +1202,23 @@ def test_schema_and_excel() -> None:
         return (f"{row['perimeter_um']} um, {row['median_1nn_nm']} nm, "
                 f"{row['occupancy_percent']} %")
 
+    def the_reporting_columns_are_filled_v14():
+        # Plan A8 (docs/reporting_checklist.md): v14 appends three columns to
+        # the integration block. On this ring (20 centres ~469 nm apart, no
+        # chord below 50 nm) the P-R103 reading is exactly 50 K / P
+        # [derivation], against the row's own perimeter.
+        from tools.clustering_integration import REPORT_COLUMNS
+        assert row["table_version"] == "axon tables v14", row["table_version"]
+        assert list(row)[-len(REPORT_COLUMNS):] == list(REPORT_COLUMNS)
+        frac = row["occupancy_arc_fraction_within_25nm"]
+        expected = 50.0 * row["n_clusters_kept"] / (row["perimeter_um"] * 1000.0)
+        assert abs(frac - expected) < 1e-4, (frac, expected)
+        # no NeNA was given here: the method says so and the radius is empty
+        assert row["nena_method"].startswith("none measured"), row["nena_method"]
+        assert row["link_radius_nm"] is None, row["link_radius_nm"]
+        return (f"arc within 25 nm {frac} for 50 K / P = {expected:.4f}; "
+                f"occupancy {row['occupancy_percent']} %")
+
     def no_cell_holds_the_separator():
         for name, value in row.items():
             assert ";" not in str(value or ""), (name, value)
@@ -1218,6 +1237,8 @@ def test_schema_and_excel() -> None:
     check("the copy for Excel keeps the numbers", excel_reads_the_copy)
     check("no cell holds the separator that copy uses",
           no_cell_holds_the_separator)
+    check("v14: the reporting checklist's columns, P-R103 = 50 K / P on a ring",
+          the_reporting_columns_are_filled_v14)
 
 
 def main() -> int:

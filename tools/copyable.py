@@ -28,6 +28,10 @@ from __future__ import annotations
 import os
 from typing import Any, Iterable, List, Optional
 
+# The exports' rule, defined without Qt in tools.results_table (the computing modules write CSVs too);
+# re-exported here, where the windows have always imported it from.
+from tools.results_table import free_path  # noqa: F401
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 COPY_TEXT = "Copy"
@@ -141,18 +145,6 @@ def selectable_labels(labels: Iterable[Optional[QtWidgets.QLabel]]) -> None:
             selectable_label(label)
 
 
-def free_path(path: str) -> str:
-    """``path`` when nothing is there, else the first of ``stem_2.ext``, ``stem_3.ext``, ... that is free: a file
-    is never overwritten (the exports' rule)."""
-    if not os.path.exists(path):
-        return path
-    stem, ext = os.path.splitext(path)
-    n = 2
-    while os.path.exists(f"{stem}_{n}{ext}"):
-        n += 1
-    return f"{stem}_{n}{ext}"
-
-
 def write_text_file(path: str, text: str) -> str:
     """Write ``text`` (UTF-8) to ``path`` or, when a file is there, to the next free name; returns the path
     written."""
@@ -160,3 +152,90 @@ def write_text_file(path: str, text: str) -> str:
     with open(target, "x", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
     return target
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Every informative label of the program, and every plot title (manual test of 2026-10-23: "I cannot select or
+# copy the informative texts"): applied once, application-wide, when each widget is first polished.
+# ---------------------------------------------------------------------------------------------------------------
+COPY_TITLE_TEXT = "Copy title"
+_SELECT = QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+
+
+def label_is_informative(label: QtWidgets.QLabel) -> bool:
+    """A label that shows text (not an icon or a picture) in a window of the program (not a tooltip)."""
+    if type(label).__name__ == "QTipLabel" or label.objectName() == "qtooltip_label":
+        return False
+    win = label.window()
+    if win is not None and win.windowType() == QtCore.Qt.WindowType.ToolTip:
+        return False
+    pix = label.pixmap()
+    if pix is not None and not pix.isNull():
+        return False
+    return label.movie() is None
+
+
+def copy_title_action(plot_widget: Any) -> None:
+    """Add 'Copy title' to a pyqtgraph plot's own context menu (the title is drawn, not a label)."""
+    try:
+        vb = plot_widget.getPlotItem().getViewBox()
+        menu = getattr(vb, "menu", None)
+    except Exception:                                  # noqa: BLE001 - not a plot after all
+        return
+    if menu is None or any(a.text() == COPY_TITLE_TEXT for a in menu.actions()):
+        return
+
+    # a weak reference: the menu's action must not keep a destroyed plot's Python side (and its items) alive
+    import weakref
+    ref = weakref.ref(plot_widget)
+
+    def copy() -> None:
+        from tools.figure_export import plain_title
+        widget = ref()
+        if widget is None:
+            return
+        try:
+            _to_clipboard(plain_title(widget.getPlotItem()))
+        except RuntimeError:                           # the plot is gone
+            pass
+
+    action = QtWidgets.QAction(COPY_TITLE_TEXT, menu)
+    action.triggered.connect(lambda _checked=False: copy())
+    menu.addAction(action)
+
+
+def make_labels_selectable(root: QtWidgets.QWidget) -> int:
+    """Every informative QLabel under ``root`` (and ``root`` itself) selectable with the mouse: Ctrl+C and Qt's
+    context menu 'Copy' then copy it. Links and the flags a label already had are kept; mouse only, so the Tab
+    order does not change. Returns how many labels were made selectable now."""
+    labels = list(root.findChildren(QtWidgets.QLabel))
+    if isinstance(root, QtWidgets.QLabel):
+        labels.append(root)
+    n = 0
+    for label in labels:
+        try:
+            if label_is_informative(label) and not (label.textInteractionFlags() & _SELECT):
+                label.setTextInteractionFlags(label.textInteractionFlags() | _SELECT)
+                n += 1
+        except RuntimeError:                           # a label being destroyed
+            continue
+    return n
+
+
+def install_text_copy_everywhere(app: Optional[QtWidgets.QApplication] = None) -> None:
+    """Every window the program shows gets its informative labels selectable (``make_labels_selectable``) each
+    time it becomes the active window, as Ctrl+F is installed (tools.ui_search). Not an application event filter:
+    a Python filter sees every event of every object, pyqtgraph's items too, and changed their teardown (an abort
+    in the GUI tests). Windows whose labels change after they are shown call ``make_labels_selectable``
+    themselves. Call once, after the QApplication exists; a second call does nothing."""
+    qapp: Any = app or QtWidgets.QApplication.instance()
+    if qapp is None or qapp.property("text_copy_everywhere"):
+        return
+    qapp.setProperty("text_copy_everywhere", True)
+
+    def on_active(_qwindow: Any) -> None:
+        w = QtWidgets.QApplication.activeWindow()
+        if w is not None:
+            make_labels_selectable(w)
+
+    qapp.focusWindowChanged.connect(on_active)

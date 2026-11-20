@@ -2099,7 +2099,7 @@ DEMO_CASES: Dict[str, Tuple[str, int, float]] = {
     # tools.mps_sim_harness's circle contour, seed, axial-leak scale (batch_columns.write_simulated_input): rule v2
     # (and the D-39 first filter) gives
     "viable": ("circle", 39, 0.3),        # both pairs VIABLE
-    "marginal": ("circle", 22, 0.6),      # one MARGINAL (pair 0-1), one VIABLE
+    "marginal": ("circle", 22, 0.55),     # one MARGINAL (pair 0-1), one VIABLE (0.6 before tau_0 = 31 nm, P-R61)
     "none": ("circle", 30, 0.7),          # no viable pair (wide rings, much leak)
 }
 

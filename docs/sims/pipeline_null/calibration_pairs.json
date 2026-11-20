@@ -1,0 +1,107 @@
+{
+ "scenario": "pairs",
+ "method": "DBSCAN",
+ "closure": "n_locs",
+ "hard_core_nm": null,
+ "origin": "simulation (synthetic only), docs/sims/pipeline_null/calibration_null.py",
+ "B": 99,
+ "n_axons": 20,
+ "n_refused": 0,
+ "rejections_at_0.05": {
+  "ripley1d_p_global": 3,
+  "ripley2d_p_global": 4,
+  "p_mc_k_per_um": 1,
+  "p_mc_nn_median": 0,
+  "p_mc_reff_median": 1,
+  "p_mc_occupancy": 1,
+  "p_mc_regularity": 1
+ },
+ "tested": {
+  "ripley1d_p_global": 20,
+  "ripley2d_p_global": 20,
+  "p_mc_k_per_um": 20,
+  "p_mc_nn_median": 20,
+  "p_mc_reff_median": 20,
+  "p_mc_occupancy": 20,
+  "p_mc_regularity": 20
+ },
+ "rejection_rate": {
+  "ripley1d_p_global": 0.15,
+  "ripley2d_p_global": 0.2,
+  "p_mc_k_per_um": 0.05,
+  "p_mc_nn_median": 0.0,
+  "p_mc_reff_median": 0.05,
+  "p_mc_occupancy": 0.05,
+  "p_mc_regularity": 0.05
+ },
+ "wilson95": {
+  "ripley1d_p_global": [
+   0.0524,
+   0.3604
+  ],
+  "ripley2d_p_global": [
+   0.0807,
+   0.416
+  ],
+  "p_mc_k_per_um": [
+   0.0089,
+   0.2361
+  ],
+  "p_mc_nn_median": [
+   0.0,
+   0.1611
+  ],
+  "p_mc_reff_median": [
+   0.0089,
+   0.2361
+  ],
+  "p_mc_occupancy": [
+   0.0089,
+   0.2361
+  ],
+  "p_mc_regularity": [
+   0.0089,
+   0.2361
+  ]
+ },
+ "pointwise_exceedances": {
+  "pointwise1d_exceeds": 15,
+  "pointwise2d_exceeds": 14
+ },
+ "pointwise_rate": {
+  "pointwise1d_exceeds": 0.75,
+  "pointwise2d_exceeds": 0.7
+ },
+ "pointwise_wilson95": {
+  "pointwise1d_exceeds": [
+   0.5313,
+   0.8881
+  ],
+  "pointwise2d_exceeds": [
+   0.481,
+   0.8545
+  ]
+ },
+ "interpretable": 20,
+ "closure_ratio_median": 1.0002,
+ "closure_ratio_range": [
+  0.9977,
+  1.003
+ ],
+ "seconds_per_replicate_median": 0.625,
+ "k_obs_median": 37.0,
+ "not_interpretable_reasons": [],
+ "ripley1d_rstar_within_30nm_of_150": "1 of 3 rejections",
+ "ripley1d_rstar_values": [
+  200.0,
+  180.0,
+  190.0
+ ],
+ "ripley2d_rstar_within_30nm_of_150": "1 of 4 rejections",
+ "ripley2d_rstar_values": [
+  110.0,
+  120.0,
+  100.0,
+  190.0
+ ]
+}

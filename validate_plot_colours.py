@@ -985,6 +985,11 @@ def test_stage2_widgets() -> None:
                     ("roi_", "ch2_", "nn_", "cdf_", "seg")) or key in (
                     "components", "slab"):
                 continue
+            if key in layers_spec.METHOD_STYLE_KEYS:
+                # F5: every method row (meth<slot>_<method>) is disabled with
+                # the segments' source by build_map (is_method_key)
+                assert layers_spec.is_method_key(key + "_X"), key
+                continue
             for i, c in enumerate(SEGMENT_CYCLE):
                 d = min(distance(c, role(s.role), k) for k in SIMULATIONS)
                 if d < APART and key not in layers_spec.SEGMENTS_DISABLE \
@@ -1081,8 +1086,37 @@ def test_stage2_widgets() -> None:
 
     check("channel 2 and the components are never drawn together",
           channel_2_and_the_components_are_exclusive)
+    def the_methods_differ_by_colour_or_line():
+        # F5: up to eight methods at once. Two slots whose colours come
+        # within APART under some vision must differ in line pattern or in
+        # width (thin / thick); every slot is a thin loop around a group of
+        # localizations, a mark no other row of the map draws, and all are
+        # off with the segments and with the images' colouring.
+        keys = list(layers_spec.METHOD_STYLE_KEYS)
+        assert len(keys) == layers_spec.METHOD_SLOT_COUNT == 8, keys
+        same = []
+        worst = None
+        for i, ka in enumerate(keys):
+            for kb in keys[i + 1:]:
+                a, b = styles[ka], styles[kb]
+                ca = neutral(True) if a.role == "neutral" else role(a.role)
+                cb = neutral(True) if b.role == "neutral" else role(b.role)
+                d = min(distance(ca, cb, k) for k in SIMULATIONS)
+                if worst is None or d < worst[0]:
+                    worst = (d, ka, kb)
+                if d < APART and a.pen == b.pen and abs(a.width - b.width) < 1.0:
+                    same.append(f"{ka} vs {kb}: {d:.0f}, both {a.pen} {a.width:g}")
+        assert not same, same
+        assert styles["meth0"] == styles["ov_a"] and styles["meth1"] == styles["ov_b"]
+        assert "colour the centres by status" in layers_spec.METHODS_DISABLED_WITH_IMAGES
+        assert worst is not None
+        return (f"8 slots; closest colours {worst[1]} / {worst[2]} at {worst[0]:.0f}, told apart by their line; "
+                f"off with the segments and the images' colouring")
+
     check("the second method's outlines are the map's only dotted line",
           the_second_method_is_dotted)
+    check("every compared method's outlines differ by colour or line",
+          the_methods_differ_by_colour_or_line)
     check("the Picasso pick's rows are told apart by their shapes",
           the_pick_is_told_apart_by_its_shapes)
 

@@ -324,7 +324,10 @@ def test_a_slow_method_runs_in_a_worker_and_the_window_keeps_responding(analysis
     w._on_param_changed()                                   # what choosing OPTICS does
     assert w.busy() and w.run_progress.isVisible()
     assert "Running OPTICS on a test ring" in w.run_progress.label.text()
-    assert not w.strip_scroll.widget().isEnabled() and not w.banner.isEnabled()
+    # F4: the strip's controls are disabled one by one, so that the clustering method's collapse / expand
+    # controls stay usable during the run
+    assert not w.spin_eps.isEnabled() and not w.method_panel.combo.isEnabled() and not w.banner.isEnabled()
+    assert w.method_panel.btn_collapse.isEnabled()
     assert not w.btn_export.isEnabled()
     assert kw_seen and kw_seen[0]["cluster_method"] == "OPTICS"
     assert _pump_until(lambda: not w.busy(), 10.0)

@@ -39,7 +39,13 @@ from golden_ui_stage2_compare import _diff, _load
 # 'Slow methods (Emitters)' box). B31 has no entries: the golden of F5 differs from the reference exactly where
 # B30 already says (489,525 differences, all inside B30's table-level entries).
 # Each entry carries a one-line reason.
-B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26", "B27", "B30", "B31"}
+# B32 = the clustering integration (2026-10-22): build_tables receives the axon table's v13 block (integration=);
+# every difference the v13 columns make in the tables falls inside B30's table-level entries, as B31's did.
+# B33 = the second integration (2026-10-27): fix/map-panel-voronoi passes the frame numbers to every method's
+# analyze_axon (localization_frame; events_* filled from the window) and says "not run" in the methods_* cells;
+# feat/report-checklist adds the axon table v14 (nena_method, link_radius_nm, occupancy_arc_fraction_within_25nm).
+# Only the keyword has entries: the table cells fall inside B30's table-level entries, as B31's and B32's did.
+B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26", "B27", "B30", "B31", "B32", "B33"}
 # The path ends where the compare tool's ": <first> != <second>" (or ": only in ...", ": n items vs m") begins: at
 # the first colon followed by a space. A key may hold a colon of its own ("other:_columns.csv").
 _PREFIX = re.compile(r"^(?P<cell>[^ ]+) / snapshots / (?P<snap>[^ /]+) / (?P<path>.*?)(?:: .*)?$")

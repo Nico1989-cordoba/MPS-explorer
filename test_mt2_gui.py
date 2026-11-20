@@ -154,7 +154,7 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         with open(ro, "wb") as fh:
             fh.write(b"x")
         os.chmod(ro, stat.S_IREAD)
-        figure_export_ui.ask = lambda plots, suggested, parent=None, offer_white=True: fe.FigureRequest(
+        figure_export_ui.ask = lambda plots, suggested, parent=None, offer_white=True, **_kw: fe.FigureRequest(
             plot=list(plots)[1], path=ro, width_mm=20.0, dpi=300, white=False)
         n0 = len(cell.messages)
         w._on_export_image()
@@ -162,7 +162,7 @@ def run_scenario(scenario: str, out_dir: str, inputs: str) -> Dict[str, Any]:
         res["window_read_only"] = [m["title"] for m in cell.messages[n0:]]
         os.chmod(ro, stat.S_IWRITE | stat.S_IREAD)
         noext = os.path.join(folder, "window_noext")
-        figure_export_ui.ask = lambda plots, suggested, parent=None, offer_white=True: fe.FigureRequest(
+        figure_export_ui.ask = lambda plots, suggested, parent=None, offer_white=True, **_kw: fe.FigureRequest(
             plot=list(plots)[1], path=noext, width_mm=20.0, dpi=300, white=False)
         n0 = len(cell.messages)
         w._on_export_image()

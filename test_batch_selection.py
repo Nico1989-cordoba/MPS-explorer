@@ -39,7 +39,7 @@ def _rows(path: str) -> List[Dict[str, str]]:
 @pytest.fixture(scope="module")
 def work(tmp_path_factory: Any) -> Dict[str, Any]:
     root = tmp_path_factory.mktemp("batch_sel")
-    inputs = [bc.write_simulated_input(str(root / "sim_marginal.npz"), "circle", 22, 0.6),
+    inputs = [bc.write_simulated_input(str(root / "sim_marginal.npz"), "circle", 22, 0.55),
               bc.write_simulated_input(str(root / "sim_viable.npz"), "circle", 11, 0.3)]
     out: Dict[str, Any] = {"root": root, "inputs": inputs}
     base = ["--inputs", *inputs, "--n-null", N_NULL, "--workers", "1"]

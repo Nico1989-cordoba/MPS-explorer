@@ -118,7 +118,27 @@ PROGRAM_VERSION = "MPS Explorer 2026.09"
 # block -- emitters_buffer (the imaging buffer, chosen per file, no
 # default), emitters_nena_over_sigma and emitters_precision_flag (check T4)
 # -- empty for every method but Emitters. No earlier column moved.
-TABLE_VERSION = "axon tables v12"
+# v13 (2026-10-22, the clustering integration): one block at the very end
+# of the row, after the emitters' (INTEGRATION_COLUMNS,
+# tools.clustering_integration.integration_columns): the working scale
+# (scale_*), the methods block (A8: dbscan_mode, the DBSCAN rule's eps and
+# min samples with c_label 14 and 26, localizations per cycle, linking,
+# the last comparison of methods), the events layer (events_*), the
+# eclipse tolerance (eclipse_*), the apparent size (size_*; "Cluster area"
+# and r_eff unchanged), the regularity reading (gap_* / bragg_* /
+# regularity_*) and the per-axon pipeline null (null_*, ripley*, p_mc_*,
+# null_median_*), empty -- null_type "none" -- when no null was run. No
+# earlier column moved.
+# v14 (2026-10-23, plan A8 completed: docs/reporting_checklist.md): three
+# more columns at the very end of the integration block, after the null
+# (tools.clustering_integration.REPORT_COLUMNS): nena_method (how the NeNA
+# was estimated), link_radius_nm (the event linking radius in nm) and
+# occupancy_arc_fraction_within_25nm (P-R103: the fraction of the contour
+# within 25 nm of a kept cluster's centre; occupancy_percent unchanged).
+# A version of its own although v13 was never merged: a v13 table written
+# during the manual test of the integration must not be taken for one with
+# these columns. No earlier column moved.
+TABLE_VERSION = "axon tables v14"
 from tools.emitters_layer import EMITTERS_COLUMNS  # noqa: E402  (v11 block; tools.emitters_layer)
 
 CLUSTER_METHOD_COLUMNS: Tuple[str, ...] = (
@@ -410,6 +430,7 @@ def axon_row(
     exported_at: Optional[str] = None,
     z_calibration: Optional[Dict[str, Any]] = None,
     eps_choice: Optional[Dict[str, Any]] = None,
+    integration: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     One axon as one row: who it is, what state it is in, the analysis of
@@ -426,6 +447,10 @@ def axon_row(
     k-distance graph (``MPSSettings.eps_choice``); it is written only when
     it describes the eps this analysis ran with, and otherwise -- or when
     None -- eps reads as the published default or as typed.
+    ``integration`` is the v13 block of the analysis exported
+    (``tools.clustering_integration.axon_columns``: the caller passes the
+    file's NeNA, c_label and the null it ran); None builds it here without
+    a NeNA (its NeNA-dependent columns then stay empty, and say why).
     """
     if measured.discard_applied:
         raise ValueError(
@@ -535,7 +560,24 @@ def axon_row(
     emitters = _emitter_columns(getattr(measured, "emitter_readouts", None))
     for name in EMITTERS_COLUMNS:
         row[name] = _rounded(name, emitters.get(name))
+    # --- the clustering integration (v13; v14 adds three at its end), last
+    from tools import clustering_integration as _ci
+    block = integration if integration is not None else _ci.axon_columns(measured)
+    columns = _ci.integration_columns()
+    unplaced_i = sorted(set(block) - set(columns))
+    if unplaced_i:
+        raise ValueError(
+            f"The clustering integration exports columns this table does not place: "
+            f"{', '.join(unplaced_i)}.")
+    for name in columns:
+        row[name] = _rounded(name, block.get(name))
     return row
+
+
+def integration_columns() -> Tuple[str, ...]:
+    """The integration block's columns (v13, and v14's last three), in order (tools.clustering_integration)."""
+    from tools import clustering_integration as _ci
+    return _ci.integration_columns()
 
 
 # --------------------------------------------------------------------------
@@ -894,6 +936,7 @@ def build_tables(
     z_nm: Optional[NDArray[np.float64]] = None,
     z_calibration: Optional[Dict[str, Any]] = None,
     eps_choice: Optional[Dict[str, Any]] = None,
+    integration: Optional[Dict[str, Any]] = None,
 ) -> AxonTables:
     """
     Build the axon's row, and the tables that were asked for, from one
@@ -906,7 +949,8 @@ def build_tables(
     stamp = _now()
     row = axon_row(measured, identity=identity, discard=discard,
                    axoplasm=axoplasm, exported_at=stamp,
-                   z_calibration=z_calibration, eps_choice=eps_choice)
+                   z_calibration=z_calibration, eps_choice=eps_choice,
+                   integration=integration)
     tables = AxonTables(axon=row)
     tables.warnings.extend(
         w for w in (identity.warnings() if identity is not None else []))

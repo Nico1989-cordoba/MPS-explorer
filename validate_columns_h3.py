@@ -94,8 +94,8 @@ fix decisions of that review, "items"):
   and the monotonicity in tau that follows; section 8 asserts it
   replicate by replicate on the curve's null matrix.
 * SMALL cannot carry the power check (z_A > 3) of the integration: its
-  clusters form a regular 24-gon (spacing 178 nm) and at tau_0 = 80.6
-  nm an arc shift lands within tau_0 of the lattice 90 % of the time
+  clusters form a regular 24-gon (spacing 178 nm) and at the pilot tau_0 of
+  the time (~80 nm) an arc shift lands within tau_0 of the lattice 90 % of the time
   (z_A = 1.7 measured with every cluster paired). SMALL keeps the
   pipeline and bookkeeping checks; the power check runs on a second
   synthetic axon whose three rings share hard-core (irregular) cluster
@@ -460,7 +460,7 @@ def make_columns_axon(seed: int, *, K: int = K_RING, d_min_nm: float = 80.0) -> 
     deg at azimuth 30 deg, 60000 frames).
 
     SMALL cannot serve for the power check: its clusters sit on a
-    regular 24-gon (spacing 178 nm), so at tau_0 = 80.6 nm an arc shift
+    regular 24-gon (spacing 178 nm), so at the pilot tau_0 of the time (~80 nm) an arc shift
     lands within tau_0 of the lattice 90 % of the time and z_A stays
     near 1.7 whatever the columns (measured). Here the arc positions are
     a hard-core draw with minimum spacing ``d_min_nm`` (80 nm, so that

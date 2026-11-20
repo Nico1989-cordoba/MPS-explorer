@@ -65,7 +65,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -1061,6 +1061,13 @@ def analyze_unroll(
 # null, although all three draw a uniform shift and a reflection.
 ARC_SPAWN_KEY = int.from_bytes(b"arc", "big")
 
+# P-R61 (``tools.mps_eclipse_tolerance``): the per-pair arc tolerance t_ij = PAIR_K_ARC * sqrt(sigma_c,i^2 +
+# sigma_c,j^2), the half-width that holds 95 % of the difference of two independent normal centre errors along the
+# arc [derivation: 1.96 is the two-sided 95 % quantile of the standard normal]. Used only when the caller passes the
+# clusters' centre errors; without them every test below is the scalar rule (d <= tau), bit for bit as before.
+PAIR_K_ARC = 1.96
+TOLERANCE_RULES: Tuple[str, ...] = ("scalar", "per_pair")
+
 # Rows of the dense curve table on each side of a projection foot over
 # which ``ambiguous_projection`` measures the local curvature: the
 # tangent turn between the chord ending at the foot and the chord
@@ -1366,6 +1373,12 @@ class ArcPairMatch:
     n_null: int
     random_seed: int
     warnings: List[str] = field(default_factory=list)
+    # P-R61: the admissibility rule ("scalar": d <= tau_nm; "per_pair": d <= t_ij = pair_k * sqrt(sigma_i^2 +
+    # sigma_j^2), the tolerances travelling with their clusters in the null), its k (NaN under "scalar") and the
+    # tolerance of each matched pair in ``i_a`` order (tau_nm repeated under "scalar").
+    tolerance_rule: str = "scalar"
+    pair_k: float = float("nan")
+    t_nm: NDArray[np.float64] = field(default_factory=lambda: np.zeros(0, dtype=np.float64))
 
 
 @dataclass
@@ -1410,6 +1423,8 @@ class ArcJointNull:
     E_star: NDArray[np.float64]
     min_K: NDArray[np.int64]
     warnings: List[str] = field(default_factory=list)
+    tolerance_rule: str = "scalar"          # P-R61, as ``ArcPairMatch``
+    pair_k: float = float("nan")
 
 
 @dataclass
@@ -1534,6 +1549,10 @@ class ArcColumnsResult:
     # localization membrane, "" for the two H5-B curves). Labels only: no number of any curve depends on them.
     centroid_membrane: Optional[CentroidMembrane] = None
     curve_role: str = ""
+    # P-R61: the admissibility rule of every test of this result ("scalar" or "per_pair", ``TOLERANCE_RULES``) and
+    # the per-pair k (NaN under "scalar"). Under "per_pair" ``tau_nm`` is still the run's scalar tau, recorded only.
+    tolerance_rule: str = "scalar"
+    pair_k: float = float("nan")
 
 
 def _usable_mask(values: Optional[NDArray[np.bool_]], k: int, what: str) -> NDArray[np.bool_]:
@@ -1581,11 +1600,42 @@ def rotate_arcs(
     return np.asarray(np.mod(base + shifts[:, None], length), dtype=np.float64)
 
 
+def _pair_tolerance(
+    sigma_a_nm: Optional[NDArray[np.float64]],
+    sigma_b_nm: Optional[NDArray[np.float64]],
+    k_a: int,
+    k_b: int,
+    pair_k: float,
+    what: str,
+) -> Optional[NDArray[np.float64]]:
+    """
+    The (K_a, K_b) per-pair tolerances t_ij = pair_k * sqrt(sigma_a,i^2 + sigma_b,j^2) (P-R61), or None when neither
+    sigma is given (the scalar rule). Both or neither: one alone is an error, as is a wrong length, a non-finite or
+    non-positive sigma or k.
+    """
+    if sigma_a_nm is None and sigma_b_nm is None:
+        return None
+    if sigma_a_nm is None or sigma_b_nm is None:
+        raise ValueError(f"{what}: the per-pair rule needs the centre errors of BOTH rings")
+    k = float(pair_k)
+    if not (math.isfinite(k) and k > 0.0):
+        raise ValueError(f"{what}: pair_k must be a positive finite number, got {pair_k}")
+    sa = np.asarray(sigma_a_nm, dtype=np.float64).reshape(-1)
+    sb = np.asarray(sigma_b_nm, dtype=np.float64).reshape(-1)
+    if sa.size != k_a or sb.size != k_b:
+        raise ValueError(f"{what}: {sa.size} / {sb.size} centre errors for {k_a} / {k_b} clusters")
+    for v in (sa, sb):
+        if v.size and not (np.isfinite(v).all() and (v > 0.0).all()):
+            raise ValueError(f"{what}: every centre error must be a positive finite number (nm)")
+    return np.asarray(k * np.sqrt(sa[:, None] ** 2 + sb[None, :] ** 2), dtype=np.float64)
+
+
 def _arc_null_counts(
     s_a: NDArray[np.float64],
     s_b: NDArray[np.float64],
     length_nm: float,
     tau_nm: float,
+    tol: Optional[NDArray[np.float64]] = None,
 ) -> NDArray[np.int64]:
     """
     Arc-matched pairs per replicate, (B,), for B configurations of ring
@@ -1598,7 +1648,10 @@ def _arc_null_counts(
     nothing: the shortcut of ``_assign_within_tau``), the others go
     through ``assign_within_tau`` on their own matrix -- the very call
     ``match_arcs`` makes on the same numbers, so the counts agree with
-    a per-replicate ``match_arcs`` exactly.
+    a per-replicate ``match_arcs`` exactly. ``tol`` (K_a, K_b) of the
+    usable clusters: the per-pair tolerances (P-R61), which travel with
+    their clusters (a rotation moves a cluster, never its tolerance);
+    None: the scalar ``tau_nm``.
     """
     n_rep = int(s_b.shape[0])
     counts = np.zeros(n_rep, dtype=np.int64)
@@ -1608,12 +1661,13 @@ def _arc_null_counts(
         stop = min(start + _BLOCK, n_rep)
         a = s_a if s_a.ndim == 1 else s_a[start:stop]
         D = cyclic_arc_distance_nm(a[..., :, None] - s_b[start:stop][:, None, :], length_nm)   # (b, K_a, K_b)
-        admissible = D <= tau_nm
+        limit = tau_nm if tol is None else tol
+        admissible = D <= limit
         n_edges = admissible.sum(axis=(1, 2))
         simple = (admissible.sum(axis=2).max(axis=1) <= 1) & (admissible.sum(axis=1).max(axis=1) <= 1)
         counts[start:stop] = np.where(simple, n_edges, 0)
         for r in np.flatnonzero(~simple):
-            counts[start + r] = assign_within_tau(D[r], tau_nm)[0].size
+            counts[start + r] = assign_within_tau(D[r], limit)[0].size
     return counts
 
 
@@ -1630,6 +1684,9 @@ def arc_eclipse_test(
     reference_ring: int = 0,
     usable_a: Optional[NDArray[np.bool_]] = None,
     usable_b: Optional[NDArray[np.bool_]] = None,
+    sigma_a_nm: Optional[NDArray[np.float64]] = None,
+    sigma_b_nm: Optional[NDArray[np.float64]] = None,
+    pair_k: float = PAIR_K_ARC,
 ) -> ArcPairMatch:
     """
     The eclipse test of one ring pair in ONE dimension: the clusters'
@@ -1709,6 +1766,16 @@ def arc_eclipse_test(
     usable_a, usable_b : (K_a,), (K_b,) bool, optional
         Clusters allowed to enter; all when None. ``K_a``/``K_b`` of the
         result count the usable ones.
+    sigma_a_nm, sigma_b_nm : (K_a,), (K_b,), optional
+        P-R61: the per-axis centre error sigma_c of every cluster (nm,
+        ``tools.mps_eclipse_tolerance``). Given (both), a pair is
+        admissible when its arc distance is <= t_ij = ``pair_k`` *
+        sqrt(sigma_a,i^2 + sigma_b,j^2) instead of <= ``tau_nm``; the
+        null uses the same draws (same seed, same spawn key) as the
+        scalar test, with every cluster keeping its own sigma. None: the
+        scalar rule.
+    pair_k
+        The k of the per-pair rule (``PAIR_K_ARC`` = 1.96).
 
     Returns
     -------
@@ -1723,7 +1790,8 @@ def arc_eclipse_test(
     ua = _usable_mask(usable_a, s_a.size, "usable_a")
     ub = _usable_mask(usable_b, s_b.size, "usable_b")
     warnings_: List[str] = []
-    i_a, j_b, d = match_arcs(s_a, s_b, length, tau, usable_a=ua, usable_b=ub)
+    T_full = _pair_tolerance(sigma_a_nm, sigma_b_nm, s_a.size, s_b.size, pair_k, "arc_eclipse_test")
+    i_a, j_b, d = match_arcs(s_a, s_b, length, tau, usable_a=ua, usable_b=ub, tolerance_nm=T_full)
     n_obs = int(i_a.size)
     k_a, k_b = int(np.count_nonzero(ua)), int(np.count_nonzero(ub))
     min_k = min(k_a, k_b)
@@ -1731,8 +1799,10 @@ def arc_eclipse_test(
                                                        spawn_key=(int(ring_a), int(ring_b), ARC_SPAWN_KEY)))
     shifts = np.asarray(rng.uniform(0.0, length, size=n_rep), dtype=np.float64)
     reflect = np.asarray(rng.random(n_rep) < 0.5, dtype=bool)
-    null = _arc_null_counts(s_a[ua], rotate_arcs(s_b[ub], shifts, reflect, length), length, tau)
-    label = f"rings {ring_a}-{ring_b} on the curve of ring {reference_ring} at tau_s {tau:g} nm"
+    null = _arc_null_counts(s_a[ua], rotate_arcs(s_b[ub], shifts, reflect, length), length, tau,
+                            None if T_full is None else T_full[np.ix_(ua, ub)])
+    label = (f"rings {ring_a}-{ring_b} on the curve of ring {reference_ring} at tau_s {tau:g} nm" if T_full is None
+             else f"rings {ring_a}-{ring_b} on the curve of ring {reference_ring} with the per-pair tolerance")
     e_star, sd_star, zeta = _null_summary(n_obs, null, min_k, warnings_, label)
     p_excess, p_deficit, p_two = _phipson_smyth(null, n_obs)
     return ArcPairMatch(
@@ -1743,6 +1813,10 @@ def arc_eclipse_test(
         p_excess=p_excess, p_deficit=p_deficit, p_two_sided=p_two,
         null_n_matched=null, null_shift_nm=shifts, null_reflect=reflect,
         n_null=n_rep, random_seed=int(random_seed), warnings=warnings_,
+        tolerance_rule="scalar" if T_full is None else "per_pair",
+        pair_k=float("nan") if T_full is None else float(pair_k),
+        t_nm=(np.full(n_obs, tau, dtype=np.float64) if T_full is None
+              else np.asarray(T_full[i_a, j_b], dtype=np.float64)),
     )
 
 
@@ -1756,6 +1830,8 @@ def arc_joint_null(
     n_null: int = 1999,
     random_seed: int = 0,
     usable: Optional[Sequence[Optional[NDArray[np.bool_]]]] = None,
+    sigma_nm: Optional[Sequence[NDArray[np.float64]]] = None,
+    pair_k: float = PAIR_K_ARC,
 ) -> ArcJointNull:
     """
     The joint rotation null of one axon on the reference circle: T =
@@ -1804,6 +1880,11 @@ def arc_joint_null(
     usable
         Optional per-ring masks (None entries = all usable), in
         ``ring_indices`` order.
+    sigma_nm, pair_k
+        P-R61: one (K_k,) array of centre errors per ring, in
+        ``ring_indices`` order, for the per-pair rule of
+        ``arc_eclipse_test`` (the tolerances travel with their clusters
+        in every replicate); None: the scalar rule.
 
     Returns
     -------
@@ -1817,6 +1898,8 @@ def arc_joint_null(
         raise ValueError(f"arc_joint_null: {len(idx)} ring indices for {len(arcs_nm)} arc arrays")
     if usable is not None and len(usable) != len(idx):
         raise ValueError(f"arc_joint_null: {len(usable)} masks for {len(idx)} rings")
+    if sigma_nm is not None and len(sigma_nm) != len(idx):
+        raise ValueError(f"arc_joint_null: {len(sigma_nm)} centre-error arrays for {len(idx)} rings")
     if any(k < 0 for k in idx):
         raise ValueError(f"arc_joint_null: ring indices must be non-negative, got {idx}")
     if len(set(idx)) != len(idx):
@@ -1829,6 +1912,8 @@ def arc_joint_null(
     arcs = [_arcs(arcs_nm[q], f"arcs of ring {idx[q]}") for q in order]
     masks = [_usable_mask(None if usable is None else usable[q], arcs[i].size, f"usable of ring {idx[q]}")
              for i, q in enumerate(order)]
+    sigmas: Optional[List[NDArray[np.float64]]] = (
+        None if sigma_nm is None else [np.asarray(sigma_nm[q], dtype=np.float64).reshape(-1) for q in order])
     n_rings = len(rings)
     warnings_: List[str] = []
     pairs: List[Tuple[int, int]] = []
@@ -1853,12 +1938,18 @@ def arc_joint_null(
     min_k = np.zeros(n_pairs, dtype=np.int64)
     null = np.zeros((n_rep, n_pairs), dtype=np.int64)
     for p, (i, j) in enumerate(pairs):
-        n_obs[p] = match_arcs(arcs[i], arcs[j], length, tau, usable_a=masks[i], usable_b=masks[j])[0].size
+        T_full = (None if sigmas is None else
+                  _pair_tolerance(sigmas[i], sigmas[j], arcs[i].size, arcs[j].size, pair_k, "arc_joint_null"))
+        n_obs[p] = match_arcs(arcs[i], arcs[j], length, tau, usable_a=masks[i], usable_b=masks[j],
+                              tolerance_nm=T_full)[0].size
         min_k[p] = min(int(np.count_nonzero(masks[i])), int(np.count_nonzero(masks[j])))
-        null[:, p] = _arc_null_counts(positions[i], positions[j], length, tau)
+        null[:, p] = _arc_null_counts(positions[i], positions[j], length, tau,
+                                      None if T_full is None else T_full[np.ix_(masks[i], masks[j])])
     t_null = null.sum(axis=1)
     t_obs = int(n_obs.sum())
     ring_pairs = [(rings[i], rings[j]) for i, j in pairs]
+    rule = "scalar" if sigmas is None else "per_pair"
+    k_rec = float("nan") if sigmas is None else float(pair_k)
     if n_pairs == 0:
         warnings_.append(f"rings {rings}: no adjacent pair; the joint arc null is empty")
         return ArcJointNull(
@@ -1866,14 +1957,15 @@ def arc_joint_null(
             p_excess=1.0, p_deficit=1.0, p_two_sided=1.0, n_null=n_rep, random_seed=int(random_seed), rings=rings,
             reference_ring=ref, null_n_matched=null, null_shift_nm=shifts, null_reflect=flips,
             E_dir_obs=np.zeros(0, dtype=np.float64), E_star=np.zeros(0, dtype=np.float64), min_K=min_k,
-            warnings=warnings_)
+            warnings=warnings_, tolerance_rule=rule, pair_k=k_rec)
     with np.errstate(divide="ignore", invalid="ignore"):
         e_dir = np.where(min_k > 0, n_obs / np.maximum(min_k, 1), np.nan)
         e_star = np.where(min_k > 0, null.mean(axis=0) / np.maximum(min_k, 1), np.nan)
     if not np.all(min_k > 0):
         warnings_.append("a pair has no usable cluster on one side (min K = 0): its E_dir and E* are NaN and T_A is NaN")
     t_a = float(np.mean(e_dir - e_star))
-    label = f"joint arc null of rings {rings} on the curve of ring {ref} at tau_s {tau:g} nm"
+    label = (f"joint arc null of rings {rings} on the curve of ring {ref} at tau_s {tau:g} nm" if sigmas is None
+             else f"joint arc null of rings {rings} on the curve of ring {ref} with the per-pair tolerance")
     _, _, z_a = _null_summary(t_obs, t_null, 1, warnings_, label)
     p_excess, p_deficit, p_two = _phipson_smyth(t_null, t_obs)
     return ArcJointNull(
@@ -1881,7 +1973,7 @@ def arc_joint_null(
         p_excess=p_excess, p_deficit=p_deficit, p_two_sided=p_two, n_null=n_rep, random_seed=int(random_seed),
         rings=rings, reference_ring=ref, null_n_matched=null, null_shift_nm=shifts, null_reflect=flips,
         E_dir_obs=np.asarray(e_dir, dtype=np.float64), E_star=np.asarray(e_star, dtype=np.float64), min_K=min_k,
-        warnings=warnings_)
+        warnings=warnings_, tolerance_rule=rule, pair_k=k_rec)
 
 
 def ambiguous_projection(
@@ -2209,6 +2301,8 @@ def analyze_arc_columns(
     membrane_knot_spacing_nm: Optional[float] = None,
     membrane_iterations: int = MEMBRANE_LOCALIZATION_ITERATIONS,
     membrane_max_points: Optional[int] = None,
+    pair_sigma_nm: Optional[Mapping[int, NDArray[np.float64]]] = None,
+    pair_k: float = PAIR_K_ARC,
 ) -> ArcColumnsResult:
     """
     The arc test of one axon (H5-B, candidate A): every ring's clusters
@@ -2492,11 +2586,26 @@ def analyze_arc_columns(
         out.centroid_membrane, out.curve_role = centroid_fit, ARC_CURVE_ROLES.get(curve_kind, "")
         return out
 
+    # P-R61: with ``pair_sigma_nm`` (ring index -> centre error of each cluster, ``Ring.clusters`` order) every test
+    # below uses the per-pair tolerance t_ij = pair_k sqrt(sigma_i^2 + sigma_j^2) instead of tau; same draws.
+    sig: Optional[Dict[int, NDArray[np.float64]]] = None
+    if pair_sigma_nm is not None:
+        sig = {}
+        for k, g in geoms.items():
+            if k not in pair_sigma_nm:
+                raise ValueError(f"analyze_arc_columns: pair_sigma_nm has no centre errors for ring {k}")
+            v = np.asarray(pair_sigma_nm[k], dtype=np.float64).reshape(-1)
+            if v.size != g.n_clusters:
+                raise ValueError(f"analyze_arc_columns: ring {k}: {v.size} centre errors for {g.n_clusters} clusters")
+            sig[k] = v
+
     def test(a: int, b: int, label: str, s_a: Optional[NDArray[np.float64]] = None, s_b: Optional[NDArray[np.float64]] = None,
              circle_nm: Optional[float] = None) -> ArcPairMatch:
         m = arc_eclipse_test(arcs[a] if s_a is None else s_a, arcs[b] if s_b is None else s_b,
                              length if circle_nm is None else circle_nm, tau, n_null=n_rep, random_seed=seed, ring_a=a, ring_b=b,
-                             reference_ring=ref, usable_a=usable[a], usable_b=usable[b])
+                             reference_ring=ref, usable_a=usable[a], usable_b=usable[b],
+                             sigma_a_nm=None if sig is None else sig[a], sigma_b_nm=None if sig is None else sig[b],
+                             pair_k=pair_k)
         warnings_.extend(f"{label} {a}-{b}: {w}" for w in m.warnings)
         return m
 
@@ -2528,7 +2637,8 @@ def analyze_arc_columns(
         warnings_.append(f"ring indices {ids} are not all consecutive: {len(adjacent)} adjacent pair(s) of "
                          f"{len(ids) - 1} possible")
     joint = arc_joint_null(ids, [arcs[k] for k in ids], length, tau, reference_ring=ref, n_null=n_rep,
-                           random_seed=seed, usable=[usable[k] for k in ids])
+                           random_seed=seed, usable=[usable[k] for k in ids],
+                           sigma_nm=None if sig is None else [sig[k] for k in ids], pair_k=pair_k)
     warnings_.extend(f"joint null: {w}" for w in joint.warnings)
     return ArcColumnsResult(
         source_name=name, reference_ring=ref, length_nm=length, tau_nm=tau, rings=ids, adjacent=adjacent, k2=k2,
@@ -2536,4 +2646,5 @@ def analyze_arc_columns(
         excluded_clusters=applied, include_suspect=inc, n_null=n_rep, random_seed=seed, warnings=warnings_,
         reference_curve=curve_kind, membrane_knot_spacing_nm=knots, membrane=membrane, radial_scatter_nm=radial_scatter,
         radial_scatter_knot_spacing_nm=scatter_knots, radial_scatter_arc_curve_nm=radial_scatter_arc,
-        loo_adjacent=loo_adjacent, centroid_membrane=centroid_fit, curve_role=ARC_CURVE_ROLES.get(curve_kind, ""))
+        loo_adjacent=loo_adjacent, centroid_membrane=centroid_fit, curve_role=ARC_CURVE_ROLES.get(curve_kind, ""),
+        tolerance_rule="scalar" if sig is None else "per_pair", pair_k=float("nan") if sig is None else float(pair_k))
