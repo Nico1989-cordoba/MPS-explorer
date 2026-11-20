@@ -261,7 +261,7 @@ def test_regularity_tab_warns_of_the_edge_and_says_the_label_is_descriptive(app,
         _pump(app, arr.running)
         text = arr.lbl_reading.text()
         if arr.outcomes[arr.runs[0].key].gap is not None:
-            assert ci.EDGE_WARNING in text and "descriptive only" in text and "4 of 12" in text
+            assert ci.EDGE_WARNING in text and "descriptive only" in text and "4 of 12" in arr.lbl_reading.toolTip()
     finally:
         w.close()
 

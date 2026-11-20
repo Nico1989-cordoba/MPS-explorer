@@ -36,8 +36,8 @@ density parameters of a dataset. Two channels of a two-colour experiment are not
 - each labelled molecule leaves a number of localizations that depends on the **dye and the imaging buffer** (its
   switching cycles; Dempsey et al. 2011).
 
-So the same two numbers do not implement the same criterion in both channels, and cluster counts and inter-channel
-distances change with the parameters (Khater et al. 2020). What is kept equal between the channels is the
+So the same two numbers do not implement the same criterion in both channels, and cluster counts depend on the parameters (Khater et al. 2020); that inter-channel
+distances change with them too is an inference from that sensitivity, not a statement of Khater et al. What is kept equal between the channels is the
 **criterion** of the reference pipeline (Gazal et al. 2026): *one labelled molecule, with its expected number of
 localizations, forms a cluster*. The numbers that implement it are computed from each channel's own measurements.
 
@@ -114,7 +114,7 @@ whose events last about one frame; otherwise a molecule leaves more localization
 
 ## 6. The dye table
 
-Mean number of switching cycles per molecule, from **Dempsey et al. (2011), Nature Methods 8:1027, Table 1**
+Mean number of switching cycles per fluorophore (antibodies on glass, no 405 nm activation), from **Dempsey et al. (2011), Nature Methods 8:1027, Table 1**
 ("# Switching Cycles (Mean)"), in the two buffers of that table: MEA (cysteamine) and βME (β-mercaptoethanol). The
 user picks the dye and the buffer of channel 2.
 

@@ -70,6 +70,8 @@ UNIT_STEPS = 1000
 # The worker tells the window where it is at most this often, unless the stage changes [ad hoc: the bar is read
 # by a person; 4 updates a second look continuous].
 STAGE_EVERY_S = 0.25
+# The last stage of the perimeter density box: the pooled A of the groups, whose null has no count of its own.
+POOLING_WORDS = "pooled A of the groups (its Monte Carlo null)"
 
 
 def _item(text: str, editable: bool = False,
@@ -262,7 +264,7 @@ class BatchWindow(QtWidgets.QMainWindow):
         intro = QtWidgets.QLabel(
             "Every picked-axon file under a folder is analysed the way the "
             "axon window analyses one, and written as one row per axon to "
-            "the same table 'Export axon' writes. Check who each file is "
+            "the same table 'Save axon' writes. Check who each file is "
             "before running: the columns are read off the path, and what "
             "the path does not say is left empty.")
         intro.setWordWrap(True)
@@ -414,6 +416,18 @@ class BatchWindow(QtWidgets.QMainWindow):
             "closure in <table>_null_by_closure.csv. Kept in the settings. docs/null_and_scale.md")
         self.combo_null_closure.currentIndexChanged.connect(self._on_null_closure)
         row.addWidget(self.combo_null_closure)
+        # The perimeter density analysis (P12): ticked, the ticked files are also analysed by it after the batch
+        # (batch_perimeter.analyse_files, in the worker, on the bar); Export writes its tables beside the table
+        # chosen there, as <name>_perimeter_*.csv, never overwriting.
+        self.check_perimeter = QtWidgets.QCheckBox("Perimeter density")
+        self.check_perimeter.setObjectName("check_perimeter_density")
+        self.check_perimeter.setChecked(False)
+        self.check_perimeter.setToolTip(
+            "Also run the perimeter density analysis; Export writes its tables as <name>_perimeter_*.csv.")
+        row.addWidget(self.check_perimeter)
+        self.perimeter_summary = ""
+        self.perimeter_results: List[Any] = []
+        self.perimeter_pooled: Optional[Dict[str, Any]] = None
         self.comparison_rows: List[Dict[str, Any]] = []
         self.comparison_results: List[Any] = []
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
@@ -430,7 +444,7 @@ class BatchWindow(QtWidgets.QMainWindow):
             "when it is built from every start), the occupancy and the randomization\n"
             "(iteration by iteration). The text says which file and which stage.")
         row.addWidget(self.progress, 1)
-        self.btn_export = QtWidgets.QPushButton("Write to a table...")
+        self.btn_export = QtWidgets.QPushButton("Save table...")
         self.btn_export.setToolTip(
             "Add one row per analysed axon to a table: a new one, or the "
             "one you export the axon window's axons to. A log of what "
@@ -853,7 +867,7 @@ class BatchWindow(QtWidgets.QMainWindow):
         compare_kw: Dict[str, Any] = {} if emitters_buffer is None else {"emitters_buffer": emitters_buffer}
         self._pending = dict(rows=list(rows), items=items, settings=settings, z_store=z_store,
                              allow_slow=allow_slow, compare_list=list(compare_list), compare_kw=compare_kw,
-                             null_b=null_b)
+                             null_b=null_b, perimeter=bool(self.check_perimeter.isChecked()))
         self._cancel.clear()
         # F1: a file with many clusters builds its perimeter for minutes. Before the batch, each file is clustered
         # and its kept clusters counted (mb.scan_perimeter_costs); when any reaches the threshold of the axon
@@ -920,6 +934,14 @@ class BatchWindow(QtWidgets.QMainWindow):
 
     def _set_bar(self, units: int, phase: str) -> None:
         self._phase = phase
+        self._t_phase = time.monotonic()
+        self._bar_head, self._bar_words = "", ""
+        timer = getattr(self, "_bar_timer", None)
+        if timer is None:
+            timer = self._bar_timer = QtCore.QTimer(self)
+            timer.setInterval(1000)
+            timer.timeout.connect(self._redraw_bar_text)
+        timer.start()
         self._units = max(1, int(units))
         self.progress.setRange(0, self._units * UNIT_STEPS)
         self.progress.setValue(0)
@@ -995,8 +1017,10 @@ class BatchWindow(QtWidgets.QMainWindow):
         for row in rows:
             self.records.pop(row, None)
             self.table.item(row, COL_RESULT).setText("waiting")
-        self._set_bar(len(rows) * (1 + len(compare_list)), "batch")
+        self._set_bar(len(rows) * (1 + len(compare_list)) + (len(rows) + 1 if self.check_perimeter.isChecked() else 0),
+                      "batch")        # the perimeter's extra unit: the pooled A of the groups (its Monte Carlo null)
         self._n_files = len(rows)
+        self._with_null = bool(null_b)
         self._compare_names = list(compare_list)
         self.label_status.setText(f"Analysing {len(rows)} file(s)..."
                                   + ("" if perimeter_choice is None
@@ -1008,6 +1032,11 @@ class BatchWindow(QtWidgets.QMainWindow):
         current = [0]
         n_files = len(items)
         n_methods = max(1, len(compare_list))
+        perimeter_items = list(items) if pend.get("perimeter") else []
+        self.perimeter_summary = ""
+        self.perimeter_results = []
+        self.perimeter_pooled = None
+        perimeter_base = n_files * (1 + len(compare_list))
 
         def file_done(i: int, r: mb.AxonRecord) -> None:
             current[0] = i + 1
@@ -1018,11 +1047,13 @@ class BatchWindow(QtWidgets.QMainWindow):
 
         def body() -> None:
             from tools import mps_perimeter_cost as cost
-            from tools import mps_progress
+            from tools import mps_cancel, mps_progress
             observer = self._stage_relay(lambda: current[0])
             try:
+                # Cancel reaches INSIDE the axon being analysed (a start of the perimeter, a replicate of the null):
+                # before, it was heard only between two files and a null of 40 minutes could not be stopped.
                 with cost.asking(None if perimeter_choice is None else mb.perimeter_policy_gate(perimeter_choice)), \
-                        mps_progress.observing(observer):
+                        mps_progress.observing(observer), mps_cancel.cancellable(self._cancel.is_set):
                     mb.run_batch(items, settings,
                                  on_done=file_done,
                                  cancelled=self._cancel.is_set, z_store=z_store, allow_slow=allow_slow, **batch_kw)
@@ -1031,6 +1062,12 @@ class BatchWindow(QtWidgets.QMainWindow):
                             items, settings, compare_list, cancelled=self._cancel.is_set, z_store=z_store,
                             on_done=run_done, allow_slow=allow_slow, results_out=self.comparison_results,
                             **compare_kw)
+                    if perimeter_items and not self._cancel.is_set():
+                        def perimeter_file(i: int, _path: str) -> None:
+                            current[0] = perimeter_base + i
+                        self.perimeter_summary = self._run_perimeter_density(perimeter_items, on_file=perimeter_file)
+            except mps_cancel.AnalysisCancelled:
+                pass                                   # the files finished before it keep their rows
             finally:
                 self._relay.finished.emit()
 
@@ -1038,10 +1075,49 @@ class BatchWindow(QtWidgets.QMainWindow):
         self._thread.start()
         self._refresh_buttons()
 
+    def _run_perimeter_density(self, items: Sequence[Any],
+                               on_file: Optional[Callable[[int, str], None]] = None) -> str:
+        """Worker thread: the perimeter density analysis of the batch's files (batch_perimeter.analyse_files, the
+        command-line batch's own loop), with the identities and pixel sizes the table holds, and the pooled A of
+        the groups (its null is the slow part of the writing). Nothing is written here: Export writes the tables
+        beside the table chosen there. Returns the line the status shows; never raises."""
+        try:
+            import batch_perimeter as bp
+            results = bp.analyse_files(
+                [it.path for it in items], identities={it.path: it.identity for it in items},
+                pixel_sizes={it.path: it.pixel_size_nm for it in items if it.pixel_size_nm is not None},
+                cancelled=self._cancel.is_set, on_file=on_file)
+            if self._cancel.is_set():
+                self.perimeter_results, self.perimeter_pooled = [], None
+                return "Perimeter density: stopped; nothing kept."
+            n_f = int(getattr(self, "_n_files", len(results)))
+            self._relay.stage.emit(n_f * (2 + len(getattr(self, "_compare_names", []) or [])),
+                                   POOLING_WORDS, None, None)
+            pooled = bp.pooled_of(results)
+            self.perimeter_results, self.perimeter_pooled = list(results), pooled
+            n_ok = sum(1 for r in results if r.status.value == "ok")
+            return f"Perimeter density: {n_ok} of {len(results)} ok; Export writes its tables."
+        except Exception as exc:                       # noqa: BLE001 - said in the status, never a crash
+            self.perimeter_results, self.perimeter_pooled = [], None
+            return f"Perimeter density failed: {type(exc).__name__}: {exc}"
+
+    def write_perimeter_tables(self, table_path: str) -> str:
+        """Export: the perimeter density tables of this batch beside the table at ``table_path``, at the stem
+        ``<table without .csv>`` (``<stem>_perimeter_*.csv``; ``_run2``... when taken: nothing is overwritten).
+        Returns the stem used, or "" when the box did not run."""
+        if not self.perimeter_results:
+            return ""
+        import batch_perimeter as bp
+        stem = os.path.splitext(table_path)[0]
+        return bp.write_tables(self.perimeter_results, stem, pooled=self.perimeter_pooled)
+
     def _on_stage(self, unit: int, where: str, done: Any, total: Any) -> None:
         """GUI thread: move the bar inside the file being analysed and say which stage it is in."""
         from tools import mps_progress
-        frac, words = mps_progress.file_fraction(where, done, total)
+        # With the per-axon null ticked, a file's bar has its own shares (analysis, then the null replicate by
+        # replicate): before, the bar stood at ~99 % for the whole null.
+        with_null = bool(getattr(self, "_with_null", False)) and self._phase == "batch"             and unit < getattr(self, "_n_files", 0)
+        frac, words = mps_progress.file_fraction(where, done, total, with_null=with_null)
         if frac is not None and unit < getattr(self, "_units", 1):
             self.progress.setValue(max(self.progress.value(), unit * UNIT_STEPS + int(UNIT_STEPS * frac)))
         if self._phase == "scan":
@@ -1051,18 +1127,43 @@ class BatchWindow(QtWidgets.QMainWindow):
             n = getattr(self, "_n_files", 0)
             if unit < n:
                 head = f"File {unit + 1} of {n}"
+            elif unit >= n * (1 + len(getattr(self, "_compare_names", []) or [])):
+                k = unit - n * (1 + len(getattr(self, "_compare_names", []) or []))
+                head = f"Perimeter density, file {min(k + 1, n)} of {n}"
+                if k >= n:
+                    head = "Perimeter density, pooling the groups"
+                    self.progress.setValue(max(self.progress.value(), unit * UNIT_STEPS))
+                if frac is None and done is not None and total:
+                    frac = min(1.0, float(done) / float(total))
+                    if unit < getattr(self, "_units", 1):
+                        self.progress.setValue(max(self.progress.value(), unit * UNIT_STEPS + int(UNIT_STEPS * frac)))
             else:
                 names = getattr(self, "_compare_names", []) or ["?"]
                 k = unit - n
                 i, j = divmod(k, len(names))
                 head = f"Comparing methods, file {min(i + 1, n)} of {n}, {names[min(j, len(names) - 1)]}"
-        self.progress.setFormat(f"{head}: {words} - %p%")
+        self._bar_head, self._bar_words = head, words
+        self._redraw_bar_text()
+
+    def _redraw_bar_text(self) -> None:
+        """The bar's text: file, stage, percentage, time spent and an estimate of what is left (a straight line from
+        the share done: the stages are not equally long, so it is said to be about)."""
+        if not getattr(self, "_bar_head", "") or not self.running:
+            return
+        from tools import mps_progress
+        span = max(1, self.progress.maximum())
+        f = self.progress.value() / span
+        spent = time.monotonic() - getattr(self, "_t_phase", time.monotonic())
+        eta = mps_progress.eta_words(f, spent)
+        tail = f" - {mps_progress.elapsed_words(spent)} elapsed" + (f", {eta}" if eta else "")
+        self.progress.setFormat(f"{self._bar_head}: {self._bar_words} - %p%{tail}")
 
     def cancel(self) -> None:
         if self.running:
             self._cancel.set()
             self.label_status.setText(
-                "Stopping after the axon being analysed...")
+                "Stopping at the next check of the axon being analysed (a start of its perimeter, a replicate of its "
+                "null); the axons finished before stay in the table...")
 
     def wait(self, timeout: float = 3600.0) -> None:
         """Block until the batch finishes (for scripts and tests), through its phases (F1: the scan, then the
@@ -1098,6 +1199,9 @@ class BatchWindow(QtWidgets.QMainWindow):
 
     def _on_finished(self) -> None:
         self._thread = None
+        self._bar_head = ""
+        if getattr(self, "_bar_timer", None) is not None:
+            self._bar_timer.stop()
         self.progress.setFormat("%p%")
         if not self._cancel.is_set():
             self.progress.setValue(self.progress.maximum())
@@ -1110,7 +1214,8 @@ class BatchWindow(QtWidgets.QMainWindow):
                 self.table.item(row, COL_RESULT).setText(
                     marked("dim", "not analysed: cancelled"))
         records = [self.records[r] for r in sorted(self.records)]
-        self.label_status.setText(mb.batch_summary(records))
+        self.label_status.setText(mb.batch_summary(records)
+                                  + (f"\n{self.perimeter_summary}" if self.perimeter_summary else ""))
         self._refresh_buttons()
         self._refresh_comparison()
         if self._close_when_done:
@@ -1134,7 +1239,8 @@ class BatchWindow(QtWidgets.QMainWindow):
             os.path.join(start, "mps_axons.csv"), "CSV (*.csv)",
             options=QtWidgets.QFileDialog.DontConfirmOverwrite)
         if path:
-            self.export(path)
+            from tools.results_table import with_csv_extension
+            self.export(with_csv_extension(path))
 
     def export(self, path: str,
                decide: Optional[Callable[..., str]] = None) -> Optional[str]:
@@ -1146,9 +1252,11 @@ class BatchWindow(QtWidgets.QMainWindow):
         from tools import export_ui
         from tools.axon_export import AXON_KEY_COLUMNS
         from tools.results_table import (
-            TableMismatch, append_rows, replace_rows,
+            TableMismatch, append_rows, replace_rows, saved_as_notes, with_csv_extension,
         )
 
+        path = with_csv_extension(path)
+        table_existed = os.path.exists(path)
         records = self.batch_records()
         try:
             check = mb.check_export(records, path)
@@ -1188,10 +1296,14 @@ class BatchWindow(QtWidgets.QMainWindow):
             else:
                 append_rows(path, rows)
                 done = f"{len(rows)} row(s) written to {path}."
+            if table_existed:
+                done += ("\nThe table already existed: nothing was overwritten, the rows were "
+                         + ("put in place of the same axons." if decision == export_ui.REPLACE else "added to it."))
         except (OSError, ValueError, csv.Error) as error:
             QtWidgets.QMessageBox.critical(self, "Not written", str(error))
             return None
 
+        regularity_written: Dict[str, str] = {}
         regularity_rows = [dict(r.row, animal=r.identity.animal, genotype=r.identity.genotype)
                            for r in records if r.ok and r.row.get("regularity_reading")]
         if regularity_rows:
@@ -1200,6 +1312,7 @@ class BatchWindow(QtWidgets.QMainWindow):
             try:
                 summary = ci.regularity_batch_summary(regularity_rows)
                 written = ci.write_regularity_summary(path, summary)
+                regularity_written = dict(written)
                 done += "\n\nRegularity: " + written.get("lines", "") + "\n" + "\n".join(summary["lines"][:6])
             except (OSError, ValueError) as error:
                 done += f"\n\nRegularity summary not written: {error}"
@@ -1216,6 +1329,13 @@ class BatchWindow(QtWidgets.QMainWindow):
                              + "\n".join(size_summary["lines"][:6]))
             except (OSError, ValueError) as error:
                 done += f"\n\nSize summary not written: {error}"
+        # P12: the perimeter density tables of this batch, beside the table and named after it
+        try:
+            pd_stem = self.write_perimeter_tables(path)
+            if pd_stem:
+                done += f"\n\nPerimeter density: tables at {os.path.basename(pd_stem)}_perimeter_*.csv."
+        except (OSError, ValueError) as error:
+            done += f"\n\nPerimeter density tables not written: {error}"
         # C3 / C4: the per-axon null, one row per axon x closure (written before the dictionary, which lists it)
         by_closure = ""
         try:
@@ -1224,6 +1344,16 @@ class BatchWindow(QtWidgets.QMainWindow):
                 done += "\n\nThe per-axon null, one row per closure: " + by_closure
         except OSError as error:
             done += f"\n\nThe per-closure null table was not written: {error}"
+        base = os.path.splitext(path)[0]
+        expected = {"size": base + "_size_stats.csv", "closure": base + "_null_by_closure.csv"}
+        got = {"size": size_written.get("size_stats", ""), "closure": by_closure}
+        for key, suffix in (("by_animal", "_regularity_by_animal.csv"), ("readings", "_regularity_readings.csv"),
+                            ("lines", "_regularity.txt")):
+            if regularity_written.get(key):
+                expected[key], got[key] = base + suffix, regularity_written[key]
+        renamed = saved_as_notes(expected, got)
+        if renamed:
+            done += "\n\n" + "\n".join(renamed)
         note = done
         if left_out:
             note += (f"\n\n{len(left_out)} file(s) left out: the table "
@@ -1457,6 +1587,7 @@ class BatchWindow(QtWidgets.QMainWindow):
         self.btn_patterns.setEnabled(have_files and not running)
         self.check_compare_methods.setEnabled(not running and bool(self._compare_methods_list()))
         self.check_slow_methods.setEnabled(not running)
+        self.check_perimeter.setEnabled(not running)
         self.btn_export.setEnabled(not running and any(
             r.ok for r in self.records.values()))
 

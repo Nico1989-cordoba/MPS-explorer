@@ -329,10 +329,12 @@ class FOCALStrategy(ClusteringStrategy):
     Parameters
     ----------
     grid_nm : float
-        Side of a grid cell, in nm. Default 15 — literature: Delta is chosen
-        "based on the localization precision" (Nino et al., 2020), here
-        ~1.25-1.5 x the 10-12 nm precision of the project's data (NeNA,
-        Gazal et al., 2026); simulation (project): verification run E
+        Side of a grid cell, in nm. Default 15 — ~1.25-1.5 x the 10-12 nm
+        precision of the project's data (NeNA, Gazal et al., 2026). A grid
+        by the localization precision is the 2D FOCAL criterion (Mazouchi &
+        Milstein, 2016); Nino et al. (2020) drop it in 3D (Delta 25-40 nm,
+        plateau, Delta below the cluster radius), so 15 nm is not their
+        value. Simulation (project): verification run E
         (2026-10-16, ``scratchpad/phaseD/verif/runE_refine``), the only grid
         "preferable" to DBSCAN 25/10 in both regimes of the benchmark.
     min_l : int

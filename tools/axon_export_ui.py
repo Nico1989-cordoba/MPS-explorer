@@ -18,6 +18,7 @@ from typing import Callable, Dict, List, Optional
 from PyQt5 import QtWidgets
 
 from tools.axon_export import table_paths
+from tools.results_table import with_csv_extension
 from tools.mps_identity import AxonIdentity
 from tools.mps_plot_style import marked, verdict
 
@@ -46,7 +47,8 @@ class ExportAxonDialog(QtWidgets.QDialog):
         parent: Optional[QtWidgets.QWidget] = None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Export this axon")
+        self.setWindowTitle("Save this axon")
+        self._chosen = False
         self._identity = identity
         self._on_edit_identity = on_edit_identity
 
@@ -73,7 +75,7 @@ class ExportAxonDialog(QtWidgets.QDialog):
             layout.addWidget(label_state)
 
         # --- where -------------------------------------------------------
-        layout.addWidget(QtWidgets.QLabel("Table to add this axon to:"))
+        layout.addWidget(QtWidgets.QLabel("Table to add this axon to (the name is asked when you press Save...):"))
         where = QtWidgets.QHBoxLayout()
         self.edit_path = QtWidgets.QLineEdit(path)
         self.edit_path.setToolTip(
@@ -81,9 +83,6 @@ class ExportAxonDialog(QtWidgets.QDialog):
             "A table of another analysis is refused, not overwritten.")
         self.edit_path.textChanged.connect(self._refresh)
         where.addWidget(self.edit_path, 1)
-        browse = QtWidgets.QPushButton("Browse...")
-        browse.clicked.connect(self._browse)
-        where.addWidget(browse)
         layout.addLayout(where)
 
         # --- which tables -------------------------------------------------
@@ -124,7 +123,7 @@ class ExportAxonDialog(QtWidgets.QDialog):
             QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
             self)
         self._ok = buttons.button(QtWidgets.QDialogButtonBox.Ok)
-        self._ok.setText("Export")
+        self._ok.setText("Save...")      # the one button: it asks for the name, there is no separate Browse
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -149,12 +148,17 @@ class ExportAxonDialog(QtWidgets.QDialog):
     def wants_localizations(self) -> bool:
         return bool(self.chk_localizations.isChecked())
 
-    def _browse(self) -> None:
+    def accept(self) -> None:
+        """Save...: ask for the file name once, seeded with the proposal, and keep exactly the name chosen
+        (a table that exists gets the axon's rows added: nothing is overwritten). Cancel stays in the dialog."""
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Table to add this axon to", self.path(),
-            "CSV Files (*.csv)")
-        if path:
-            self.edit_path.setText(path)
+            self, "Save this axon's table as", self.path(), "CSV Files (*.csv)",
+            options=QtWidgets.QFileDialog.DontConfirmOverwrite)
+        if not path:
+            return
+        self.edit_path.setText(with_csv_extension(path))
+        self._chosen = True
+        super().accept()
 
     def _edit_identity(self) -> None:
         if self._on_edit_identity is None:

@@ -70,9 +70,38 @@ def _number(value: Any, lang: str) -> str:
     return str(value)
 
 
+# What the perimeter density window shows for the same simulated example axon with its default bar (z0 from the peak,
+# band +-90 nm, automatic contour), measured by ``tools.mps_perimeter_window.perimeter_demo_facts`` on the window's
+# own result and checked by test_perimeter_demo_tour_gui.py. On this axon the automatic contour is REJECTED by its
+# own quality gate, so A, B and C are not computed: the presentation tour says so instead of inventing numbers.
+PERIMETER_DEMO_FACTS: Dict[str, Any] = {
+    "pd_z0": 4,                # z0, nm, as the window writes it (peak of the z density curve)
+    "pd_n_minus": 3534,        # localizations of the slices z-1, z0, z+1
+    "pd_n_central": 4307,
+    "pd_n_plus": 4242,
+    "pd_pct_minus": 82,        # % of the central slice (rounded as the window writes it)
+    "pd_pct_plus": 98,
+    "pd_len_nm": 34540,        # length of the rejected automatic contour, nm
+    "pd_len_ratio": 2.4,       # ... times the perimeter of the cloud's convex hull
+    "pd_len_limit": 1.5,       # the gate's limit
+    "pd_polar_off_nm": 90,     # the polar fallback: distance to the nearest band along a stretch, nm
+    "pd_polar_limit_nm": 75,   # ... and its limit
+}
+
+# Numbers of the validation report of the perimeter analysis (simulation with the true contour; P11).
+PERIMETER_VALIDATION: Dict[str, Any] = {
+    "val_c_fp_lo": 4.6, "val_c_fp_hi": 5.6, "val_b_fp": 3.6, "val_a_fp": 2.6,
+    "val_c_power": 0.98, "val_b_power": 0.90, "val_b_power_sym": 0.23, "val_a_power": 0.62,
+}
+
+
 def facts(lang: str) -> Dict[str, str]:
-    """``DEMO_FACTS`` written the way ``lang`` writes numbers (es: 12.137 and 83,2; en: 12,137 and 83.2)."""
-    return {k: _number(v, lang) for k, v in DEMO_FACTS.items()}
+    """``DEMO_FACTS`` (and the perimeter window's demo facts) written the way ``lang`` writes numbers (es: 12.137 and
+    83,2; en: 12,137 and 83.2)."""
+    out = {k: _number(v, lang) for k, v in DEMO_FACTS.items()}
+    out.update({k: _number(v, lang) for k, v in PERIMETER_DEMO_FACTS.items()})
+    out.update({k: _number(v, lang) for k, v in PERIMETER_VALIDATION.items()})
+    return out
 
 
 def registry_values() -> Dict[str, str]:
@@ -97,7 +126,7 @@ UI: Dict[str, Dict[str, str]] = {
         "beginner": "Modo principiante",
         "tour_window": "Recorrer esta ventana",
         "explain": "Explicame esto",
-        "demo": "Abrir axón de ejemplo (simulado)",
+        "demo": "Axón simulado para demostrar las capacidades de análisis del MPS Explorer",
         "language": "Idioma de las explicaciones",
         "what": "Qué es",
         "why": "Para qué sirve",
@@ -124,14 +153,14 @@ UI: Dict[str, Dict[str, str]] = {
         "explain_hint": "Explicame esto: hacé clic en un control (Esc cancela)",
         "demo_missing": "No se encontró el axón de ejemplo en {path}. Se vuelve a generar con:\n"
                         "venv\\Scripts\\python.exe tools\\make_demo_axon.py",
-        "demo_title": "Axón de ejemplo (simulado)",
+        "demo_title": "Axón simulado de demostración",
     },
     "en": {
         "help": "Help",
         "beginner": "Beginner mode",
         "tour_window": "Tour this window",
         "explain": "Explain this",
-        "demo": "Open the example axon (simulated)",
+        "demo": "Simulated axon to demonstrate the analysis capabilities of MPS Explorer",
         "language": "Language of the explanations",
         "what": "What it is",
         "why": "What it is for",
@@ -158,7 +187,7 @@ UI: Dict[str, Dict[str, str]] = {
         "explain_hint": "Explain this: click a control (Esc cancels)",
         "demo_missing": "The example axon was not found at {path}. It is written again with:\n"
                         "venv\\Scripts\\python.exe tools\\make_demo_axon.py",
-        "demo_title": "Example axon (simulated)",
+        "demo_title": "Simulated demonstration axon",
     },
 }
 
@@ -177,9 +206,10 @@ _GUIDE = "docs/beginner_mode.md"
 
 
 def _step(key: str, target: str, panel: str, es: Dict[str, str], en: Dict[str, str], *,
-          registry: Tuple[str, ...] = (), badges: bool = False, method: str = "") -> Dict[str, Any]:
+          registry: Tuple[str, ...] = (), badges: bool = False, method: str = "",
+          headings: bool = True) -> Dict[str, Any]:
     return {"key": key, "target": target, "panel": panel, "registry": registry, "badges": badges,
-            "method": method, "es": es, "en": en}
+            "method": method, "headings": headings, "es": es, "en": en}
 
 
 # --------------------------------------------------------------------------- the main window
@@ -192,7 +222,7 @@ MAIN_STEPS: List[Dict[str, Any]] = [
                "números de un axón y a una tabla exportada.",
         "read": "Siguiente (o →) avanza, Anterior (o ←) vuelve, Saltar o Esc cierra. El recuadro de color marca el "
                 "control del que habla la tarjeta; el resto de la ventana queda desenfocado.",
-        "example": "Podés seguirlo con el axón de ejemplo: Ayuda → «Abrir axón de ejemplo (simulado)». Tiene "
+        "example": "Podés seguirlo con el axón de ejemplo: Ayuda → «Axón simulado para demostrar las capacidades de análisis del MPS Explorer». Tiene "
                    "{n_locs} localizaciones simuladas (ejemplo simulado: no es una medición).",
         "more": "El modo principiante muestra el recorrido de cada ventana la primera vez que se abre; se apaga desde "
                 "Ayuda o con la casilla «No mostrar de nuevo». «Explicame esto» (Shift+F1) cambia el cursor: el "
@@ -210,7 +240,7 @@ MAIN_STEPS: List[Dict[str, Any]] = [
                "exported table.",
         "read": "Next (or →) moves on, Previous (or ←) goes back, Skip or Esc closes. The coloured frame marks the "
                 "control the card is about; the rest of the window is blurred.",
-        "example": "You can follow it with the example axon: Help → \"Open the example axon (simulated)\". It holds "
+        "example": "You can follow it with the example axon: Help → \"Simulated axon to demonstrate the analysis capabilities of MPS Explorer\". It holds "
                    "{n_locs} simulated localizations (simulated example: not a measurement).",
         "more": "Beginner mode shows each window's tour the first time that window opens; turn it off in Help or "
                 "with the \"Do not show again\" box. \"Explain this\" (Shift+F1) changes the cursor: the next click "
@@ -746,7 +776,7 @@ MAIN_STEPS: List[Dict[str, Any]] = [
     _step("batch", "toolButton_batch", "toolbar", es={
         "title": "Lote (Batch)",
         "what": "Analiza de una vez todos los axones pickeados de una carpeta, con los parámetros de esta ventana, y "
-                "los escribe en la misma tabla que «Export axon».",
+                "los escribe en la misma tabla que «Save axon».",
         "why": "Para procesar una adquisición entera con los mismos parámetros sin repetir todo a mano.",
         "read": "Su segunda pestaña resume una columna por grupo, por axón y por animal, sin calcular un p-valor.",
         "example": "El axón de ejemplo está en la carpeta examples/demo_axon; un lote de esa carpeta tendría un solo "
@@ -756,7 +786,7 @@ MAIN_STEPS: List[Dict[str, Any]] = [
     }, en={
         "title": "Batch",
         "what": "Analyses every picked axon under a folder at once, with this window's settings, and writes them to "
-                "the same table \"Export axon\" writes.",
+                "the same table \"Save axon\" writes.",
         "why": "To process a whole acquisition with the same parameters without doing it all by hand.",
         "read": "Its second tab summarises one column per group, per axon and per animal, without computing a "
                 "p-value.",
@@ -790,9 +820,575 @@ MAIN_STEPS: List[Dict[str, Any]] = [
     }),
 ]
 
+# --------------------------------------------------------------------------- the perimeter density window (P12)
+_PD_DOC = "docs/perimeter_density.md"
+PERIMETER_STEPS: List[Dict[str, Any]] = [
+    _step("pd_welcome", "", "", method=_PD_DOC, es={
+        "title": "El análisis de densidad sobre el perímetro",
+        "what": "Mide cómo se reparte la βII-espectrina a lo largo de la membrana, sin clusters: tres rodajas en z, "
+                "un contorno automático y el perfil de densidad sobre ese contorno.",
+        "why": "Responde tres preguntas: si la densidad se amontona o se aleja del máximo (A), si sigue la curvatura "
+               "de la membrana (B) y si las rodajas vecinas comparten el patrón (C).",
+        "read": "Run analiza el axón que muestra la ventana del análisis MPS; la barra muestra el paso y Cancel lo "
+                "frena en el paso siguiente. Save... guarda las tablas con el nombre que elijas.",
+        "example": "Con el axón de ejemplo (simulado) abierto, apretá Run: en pocos segundos se llenan las tres "
+                   "pestañas.",
+        "more": "Cada número tiene su origen en docs/perimeter_density.md. Un axón solo no permite comparar "
+                "animales: la lectura de grupo sale del Batch (casilla Perimeter density).",
+    }, en={
+        "title": "The perimeter density analysis",
+        "what": "Measures how βII-spectrin is laid out along the membrane, without clusters: three z slices, an "
+                "automatic contour and the density profile along that contour.",
+        "why": "It answers three questions: does density pile up near or keep away from its maximum (A), does it "
+               "follow the curvature of the membrane (B), and do neighbouring slices share the pattern (C).",
+        "read": "Run analyses the axon the MPS analysis window shows; the bar shows the step and Cancel stops it at "
+                "the next one. Save... writes the tables under the name you choose.",
+        "example": "With the example axon (simulated) open, press Run: the three tabs fill in a few seconds.",
+        "more": "Where every number comes from: docs/perimeter_density.md. One axon cannot compare animals: the "
+                "group reading comes from the Batch (box Perimeter density).",
+    }),
+    _step("pd_z0", "perimeter_centre", "", method=_PD_DOC, es={
+        "title": "Dónde se centra la rodaja central (z0)",
+        "what": "Por defecto, el pico de la curva de densidad en z; también se puede usar el foco nominal (el del "
+                "registro de calibración) o el empírico (donde sx = sy).",
+        "why": "Las tres rodajas de 170 nm se cortan alrededor de z0; elegir otro centro cambia qué localizaciones "
+               "caen en cada una.",
+        "read": "El gráfico de la curva de densidad marca el pico (línea llena), los dos focos (rayada y punteada) "
+                "y las tres rodajas sombreadas. La tabla dice la distancia pico - foco.",
+        "example": "En un archivo simulado sin registro de calibración, «Focus, nominal» se detiene con «no focus» "
+                   "y lo dice: nunca vuelve al pico en silencio.",
+        "more": "Los porcentajes de la tabla de rodajas son las localizaciones de cada rodaja lateral respecto de la "
+                "central (100 %).",
+    }, en={
+        "title": "Where the central slice is centred (z0)",
+        "what": "By default, the peak of the z density curve; the nominal focus (from the calibration record) or the "
+                "empirical one (where sx = sy) can be used instead.",
+        "why": "The three 170 nm slices are cut around z0; another centre changes which localizations fall in each.",
+        "read": "The density curve plot marks the peak (solid line), both foci (dashed and dotted) and the three "
+                "shaded slices. The table gives the peak - focus distance.",
+        "example": "On a simulated file without a calibration record, \"Focus, nominal\" stops with \"no focus\" and "
+                   "says so: it never falls back to the peak in silence.",
+        "more": "The percentages of the slices table are each lateral slice's localizations relative to the central "
+                "one (100 %).",
+    }),
+    _step("pd_contour", "perimeter_contour_state", "", method=_PD_DOC, es={
+        "title": "El estado del contorno",
+        "what": "Si el contorno automático es confiable o no, con el motivo que da su compuerta de calidad.",
+        "why": "Todo el perfil se mide sobre ese contorno: un contorno no confiable queda en la tabla por axón con "
+               "su motivo, pero fuera de los análisis agrupados.",
+        "read": "Verde y «ok»: confiable. Rojo y «x»: rechazado o no confiable; en el gráfico el contorno se dibuja "
+                "rojo y rayado. La línea de abajo da largo, residuo y arco sin datos.",
+        "example": "En un axón simulado con una banda ancha de localizaciones, el contorno puede salir «not "
+                   "reliable» con el motivo de la compuerta.",
+        "more": "La ventana no juzga el contorno: muestra lo que dice el módulo del contorno automático.",
+    }, en={
+        "title": "The state of the contour",
+        "what": "Whether the automatic contour is reliable, with the reason its quality gate gives.",
+        "why": "The whole profile is measured on that contour: an unreliable one stays in the per-axon table with "
+               "its reason, but out of the pooled analyses.",
+        "read": "Green with \"ok\": reliable. Red with \"x\": rejected or not reliable; the plot then draws the "
+                "contour red and dashed. The line below gives length, residual and arc without data.",
+        "example": "On a simulated axon with a wide band of localizations the contour can come out \"not reliable\" "
+                   "with the gate's reason.",
+        "more": "The window does not judge the contour: it shows what the automatic contour module says.",
+    }),
+    _step("pd_questions", "perimeter_tabs", "", method=_PD_DOC, es={
+        "title": "Las preguntas A, B y C",
+        "what": "Cada pregunta tiene su tabla, una lectura en una línea y sus avisos debajo, en gris.",
+        "why": "Los avisos dicen lo que el número no puede decir: A es exploratoria y su lectura de grupo sale del "
+               "perfil agrupado; en C los pares vecinos comparten la fuga axial; en B el signo se lee al revés.",
+        "read": "B: Spearman NEGATIVO = más densidad donde la membrana está más curvada. C: el par z-1 / z+1 es la "
+                "lectura limpia. A: «attractor» sólo cuenta si resiste la zona de exclusión.",
+        "example": "En un axón simulado sin estructura, las tres lecturas dicen que nada se destaca del nulo.",
+        "more": "Ningún p se calcula entre axones, animales ni genotipos en esta ventana.",
+    }, en={
+        "title": "Questions A, B and C",
+        "what": "Each question has its table, a one-line reading and its warnings below it, in grey.",
+        "why": "The warnings say what the number cannot: A is exploratory and its group call comes from the pooled "
+               "profile; in C the neighbouring pairs share the axial leak; in B the sign reads backwards.",
+        "read": "B: a NEGATIVE Spearman = more density where the membrane is more curved. C: the z-1 / z+1 pair is "
+                "the clean reading. A: \"attractor\" counts only if it survives the exclusion zone.",
+        "example": "On a simulated axon with no structure, the three readings say nothing stands out of the null.",
+        "more": "No p is computed between axons, animals or genotypes in this window.",
+    }),
+]
+
+
+# --------------------------------------------------------------------------- the perimeter window, presentation mode
+# "Modo presentación": what each part of the perimeter density window asks, in plain words, and what the SIMULATED
+# example axon answers (PERIMETER_DEMO_FACTS). Every number is a demo fact or a number of the validation report
+# (PERIMETER_VALIDATION); nothing else is quoted.
+PERIMETER_DEMO_STEPS: List[Dict[str, Any]] = [
+    _step("pdd_welcome", "", "", method=_PD_DOC, headings=False, es={
+        "title": "Modo presentación: densidad sobre el perímetro",
+        "what": "¿Qué pregunta responde?: ¿la espectrina se reparte parejo a lo largo del anillo, o se amontona "
+                "siguiendo algún patrón?",
+        "why": "Explicación sencilla: se mira la membrana del axón como un anillo y se cuenta cuánta espectrina hay "
+               "en cada tramo. Tres preguntas: A, ¿se amontona cerca del tramo más denso? B, ¿hay más donde la "
+               "membrana se curva más? C, ¿las rodajas vecinas en z repiten el mismo patrón?",
+        "read": "Cómo se lee: cada tarjeta marca una parte de la ventana y cambia sola a la pestaña que corresponde. "
+                "Siguiente (→) avanza, Anterior (←) vuelve, Esc cierra.",
+        "example": "La respuesta en el axón simulado: es un axón inventado por el programa (un círculo con tres "
+                   "anillos), no una medición. Sirve para mostrar el camino, no para sacar conclusiones.",
+        "more": "Todo lo que sigue usa los valores por defecto de la barra: z0 en el pico, banda de ±90 nm y "
+                "contorno automático. El detalle de cada número está en docs/perimeter_density.md.",
+    }, en={
+        "title": "Presentation mode: density along the perimeter",
+        "what": "What question does it answer?: is spectrin spread evenly along the ring, or does it pile up "
+                "following some pattern?",
+        "why": "Plain explanation: the axon's membrane is seen as a ring and the spectrin in each stretch is counted. "
+               "Three questions: A, does it pile up near the densest stretch? B, is there more where the membrane "
+               "bends more? C, do neighbouring z slices repeat the same pattern?",
+        "read": "How to read it: each card marks one part of the window and switches by itself to the right tab. "
+                "Next (→) moves on, Previous (←) goes back, Esc closes.",
+        "example": "The answer on the simulated axon: an axon made up by the program (a circle with three rings), "
+                   "not a measurement. It shows the path, not a conclusion.",
+        "more": "Everything below uses the bar's defaults: z0 at the peak, band +-90 nm and the automatic contour. "
+                "Where each number comes from: docs/perimeter_density.md.",
+    }),
+    _step("pdd_slices", "perimeter_z_density", "", method=_PD_DOC, headings=False, es={
+        "title": "Las tres rodajas en z",
+        "what": "¿Qué pregunta responde?: ¿a qué altura del axón se mira, y cuántas localizaciones entran en cada "
+                "rodaja?",
+        "why": "Explicación sencilla: se cortan tres rodajas de 170 nm de alto, una arriba de la otra. 170 nm es "
+               "aproximadamente la distancia entre dos anillos de espectrina, así que cada rodaja junta más o menos "
+               "un anillo. z0 es el centro de la rodaja del medio: la altura donde hay más localizaciones.",
+        "example": "La respuesta en el axón simulado: z0 = {pd_z0} nm. Las rodajas tienen {pd_n_minus} (z−1), "
+                   "{pd_n_central} (central) y {pd_n_plus} (z+1) localizaciones; las de los costados son el "
+                   "{pd_pct_minus} % y el {pd_pct_plus} % de la central.",
+        "read": "Cómo se lee: en la curva de densidad en z, la línea llena es el pico (z0) y las tres franjas "
+                "sombreadas son las rodajas. La tabla «Slices» da los límites y los conteos.",
+        "more": "Si la ventana encuentra un registro de calibración, también puede centrar en el foco; este archivo "
+                "simulado no tiene, y la ventana lo dice en vez de inventarlo.",
+    }, en={
+        "title": "The three z slices",
+        "what": "What question does it answer?: at which height of the axon do we look, and how many localizations "
+                "fall in each slice?",
+        "why": "Plain explanation: three slices 170 nm tall are cut, one above the other. 170 nm is about the "
+               "distance between two spectrin rings, so each slice holds roughly one ring. z0 is the centre of the "
+               "middle slice: the height with the most localizations.",
+        "example": "The answer on the simulated axon: z0 = {pd_z0} nm. The slices hold {pd_n_minus} (z-1), "
+                   "{pd_n_central} (central) and {pd_n_plus} (z+1) localizations; the side ones are "
+                   "{pd_pct_minus} % and {pd_pct_plus} % of the central one.",
+        "read": "How to read it: on the z density curve the solid line is the peak (z0) and the three shaded bands "
+                "are the slices. The \"Slices\" table gives the limits and the counts.",
+        "more": "When the window finds a calibration record it can also centre on the focus; this simulated file has "
+                "none, and the window says so instead of making one up.",
+    }),
+    _step("pdd_contour", "perimeter_contour_state", "", method=_PD_DOC, headings=False, es={
+        "title": "El contorno automático y su control de calidad",
+        "what": "¿Qué pregunta responde?: ¿por dónde pasa la membrana, y ese trazado es confiable?",
+        "why": "Explicación sencilla: el programa dibuja solo la línea de la membrana sobre las localizaciones. Todo "
+               "lo que sigue se mide sobre esa línea: si está mal, los números también. Por eso un control de "
+               "calidad la revisa, y si no pasa, el programa no sigue y dice por qué.",
+        "example": "La respuesta en el axón simulado: el contorno fue RECHAZADO. La línea medía {pd_len_nm} nm, "
+                   "{pd_len_ratio} veces el perímetro de la nube (límite {pd_len_limit}): serpenteaba por adentro del "
+                   "anillo. El plan B (contorno polar) también falló: en un tramo quedaba a {pd_polar_off_nm} nm de "
+                   "las localizaciones (límite {pd_polar_limit_nm} nm).",
+        "read": "Cómo se lee: verde y «ok» = confiable. Rojo y «x» = rechazado, con el motivo escrito al lado. Acá "
+                "está en rojo.",
+        "more": "Es el comportamiento buscado: antes que dar números sobre una línea mala, el programa se frena. En "
+                "este axón simulado la espectrina está muy agrupada (con huecos entre grupos), y eso confunde al "
+                "trazado automático. Es una limitación conocida, no un error de la presentación.",
+    }, en={
+        "title": "The automatic contour and its quality check",
+        "what": "What question does it answer?: where does the membrane run, and is that trace reliable?",
+        "why": "Plain explanation: the program draws the membrane line on the localizations by itself. Everything "
+               "after is measured on that line: if it is wrong, so are the numbers. So a quality check reviews it, "
+               "and when it fails the program stops and says why.",
+        "example": "The answer on the simulated axon: the contour was REJECTED. The line was {pd_len_nm} nm long, "
+                   "{pd_len_ratio} times the perimeter of the cloud (limit {pd_len_limit}): it snaked inside the "
+                   "ring. Plan B (the polar contour) failed too: along a stretch it was {pd_polar_off_nm} nm from the "
+                   "localizations (limit {pd_polar_limit_nm} nm).",
+        "read": "How to read it: green with \"ok\" = reliable. Red with \"x\" = rejected, with the reason beside "
+                "it. Here it is red.",
+        "more": "This is the intended behaviour: rather than numbers on a bad line, the program stops. In this "
+                "simulated axon spectrin is strongly clustered (with gaps between clusters), which confuses the "
+                "automatic trace. A known limitation, not a fault of the presentation.",
+    }),
+    _step("pdd_unanchored", "perimeter_cloud", "", method=_PD_DOC, headings=False, es={
+        "title": "Espectrina que no está en la membrana",
+        "what": "¿Qué pregunta responde?: ¿qué se hace con la espectrina que aparece adentro del axón, lejos de la "
+               "membrana?",
+        "why": "Explicación sencilla: la pregunta es sobre el esqueleto de la membrana. Lo que está más de 400 nm "
+               "hacia adentro del anillo no es membrana y no se cuenta. Ese umbral es provisorio: sale de un solo "
+               "experimento piloto y falta confirmarlo marcando a mano.",
+        "example": "La respuesta en el axón simulado: este axón simulado no tiene grupos adentro, y en esta ventana "
+                   "el recorte está apagado por defecto; el perfil cuenta todas las localizaciones de la banda.",
+        "read": "Cómo se lee: en el gráfico de la nube se ven las tres rodajas en colores, el contorno y la banda "
+                "de ±90 nm a su alrededor. Sólo cuenta lo que cae dentro de la banda.",
+        "more": "La ventana «Clusters no anclados» hace la revisión de los grupos interiores (más de 400 nm: se "
+                "excluye; entre 250 y 400 nm: dudoso, se marca y se queda).",
+    }, en={
+        "title": "Spectrin that is not on the membrane",
+        "what": "What question does it answer?: what happens to spectrin found inside the axon, far from the "
+                "membrane?",
+        "why": "Plain explanation: the question is about the membrane skeleton. What lies more than 400 nm inside "
+               "the ring is not membrane and is not counted. That threshold is provisional: it comes from one pilot "
+               "experiment and still has to be confirmed by hand labelling.",
+        "example": "The answer on the simulated axon: this simulated axon has no clusters inside, and in this window "
+                   "the trim is off by default; the profile counts every localization of the band.",
+        "read": "How to read it: the cloud plot shows the three slices in colours, the contour and the +-90 nm band "
+                "around it. Only what falls inside the band counts.",
+        "more": "The \"Unanchored clusters\" window reviews the interior clusters (beyond 400 nm: excluded; between "
+                "250 and 400 nm: doubtful, marked and kept).",
+    }),
+    _step("pdd_profile", "perimeter_profile", "", method=_PD_DOC, headings=False, es={
+        "title": "El perfil de densidad a lo largo del anillo",
+        "what": "¿Qué pregunta responde?: ¿cuánta espectrina hay en cada tramo del anillo?",
+        "why": "Explicación sencilla: se «desenrolla» el anillo como una cinta y se cuentan las localizaciones en "
+               "tramitos iguales. El tramo más denso vale 1 y queda en el centro; el resto se compara con él.",
+        "example": "La respuesta en el axón simulado: no hay perfil, porque el contorno fue rechazado (paso "
+                   "anterior). Sin línea de membrana no hay cinta que desenrollar.",
+        "read": "Cómo se lee: eje horizontal = posición a lo largo del anillo (nm), con el máximo en 0. Eje "
+                "vertical = densidad relativa (máximo = 1). Un perfil plano es reparto parejo.",
+        "more": "Los tramos sin datos (un arco largo sin localizaciones) se marcan como no medidos en vez de contarse "
+                "como cero.",
+    }, en={
+        "title": "The density profile along the ring",
+        "what": "What question does it answer?: how much spectrin is there in each stretch of the ring?",
+        "why": "Plain explanation: the ring is \"unrolled\" like a tape and the localizations are counted in equal "
+               "small stretches. The densest stretch is 1 and sits in the middle; the rest is compared with it.",
+        "example": "The answer on the simulated axon: there is no profile, because the contour was rejected "
+                   "(previous step). Without a membrane line there is no tape to unroll.",
+        "read": "How to read it: horizontal axis = position along the ring (nm), maximum at 0. Vertical axis = "
+                "relative density (maximum = 1). A flat profile is an even spread.",
+        "more": "Stretches without data (a long arc without localizations) are marked as not measured instead of "
+                "being counted as zero.",
+    }),
+    _step("pdd_a", "perimeter_a", "", method=_PD_DOC, headings=False, es={
+        "title": "Pregunta A: ¿se amontona alrededor del máximo?",
+        "what": "¿Qué pregunta responde?: cerca del tramo más denso, ¿hay más espectrina de lo esperable por azar "
+                "(se atrae), menos (se repele) o se repite cada tanto?",
+        "why": "Explicación sencilla: se compara el perfil real con muchos perfiles mezclados al azar (el «nulo»). "
+               "Si el real se sale de lo que da el azar, hay patrón.",
+        "example": "La respuesta en el axón simulado: A no se calculó, porque el contorno fue rechazado. La tabla y "
+                   "la lectura quedan vacías: el programa no completa números que no midió.",
+        "read": "Cómo se lee: la tabla da el contraste y el período con su z y su p; la línea en negrita lo dice en "
+                "palabras. «Atractor» sólo cuenta si resiste la zona de exclusión.",
+        "more": "A es exploratoria en un axón solo: la lectura de grupo se hace sobre el perfil promedio de muchos "
+                "axones (Batch).",
+    }, en={
+        "title": "Question A: does it pile up around the maximum?",
+        "what": "What question does it answer?: near the densest stretch, is there more spectrin than chance would "
+                "give (attraction), less (repulsion), or does it repeat every so often?",
+        "why": "Plain explanation: the real profile is compared with many profiles shuffled at random (the "
+               "\"null\"). If the real one leaves what chance gives, there is a pattern.",
+        "example": "The answer on the simulated axon: A was not computed, because the contour was rejected. The "
+                   "table and the reading stay empty: the program does not fill in numbers it did not measure.",
+        "read": "How to read it: the table gives the contrast and the period with their z and p; the bold line says "
+                "it in words. \"Attractor\" counts only if it survives the exclusion zone.",
+        "more": "A is exploratory on one axon: the group reading is made on the mean profile of many axons (Batch).",
+    }),
+    _step("pdd_b", "perimeter_b", "", method=_PD_DOC, headings=False, es={
+        "title": "Pregunta B: ¿sigue la curvatura de la membrana?",
+        "what": "¿Qué pregunta responde?: ¿hay más espectrina donde la membrana se dobla más?",
+        "why": "Explicación sencilla: en cada tramo se mide qué tan curvada está la membrana y cuánta espectrina "
+               "hay, y se ve si suben juntas (correlación de Spearman). Se compara con el anillo girado al azar. Un "
+               "control revisa que la curvatura no sea un error del contorno.",
+        "example": "La respuesta en el axón simulado: B no se calculó, porque el contorno fue rechazado. Además, en "
+                   "un círculo la curvatura es casi la misma en todos lados: aunque hubiera contorno, B tendría poco "
+                   "para comparar.",
+        "read": "Cómo se lee: Spearman NEGATIVO = más espectrina donde la membrana está más curvada. La línea "
+                "«Control» debe dar un valor chico; si es alto, puede ser el contorno y no la membrana.",
+        "more": "En simulación, B detecta bien el efecto en formas asimétricas, pero casi nada en una elipse "
+                "simétrica (ver el paso de validación).",
+    }, en={
+        "title": "Question B: does it follow the membrane's curvature?",
+        "what": "What question does it answer?: is there more spectrin where the membrane bends more?",
+        "why": "Plain explanation: in each stretch the bending of the membrane and the amount of spectrin are "
+               "measured, and we check whether they rise together (Spearman correlation), against the ring rotated "
+               "at random. A control checks that the curvature is not a contour error.",
+        "example": "The answer on the simulated axon: B was not computed, because the contour was rejected. Also, "
+                   "on a circle the curvature is almost the same everywhere: even with a contour, B would have "
+                   "little to compare.",
+        "read": "How to read it: a NEGATIVE Spearman = more spectrin where the membrane is more curved. The "
+                "\"Control\" line should be small; if it is large, the contour and not the membrane may drive B.",
+        "more": "In simulation B detects the effect well on asymmetric shapes, but hardly at all on a symmetric "
+                "ellipse (see the validation step).",
+    }),
+    _step("pdd_c", "perimeter_pairs", "", method=_PD_DOC, headings=False, es={
+        "title": "Pregunta C: ¿las rodajas vecinas repiten el patrón?",
+        "what": "¿Qué pregunta responde?: el patrón de una rodaja, ¿se repite en la de arriba y en la de abajo?",
+        "why": "Explicación sencilla: se correlacionan los perfiles de dos rodajas. Ojo: el microscopio «corre» un "
+               "poco cada punto en z (unos 47 nm, la fuga axial), así que dos rodajas pegadas comparten puntos y se "
+               "parecen aunque no haya patrón. Por eso la lectura limpia es z−1 contra z+1, que no se tocan.",
+        "example": "La respuesta en el axón simulado: C no se calculó, porque el contorno fue rechazado. No hay r "
+                   "entre rodajas que mostrar.",
+        "read": "Cómo se lee: la tabla da r, z y p por par. Mirar primero z−1 / z+1. En los pares vecinos, comparar "
+                "r con la «fuga esperada» que la ventana escribe abajo.",
+        "more": "Los 47 nm son el ancho axial medido en el piloto (36–51 nm); cuando el archivo permite medirlo, la "
+                "ventana usa el del propio archivo y lo avisa.",
+    }, en={
+        "title": "Question C: do neighbouring slices repeat the pattern?",
+        "what": "What question does it answer?: does one slice's pattern repeat in the slice above and the one "
+                "below?",
+        "why": "Plain explanation: the profiles of two slices are correlated. Careful: the microscope \"smears\" "
+               "each point a little in z (about 47 nm, the axial leak), so two touching slices share points and "
+               "look alike even without a pattern. That is why the clean reading is z-1 against z+1, which do not "
+               "touch.",
+        "example": "The answer on the simulated axon: C was not computed, because the contour was rejected. There "
+                   "is no r between slices to show.",
+        "read": "How to read it: the table gives r, z and p per pair. Look first at z-1 / z+1. For neighbouring "
+                "pairs, compare r with the \"expected leak\" the window writes below.",
+        "more": "The 47 nm is the axial width measured in the pilot (36-51 nm); when the file allows it, the window "
+                "uses the file's own width and says so.",
+    }),
+    _step("pdd_validation", "", "", method=_PD_DOC, headings=False, es={
+        "title": "Cómo se validó",
+        "what": "¿Qué pregunta responde?: ¿estas pruebas inventan patrones donde no los hay, y encuentran los que "
+                "sí hay?",
+        "why": "Explicación sencilla: se simularon axones sin patrón y con patrón conocido, y se contó cuántas "
+               "veces cada prueba acierta o se equivoca. Lo esperable para «falsas alarmas» es cerca del 5 %.",
+        "example": "La respuesta en el axón simulado: no sale de este axón, sino de las simulaciones del informe de "
+                   "validación. Falsas alarmas C "
+                   "{val_c_fp_lo}–{val_c_fp_hi} %, B {val_b_fp} %, A ≤ {val_a_fp} %. Detección de un patrón real: "
+                   "C {val_c_power}, B {val_b_power} en formas asimétricas ({val_b_power_sym} en una elipse "
+                   "simétrica), A atractor {val_a_power} con 18 axones.",
+        "read": "Cómo se lee: falsas alarmas bajas = la prueba no inventa. Detección cerca de 1 = la prueba "
+                "encuentra lo que hay. A con {val_a_power} todavía se queda corta.",
+        "more": "Esas cifras son con el contorno verdadero de la simulación. A es segura (no inventa) pero poco "
+                "sensible; por eso su lectura es exploratoria.",
+    }, en={
+        "title": "How it was validated",
+        "what": "What question does it answer?: do these tests invent patterns where there are none, and do they "
+                "find the ones that exist?",
+        "why": "Plain explanation: axons without a pattern and with a known pattern were simulated, and we counted "
+               "how often each test is right or wrong. The expected rate of \"false alarms\" is about 5 %.",
+        "example": "The answer on the simulated axon: not from this axon, but from the simulations of the validation "
+                   "report. False alarms C "
+                   "{val_c_fp_lo}-{val_c_fp_hi} %, B {val_b_fp} %, A <= {val_a_fp} %. Detection of a real pattern: "
+                   "C {val_c_power}, B {val_b_power} on asymmetric shapes ({val_b_power_sym} on a symmetric "
+                   "ellipse), A attractor {val_a_power} with 18 axons.",
+        "read": "How to read it: low false alarms = the test does not invent. Detection near 1 = the test finds "
+                "what is there. A at {val_a_power} still falls short.",
+        "more": "Those figures use the simulation's true contour. A is safe (it does not invent) but not very "
+                "sensitive; so its reading is exploratory.",
+    }),
+    _step("pdd_missing", "perimeter_note_a_2", "", method=_PD_DOC, headings=False, es={
+        "title": "Qué falta",
+        "what": "¿Qué pregunta responde?: ¿qué no se puede concluir todavía?",
+        "why": "Explicación sencilla: un axón solo no compara animales ni genotipos. En el piloto real sólo 3 o 4 "
+               "contornos salieron confiables, y A necesita al menos 9 axones para decir algo.",
+        "example": "La respuesta en el axón simulado: este axón simulado mostró el camino completo y también un "
+                   "límite real: con espectrina muy agrupada, el contorno automático puede rechazarse.",
+        "read": "Cómo se lee: la línea gris «One axon: no comparison between animals is possible here» lo recuerda "
+                "en la pantalla. La comparación de grupos sale del Batch.",
+        "more": "Próximos pasos: más axones con contorno confiable, y el etiquetado a mano para fijar el umbral de "
+                "espectrina interior.",
+    }, en={
+        "title": "What is missing",
+        "what": "What question does it answer?: what can we not conclude yet?",
+        "why": "Plain explanation: one axon compares no animals or genotypes. In the real pilot only 3 or 4 contours "
+               "came out reliable, and A needs at least 9 axons to say anything.",
+        "example": "The answer on the simulated axon: this simulated axon showed the whole path and also a real "
+                   "limit: with strongly clustered spectrin the automatic contour can be rejected.",
+        "read": "How to read it: the grey line \"One axon: no comparison between animals is possible here\" says it "
+                "on screen. The group comparison comes from the Batch.",
+        "more": "Next steps: more axons with a reliable contour, and the hand labelling that fixes the threshold for "
+                "interior spectrin.",
+    }),
+]
+
+# --------------------------------------------------------------------------- the unanchored clusters window (P15)
+UNANCHORED_STEPS: List[Dict[str, Any]] = [
+    _step("ua_welcome", "", "", es={
+        "title": "Clusters no anclados",
+        "what": "Busca los clusters de βII-espectrina que quedan por debajo de la membrana (adentro del axón) usando "
+                "el anillo que dibuja la propia espectrina, sin tubulina.",
+        "why": "Un cluster interior no es parte del esqueleto de la membrana y cambia el perímetro, la ocupancia y "
+               "la aleatorización. El análisis se informa siempre con todos los clusters y, al lado, sin los "
+               "excluidos.",
+        "read": "Más de 400 nm por debajo del anillo: excluido (cruz roja). Entre 250 y 400 nm: dudoso, se marca y "
+                "se queda (aro naranja). Los dos umbrales son provisorios hasta el etiquetado a mano.",
+        "example": "En un axón simulado con dos grumos plantados en el centro, la vista previa dice «Would exclude 2 "
+                   "of …» y los dos grumos aparecen con cruz.",
+        "more": "Origen de los números: 400 nm son datos piloto (un experimento) y ad hoc; 250 nm es ad hoc. Si la "
+                "nube no es estrellada (una membrana plegada) el anillo se rechaza y no se excluye nada.",
+    }, en={
+        "title": "Unanchored clusters",
+        "what": "Finds the βII-spectrin clusters that lie under the membrane (inside the axon) with the ring the "
+                "spectrin itself draws, without tubulin.",
+        "why": "An interior cluster is not part of the membrane skeleton and changes the perimeter, the occupancy "
+               "and the randomization. The analysis is always reported with every cluster and, beside it, without "
+               "the excluded ones.",
+        "read": "More than 400 nm under the ring: excluded (red cross). Between 250 and 400 nm: doubtful, marked and "
+                "kept (orange ring). Both thresholds are provisional until the hand labelling.",
+        "example": "On a simulated axon with two lumps planted in the middle, the preview says \"Would exclude 2 of "
+                   "…\" and both lumps carry a cross.",
+        "more": "Where the numbers come from: 400 nm is pilot data (one experiment) and ad hoc; 250 nm is ad hoc. "
+                "When the cloud is not star-shaped (a folded membrane) the ring is rejected and nothing is excluded.",
+    }),
+    _step("ua_method", "unanchored_method", "", es={
+        "title": "Método y anillo de referencia",
+        "what": "Automático (el anillo propio), Widefield (las imágenes del panel Axoplasm, si las hay) u Off (sólo "
+                "las decisiones a mano). El anillo: polar de las localizaciones (por defecto) o suave de los centros.",
+        "why": "El polar usa miles de localizaciones y es el más estable; el suave se ofrece para comparar, y la "
+               "tabla exportada dice cuántos clusters cambian de veredicto con el otro anillo.",
+        "read": "Cambiar el anillo o un umbral vuelve a correr la regla (barra de progreso y Cancel); los números "
+                "del análisis no cambian hasta Apply.",
+        "example": "En el axón simulado con dos grumos, subir «Exclude beyond» a 3000 nm deja la vista previa en "
+                   "«Would exclude 0».",
+        "more": "La profundidad es la distancia del centro al anillo, positiva hacia adentro, igual para los dos "
+                "anillos.",
+    }, en={
+        "title": "Method and reference ring",
+        "what": "Automatic (the own ring), Widefield (the Axoplasm panel's images, when there are any) or Off (the "
+                "decisions by hand only). The ring: polar ring of the localizations (default) or smooth ring of the "
+                "centres.",
+        "why": "The polar ring uses thousands of localizations and is the most stable; the smooth one is offered to "
+               "compare, and the exported table says how many clusters change verdict with the other ring.",
+        "read": "Changing the ring or a threshold runs the rule again (progress bar and Cancel); the analysis' "
+                "numbers do not change until Apply.",
+        "example": "On the simulated axon with two lumps, raising \"Exclude beyond\" to 3000 nm leaves the preview at "
+                   "\"Would exclude 0\".",
+        "more": "The depth is the distance from the centre to the ring, positive inward, the same for both rings.",
+    }),
+    _step("ua_map", "unanchored_map", "", es={
+        "title": "Excluir o restaurar con un clic",
+        "what": "Un clic sobre un centro lo excluye (pide el motivo) o, si la regla lo excluyó, lo restaura. Un clic "
+                "sobre un cluster que ya tiene una decisión la deshace: vuelve a mandar la regla.",
+        "why": "La regla es provisoria: vos decidís los casos que la regla no ve (un axón vecino, glía, un "
+               "artefacto) y los que marca de más.",
+        "read": "Cruz roja: excluido. Aro naranja: dudoso. Cuadrado vacío: restaurado a mano. Punto verde: el resto. "
+                "La línea punteada es el anillo de referencia.",
+        "example": "En el axón simulado, un clic sobre un centro de la membrana pide el motivo y el centro pasa a "
+                   "tener cruz; otro clic lo devuelve.",
+        "more": "Las decisiones se guardan por posición (centro del cluster, tolerancia 50 nm): siguen valiendo si "
+                "cambian eps, min samples o el slab y los clusters se renumeran.",
+    }, en={
+        "title": "Exclude or restore with a click",
+        "what": "A click on a centre excludes it (a reason is asked) or, when the rule excluded it, restores it. A "
+                "click on a cluster that already has a decision takes it back: the rule decides again.",
+        "why": "The rule is provisional: you decide the cases it does not see (a neighbouring axon, glia, an "
+               "artefact) and the ones it marks too eagerly.",
+        "read": "Red cross: excluded. Orange ring: doubtful. Open square: restored by hand. Green dot: the rest. The "
+                "dashed line is the reference ring.",
+        "example": "On the simulated axon, a click on a membrane centre asks the reason and the centre gets a cross; "
+                   "another click gives it back.",
+        "more": "Decisions are kept by position (the cluster's centre, 50 nm tolerance): they still hold when eps, "
+                "min samples or the slab change and the clusters are renumbered.",
+    }),
+    _step("ua_apply", "unanchored_apply", "", es={
+        "title": "Aplicar y guardar",
+        "what": "Apply vuelve a analizar el axón sin los excluidos, en segundo plano; la ventana del análisis MPS "
+                "muestra las dos columnas y los exportes llevan las dos. Save... guarda las decisiones a mano.",
+        "why": "Guardadas junto al archivo de datos (nombre-del-archivo_unanchored.json) se leen solas la próxima vez, también "
+               "en el Batch.",
+        "read": "Si las guardás con otro nombre, la ventana avisa que sólo el nombre por defecto se lee solo; Load... "
+                "lee uno con otro nombre.",
+        "example": "En el axón simulado con dos grumos, Apply deja «discard applied» con dos clusters menos.",
+        "more": "Al abrir cada análisis, el programa corre la regla y el análisis sin los excluidos por su cuenta "
+                "(la barra aparece en la ventana del análisis MPS, con Cancel).",
+    }, en={
+        "title": "Apply and save",
+        "what": "Apply analyses the axon again without the excluded clusters, in the background; the MPS analysis "
+                "window shows both columns and the exports carry both. Save... keeps the decisions by hand.",
+        "why": "Saved beside the data file (data-file-name_unanchored.json) they are read by themselves next time, in the "
+               "Batch too.",
+        "read": "Saved under another name, the window warns that only the default name is read by itself; Load... "
+                "reads one under another name.",
+        "example": "On the simulated axon with two lumps, Apply leaves \"discard applied\" with two clusters fewer.",
+        "more": "When each analysis opens, the program runs the rule and the analysis without the excluded clusters "
+                "by itself (the bar shows in the MPS analysis window, with Cancel).",
+    }),
+]
+
+
+COLUMNS_STEPS: List[Dict[str, Any]] = [
+    _step("cr_welcome", "", "", es={
+        "title": "Revisión de columnas (lumen review)",
+        "what": "Muestra los clusters de cada anillo, deja revisar los dudosos del lumen y corre los tests de "
+                "columnas (eclipsamiento entre anillos consecutivos) sobre lo que queda.",
+        "why": "Las decisiones sobre qué clusters sacar cambian los tests; acá quedan registradas y se exportan.",
+        "read": "Arriba, el mapa; a la derecha, los clusters dudosos, la viabilidad de cada par de anillos, la "
+                "tolerancia tau y los resultados. «Two rings (unrolled)...» está al pie de esa columna.",
+        "example": "En el axón simulado de ejemplo, cada anillo aparece como una fila de clusters sobre el contorno.",
+        "more": "Hay dos tau distintos: «Tolerance tau (re-runs the analysis)» re-corre todos los tests del axón; "
+                "el «tau of this view only» de la ventana «Two rings» cambia sólo esa vista y su CSV.",
+    }, en={
+        "title": "Columns review (lumen review)",
+        "what": "Shows each ring's clusters, lets you review the doubtful lumen ones and runs the column tests "
+                "(eclipsing between consecutive rings) on what is left.",
+        "why": "Which clusters you remove changes the tests; here the decisions are logged and exported.",
+        "read": "Top: the map; right: the doubtful clusters, the viability of each ring pair, the tolerance tau and "
+                "the results. \"Two rings (unrolled)...\" is at the foot of that column.",
+        "example": "On the simulated example axon, each ring is a row of clusters along the contour.",
+        "more": "There are two different taus: \"Tolerance tau (re-runs the analysis)\" re-runs all the tests of the "
+                "axon; the \"tau of this view only\" of the \"Two rings\" window changes only that view and its CSV.",
+    }),
+    _step("cr_tau", "tau_combo", "", es={
+        "title": "Tolerance tau (re-corre el análisis)",
+        "what": "Qué tan cerca (en nm) tienen que estar dos clusters de anillos vecinos para contar como eclipsados.",
+        "why": "Cambiarlo re-corre TODOS los tests de columnas del axón. tau_0 = 31 nm es el valor "
+              "pre-especificado; los demás son exploratorios.",
+        "read": "Las opciones son tau_0, 62 nm, 100 nm o «Free». Todo resultado a otro tau dice EXPLORATORY.",
+        "example": "Ejemplo simulado: al pasar de 31 a 62 nm se emparejan más clusters, parte por azar; la evidencia "
+                   "es el exceso sobre el nulo, no la cantidad.",
+        "more": "tau_0 se deriva (2,77 veces el error de centro de un cluster típico, 11,3 nm), no se midió en "
+                "datos. La ventana «Two rings» tiene su propio tau, que no re-corre nada.",
+    }, en={
+        "title": "Tolerance tau (re-runs the analysis)",
+        "what": "How close (nm) two clusters of neighbouring rings must be to count as eclipsed.",
+        "why": "Changing it re-runs ALL the axon's column tests. tau_0 = 31 nm is the pre-specified value; the "
+               "others are exploratory.",
+        "read": "The options are tau_0, 62 nm, 100 nm or \"Free\". Every result at another tau says EXPLORATORY.",
+        "example": "Simulated example: going from 31 to 62 nm matches more clusters, partly by chance; the evidence "
+                   "is the excess over the null, not the count.",
+        "more": "tau_0 is derived (2.77 times the centre error of a typical cluster, 11.3 nm), not measured on "
+                "data. The \"Two rings\" window has its own tau, which re-runs nothing.",
+    }),
+    _step("cr_export", "export_button", "", es={
+        "title": "Export tables...",
+        "what": "Exporta ESTA revisión: una fila por cluster con su clase, tu acción y las banderas, y una fila con "
+                "los resultados de la última corrida.",
+        "why": "Deja por escrito qué se sacó y con qué resultado.",
+        "read": "Nunca escribe en la tabla de otro análisis. La vista «Two rings» se exporta aparte, con su "
+                "propio «Export CSV...».",
+        "example": "Ejemplo simulado: tras sacar un cluster dudoso y correr, la tabla trae su fila con la acción.",
+        "more": "Si el axón ya tiene una fila, sólo se reemplaza si lo confirmás.",
+    }, en={
+        "title": "Export tables...",
+        "what": "Exports THIS review: one row per cluster with its class, your action and the flags, and one row "
+                "with the results of the last run.",
+        "why": "Records in writing what was removed and with what result.",
+        "read": "It never writes into another analysis's table. The \"Two rings\" view is exported separately, with "
+                "its own \"Export CSV...\".",
+        "example": "Simulated example: after removing a doubtful cluster and running, the table has its row with "
+                   "the action.",
+        "more": "If the axon already has a row, it is replaced only if you confirm.",
+    }),
+    _step("cr_two_rings", "two_rings_button", "", es={
+        "title": "Two rings (unrolled)...",
+        "what": "Dos anillos consecutivos desplegados a lo largo de la membrana, con un tau que fijás a mano.",
+        "why": "Para ver qué hace la tolerancia sobre anillos reales antes de aceptar tau_0.",
+        "read": "Los clusters que coinciden dentro de tau se pintan; la ventana sombreada de 2 tau se arrastra. "
+                "No es un test.",
+        "example": "Ejemplo simulado: con tau = 31 nm se emparejan los clusters de las dos filas; con 10 nm, casi "
+                   "ninguno.",
+        "more": "Su tau afecta sólo esa vista y su CSV («tau of this view only»); no es el «Tolerance tau» de la "
+                "revisión, que re-corre el análisis. Cualquier valor distinto de tau_0 es EXPLORATORY.",
+    }, en={
+        "title": "Two rings (unrolled)...",
+        "what": "Two consecutive rings laid flat along the membrane, with a tau you set by hand.",
+        "why": "To see what the tolerance does on real rings before accepting tau_0.",
+        "read": "Clusters that coincide within tau are painted; the shaded window of 2 tau can be dragged. Not a "
+                "test.",
+        "example": "Simulated example: with tau = 31 nm the clusters of the two rows pair up; with 10 nm, almost "
+                   "none.",
+        "more": "Its tau affects only that view and its CSV (\"tau of this view only\"); it is not the review's "
+                "\"Tolerance tau\", which re-runs the analysis. Any value other than tau_0 is EXPLORATORY.",
+    }),
+]
+
+
 STEPS: Dict[str, List[Dict[str, Any]]] = {
     "main": MAIN_STEPS,
     # TODO(tour): the MPS analysis window's tour (results table, KS, regularity, rings) waits for the pending science
     # PRs that change its rows. An empty list is "no tour yet".
     "mps_analysis": [],
+    "perimeter": PERIMETER_STEPS,
+    "perimeter_demo": PERIMETER_DEMO_STEPS,
+    "unanchored": UNANCHORED_STEPS,
+    "columns": COLUMNS_STEPS,
 }

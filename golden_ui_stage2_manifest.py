@@ -48,7 +48,13 @@ from golden_ui_stage2_compare import _diff, _load
 # B34 = fix/core-batch-tanda1 (2026-10-29): the settings gain c_label and batch_null_closure, the Batch settings
 # null_closure; the axon table v15 (G1 failures, regularity_stage2_level, lpc by depth) falls inside B30's
 # table-level entries.
-B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26", "B27", "B30", "B31", "B32", "B33", "B34"}
+# B35 = the automatic unanchored discard (P15, decision D4): the main window runs the unanchored-cluster rule and
+# the analysis without the discard on every analysis shown. The harness records the rule's compare_discard apart
+# (unanchored_calls, results numbered unanchored#k); its entries are that list and the places where the held
+# discard shows (the results window's discard column, Export axon's discard). Every B35 path also differs between a
+# run with MPS_UNANCHORED_AUTO=0 and a normal run of the same code, and the run with the switch off has exactly the
+# B34 manifest's differences.
+B_CHANGES = {f"B{i}" for i in range(1, 24)} | {"B26", "B27", "B30", "B31", "B32", "B33", "B34", "B35"}
 # The path ends where the compare tool's ": <first> != <second>" (or ": only in ...", ": n items vs m") begins: at
 # the first colon followed by a space. A key may hold a colon of its own ("other:_columns.csv").
 _PREFIX = re.compile(r"^(?P<cell>[^ ]+) / snapshots / (?P<snap>[^ /]+) / (?P<path>.*?)(?:: .*)?$")

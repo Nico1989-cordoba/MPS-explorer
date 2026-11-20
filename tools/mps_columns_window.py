@@ -142,6 +142,7 @@ from tools.mps_layer_panel import LayerPanel, Swatch
 from tools.mps_plot_style import (
     OKABE_ITO, ROLES, marked, neutral, rgba, segment_colour, set_title, style_dark, verdict)
 from tools import mps_selection as msel
+from tools.results_table import with_csv_extension
 from tools import mps_tau as mtau
 from tools import mps_tau_ui as mtui
 from tools.mps_selection_ui import SelectionWidget, app_log_path, exploratory_banner, git_head
@@ -469,6 +470,7 @@ COLUMNS_WINDOW_TOOLTIPS: Dict[str, str] = {
         "The rings are NOT rebuilt: the clusters are taken out of the rings built when this window opened. It runs "
         "in the background; the window stays usable, and edits made meanwhile wait for the next run.",
     "export_button":
+        "Exports THIS review: per-cluster decisions and the last run's results (2 tables, not the Two rings view).\n\n"
         "Write two tables: one row per cluster with its automatic class, your action, the order of every edit and "
         "the provenance flags, and one row with the results of the last run.\n\n"
         "Rows are added to an existing table of the same kind; a table of another analysis is never written into, "
@@ -1410,6 +1412,8 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
         root = QtWidgets.QVBoxLayout(central)
+        root.setContentsMargins(10, 8, 10, 8)
+        root.setSpacing(8)
         self.header_label = QtWidgets.QLabel()
         self.header_label.setWordWrap(True)
         self.header_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -1696,7 +1700,8 @@ class ColumnsWindow(QtWidgets.QMainWindow):
     def _build_side_column(self) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(w)
-        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setContentsMargins(6, 0, 6, 0)
+        lay.setSpacing(8)             # UI texts: air between the groups of the side column
         lay.addWidget(QtWidgets.QLabel("Doubtful clusters (ticked = removed by you; unticked = kept, the automatic state)"))
         self.doubtful_table = QtWidgets.QTableWidget(0, 12)
         self.doubtful_table.setObjectName("doubtful_table")
@@ -1779,8 +1784,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self.simnull_button.clicked.connect(self._on_simnull)
         self.simnull_button.setEnabled(False)
         adv.addWidget(self.simnull_button)
-        self.advanced_note = QtWidgets.QLabel("A p against simulated axons without columns. Experimental: read the "
-                                              "dialog first.")
+        self.advanced_note = QtWidgets.QLabel("Experimental: a p against simulated axons without columns.")
         self.advanced_note.setObjectName("advanced_note")
         self.advanced_note.setWordWrap(True)
         adv.addWidget(self.advanced_note, stretch=1)
@@ -1813,18 +1817,22 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self.load_button.setObjectName("load_button")
         self.load_button.clicked.connect(self._on_load)
         run_row.addWidget(self.load_button)
-        self.export_button = QtWidgets.QPushButton("Export tables...")
+        self.export_button = QtWidgets.QPushButton("Save tables...")
         self.export_button.setObjectName("export_button")
         self.export_button.clicked.connect(self._on_export)
         run_row.addWidget(self.export_button)
+        lay.addLayout(run_row)
+        # UI texts: the views that are not the run itself on a row of their own (the run row was too tight)
+        view_row = QtWidgets.QHBoxLayout()
         # D1 (user request 2026-10-23): two rings of the run laid flat, with a tolerance +/- tau set by hand
         from tools import two_rings_ui
         self.two_rings_button = QtWidgets.QPushButton(two_rings_ui.BUTTON_TEXT)
         self.two_rings_button.setObjectName("two_rings_button")
-        self.two_rings_button.setToolTip(two_rings_ui.BUTTON_TIP)
+        self.two_rings_button.setToolTip(two_rings_ui.BUTTON_TIP + "\n\n" + two_rings_ui.BUTTON_TIP_MORE)
         self.two_rings_button.clicked.connect(self._on_two_rings)
-        run_row.addWidget(self.two_rings_button)
-        lay.addLayout(run_row)
+        view_row.addWidget(self.two_rings_button)
+        view_row.addStretch(1)
+        lay.addLayout(view_row)
 
         self.leak_banner = QtWidgets.QLabel(LEAK_BANNER_TEXT)
         self.leak_banner.setWordWrap(True)
@@ -3518,6 +3526,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
                                                         f"{base}_lumen_decisions.csv", "CSV Files (*.csv)")
         if not path:
             return
+        path = with_csv_extension(path)                       # every derived file takes the stem chosen
         try:
             written = self.export_tables(path)
         except Exception as exc:  # noqa: BLE001 - a slot: surfaced to the user, never fatal
@@ -3763,6 +3772,16 @@ class ColumnsReviewLauncher(QtWidgets.QWidget):
                 self.window = None
                 error = exc
             else:
+                # UI texts: the long explanations of this window live in the guided tour ("columns"), when the
+                # program that owns the window has one
+                owner: Any = self.parentWidget()
+                while owner is not None and getattr(owner, "tour", None) is None:
+                    owner = owner.parentWidget() if hasattr(owner, "parentWidget") else None
+                if owner is not None:
+                    try:
+                        owner.tour.register_window(self.window, "columns")
+                    except Exception:  # noqa: BLE001 - the tour is a convenience
+                        pass
                 self.window.show()
                 self.window.raise_()
                 self.window_opened.emit(self.window)

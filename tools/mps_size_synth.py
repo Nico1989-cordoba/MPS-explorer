@@ -36,13 +36,16 @@ __all__ = [
     "Contour", "make_contour", "place_clusters", "SyntheticRing", "generate_ring",
 ]
 
-# Per-localization precision of the synthetic file [lit: 8-20 nm, Huang et al. 2008; the NeNA of a dSTORM file is
+# Per-localization precision of the synthetic file [lit: lateral SD 9-11 nm, Huang et al. 2008 (the range "8-20 nm"
+# is not in that article); the NeNA of a dSTORM file is
 # in that range, Endesfelder et al. 2014].
 SIGMA_LOC_NM = 10.0
-# Linkage error per axis of a primary + secondary IgG stack [lit: Frueh et al. 2021, ~19 nm maximum -> l / sqrt(3)
-# per axis], FIXED for a label for the whole movie.
+# Linkage error per axis of a primary + secondary IgG stack [ad hoc, of the order of Frueh et al. 2021: mean
+# displacement 10.0 nm, radial sigma ~7.5 nm, maximum ~19 nm; not a per-axis value of that paper], FIXED for a
+# label for the whole movie.
 SIGMA_LINK_NM = 10.0
-# Blinks (switching cycles) per label [lit: Dempsey et al. 2011, Alexa 647 in MEA; 26 in beta-ME].
+# Blinks (switching cycles) per label [lit: Dempsey et al. 2011, Alexa 647 in MEA, per fluorophore on glass; 26 in
+# beta-ME; other measurements 4-17 per label, docs/dbscan_rule.md 2.1].
 C_LABEL_MEAN = 14.0
 # Localizations per blink [ad hoc: the project's simulator default locs_per_fluor_mean].
 LOCS_PER_EVENT = 2.0

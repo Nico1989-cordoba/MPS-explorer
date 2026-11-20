@@ -24,7 +24,13 @@ writes down everything a later step must reproduce:
 * the axoplasm panel's rows when the panel is open;
 * the keyword arguments the GUI passes to ``analyze_axon``,
   ``analyze_all_segments``, ``compare_discard`` and ``build_tables``
-  (recorded by wrappers that call the real function unchanged);
+  (recorded by wrappers that call the real function unchanged); a
+  ``compare_discard`` made by the unanchored-cluster rule
+  (``tools.mps_unanchored.compare_unanchored``: the automatic discard the
+  main window starts on every analysis shown, in the background) goes to a
+  list of its own, ``unanchored_calls`` (written only when not empty), and
+  its results are numbered ``unanchored#k``, so it never moves the other
+  calls or the ``analysis#k`` numbers;
 * the BatchSettings the batch window reads at Run, after its sync;
 * the settings file the run leaves behind (after the main window closes).
 
@@ -92,6 +98,11 @@ differ in their last digits between scipy 1.17 and 1.18)
     venv/Scripts/python.exe golden_ui_stage2_compare.py DIR1/golden.json DIR2/golden.json
 
 ``DIR`` must be a new or empty folder; the golden is ``DIR/golden.json``.
+The cells run with every ``MPS_*`` variable removed except
+``MPS_SELECTION_LOG_DIR`` and ``MPS_UNANCHORED_AUTO``: with
+``MPS_UNANCHORED_AUTO=0`` the automatic unanchored discard is off, as it was
+when the reference golden was made (the value is recorded under
+``environment / switches``).
 The committed copy is ``testdata/ui_stage2/parity_golden.json``.
 """
 from __future__ import annotations
@@ -106,6 +117,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -324,9 +336,13 @@ class Normaliser:
 
 
 _NORM: Optional["Normaliser"] = None
+# Inside tools.mps_unanchored.compare_unanchored, per thread (the rule's apply runs in a background thread).
+_UNANCHORED = threading.local()
+# Kept for the cells; every other MPS_* variable is removed.
+KEPT_ENV = ("MPS_SELECTION_LOG_DIR", "MPS_UNANCHORED_AUTO")
 
 
-def describe_value(v: Any, analyses: Dict[int, int]) -> Any:
+def describe_value(v: Any, analyses: Dict[int, Any]) -> Any:
     """A JSON-able, exact description of a keyword argument. Strings are
     normalised (paths) BEFORE anything is hashed, so a digest never
     depends on where the run's folders are."""
@@ -357,7 +373,9 @@ def describe_value(v: Any, analyses: Dict[int, int]) -> Any:
         return {"dict": {str(k): describe_value(x, analyses)
                          for k, x in sorted(v.items(), key=lambda kv: str(kv[0]))}}
     if id(v) in analyses:
-        return f"analysis#{analyses[id(v)]}"
+        n = analyses[id(v)]
+        # The unanchored rule's results carry their own label (unanchored#k).
+        return n if isinstance(n, str) else f"analysis#{n}"
     name = type(v).__name__
     if name in ("AxonAnalysis",):
         return f"{name}(unrecorded)"
@@ -397,8 +415,11 @@ class Cell:
         global _NORM
         _NORM = self.norm
         self.calls: List[Dict[str, Any]] = []
+        self.unanchored_calls: List[Dict[str, Any]] = []
         self.messages: List[Dict[str, str]] = []
-        self.analyses: Dict[int, int] = {}
+        self.analyses: Dict[int, Any] = {}
+        self.n_analyses = 0
+        self.n_unanchored = 0
         self._keep: List[Any] = []
         self.save_queue: List[str] = []
         self.export_counter = 0
@@ -483,6 +504,7 @@ class Cell:
             real = getattr(module, name)
 
             def wrapper(*args: Any, **kwargs: Any) -> Any:
+                rule = getattr(_UNANCHORED, "depth", 0) > 0
                 entry = {"function": label,
                          "args": [describe_value(a, cell.analyses) for a in args],
                          "kwargs": {k: describe_value(v, cell.analyses)
@@ -493,13 +515,18 @@ class Cell:
                                 else [result, result.all_clusters,
                                       result.discard_applied]):
                         if id(obj) not in cell.analyses:
-                            cell.analyses[id(obj)] = len(cell.analyses) + 1
+                            if rule:
+                                cell.n_unanchored += 1
+                                cell.analyses[id(obj)] = f"unanchored#{cell.n_unanchored}"
+                            else:
+                                cell.n_analyses += 1
+                                cell.analyses[id(obj)] = cell.n_analyses
                             cell._keep.append(obj)
                     entry["result"] = describe_value(result, cell.analyses) \
                         if not hasattr(result, "all_clusters") else {
                             "all_clusters": describe_value(result.all_clusters, cell.analyses),
                             "discard_applied": describe_value(result.discard_applied, cell.analyses)}
-                cell.calls.append(cell.norm.value(entry))
+                (cell.unanchored_calls if rule else cell.calls).append(cell.norm.value(entry))
                 return result
             setattr(module, name, wrapper)
 
@@ -507,6 +534,19 @@ class Cell:
         wrap(mps_multisegment, "analyze_all_segments", "analyze_all_segments", False)
         wrap(mps_analysis, "compare_discard", "compare_discard", True)
         wrap(axon_export, "build_tables", "build_tables", False)
+
+        # The unanchored-cluster rule's analysis with and without the discard: its compare_discard is recorded
+        # apart (see the module's docstring).
+        from tools import mps_unanchored
+        real_unanchored = mps_unanchored.compare_unanchored
+
+        def compare_unanchored(*args: Any, **kwargs: Any) -> Any:
+            _UNANCHORED.depth = getattr(_UNANCHORED, "depth", 0) + 1
+            try:
+                return real_unanchored(*args, **kwargs)
+            finally:
+                _UNANCHORED.depth -= 1
+        mps_unanchored.compare_unanchored = compare_unanchored
 
         # The contour editor: Apply, with a fixed path (a circle through the
         # centroids' mean radius, 72 points, counter-clockwise from +x).
@@ -730,8 +770,11 @@ class Cell:
             snap["distances"] = self.distances(mw)
         snap["calls"] = self.calls
         snap["messages"] = self.messages
+        if self.unanchored_calls:
+            snap["unanchored_calls"] = self.unanchored_calls
         self.snapshots[label] = json.loads(json.dumps(snap, default=_plain))
         self.calls = []
+        self.unanchored_calls = []
         self.messages = []
 
     # ------------------------------------------------------------ actions
@@ -1028,7 +1071,8 @@ def environment() -> Dict[str, Any]:
         versions["Qt"] = QtCore.QT_VERSION_STR
     except Exception as error:  # noqa: BLE001 - recorded
         versions["PyQt5"] = f"not importable: {error}"
-    return {"versions": versions}
+    switches = {k: os.environ.get(k, "unset") for k in KEPT_ENV if k != "MPS_SELECTION_LOG_DIR"}
+    return {"versions": versions, "switches": switches}
 
 
 def _user_settings_state() -> Optional[Tuple[str, int]]:
@@ -1126,7 +1170,7 @@ def run_all(out_dir: str, workers: int, axons: List[str], cells: Optional[List[s
     env = dict(os.environ)
     env.update(QT_QPA_PLATFORM="offscreen", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1",
                OPENBLAS_NUM_THREADS="1", NUMEXPR_NUM_THREADS="1", PYTHONHASHSEED="0")
-    for k in [k for k in env if k.startswith("MPS_") and k != "MPS_SELECTION_LOG_DIR"]:
+    for k in [k for k in env if k.startswith("MPS_") and k not in KEPT_ENV]:
         env.pop(k)
 
     def one(cell: str) -> Dict[str, Any]:

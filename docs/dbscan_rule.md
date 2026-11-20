@@ -5,7 +5,8 @@
 > min_samples = redondeo(1 + (n_q·lpc − 1)·P), con piso 3, donde n_q es el cuartil inferior de los ciclos de una marca
 > (geométrico de media c_label), lpc las localizaciones por ciclo **medidas en el archivo** (largo de los eventos
 > enlazados a 3·NeNA con 1 cuadro oscuro) y P = 1 − exp(−eps²/4·NeNA²). c_label es editable: 14 (Alexa 647 en MEA,
-> provisorio) y 26 (βME, columna de sensibilidad), ambos de Dempsey et al. (2011). Con la media de ciclos y una
+> provisorio) y 26 (βME, columna de sensibilidad), ambos de Dempsey et al. (2011), medidos por fluoróforo sobre
+> vidrio (otras mediciones independientes dan 4-17 eventos por marca; sección 2.1). Con la media de ciclos y una
 > localización por ciclo la misma fórmula da 9,6 → 10, el valor publicado. Toda tabla puede salir doble (25/10 y regla).
 > Los eventos se usan para contar y marcar «probable fusión» (eventos/c_label > 2), nunca para reemplazar
 > localizaciones antes de agrupar. El barrido eps 15-40 × min_samples 5-20 repite el análisis normal en cada celda y
@@ -31,9 +32,10 @@ on for several camera frames leaves one localization per frame. So
 
   localizations of one label = cycles × localizations per cycle (lpc).
 
-Gazal et al. (2026) set min_samples = 10 "following the mean number of switching cycles expected", the cycles
-measured by Dempsey et al. (2011, Table 1): 14 for Alexa Fluor 647 in MEA and 26 in β-mercaptoethanol, on glass, as a
-lower bound. Cycles are events, min_samples counts localizations: lpc is the missing link, and it depends on the
+Gazal et al. (2026) set min_samples = 10 "following the mean number of switching cycles expected". The 10 itself is
+**not** a value of Dempsey et al. (2011): their Table 1 gives 14 for Alexa Fluor 647 in MEA and 26 in
+β-mercaptoethanol (10 is a value of other dyes), measured **per fluorophore**, on antibodies **on glass**, as a lower
+bound (section 2.1). Cycles are events, min_samples counts localizations: lpc is the missing link, and it depends on the
 illumination intensity, the exposure and the buffer (Lin et al. 2015; Olivier et al. 2013). With τ_on ≈ 10 ms
 (Helmerich et al. 2020) and 50 ms frames it would be about 1; the clustering research's simulation assumed 1-3 frames
 (mean 2). The program therefore **measures** it (section 4; decision D3).
@@ -59,6 +61,37 @@ N(0, σ²) per axis, are a Rayleigh distance of scale √2·σ apart:
 
 With NeNA 12 nm, 2.5 × 12 = 30 nm, so eps = 25 nm (capped). With NeNA 8 nm, eps = 20 nm.
 
+### 2.1 What the literature does and does not support for 25 / 10 and c_label
+
+Checked against the full text of each source (review of 2026-11-17); nothing here changes a default or a result.
+
+- **eps = 25 nm.** No published rule produces 25 nm. It is a **convention inherited from Gazal et al. (2026)
+  [literature of the group], not validated on sciatic nerve by this program**. A sentence that sometimes goes with it,
+  "eps ≈ the ~20 nm lateral precision", mixes two widths: ~20 nm is a **FWHM**; the lateral precision as a standard
+  deviation is 9-11 nm in 3D-STORM (Huang et al. 2008), and NeNA is a standard deviation too. The closest published
+  setting is Stein et al. (2025, Supporting Information): **eps = 3 × NeNA, minPts = 10** for DNA-PAINT on ultrathin
+  cryosections (NeNA ~3 nm, the object there is one label, not an extended patch). With NeNA 7-9 nm, 3 × NeNA is
+  21-27 nm, so 25 nm is coherent with that rule [literature, other technique]; the 2.5 × NeNA of this program's own
+  rule is [own simulation] (above).
+- **minPts = 10.** Gazal et al. (2026) relate it to "the mean number of switching cycles"; the statement
+  "minPts = 10 ≈ the switching cycles of Alexa Fluor 647 (Dempsey et al. 2011)" does **not** follow from Dempsey,
+  whose AF647 values are 14 (MEA) and 26 (βME). Label: **[literature of the group, Gazal et al. 2026; ad hoc with
+  respect to Dempsey]**. What the program can show is the worked check of section 3 (14 cycles × 1 localization per
+  cycle × P → 9.6 → 10) [derivation]; Stein et al. (2025) use minPts 10 as well (25th percentile of the localizations
+  of one docking strand, DNA-PAINT) [literature, other technique].
+- **c_label = 14 (26).** The values are exact for Dempsey et al. (2011, Table 1), but they are **per fluorophore, for
+  antibodies on glass**, at 0.8-2.2 kW/cm² without 405 nm activation. They are not counts per antibody stack, and a
+  405 nm activation roughly doubles them. Independent measurements of events (or localizations) per label, in other
+  conditions, span about **4-17**: ~4 per AF647 in 10 mM MEA (Nino et al. 2019), 3.9-4.4 per AF647 on a nanobody
+  (Bohrer et al. 2021), ~7 per Cy5 (Helmerich et al. 2022), 9.8 per IgG-AF647 in a cerebellar cryosection
+  (Siddig et al. 2020), ~12-16 per F(ab')2-Cy5 (Ehmann et al. 2014), 16.7 ± 16.5 (Patel et al. 2021), and
+  ~7.6 without / ~17 with 405 nm (Karathanasis et al. 2017; numbers read off by the reviewer, not printed as such).
+  Label: **[literature: Dempsey et al. 2011, per fluorophore on glass; provisional, not measured in this tissue or
+  buffer]**; 14 is best read as an upper reference, and 26 should be used only with a real β-mercaptoethanol buffer.
+- **Floor 3 of min_samples.** "minPts = dimension + 1" is a common heuristic; Mazouchi & Milstein (2016) attribute it
+  to the original DBSCAN article (Ester et al. 1996; pending full-text check). Schubert et al. (2017) do **not** state
+  it: they give 4 in 2D and 2 × dimension (a suggestion they credit to Sander et al. 1998). Label: **[ad hoc floor]**.
+
 ## 3. min_samples from the cycles of the weakest labels
 
 **The worked check.** For one localization of a label that leaves n localizations, DBSCAN's count within eps is the
@@ -81,7 +114,9 @@ mean). The rule asks that the label at the **lower quartile** of the cycles stil
 - q = 0.25: own simulation (clustering research, the "cycles rule" strategy): with one label per molecule it halved
   the molecules lost by 25/10 (20-24 % → 9-12 %) without changing the fusion of neighbours, at the cost of about one
   point more of false clusters (8 → 9 %).
-- the floor 3: min_samples of at least the dimension + 1 (Ester et al. 1996; Schubert et al. 2017), here 2D.
+- the floor 3: min_samples of at least the dimension + 1, here 2D [ad hoc floor; the heuristic is attributed to
+  Ester et al. 1996 by Mazouchi & Milstein 2016, pending full-text check; Schubert et al. 2017 recommend 4 in 2D, see
+  section 2.1].
 - "1 + … − 1": DBSCAN counts the point itself once. The research's own simulation used n_q × lpc × P, which multiplies
   the point itself by P too; the two differ by 1 − P (0.34 here) and cross a rounding boundary in one cell of the table
   below. The program uses the self-counting form, consistent with section 5 of `docs/channel2_parameters.md`;
@@ -207,9 +242,9 @@ same ROI, same curation; the randomization control off, it does not change these
 K/µm, the median 1NN, the median r_eff, the occupancy, the clusters kept and found, the median DBCV of the kept
 clusters and the share of the slab left as noise.
 
-- **DBSCAN grid**: eps {15, 20, 25, 30, 40} nm × min_samples {5, 10, 15, 20}, 20 cells (decision D4: the range the
-  research recommends after Nieves et al. 2023, Hammer et al. 2025 and Bíró et al. 2025, and the grid of its own
-  simulation). In that simulation eps governed the fusion (11 → 26 % from 15 to 40 nm, sparse regime) and min_samples
+- **DBSCAN grid**: eps {15, 20, 25, 30, 40} nm × min_samples {5, 10, 15, 20}, 20 cells (decision D4: the grid of the
+  research's own simulation [ad hoc range]. Nieves et al. 2023, Hammer et al. 2025 and Bíró et al. 2025 support
+  reporting a sweep, not this range: Nieves et al. swept eps 5-100 nm and minPts 2-50, with optima at eps 30-65 nm). In that simulation eps governed the fusion (11 → 26 % from 15 to 40 nm, sparse regime) and min_samples
   the losses (2 → 33 % from 5 to 20) (clustering research, Table 8.2).
 - **The reference cell** 25/10 is marked; it is the normal analysis exactly (unit test: every readout equal).
 - **Other methods**: the same function with the method's own grid; presets for HDBSCAN (min_cluster_size {5, 10, 20} ×
@@ -232,8 +267,9 @@ the rule column is empty, with the reason.
 
 ## 9. Limitations
 
-- c_label is a literature value on glass, not measured in the laboratory's buffer or tissue (a calibration is plan
-  B1). The rule moves with it: 14 → 26 roughly doubles min_samples.
+- c_label is a literature value per fluorophore on glass, not measured in the laboratory's buffer or tissue (a
+  calibration is plan B1); independent measurements in other conditions span about 4-17 events per label
+  (section 2.1). The rule moves with it: 14 → 26 roughly doubles min_samples.
 - lpc is a property of the movie, not of the axon: it should be measured on the whole field, and on the same
   localizations that are clustered (a filtered file and its parent can differ).
 - The geometric law of cycles and the Gaussian precision are models; the real cycle distribution is broader (several
@@ -253,8 +289,13 @@ the rule column is empty, with the reason.
 
 - Bíró P, H. Kovács BB, Novák T, Erdélyi M (2025). Cluster parameter-based DBSCAN maps for image characterization.
   *Computational and Structural Biotechnology Journal* 27:920-927. doi:10.1016/j.csbj.2025.02.037
+- Bohrer CH, Yang X, Thakur S, Weng X, Tenner B, McQuillen R, Ross B, Wooten M, Chen X, Zhang J, Roberts E,
+  Lakadamyali M, Xiao J (2021). A pairwise distance distribution correction (DDC) algorithm to eliminate
+  blinking-caused artifacts in SMLM. *Nature Methods* 18(6):669-677. doi:10.1038/s41592-021-01154-y
 - Dempsey GT, Vaughan JC, Chen KH, Bates M, Zhuang X (2011). Evaluation of fluorophores for optimal performance in
   localization-based super-resolution imaging. *Nature Methods* 8(12):1027-1036. doi:10.1038/nmeth.1768
+- Ehmann N, van de Linde S, Alon A, et al. (2014). Quantitative super-resolution imaging of Bruchpilot distinguishes
+  active zone states. *Nature Communications* 5:4650. doi:10.1038/ncomms5650
 - Endesfelder U, Malkusch S, Fricke F, Heilemann M (2014). A simple method to estimate the average localization
   precision of a single-molecule localization microscopy experiment. *Histochemistry and Cell Biology*
   141(6):629-638. doi:10.1007/s00418-014-1192-3
@@ -268,6 +309,11 @@ the rule column is empty, with the reason.
   doi:10.1038/s42003-025-08332-0
 - Helmerich DA, Beliu G, Sauer M (2020). Multiple-labeled antibodies behave like single emitters in photoswitching
   buffer. *ACS Nano* 14(10):12629-12641. doi:10.1021/acsnano.0c06099
+- Helmerich DA, Beliu G, Taban D, Meub M, Streit M, Kuhlemann A, Doose S, Sauer M (2022). Photoswitching
+  fingerprint analysis bypasses the 10-nm resolution barrier. *Nature Methods* 19:986-994.
+  doi:10.1038/s41592-022-01548-6
+- Huang B, Wang W, Bates M, Zhuang X (2008). Three-dimensional super-resolution imaging by stochastic optical
+  reconstruction microscopy. *Science* 319(5864):810-813. doi:10.1126/science.1153529
 - Hummer G, Fricke F, Heilemann M (2016). Model-independent counting of molecules in single-molecule localization
   microscopy. *Molecular Biology of the Cell* 27(22):3637-3644. doi:10.1091/mbc.e16-07-0525
 - Karathanasis C, Fricke F, Hummer G, Heilemann M (2017). Molecule counts in localization microscopy with organic
@@ -275,11 +321,17 @@ the rule column is empty, with the reason.
 - Lin Y, Long JJ, Huang F, Duim WC, Kirschbaum S, Zhang Y, Schroeder LK, Rebane AA, Velasco MGM, Virrueta A,
   Moonan DW, Jiao J, Hernandez SY, Zhang Y, Bewersdorf J (2015). Quantifying and optimizing single-molecule switching
   nanoscopy at high speeds. *PLOS ONE* 10(5):e0128135. doi:10.1371/journal.pone.0128135
+- Mazouchi A, Milstein JN (2016). Fast Optimized Cluster Algorithm for Localizations (FOCAL): A spatial cluster
+  analysis for super-resolved microscopy. *Bioinformatics* 32(5):747-754. doi:10.1093/bioinformatics/btv630
 - Nieves DJ, Pike JA, Levet F, Williamson DJ, Baragilly M, Oloketuyi S, de Marco A, Griffié J, Sage D, Cohen EAK,
   Sibarita J-B, Heilemann M, Owen DM (2023). A framework for evaluating the performance of SMLM cluster analysis
   algorithms. *Nature Methods* 20(2):259-267. doi:10.1038/s41592-022-01750-6
+- Nino D, Djayakarsana D, Milstein JN (2019). Nanoscopic stoichiometry and single-molecule counting. *Small Methods*
+  1900082. doi:10.1002/smtd.201900082
 - Olivier N, Keller D, Gönczy P, Manley S (2013). Resolution doubling in 3D-STORM imaging through improved buffers.
   *PLOS ONE* 8(7):e69004. doi:10.1371/journal.pone.0069004
+- Patel L, Williamson D, Owen DM, Cohen EAK (2021). Blinking statistics and molecular counting in direct stochastic
+  reconstruction microscopy (dSTORM). *Bioinformatics* (advance access). doi:10.1093/bioinformatics/btab136
 - Pike JA, Khan AO, Pallini C, Thomas SG, Mund M, Ries J, Poulter NS, Styles IB (2020). Topological data analysis
   quantifies biological nano-structure from single molecule localization microscopy. *Bioinformatics*
   36(5):1614-1621. doi:10.1093/bioinformatics/btz788
@@ -290,6 +342,12 @@ the rule column is empty, with the reason.
 - Scurll JM, Abraham L, Zheng DW, Tafteh R, Chou KC, Gold MR, Coombs D (2019). StormGraph: a graph-based algorithm
   for quantitative clustering analysis of diverse single-molecule localization microscopy data [Preprint]. bioRxiv.
   doi:10.1101/515627 [preprint, not peer reviewed]
+- Siddig S, Aufmkolk S, Doose S, et al. (2020). Super-resolution imaging reveals the nanoscale organization of
+  metabotropic glutamate receptors at presynaptic active zones. *Science Advances* 6(16):eaay7193.
+  doi:10.1126/sciadv.aay7193
+- Stein J, Ericsson M, Nofal M, et al. (2025). Cryosectioning-enhanced super-resolution microscopy for single-protein
+  imaging across cells and tissues. *PNAS* 122(32):e2504578122. doi:10.1073/pnas.2504578122 (DBSCAN settings in the
+  Supporting Information)
 - Thevathasan JV, Kahnwald M, Cieśliński K, Hoess P, Peneti SK, Reitberger M, Heid D, Kasuba KC, Hoerner SJ, Li Y,
   Wu Y-L, Mund M, Matti U, Pereira PM, Henriques R, Nijmeijer B, Kueblbeck M, Sabinina VJ, Ellenberg J, Ries J (2019).
   Nuclear pores as versatile reference standards for quantitative superresolution microscopy. *Nature Methods*

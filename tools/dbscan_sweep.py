@@ -55,8 +55,9 @@ __all__ = [
 ]
 
 # --------------------------------------------------------------------------- grids (origin in brackets)
-# D4 [lit: clustering research section 9.2, after Nieves et al. 2023, Hammer et al. 2025, Biro et al. 2025;
-# simulation: the grid of Table 8.2]: 5 x 4 = 20 cells, the reference 25/10 among them.
+# D4 [ad hoc range: the grid of the clustering research's own simulation, Table 8.2; Nieves et al. 2023, Hammer
+# et al. 2025 and Biro et al. 2025 support reporting a sweep, not this range (Nieves swept eps 5-100 nm, minPts
+# 2-50)]: 5 x 4 = 20 cells, the reference 25/10 among them.
 DBSCAN_EPS_NM: Tuple[float, ...] = (15.0, 20.0, 25.0, 30.0, 40.0)
 DBSCAN_MIN_SAMPLES: Tuple[int, ...] = (5, 10, 15, 20)
 GRID_PRESETS: Dict[str, Dict[str, Tuple[Any, ...]]] = {

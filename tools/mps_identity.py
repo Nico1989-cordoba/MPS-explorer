@@ -96,7 +96,13 @@ DEFAULT_PATTERNS: Dict[str, str] = {
     # Empty: the species is the default (DEFAULT_SPECIES) unless a pattern
     # the user writes finds another one in the path.
     "species": "",
-    "genotype": r"\b(KO|WT)\b",
+    # KO or WT as a whole token: not preceded or followed by a letter or a
+    # digit. A word boundary (\b) is not enough, because to a regular
+    # expression the underscore is part of a word, so "\b(KO|WT)\b" found
+    # nothing in "..._AF647_KO_picked_Axon1.hdf5" and read the genotype
+    # only off a folder named "KO". This one reads "_KO_", "-WT-", "/KO/"
+    # and " WT ", and still not the "ko" inside "TOKYO" nor "WT2".
+    "genotype": r"(?<![A-Za-z0-9])(KO|WT)(?![A-Za-z0-9])",
     "protein": r"(aducina|adducina|adducin|4\.1B)",
     # Empty, and it must stay so: no folder of this user's names the
     # animal, and an animal guessed from a folder name decides the n of a
@@ -116,6 +122,11 @@ FROM_FOLDER = "folder above the ROI"
 FROM_PREVIOUS = "previous axon"
 FROM_DEFAULT = "default"
 NOT_FOUND = "not found"
+
+# The genotypes of the thesis. A value read as "wt" or " Ko" is one of
+# these written another way, not a third group, so it is stored in this
+# spelling (see normalise_genotype).
+KNOWN_GENOTYPES: Tuple[str, ...] = ("KO", "WT")
 NO_PATTERN = "no pattern"
 BAD_PATTERN = "bad pattern"
 
@@ -211,6 +222,25 @@ def _search(pattern: str, text: str) -> Optional[str]:
     return match.group(0)
 
 
+def normalise_genotype(value: Optional[str]) -> str:
+    """
+    ``value`` in the spelling of KNOWN_GENOTYPES when it is one of them
+    written in another case or with spaces around it ("wt", " Ko "), and
+    otherwise unchanged apart from the surrounding spaces.
+
+    The search ignores case, so without this a file named "..._wt_..."
+    and one named "..._WT_..." would carry two genotypes, and a group
+    comparison would make three groups out of two. Any other value a
+    user's own pattern reads (for example "Het") is left as it is: this
+    only merges spellings of the two genotypes the program knows.
+    """
+    text = "" if value is None else str(value).strip()
+    for known in KNOWN_GENOTYPES:
+        if text.upper() == known:
+            return known
+    return text
+
+
 def _folder_above_roi(path: str, roi_pattern: str) -> Tuple[Optional[str],
                                                             str]:
     """
@@ -302,9 +332,14 @@ def propose(
                     f"valid regular expression and was not used: {error}")
                 continue
             if hit:
-                setattr(identity, name, hit.strip())
+                value = hit.strip()
+                if name == "genotype":
+                    value = normalise_genotype(value)
+                setattr(identity, name, value)
                 origin[name] = FROM_PATTERN
                 detail[name] = f"'{hit.strip()}' found in the path"
+                if value != hit.strip():
+                    detail[name] += f", read as '{value}'"
                 continue
             origin[name] = NOT_FOUND
             detail[name] = "the pattern found nothing in this path"

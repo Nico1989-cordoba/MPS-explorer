@@ -64,6 +64,9 @@ class PreparedRun:
     fail: Callable[[BaseException], None] = lambda _exc: None
     gates: Sequence[GateSpec] = field(default_factory=tuple)
     words: str = "the analysis"
+    # Seconds the clustering is expected to take (tools.method_costs, a lower bound): the bar moves through the
+    # clustering's share by this clock, because a method such as OPTICS has one step and no count to report.
+    clustering_estimate_s: float = 0.0
 
 
 class _Question:
@@ -113,6 +116,9 @@ class AnalysisWorker(QtCore.QThread):
         self.cancelled = False
         # F4: where the run is (tools.mps_progress words), read by the GUI thread at each tick (a str: atomic).
         self.stage = ""
+        # F4+: the last check point (where, done, total) and when it was reached, for the bar and the estimate.
+        self.point: Tuple[str, Optional[int], Optional[int]] = ("", None, None)
+        self.point_t = time.monotonic()
         self.question.connect(self._answer)           # the worker object lives in the GUI thread: queued
 
     def run(self) -> None:
@@ -130,6 +136,11 @@ class AnalysisWorker(QtCore.QThread):
     def _observe(self, where: str, done: Optional[int], total: Optional[int]) -> None:
         """Worker thread: remember the stage's words (tools.mps_progress); the tick shows them."""
         self.stage = mps_progress.file_fraction(where, done, total)[1]
+        if mps_progress.file_fraction(where, done, total)[0] is None:
+            return                                      # a point with no share (a question): keep the last one
+        if where != self.point[0]:
+            self.point_t = time.monotonic()
+        self.point = (where, done, total)
 
     def _answer(self, q: "_Question") -> None:
         """GUI thread: ask the real gate, unless the run was cancelled meanwhile."""
@@ -186,6 +197,7 @@ class BackgroundRun(QtCore.QObject):
 
     ended = QtCore.pyqtSignal(str, object, str)
     tick = QtCore.pyqtSignal(str)                    # the progress line, every second
+    progress = QtCore.pyqtSignal(float)              # the share done in [0, 1], every second; -1: not known yet
 
     def __init__(self, prepared: PreparedRun, parent: Optional[QtCore.QObject] = None) -> None:
         super().__init__(parent)
@@ -227,17 +239,37 @@ class BackgroundRun(QtCore.QObject):
     def elapsed_s(self) -> float:
         return time.monotonic() - self.t0 if self.t0 else 0.0
 
+    def fraction(self) -> float:
+        """The share of the run done (-1 before the first check point). The stages' shares are
+        ``tools.mps_progress.STAGES`` [ad hoc]; inside a stage with no count the clustering's estimated seconds
+        move it (never past 95 % of the stage: the estimate is a lower bound)."""
+        w = self.worker
+        if w is None or not w.point[0]:
+            return -1.0
+        where, done, total = w.point
+        frac, _words = mps_progress.file_fraction(where, done, total)
+        if frac is None:
+            return -1.0
+        stage = mps_progress.STAGES.get(where)
+        est = float(self.prepared.clustering_estimate_s or 0.0)
+        if stage is not None and done is None and est > 0.0 and stage[1] < stage[2] and "clustering" in stage[0]:
+            frac = stage[1] + (stage[2] - stage[1]) * min(0.95, (time.monotonic() - w.point_t) / est)
+        return min(max(frac, 0.0), 1.0)
+
     def line(self) -> str:
         t = elapsed_words(self.elapsed_s())
         if self.cancelled():
             return (f"Cancelling {self.prepared.words}... (elapsed {t}): it stops at its next check; the step "
                     f"running finishes first. Its result will not be used.")
         stage = "" if self.worker is None else str(self.worker.stage)
-        return f"Running {self.prepared.words}... (elapsed {t})" + (f": {stage}" if stage else "")
+        eta = mps_progress.eta_words(max(self.fraction(), 0.0), self.elapsed_s())
+        return (f"Running {self.prepared.words}... (elapsed {t}" + (f", {eta}" if eta else "") + ")"
+                + (f": {stage}" if stage else ""))
 
     # -- the worker's signals (GUI thread) -------------------------------------------
     def _on_tick(self) -> None:
         self.tick.emit(self.line())
+        self.progress.emit(self.fraction())
 
     def _on_succeeded(self, result: Any) -> None:
         if self.cancelled():
@@ -276,7 +308,7 @@ class RunProgress(QtWidgets.QFrame):
         self.label.setWordWrap(True)
         self.bar = QtWidgets.QProgressBar()
         self.bar.setObjectName("mps_run_progress_bar")
-        self.bar.setRange(0, 0)                        # indeterminate: the analysis has no step count to show
+        self.bar.setRange(0, 0)                        # moving until the first check point says where the run is
         self.bar.setMaximumWidth(180)
         self.bar.setTextVisible(False)
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
@@ -290,6 +322,17 @@ class RunProgress(QtWidgets.QFrame):
         lay.addWidget(self.label, 1)
         lay.addWidget(self.btn_cancel)
         self.setVisible(False)
+
+    def set_fraction(self, fraction: float) -> None:
+        """A bar with a percentage once the run says where it is; moving (busy) before that."""
+        if fraction < 0.0:
+            self.bar.setRange(0, 0)
+            self.bar.setTextVisible(False)
+            return
+        self.bar.setRange(0, 1000)
+        self.bar.setValue(int(round(1000 * min(fraction, 1.0))))
+        self.bar.setTextVisible(True)
+        self.bar.setFormat("%p%")
 
     def show_line(self, text: str, cancelling: bool = False) -> None:
         self.label.setText(text)

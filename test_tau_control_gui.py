@@ -109,15 +109,28 @@ def normalize_text(text: Any, work: str) -> str:
     return s
 
 
+_FLOAT_TEXT = re.compile(r"^-?\d+\.\d+(?:[eE][+-]?\d+)?$")
+
+
+def _round_float_text(s: str) -> str:
+    """A decimal written by the export, to 9 significant digits. Exports write repr(float); the last digits of a
+    sum of thousands of terms depend on the BLAS/numpy build that ran it (1e-13 relative), so a golden that hashed
+    them exactly failed on any other build with no change in the program. The rounded value is written back with
+    repr(float), the export's own format, so a decimal that needs no rounding keeps its text ("31.0" stays "31.0",
+    not the "31" of :g) and test_tau_control.py can compare the golden with what the module writes."""
+    return repr(float(f"{float(s):.9g}")) if _FLOAT_TEXT.match(s) else s
+
+
 def normalize_row(row: Dict[str, Any], work: str) -> Dict[str, str]:
-    """An exported row (decisions or results): exported_at and run_seconds dropped, source -> basename."""
+    """An exported row (decisions or results): exported_at and run_seconds dropped, source -> basename, decimals
+    to 9 significant digits."""
     out: Dict[str, str] = {}
     for k, v in row.items():
         if k in DROP_EXPORT:
             continue
         if k == "source":
             v = os.path.basename(str(v or "").replace("\\", "/"))
-        out[k] = normalize_text(v, work)
+        out[k] = _round_float_text(normalize_text(v, work))
     return out
 
 

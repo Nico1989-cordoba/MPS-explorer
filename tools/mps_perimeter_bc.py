@@ -5,7 +5,7 @@ Two owners share this file: P5 writes the C group, P6 the B group (P6 merges aft
 """
 from __future__ import annotations
 
-from typing import Dict, Sequence, Tuple
+from typing import Dict, NamedTuple, Sequence, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -497,6 +497,32 @@ LEAK_SIGMA_Z_V21_NM: Tuple[float, ...] = LEAK_SIGMA_Z_RANGE_NM
 LEAK_SIGMA_Z_ALL_NM: Tuple[float, ...] = LEAK_SIGMA_Z_NM + LEAK_SIGMA_Z_V21_NM
 
 
+class LeakWidths(NamedTuple):
+    """The axial widths the leak of C is read against: ``main`` (and its ``lo``-``hi`` uncertainty) and the fixed
+    ``upper`` bound. ``source`` is ``SIGMA_Z_SOURCE_PILOT`` (the pilot's 47 nm, 36-51 nm) or
+    ``SIGMA_Z_SOURCE_MEASURED`` (measured in the file itself, ``tools.mps_axial_sigma``)."""
+
+    lo: float
+    main: float
+    hi: float
+    upper: float
+    source: str
+
+
+SIGMA_Z_SOURCE_PILOT: str = "pilot 47"
+SIGMA_Z_SOURCE_MEASURED: str = "measured"
+
+
+def pilot_widths() -> LeakWidths:
+    return LeakWidths(LEAK_SIGMA_Z_RANGE_NM[0], LEAK_SIGMA_Z_MAIN_NM, LEAK_SIGMA_Z_RANGE_NM[1],
+                      LEAK_SIGMA_Z_UPPER_NM, SIGMA_Z_SOURCE_PILOT)
+
+
+def measured_widths(lo: float, main: float, hi: float) -> LeakWidths:
+    """Widths of a file whose sigma_z was measured; the upper bound stays the rings' 77 nm."""
+    return LeakWidths(float(lo), float(main), float(hi), LEAK_SIGMA_Z_UPPER_NM, SIGMA_Z_SOURCE_MEASURED)
+
+
 def _leak_mass(sigma_z_nm: float, thickness_nm: float, lo: float, hi: float) -> float:
     """Fraction of molecules at a depth uniform in [0, T] whose observed z (Gaussian error sd sigma) falls in
     [lo, hi]; trapezoid over 1201 depths, as ``_leak_fractions``."""
@@ -586,40 +612,73 @@ def leak_expected_r_pairs(n_locs: Sequence[float], sigma_z_nm: float, thickness_
 
 
 # Reading of r(-1, +1) against the expected leak of the pair (``m1_p1_vs_leak``; v21 vocabulary, 2026-11-17).
-VS_LEAK_ABOVE_UPPER: str = "above the leak (sigma_z 47 nm, range 36-51 nm) and above its upper bound (77 nm)"
-VS_LEAK_ABOVE: str = "above the leak (sigma_z 47 nm, range 36-51 nm); within the upper bound (77 nm)"
-VS_LEAK_WITHIN_RANGE: str = "above the leak at sigma_z 47 nm, within its range (not above 51 nm)"
-VS_LEAK_LIMIT: str = "at the limit: above the leak at sigma_z 36 nm, not at 47 nm"
-VS_LEAK_NOT_ABOVE: str = "not above the leak (not even at sigma_z 36 nm)"
+_VS_TEMPLATES: Dict[str, str] = {
+    "above_upper": "above the leak (sigma_z {main} nm, range {lo}-{hi} nm) and above its upper bound ({upper} nm)",
+    "above": "above the leak (sigma_z {main} nm, range {lo}-{hi} nm); within the upper bound ({upper} nm)",
+    "range": "above the leak at sigma_z {main} nm, within its range (not above {hi} nm)",
+    "limit": "at the limit: above the leak at sigma_z {lo} nm, not at {main} nm",
+    "not_above": "not above the leak (not even at sigma_z {lo} nm)",
+}
+
+
+def vs_leak_text(kind: str, widths: Optional["LeakWidths"] = None) -> str:
+    """The vocabulary of ``m1_p1_vs_leak`` with the widths in use (the pilot's 36 / 47 / 51 / 77 nm by default)."""
+    w = widths or pilot_widths()
+    return _VS_TEMPLATES[kind].format(lo=f"{w.lo:.0f}", main=f"{w.main:.0f}", hi=f"{w.hi:.0f}", upper=f"{w.upper:.0f}")
+
+
+VS_LEAK_ABOVE_UPPER: str = vs_leak_text("above_upper")
+VS_LEAK_ABOVE: str = vs_leak_text("above")
+VS_LEAK_WITHIN_RANGE: str = vs_leak_text("range")
+VS_LEAK_LIMIT: str = vs_leak_text("limit")
+VS_LEAK_NOT_ABOVE: str = vs_leak_text("not_above")
+
+
+def vs_leak_kind(label: Optional[str]) -> str:
+    """Which of the five readings a label is, whatever widths its numbers carry ("" when it is none)."""
+    t = label or ""
+    if t.startswith("not above the leak"):
+        return "not_above"
+    if t.startswith("at the limit"):
+        return "limit"
+    if t.startswith("above the leak at sigma_z"):
+        return "range"
+    if t.startswith("above the leak (sigma_z"):
+        return "above_upper" if "and above its upper bound" in t else "above"
+    return ""
+
+
 VS_LEAK_VALUES: Tuple[str, ...] = (VS_LEAK_ABOVE_UPPER, VS_LEAK_ABOVE, VS_LEAK_WITHIN_RANGE, VS_LEAK_LIMIT,
                                    VS_LEAK_NOT_ABOVE)
 
 
-def m1_p1_vs_leak(r_m1_p1: Optional[float], leak_by_width: Dict[float, float]) -> Optional[str]:
+def m1_p1_vs_leak(r_m1_p1: Optional[float], leak_by_width: Dict[float, float],
+                  widths: Optional[LeakWidths] = None) -> Optional[str]:
     """r(-1, +1) observed against the leak expected for the pair (``leak_expected_r_pairs``) at the main width
-    (47 nm), its measured range (36-51 nm) and the upper bound (77 nm): one of ``VS_LEAK_VALUES``, from "above the
-    leak ... and above its upper bound" down to "not above the leak (not even at sigma_z 36 nm)"; "at the limit"
-    = above the 36 nm leak but not the 47 nm one. None when r or one of the four leaks is missing. The leak is a
-    noise-free upper bound, so "above" is the conservative side. It says nothing about significance
-    (``pd_c_p_m1_p1``)."""
+    (47 nm in the pilot), its range (36-51 nm) and the upper bound (77 nm): one of ``VS_LEAK_VALUES``, from "above
+    the leak ... and above its upper bound" down to "not above the leak (not even at the lowest width)"; "at the
+    limit" = above the low-end leak but not the main one. ``widths`` (default: the pilot's) are the ones the
+    ``leak_by_width`` keys hold; a file whose sigma_z was measured passes its own and the label carries its numbers.
+    None when r or one of the four leaks is missing. The leak is a noise-free upper bound, so "above" is the
+    conservative side. It says nothing about significance (``pd_c_p_m1_p1``)."""
+    w = widths or pilot_widths()
     try:
         r = float(r_m1_p1) if r_m1_p1 is not None else float("nan")
     except (TypeError, ValueError):
         return None
-    lk = [float(leak_by_width.get(sz, float("nan"))) for sz in
-          (LEAK_SIGMA_Z_RANGE_NM[0], LEAK_SIGMA_Z_MAIN_NM, LEAK_SIGMA_Z_RANGE_NM[1], LEAK_SIGMA_Z_UPPER_NM)]
+    lk = [float(leak_by_width.get(sz, float("nan"))) for sz in (w.lo, w.main, w.hi, w.upper)]
     if not (math.isfinite(r) and all(math.isfinite(v) for v in lk)):
         return None
-    l36, l47, l51, l77 = lk
-    if r > max(l36, l47, l51, l77):
-        return VS_LEAK_ABOVE_UPPER
-    if r > max(l36, l47, l51):
-        return VS_LEAK_ABOVE
-    if r > max(l36, l47):
-        return VS_LEAK_WITHIN_RANGE
-    if r > l36:
-        return VS_LEAK_LIMIT
-    return VS_LEAK_NOT_ABOVE
+    l_lo, l_main, l_hi, l_up = lk
+    if r > max(l_lo, l_main, l_hi, l_up):
+        return vs_leak_text("above_upper", w)
+    if r > max(l_lo, l_main, l_hi):
+        return vs_leak_text("above", w)
+    if r > max(l_lo, l_main):
+        return vs_leak_text("range", w)
+    if r > l_lo:
+        return vs_leak_text("limit", w)
+    return vs_leak_text("not_above", w)
 
 
 def slice_reading(c: Dict[Tuple[int, int], TestReadout], expected_leak_r: float, *,
@@ -683,7 +742,8 @@ def slice_reading_pairs(c: Dict[Tuple[int, int], TestReadout], leak_by_pair: Dic
 
 def slice_reading_real_fractions(c: Dict[Tuple[int, int], TestReadout],
                                  leaks_by_width: Dict[float, Dict[Tuple[int, int], float]], *,
-                                 alpha: float = ALPHA, tol: float = LEAK_TOLERANCE) -> str:
+                                 alpha: float = ALPHA, tol: float = LEAK_TOLERANCE,
+                                 widths: Optional[LeakWidths] = None) -> str:
     """
     The per-axon reading of C (``pd_c_reading``, user's decisions 2026-11-17): the neighbouring pairs are compared
     with the leak expected from the axon's OWN slice fractions (``leak_expected_r_pairs``), not with the leak of
@@ -693,16 +753,17 @@ def slice_reading_real_fractions(c: Dict[Tuple[int, int], TestReadout],
     " (within the measured range of sigma_z 36-51 nm: <reading> at 36 nm[; <reading> at 51 nm])". The 77 nm upper
     bound (it holds the rings' physical thickness) does not enter the reading. The leak is noise-free (an upper bound)
     and assumes the observed fractions are the true masses, which can underestimate it when a lateral slice is mostly
-    leak (``leak_expected_r_pairs``).
+    leak (``leak_expected_r_pairs``). ``widths`` (default: the pilot's) replace 47 and 36-51 nm when the file's own
+    sigma_z was measured; the label then carries those numbers.
     """
+    w = widths or pilot_widths()
     nan_pairs: Dict[Tuple[int, int], float] = {pair: float("nan") for pair in _PAIRS}
-    main = slice_reading_pairs(c, leaks_by_width.get(LEAK_SIGMA_Z_MAIN_NM, nan_pairs), alpha=alpha, tol=tol)
+    main = slice_reading_pairs(c, leaks_by_width.get(w.main, nan_pairs), alpha=alpha, tol=tol)
     other = []
-    for sz in LEAK_SIGMA_Z_RANGE_NM:
+    for sz in (w.lo, w.hi):
         rd = slice_reading_pairs(c, leaks_by_width.get(sz, nan_pairs), alpha=alpha, tol=tol)
         if rd != main:
-            other.append(f"{rd} at {sz:g} nm")
+            other.append(f"{rd} at {sz:.0f} nm")
     if not other:
         return main
-    lo, hi = LEAK_SIGMA_Z_RANGE_NM
-    return f"{main} (within the measured range of sigma_z {lo:g}-{hi:g} nm: {'; '.join(other)})"
+    return f"{main} (within the measured range of sigma_z {w.lo:.0f}-{w.hi:.0f} nm: {'; '.join(other)})"

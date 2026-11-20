@@ -5,7 +5,7 @@ The analysis window's "Working scale" panel, its "Perimeter arrangement" tab and
 
 * :class:`WorkingScalePanel` -- the distances below which this file's pipeline cannot tell two objects apart
   (``tools.mps_working_scale``: eps, min samples, NeNA, fusion, d50, slab), each with its origin; the editable
-  c_label (14 [lit: Dempsey et al. 2011, MEA; provisional]); the DBSCAN rule of this file beside 25/10 (D2), and the
+  c_label (14 [lit: Dempsey et al. 2011, MEA, per fluorophore on glass; provisional]); the DBSCAN rule of this file beside 25/10 (D2), and the
   double table "25/10 vs rule" once 'Compare methods...' ran them.
 * :class:`ArrangementPanel` -- "Null (per axon)": the per-axon pipeline null of every method compared (DBSCAN 25/10
   always, the method shown, and the methods of the last comparison), each re-running ITS method, in a worker thread
@@ -33,7 +33,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tupl
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 from tools import clustering_integration as ci
 from tools.method_costs import method_label, words_seconds
@@ -491,6 +491,10 @@ LEG_BAND = "Null 95 % band (shade, guide only)"
 # G2 (user decision 2026-11-07): which null a regularity band comes from, said on screen and in the exported image.
 BAND_PIPELINE = "pipeline null, B = {n}"
 BAND_CENTRES = "approx., centres"
+READING_TIP = ("Descriptive only: a simulated full lattice reads 'lattice' in 4 of 12 axons, 'periodic' in 8. "
+               "Group type: Batch z. docs/regularity.md")
+CENTRES_READING_TIP = ("K centres at random with hard core 2 x median r_eff, until the pipeline null runs; then the "
+                       "bands come from it (G2).")
 
 
 def band_label(source: str) -> str:
@@ -543,14 +547,88 @@ def regularity_legend_entries(dark: bool = True, source: str = "") -> List[Tuple
 CORNER_LEGEND_ONE_COLUMN = 5
 
 
+# Axis text and padding of the panel's plots (manual test: small type, empty margins) [ad hoc].
+PLOT_TICK_PT = 9
+PLOT_LABEL_PT = "10pt"
+
+
+def tidy_plot(plot: Any) -> None:
+    """Bigger axis type and tighter margins for one PlotWidget: nothing drawn, no number changes. Call after
+    ``setLabels``."""
+    item = plot.getPlotItem() if hasattr(plot, "getPlotItem") else plot
+    font = QtGui.QFont()
+    font.setPointSize(PLOT_TICK_PT)
+    for side in ("left", "bottom"):
+        axis = item.getAxis(side)
+        axis.setStyle(tickFont=font)
+        if getattr(axis, "labelText", ""):
+            axis.setLabel(axis.labelText, axis.labelUnits, **{"font-size": PLOT_LABEL_PT})
+    try:
+        item.layout.setContentsMargins(2, 2, 6, 2)
+        item.getViewBox().setDefaultPadding(0.02)
+    except Exception:  # noqa: BLE001 - cosmetic only
+        pass
+
+
+# Share of the plot the legend box is taken to cover when the freest corner is chosen [ad hoc].
+LEGEND_BOX_WIDTH_SHARE = 0.45
+LEGEND_ROW_HEIGHT_SHARE = 0.075
+_LEGEND_CORNERS: Tuple[Tuple[str, Tuple[int, int]], ...] = (
+    ("top-right", (-4, 4)), ("top-left", (4, 4)), ("bottom-right", (-4, -4)), ("bottom-left", (4, -4)))
+
+
+def free_legend_corner(plot: Any, n_rows: int) -> Tuple[int, int]:
+    """The offset of the plot's corner where a legend of ``n_rows`` rows covers the fewest drawn points (the top
+    right on a tie, where it always was). The data are read off the plot's own curves, so nothing is drawn."""
+    xs: List[Any] = []
+    ys: List[Any] = []
+    try:
+        items = list(plot.getPlotItem().listDataItems())
+    except Exception:  # noqa: BLE001 - no curves to avoid: the default corner
+        items = []
+    for it in items:
+        try:
+            x, y = it.getData()
+        except Exception:  # noqa: BLE001
+            continue
+        if x is None or y is None:
+            continue
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+        k = np.isfinite(x) & np.isfinite(y)
+        xs.append(x[k])
+        ys.append(y[k])
+    if not xs:
+        return _LEGEND_CORNERS[0][1]
+    x = np.concatenate(xs)
+    y = np.concatenate(ys)
+    if x.size == 0 or not (np.ptp(x) > 0 and np.ptp(y) > 0):
+        return _LEGEND_CORNERS[0][1]
+    u = (x - x.min()) / np.ptp(x)
+    v = (y - y.min()) / np.ptp(y)
+    w = LEGEND_BOX_WIDTH_SHARE
+    h = min(0.9, 0.04 + LEGEND_ROW_HEIGHT_SHARE * max(int(n_rows), 1))
+    best, best_n = _LEGEND_CORNERS[0][1], None
+    for _name, off in _LEGEND_CORNERS:
+        in_x = (u >= 1.0 - w) if off[0] < 0 else (u <= w)
+        in_y = (v >= 1.0 - h) if off[1] > 0 else (v <= h)
+        n = int(np.count_nonzero(in_x & in_y))
+        if best_n is None or n < best_n:
+            best, best_n = off, n
+    return best
+
+
 def corner_legend(plot: Any, entries: Sequence[Tuple[str, Any]], dark: bool = True) -> Any:
-    """A compact legend in the plot's top-right corner on a semi-transparent box (the data stay readable under
-    it), in the theme's colours. Returns the LegendItem."""
+    """A compact legend in the plot's freest corner (the top right unless the curves run there: it never sits on
+    them) on a semi-transparent box (the data stay readable under it), in the theme's colours. Returns the
+    LegendItem."""
     text = "#ffffff" if dark else "#000000"
     fill = (0, 0, 0, 150) if dark else (255, 255, 255, 190)
-    leg = pg.LegendItem(offset=(-4, 4), labelTextColor=text, brush=pg.mkBrush(*fill), pen=pg.mkPen(text, width=0.5),
-                        labelTextSize="7pt", verSpacing=-6,
-                        colCount=2 if len(entries) > CORNER_LEGEND_ONE_COLUMN else 1)
+    rows = len(entries)
+    n_cols = 2 if rows > CORNER_LEGEND_ONE_COLUMN else 1
+    leg = pg.LegendItem(offset=free_legend_corner(plot, (rows + n_cols - 1) // n_cols), labelTextColor=text,
+                        brush=pg.mkBrush(*fill), pen=pg.mkPen(text, width=0.5),
+                        labelTextSize="9pt", verSpacing=-6, colCount=n_cols)
     leg.setParentItem(plot.getPlotItem().vb)
     for label, sample in entries:
         leg.addItem(sample, label)
@@ -607,6 +685,7 @@ class ArrangementPanel(QtWidgets.QWidget):
         self.analysis: Any = None
         self.runs: List[Any] = []                      # MethodRun: the shown analysis + the last comparison's
         self.outcomes: Dict[str, ci.NullOutcome] = {}
+        self._saved_as_notes: List[str] = []
         self.nena_nm: Optional[float] = None
         self.c_label: float = 14.0
         self._worker: Optional[NullWorker] = None
@@ -664,7 +743,7 @@ class ArrangementPanel(QtWidgets.QWidget):
         self.btn_synth.setEnabled(False)
         self.btn_synth.clicked.connect(self._on_synth_clicked)
         top.addWidget(self.btn_synth)
-        self.btn_export = QtWidgets.QPushButton("Export curves...")
+        self.btn_export = QtWidgets.QPushButton("Save curves...")
         self.btn_export.setObjectName("btn_null_export")
         self.btn_export.setToolTip("Write the H1 / H2 curves (observed, null median, pointwise envelope) and the "
                                    "summary table of the methods to CSV files (never over an existing file).")
@@ -736,6 +815,7 @@ class ArrangementPanel(QtWidgets.QWidget):
             style_dark(p)
             set_title(p, title)
             p.setLabels(bottom="r [nm]", left="H(r) [nm]")
+            tidy_plot(p)
             p.setToolTip(GLOBAL_TIP)
             hl.addWidget(p)
         hw = QtWidgets.QWidget()
@@ -765,6 +845,7 @@ class ArrangementPanel(QtWidgets.QWidget):
             style_dark(p)
             set_title(p, title)
             p.setLabels(bottom=bottom)
+            tidy_plot(p)
             p.setToolTip("Observed (line) against the pipeline null's pointwise 2.5-97.5 % band (shade) and median "
                          "(dashed): for the eye only; the reading above is the test (docs/regularity.md).")
             row.addWidget(p)
@@ -850,7 +931,8 @@ class ArrangementPanel(QtWidgets.QWidget):
     def _on_export_clicked(self) -> None:
         out = self.export_curves()
         if out:
-            self.banner.setText("Written: " + ", ".join(out.values()))
+            self.banner.setText("Written: " + ", ".join(out.values())
+                                + ("\n" + "\n".join(self._saved_as_notes) if self._saved_as_notes else ""))
 
     def figure_plots(self) -> Dict[str, Any]:
         """The plots 'Export image...' of the analysis window offers (F6: title, legend, white, never overwritten)."""
@@ -1095,8 +1177,10 @@ class ArrangementPanel(QtWidgets.QWidget):
                 v = row.get(name)
                 item = QtWidgets.QTableWidgetItem(v if isinstance(v, str) else _fmt(v))
                 if name == "reading" and isinstance(v, str):
-                    item.setToolTip(self.outcomes[key].gap.reading.sentence if self.outcomes[key].gap is not None
-                                    else v)
+                    if v in ci.READING_LABELS:
+                        item.setText(ci.reading_label(v, self._language()))
+                    item.setToolTip((self.outcomes[key].gap.reading.sentence if self.outcomes[key].gap is not None
+                                     else v) + f" [{v}]")
                 self.table.setItem(r, c, item)
         for key, why in getattr(self, "excluded", []):
             if key in self.outcomes:
@@ -1283,24 +1367,54 @@ class ArrangementPanel(QtWidgets.QWidget):
         set_title(plot, dark=self.dark, text=f"{tag}: global p = {_fmt(env.p_global)} (B = {env.n_sim}); r* = {_fmt(env.r_star, '.0f')} nm, "
                         f"h_max = {_fmt(env.h_max, '+.3g')} nm{note}")
 
+    def _language(self) -> str:
+        """The programme's ES / EN switch (the tour controller of the main window); Spanish when there is none."""
+        w: Any = self
+        while w is not None:
+            tour = getattr(w, "tour", None)
+            if tour is not None and hasattr(tour, "language"):
+                try:
+                    return str(tour.language())
+                except Exception:  # noqa: BLE001
+                    break
+            w = w.parent() if hasattr(w, "parent") else None
+        return "es"
+
+    def _edge_warning_text(self, an: Any) -> str:
+        """The coloured warning for the two ways the ROI edge biases the reading: clusters removed at the edge, or
+        the edge criterion switched off by the guard (ROI hugging the whole ring). Empty when neither."""
+        if an is None:
+            return ""
+        parts = []
+        note = ci.edge_note(an)
+        if note:
+            parts.append(f" WARNING: {ci.EDGE_WARNING} ({note}).")
+        why = ci.edge_disabled_note(an)
+        if why:
+            lang = self._language()
+            parts.append(" " + ci.EDGE_DISABLED_WARNING[lang].format(why=ci.EDGE_DISABLED_SHORT[lang]))
+        return "".join(parts)
+
     def _draw_regularity(self, o: ci.NullOutcome) -> None:
         from tools import mps_gap_measures as gm
         an = self.analysis if (self.runs and o.key == self.runs[0].key) else next(
             (r.analysis for r in self.runs if r.key == o.key), None)
         gap = o.gap
         note = "" if an is None else ci.edge_note(an)
+        warning = self._edge_warning_text(an)
         if gap is None:
-            self.lbl_reading.setText("Regularity: not computed. " + note)
+            self.lbl_reading.setText("Regularity: not computed. " + note + warning)
+            self.lbl_reading.setStyleSheet(f"color: {verdict('warn', dark=False)};" if warning else "")
             return
         el = gap.elongation
-        mark = ("" if el is None else f" Merged-looking clusters (elongated beyond the null's 95th percentile): "
-                f"{el.n_elongated}, the null itself gives {_fmt(el.expected_under_null)} -- a mark, never split.")
+        mark = ("" if el is None else f" Merged-looking (elongated) clusters: {el.n_elongated} "
+                f"(null: {_fmt(el.expected_under_null)}); a mark, never split.")
         # G4 / G5 (user decisions 2026-11-07): the per-axon label is descriptive; a visible warning when the edge
         # curation removed clusters
-        edge = (f" WARNING: {ci.EDGE_WARNING} ({note}).") if note else ""
-        self.lbl_reading.setText(gap.reading.sentence + mark + f" Note: {ci.LATTICE_WORDS}; the type of a group's "
-                                 "regularity is read from the per-animal z in the Batch (G4)." + edge)
-        self.lbl_reading.setStyleSheet(f"color: {verdict('warn', dark=False)};" if note else "")
+        edge = warning
+        self.lbl_reading.setText(gap.reading.sentence + mark + " (descriptive only: hover for why)." + edge)
+        self.lbl_reading.setToolTip(READING_TIP)
+        self.lbl_reading.setStyleSheet(f"color: {verdict('warn', dark=False)};" if warning else "")
         if an is None or getattr(an, "perimeter", None) is None:
             return
         s, length, _m = gm.axon_arcs(an)
@@ -1313,7 +1427,7 @@ class ArrangementPanel(QtWidgets.QWidget):
             # the null kept no arcs (an older null): the centres-level band, labelled so (G2)
             self._draw_centres_preview(s, length)
             return
-        self._draw_bands(s, length, bands, f"reading {gap.reading.level}")
+        self._draw_bands(s, length, bands, ci.reading_label(gap.reading.level, self._language()))
 
     def _draw_centres_preview(self, s: Any = None, length: Optional[float] = None) -> None:
         """G2: the regularity plots of the analysis shown against the CENTRES-level null (sequential inhibition of
@@ -1339,12 +1453,10 @@ class ArrangementPanel(QtWidgets.QWidget):
         self.band_source = BAND_CENTRES
         self._draw_bands(np.asarray(s, dtype=float), float(length), bands, "before the null")
         if not self.lbl_reading.text():
-            note = "" if an is None else ci.edge_note(an)
-            self.lbl_reading.setText("Regularity bands: approx., centres (the K centres at random with the contact "
-                                     "hard core 2 x median r_eff) until the pipeline null runs; then they come "
-                                     "from the same null as the p of stage 2 (decision G2)."
-                                     + (f" WARNING: {ci.EDGE_WARNING} ({note})." if note else ""))
-            self.lbl_reading.setStyleSheet(f"color: {verdict('warn', dark=False)};" if note else "")
+            warning = self._edge_warning_text(an)
+            self.lbl_reading.setToolTip(CENTRES_READING_TIP)
+            self.lbl_reading.setText("Regularity bands: approx., centres (until the pipeline null runs)." + warning)
+            self.lbl_reading.setStyleSheet(f"color: {verdict('warn', dark=False)};" if warning else "")
 
     def _draw_bands(self, s: Any, length: float, bands: Dict[str, Any], what: str) -> None:
         from tools import mps_gap_measures as gm
@@ -1403,7 +1515,8 @@ class ArrangementPanel(QtWidgets.QWidget):
                                                             "CSV (*.csv)")
             if not path:
                 return {}
-        stem = path[:-4] if path.lower().endswith(".csv") else path
+        from tools.results_table import saved_as_notes
+        stem = path[:-4] if path.lower().endswith(".csv") else path     # every file takes the name chosen
         rows = o.result.ripley_rows()
         cols: List[str] = []
         for r in rows:
@@ -1431,6 +1544,9 @@ class ArrangementPanel(QtWidgets.QWidget):
         cmp_rows = ci.closure_comparison_rows(self.outcomes)
         if cmp_rows:
             out["closures"] = mm.write_rows_csv(stem + "_closures_compared.csv", cmp_rows, list(cmp_rows[0]))
+        expected = {"ripley": stem + "_ripley.csv", "nulls": stem + "_nulls.csv",
+                    "by_closure": stem + "_null_by_closure.csv", "closures": stem + "_closures_compared.csv"}
+        self._saved_as_notes = saved_as_notes(expected, out)             # a taken name is said, not changed in silence
         return out
 
     def _on_compare_closures(self) -> None:
@@ -1508,6 +1624,7 @@ class ClosureComparisonDialog(QtWidgets.QDialog):
         for p in (self.plot_h1, self.plot_h2):
             style_dark(p)
             p.setLabels(bottom="r [nm]", left="H(r) [nm]")
+            tidy_plot(p)
             p.setMinimumHeight(200)
             plots.addWidget(p)
         lay.addLayout(plots, 2)
@@ -1516,10 +1633,25 @@ class ClosureComparisonDialog(QtWidgets.QDialog):
         lay.addWidget(close)
         self.draw()
 
+    # One stroke per curve (colour from the verified palette, shape and thickness apart so they read in grey too).
+    @staticmethod
+    def closure_pen(word: str, what: str) -> Any:
+        """The pen of the N_loc / K closure's ``median`` or ``envelope`` curve."""
+        colour = role("summary") if word == "N_loc" else role("randomized")
+        qt = QtCore.Qt.PenStyle
+        style, width = {("N_loc", "median"): (qt.DashLine, 3.0), ("N_loc", "envelope"): (qt.DotLine, 3.0),
+                        ("K", "median"): (qt.DashDotLine, 1.5), ("K", "envelope"): (qt.DashDotDotLine, 1.5)}[
+            (word, what)]
+        return pg.mkPen(colour, width=width, style=style)
+
     def legend_entries(self) -> List[Tuple[str, Any]]:
-        return [(LEG_OBSERVED, _legend_line(role("observed"), 2.0)),
-                ("N_loc closure: median (dashed) and global envelope (dotted)", _legend_line(role("summary"), 1.5)),
-                ("K closure: median (dashed) and global envelope (dotted)", _legend_line(role("randomized"), 1.5))]
+        return [(LEG_OBSERVED, _legend_line(role("observed"), 2.5)),
+                ("N_loc closure: median (thick dashes)", pg.PlotDataItem(pen=self.closure_pen("N_loc", "median"))),
+                ("N_loc closure: global envelope (thick dots)",
+                 pg.PlotDataItem(pen=self.closure_pen("N_loc", "envelope"))),
+                ("K closure: median (thin dash-dot)", pg.PlotDataItem(pen=self.closure_pen("K", "median"))),
+                ("K closure: global envelope (thin dash-dot-dot)",
+                 pg.PlotDataItem(pen=self.closure_pen("K", "envelope")))]
 
     def draw(self) -> None:
         i = self.combo.currentIndex()
@@ -1530,23 +1662,23 @@ class ClosureComparisonDialog(QtWidgets.QDialog):
             plot.clear()
             titles = []
             obs_done = False
-            for o, colour, word in ((a, role("summary"), "N_loc"), (b, role("randomized"), "K")):
+            for o, word in ((a, "N_loc"), (b, "K")):
                 env = getattr(o.result, tag, None) if o.ok else None
                 if env is None:
                     titles.append(f"{word}: no curve")
                     continue
                 r = np.asarray(env.r, dtype=float)
                 if not obs_done and env.observed is not None:
-                    plot.plot(r, np.asarray(env.observed, dtype=float), pen=pg.mkPen(role("observed"), width=2),
+                    plot.plot(r, np.asarray(env.observed, dtype=float), pen=pg.mkPen(role("observed"), width=2.5),
                               connect="finite")
                     obs_done = True
                 if env.median is not None:
-                    plot.plot(r, np.asarray(env.median, dtype=float),
-                              pen=pg.mkPen(colour, width=1, style=QtCore.Qt.PenStyle.DashLine), connect="finite")
+                    plot.plot(r, np.asarray(env.median, dtype=float), pen=self.closure_pen(word, "median"),
+                              connect="finite")
                 for y in (env.global_lo, env.global_hi):
                     if y is not None:
-                        plot.plot(r, np.asarray(y, dtype=float),
-                                  pen=pg.mkPen(colour, width=1.5, style=QtCore.Qt.PenStyle.DotLine), connect="finite")
+                        plot.plot(r, np.asarray(y, dtype=float), pen=self.closure_pen(word, "envelope"),
+                                  connect="finite")
                 titles.append(f"{word} p = {_fmt(env.p_global)}")
             set_title(plot, f"{key}: {tag.upper()} -- " + "; ".join(titles))
             plot.legend_box = corner_legend(plot, self.legend_entries(), True)

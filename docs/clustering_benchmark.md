@@ -35,8 +35,8 @@ Taken from the design of the project's clustering simulation; every value is lab
 | Close pairs or oligomers | 15 % of molecules with a neighbour at U(30, 60) nm of arc | ad hoc |
 | Epitopes per molecule | 2, separated U(5, 10) nm | inference from the tetramer structure (review §3.1) |
 | Labelling probability per epitope | 0.5 and 1.0 in the presets (`Scenario` default 0.6) | ad hoc |
-| Linkage error (primary + secondary) | N(0, 10 nm) per axis, fixed during the movie | literature + derivation (Früh et al. 2021 report up to ~19 nm; 19/√3 ≈ 11 → ~10 nm per axis) |
-| Cycles per label | Geometric, mean 14 (MEA) or 26 (βME) | literature (Dempsey et al. 2011) |
+| Linkage error (primary + secondary) | N(0, 10 nm) per axis, fixed during the movie | ad hoc, of the order of Früh et al. 2021 (mean displacement 10.0 nm, radial σ ≈ 7.5 nm, maximum ~19 nm for primary + secondary IgG; the former "19/√3" divided a maximum, so 10 nm per axis is not their value) |
+| Cycles per label | Geometric, mean 14 (MEA) or 26 (βME) | literature (Dempsey et al. 2011, per fluorophore on glass; other measurements 4-17 per label, `docs/dbscan_rule.md` section 2.1) |
 | Frames | one cycle per uniform frame among 20 000, 1-3 frames long, one localization per frame | ad hoc |
 | Localization precision | log-normal (CV 0.25) around 12 or 20 nm | 12 nm: literature (NeNA of Gazal et al. 2026); 20 nm: ad hoc; CV 0.25: simulation (project's P-R61 generator) |
 | Background | non-specific blinking labels at 0 / 0.5 / 2 per µm of perimeter (±150 nm band), loose localizations at 0 / 30 / 120 per µm² | ad hoc (no laboratory measurement) |
@@ -80,7 +80,7 @@ Summary per cell: mean and standard error (sd/√n) over replicates.
 - A strategy can be run over a parameter sweep (`grid`; each parameter set on its own copy, with its own row and
   verdict), as Nieves et al. (2023) recommend; the official run of section 5 judges the registry defaults.
 - Planned, not implemented: event linking before clustering as a strategy variant (radius 3·NeNA and one dark frame
-  [ad hoc], with the project's Picasso-compatible linking, Schnitzbauer et al. 2017, and NeNA, Endesfelder et al. 2014).
+  [ad hoc], with the project's Picasso-compatible linking, after the code of Picasso 0.9.10 (the software of Schnitzbauer et al. 2017; the article does not describe the linking), and NeNA, Endesfelder et al. 2014).
 - The runs quoted in the documentation are committed in `docs/sims/clustering_benchmark/` (CSV, Markdown, config,
   verdicts); the verification runs A-F of 2026-10-16 that chose the defaults are summarised in section 5.
 - Budget: runs are sized to finish on a laptop (≤ 4 processes, one core each); grids are sampled rather than
@@ -118,7 +118,7 @@ convex hull or the bounding box of the ring), and the replicate seeds were made 
 |---|---|---|---|
 | DBSCAN 25/10 (reference) | — | — | 0.81 / 0.14 / 0.11 |
 | HDBSCAN (10 / 5) | no recomendable → **preferible** | preferible → **preferible** | 0.79 / 0.16 / 0.03 |
-| FOCAL (15 nm / 6 / 3, as in Nino et al. 2020) | no recomendable → **preferible** | no recomendable → **preferible** | 0.78 / 0.13 / 0.07 |
+| FOCAL (algorithm as in Nino et al. 2020; values 15 nm / 6 / 3 are this project's, not theirs) | no recomendable → **preferible** | no recomendable → **preferible** | 0.78 / 0.13 / 0.07 |
 | ToMATo (radius graph 20 nm, KDE 10 nm) | no recomendable → **preferible** | no recomendable → **preferible** | 0.78 / 0.07 / 0.02 |
 | GraphCommunity (25 nm, null in the occupied region) | no recomendable → no recomendable | no recomendable → no recomendable | 0.75 / 0.14 / 0.05 |
 | OPTICS-ξ (ξ 0.1; diagnostic) | no recomendable → no recomendable | no recomendable → no recomendable | 0.59 / 0.07 / 0.30 |

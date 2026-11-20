@@ -185,10 +185,19 @@ PROGRAM_VERSION = "MPS Explorer 2026.09"
 # 77 nm upper bound): a block at the very end of the row, after v20's
 # (tools.perimeter_export.PERIMETER_V21_COLUMNS): the axial leak of each pair
 # at 36 and 51 nm. No earlier column moved.
-TABLE_VERSION = "axon tables v21"
+# v22 (2026-11-17, sigma_z measured in the file itself, tools.mps_axial_sigma):
+# a block at the very end of the row, after v21's (tools.perimeter_export.
+# PERIMETER_V22_COLUMNS: pd_sz_source ... pd_c_leak_r_m1_p1_szused_hi): where
+# the axial width of the leak of C came from ("measured" or "pilot 47"), the
+# width used with its range, the frame-to-frame, slow and total sigma_z with
+# their intervals, the pairs and density controls behind them, and the leak at
+# the width used. pd_c_m1_p1_vs_leak and pd_c_reading are read against that
+# width. No earlier column moved.
+TABLE_VERSION = "axon tables v22"
 from tools.emitters_layer import EMITTERS_COLUMNS  # noqa: E402  (v11 block; tools.emitters_layer)
-from tools.perimeter_export import (  # noqa: E402  (v17, v19, v20, v21)
-    PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, PERIMETER_V20_COLUMNS, PERIMETER_V21_COLUMNS, not_run_block)
+from tools.perimeter_export import (  # noqa: E402  (v17, v19, v20, v21, v22)
+    PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, PERIMETER_V20_COLUMNS, PERIMETER_V21_COLUMNS,
+    PERIMETER_V22_COLUMNS, not_run_block)
 from tools.unanchored_export import (  # noqa: E402  (v18 block)
     CLUSTER_UNANCHORED_COLUMNS, UNANCHORED_COLUMNS, empty_cluster_row,
     not_run_block as unanchored_not_run_block)
@@ -641,11 +650,11 @@ def axon_row(
     # --- the perimeter density analysis (v17), the very last ---------------
     pd_block = perimeter if perimeter is not None else not_run_block()
     unplaced_p = sorted(set(pd_block) - set(PERIMETER_COLUMNS) - set(PERIMETER_V19_COLUMNS)
-                        - set(PERIMETER_V20_COLUMNS) - set(PERIMETER_V21_COLUMNS))
+                        - set(PERIMETER_V20_COLUMNS) - set(PERIMETER_V21_COLUMNS) - set(PERIMETER_V22_COLUMNS))
     if unplaced_p:
         raise ValueError(
             f"The perimeter density analysis exports columns this table does not place: "
-            f"{', '.join(unplaced_p)}. Add them to PERIMETER_V21_COLUMNS (at its end) in "
+            f"{', '.join(unplaced_p)}. Add them to PERIMETER_V22_COLUMNS (at its end) in "
             "tools/perimeter_export.py.")
     for name in PERIMETER_COLUMNS:
         row[name] = _rounded(name, pd_block.get(name))
@@ -667,6 +676,9 @@ def axon_row(
     # --- the leak at the ends of the measured range of sigma_z (v21), the very last
     for name in PERIMETER_V21_COLUMNS:
         row[name] = _rounded(name, pd_block.get(name))
+    # --- sigma_z measured in the file and the leak at the width used (v22), the very last
+    for name in PERIMETER_V22_COLUMNS:
+        row[name] = _rounded(name, pd_block.get(name))
     return row
 
 
@@ -679,9 +691,10 @@ def integration_columns() -> Tuple[str, ...]:
 def trailing_columns() -> Tuple[str, ...]:
     """Every column from the integration block (v13) to the end of the row: that block, v17's perimeter block,
     v18's unanchored-cluster block, v19's contour assessment and pooling gate, v20's slice criterion of C, then
-    v21's leak at the ends of the measured range of sigma_z."""
+    v21's leak at the ends of the measured range of sigma_z, then v22's sigma_z measured per file."""
     return (tuple(integration_columns()) + tuple(PERIMETER_COLUMNS) + tuple(UNANCHORED_COLUMNS)
-            + tuple(PERIMETER_V19_COLUMNS) + tuple(PERIMETER_V20_COLUMNS) + tuple(PERIMETER_V21_COLUMNS))
+            + tuple(PERIMETER_V19_COLUMNS) + tuple(PERIMETER_V20_COLUMNS) + tuple(PERIMETER_V21_COLUMNS)
+            + tuple(PERIMETER_V22_COLUMNS))
 
 
 # --------------------------------------------------------------------------

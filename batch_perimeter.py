@@ -29,7 +29,7 @@ import math
 import os
 import sys
 from dataclasses import replace
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from tools import mps_perimeter_pool as pool
 from tools import mps_perimeter_types as pdt
@@ -93,31 +93,43 @@ def _genotype_rows(cmp: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
-def process_folder(folder: str, out_stem: str, params: pdt.PerimeterParams = pdt.PerimeterParams(), *,
-                   pattern: str = "axon", animal: str = "", year: str = "",
-                   contour_fn: Optional[ContourFn] = None) -> Sequence[pdt.PerimeterResult]:
-    """Analyse every localization file of ``folder`` and write the tables at a free stem derived from ``out_stem``.
-
-    ``pattern``: substring filter on file names (``mps_io.find_localization_files``; "" takes every file). The
-    program's own outputs and this batch's tables are skipped. ``animal``: written into every identity (e.g.
-    ``mps_perimeter_pool.PROVISIONAL_ANIMAL`` for a folder known to be one animal). Returns the results, in file
-    order; the stem actually used is on ``process_folder.last_stem``.
-    """
-    from tools.mps_io import find_localization_files
-
-    files, _skipped = find_localization_files(folder, pattern=pattern)
-    files = [f for f in files if OUTPUT_MARK not in os.path.basename(f).lower()]
-    process_folder.last_stem = None  # type: ignore[attr-defined]
+def analyse_files(files: Sequence[str], params: pdt.PerimeterParams = pdt.PerimeterParams(), *,
+                  animal: str = "", year: str = "", contour_fn: Optional[ContourFn] = None,
+                  identities: Optional[Mapping[str, Any]] = None,
+                  pixel_sizes: Optional[Mapping[str, float]] = None,
+                  cancelled: Optional[Callable[[], bool]] = None,
+                  on_file: Optional[Callable[[int, str], None]] = None) -> List[pdt.PerimeterResult]:
+    """Analyse ``files`` in order, one at a time; write nothing. ``identities``: an ``AxonIdentity`` typed for a
+    path (by path), used instead of the one proposed from it. ``pixel_sizes``: the pixel size settled for a path
+    whose file lost its own. ``cancelled``: asked before each file; True stops the loop (the results so far are
+    returned). ``on_file(index, path)``: told before each file starts (a progress bar)."""
+    typed = dict(identities) if identities else {}
+    pixels = dict(pixel_sizes) if pixel_sizes else {}
     results: List[pdt.PerimeterResult] = []
-    if not files:
-        return results                                   # nothing to write
-    for path in files:                                   # one file at a time
-        results.append(analyze_file(path, params, animal=animal, year=year, contour_fn=contour_fn))
+    for i, path in enumerate(files):                     # one file at a time
+        if cancelled is not None and cancelled():
+            break
+        if on_file is not None:
+            on_file(i, path)
+        results.append(analyze_file(path, params, identity=typed.get(path), animal=animal, year=year,
+                                    contour_fn=contour_fn, pixel_size_nm=pixels.get(path)))
+    return results
 
+
+def pooled_of(results: Sequence[pdt.PerimeterResult]) -> Dict[str, Any]:
+    """The pooled A of every group (the slow part of the writing: its Monte Carlo null). A caller with a worker
+    thread computes it there and hands it to ``write_tables``."""
+    return dict(pool.pooled_a_scopes(list(results)))
+
+
+def write_tables(results: Sequence[pdt.PerimeterResult], out_stem: str, *,
+                 pooled: Optional[Mapping[str, Any]] = None) -> str:
+    """Write every table of ``results`` at a free stem derived from ``out_stem`` (``_run2``... when taken; nothing
+    is overwritten) and return the stem used. ``pooled``: ``pooled_of(results)`` when already computed."""
     stem = free_stem(out_stem)
     parent = os.path.dirname(os.path.abspath(stem))
     os.makedirs(parent, exist_ok=True)
-    rows = pool.perimeter_rows(results)
+    rows = pool.perimeter_rows(list(results))
     dups = duplicate_labels([r.trace for r in results])
     log: List[Dict[str, Any]] = []
     for r in results:
@@ -126,13 +138,13 @@ def process_folder(folder: str, out_stem: str, params: pdt.PerimeterParams = pdt
                     "status": r.status.value, "failure": r.failure or None,
                     "duplicate_label_with": " | ".join(dup) or None,
                     "warnings": " | ".join(list(r.trace_warnings) + list(r.warnings)) or None})
-    scoped = pool.pooled_a_scopes(results)
+    scoped = dict(pooled) if pooled is not None else pooled_of(results)
     genotypes: List[Dict[str, Any]] = []
     for scope in pool.row_scopes(rows):
         genotypes.extend(_genotype_rows(pool.compare_genotypes(rows, scope)))
     tables: Dict[str, List[Dict[str, Any]]] = {"axons": rows, "genotypes": genotypes, "log": log}
     # the long tables and their dictionaries: tools.perimeter_export (P9), never overwriting
-    pe.write_perimeter_tables(results, stem, pooled_scopes=scoped, rows=rows)
+    pe.write_perimeter_tables(list(results), stem, pooled_scopes=scoped, rows=rows)
     for name in TABLES:
         if name in pe.LONG_TABLES:
             continue
@@ -141,7 +153,41 @@ def process_folder(folder: str, out_stem: str, params: pdt.PerimeterParams = pdt
             pe.write_flat_table(path, name, tables[name])      # with its _columns.csv
         else:
             _write_csv(path, tables[name])
-    process_folder.last_stem = stem  # type: ignore[attr-defined]
+    return stem
+
+
+def process_folder(folder: str, out_stem: str, params: pdt.PerimeterParams = pdt.PerimeterParams(), *,
+                   pattern: str = "axon", animal: str = "", year: str = "",
+                   contour_fn: Optional[ContourFn] = None, files: Optional[Sequence[str]] = None,
+                   identities: Optional[Mapping[str, Any]] = None,
+                   pixel_sizes: Optional[Mapping[str, float]] = None,
+                   cancelled: Optional[Callable[[], bool]] = None) -> Sequence[pdt.PerimeterResult]:
+    """Analyse every localization file of ``folder`` and write the tables at a free stem derived from ``out_stem``.
+
+    ``pattern``: substring filter on file names (``mps_io.find_localization_files``; "" takes every file). The
+    program's own outputs and this batch's tables are skipped. ``animal``: written into every identity (e.g.
+    ``mps_perimeter_pool.PROVISIONAL_ANIMAL`` for a folder known to be one animal). Returns the results, in file
+    order; the stem actually used is on ``process_folder.last_stem``.
+
+    ``files``: analyse exactly these paths, in this order, instead of listing the folder (``pattern`` is then not
+    used). ``identities`` / ``pixel_sizes`` / ``cancelled``: see ``analyse_files``; a cancelled run writes NOTHING
+    (the partial results are returned).
+    """
+    from tools.mps_io import find_localization_files
+
+    if files is None:
+        found, _skipped = find_localization_files(folder, pattern=pattern)
+    else:
+        found = list(files)
+    paths = [f for f in found if OUTPUT_MARK not in os.path.basename(f).lower()]
+    process_folder.last_stem = None  # type: ignore[attr-defined]
+    if not paths:
+        return []                                        # nothing to write
+    results = analyse_files(paths, params, animal=animal, year=year, contour_fn=contour_fn, identities=identities,
+                            pixel_sizes=pixel_sizes, cancelled=cancelled)
+    if cancelled is not None and cancelled():
+        return results
+    process_folder.last_stem = write_tables(results, out_stem)  # type: ignore[attr-defined]
     return results
 
 

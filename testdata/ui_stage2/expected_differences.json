@@ -102828,5 +102828,3001 @@
   "path": "c_label",
   "b_change": "B34",
   "reason": "fix/core-batch-tanda1 (2026-10-29): two new settings, c_label (the Working scale panel's value, kept and passed to the Batch) and batch_null_closure (C3/C4), and the Batch settings' null_closure; the table cells (axon table v15) fall inside B30's table-level entries"
+ },
+ {
+  "cell": "A:S10:E1",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S10:E2",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S10:E3",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S10:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S10:E5",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11a:E1",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11a:E2",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11a:E3",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11a:E4",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11a:E5",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11b:E1",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11b:E1",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E1",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E2",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11b:E2",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E2",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E3",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11b:E3",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E3",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E4",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E4",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E4",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E5",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S11b:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E5",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S11b:E5",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S12a:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S12a:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S12a:E3",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12a:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S12b:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S12b:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S12b:E3",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S12b:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S1:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S1:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S1:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S2:E1",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S2:E2",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S2:E3",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S2:E4",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S2:E5",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S3:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S3:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S3:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S4:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S4:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S4:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S5:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S5:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S5:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S6:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S6:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S6:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S7:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S8:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S8:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "A:S8:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S9:E1",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E1",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E1",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S9:E2",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E2",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E2",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S9:E3",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E3",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E3",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S9:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E4",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E4",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E4",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "A:S9:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E5",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E5",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "A:S9:E5",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S10:E1",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S10:E2",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S10:E3",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S10:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S10:E5",
+  "snapshot": "before_reset",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11a:E1",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11a:E2",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11a:E3",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11a:E4",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11a:E5",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11b:E1",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11b:E1",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E1",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E2",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11b:E2",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E2",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E3",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11b:E3",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E3",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E4",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E4",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E4",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E5",
+  "snapshot": "discard_before_drag",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S11b:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E5",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S11b:E5",
+  "snapshot": "scenario",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S12a:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S12a:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S12a:E3",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12a:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S12b:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S12b:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S12b:E3",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S12b:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S1:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S1:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S1:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S2:E1",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S2:E2",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S2:E3",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S2:E4",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S2:E5",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S3:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S3:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S3:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S4:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S4:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S4:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S5:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S5:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S5:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S6:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S6:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S6:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S7:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S8:E1",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S8:E2",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / discard",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the held automatic discard to build_tables (discard=unanchored#k)"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "export_axon / dialog_state",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the export dialog's state names the discard applied"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "export_axon / tables / localizations / column_sha256 / cluster_discarded",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the localizations table's cluster_discarded column marks the clusters the rule discarded"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / comparison",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / hidden_columns / 3",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_discard / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_every / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 0",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "results_window / radios / radio_measured / 2",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the results window holds the comparison: the 'with discard' column, its radio buttons and hidden columns"
+ },
+ {
+  "cell": "B:S8:E4",
+  "snapshot": "entry",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S9:E1",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E1",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E1",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S9:E2",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E2",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E2",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S9:E3",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E3",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E3",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S9:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E4",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E4",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E4",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E4",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
+ },
+ {
+  "cell": "B:S9:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E5",
+  "snapshot": "entry",
+  "path": "calls / 0 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E5",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E5",
+  "snapshot": "scenario",
+  "path": "calls / 1 / kwargs / unanchored_rows",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): Export axon passes the rule's flags to build_tables (unanchored=, unanchored_rows=)"
+ },
+ {
+  "cell": "B:S9:E5",
+  "snapshot": "scenario",
+  "path": "unanchored_calls",
+  "b_change": "B35",
+  "reason": "the automatic unanchored discard (P15 / D4, run on every analysis shown): the rule's compare_discard, recorded apart in unanchored_calls (results numbered unanchored#k), so the other calls and analysis numbers do not move"
  }
 ]

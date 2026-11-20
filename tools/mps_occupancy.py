@@ -82,7 +82,7 @@ SIGMA_CAP_FRACTION = 1.0 / 3.0      # sigma_max <= d_max / 3
 # localizations are collinear (or identical) yields a singular covariance
 # that cannot be inverted; rather than dropping the cluster, its ellipse is
 # widened to this minimum so it still occupies a small, honest stretch of
-# perimeter. 1 nm is far below the ~20 nm localization precision, so this
+# perimeter. 1 nm is far below the ~10 nm localization precision (SD), so this
 # can only ever under-state occupancy, never inflate it.
 _MIN_SIGMA_NM = 1.0
 

@@ -569,8 +569,8 @@ class GraphCommunityStrategy(ClusteringStrategy):
         Graph radius. Default 25 nm [ad hoc, see GRAPH_RADIUS_NM]. None: chosen by ``scan_scales`` over ``radii_nm``.
     radii_nm : sequence of float
         Candidate radii for the scan. Default 10-60 nm in steps of 5 (ad hoc: from the localisation precision up
-        to the ~50-nm gap that separates ToMATo/DBSCAN clusters in the benchmark sweeps of Nieves et al., 2023, who
-        swept 5-100 nm; to verify on the data).
+        to about the optimal eps / radius of the benchmark sweeps of Nieves et al., 2023 (30-65 nm; they swept
+        5-100 nm); to verify on the data).
     alpha : float
         Random-cloud level of the degree threshold. Default 0.05 [literature, preprint: Scurll et al., 2019, typical
         value as quoted by the project's research note; not verified in the full text].

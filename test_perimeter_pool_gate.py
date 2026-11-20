@@ -86,7 +86,8 @@ def test_assessment_of_an_injected_contour_and_the_v19_block(base):
 def test_not_run_block_holds_v19_empty():
     b = pe.perimeter_block(None)
     assert list(b) == list(pe.ALL_PERIMETER_COLUMNS)
-    assert all(b[c] is None for c in pe.PERIMETER_V19_COLUMNS + pe.PERIMETER_V20_COLUMNS + pe.PERIMETER_V21_COLUMNS)
+    assert all(b[c] is None for c in pe.PERIMETER_V19_COLUMNS + pe.PERIMETER_V20_COLUMNS + pe.PERIMETER_V21_COLUMNS
+               + pe.PERIMETER_V22_COLUMNS)
 
 
 def test_real_automatic_contour_end_to_end():
@@ -367,14 +368,14 @@ def test_pooled_a_below_the_minimum_says_n_too_small(base):
     (res,) = pool.pooled_a(results, n_null=49).values()
     assert res.n_axons == 3 < pool.MIN_POOLED_A_AXONS
     label = pool.a_reading_label(res)
-    assert pool.MIN_POOLED_A_AXONS == 10                       # simulated sizes 5-10 (2026-11-17), was 11
-    assert label.startswith("n too small (n = 3 axons < 10): not interpreted; computed label '")
+    assert pool.MIN_POOLED_A_AXONS == 9                        # 2000 sets at 9-11 (2026-11-19); 10 before, 11 in v20
+    assert label.startswith("n too small (n = 3 axons < 9): not interpreted; computed label '")
+    eight = [_with(base, i, contour_gate_reasons="", contour_failure_reason="") for i in range(8)]
+    (res8,) = pool.pooled_a(eight, n_null=49).values()
+    assert pool.a_reading_label(res8).startswith("n too small (n = 8 axons < 9)")
     nine = [_with(base, i, contour_gate_reasons="", contour_failure_reason="") for i in range(9)]
     (res9,) = pool.pooled_a(nine, n_null=49).values()
-    assert pool.a_reading_label(res9).startswith("n too small (n = 9 axons < 10)")
-    ten = [_with(base, i, contour_gate_reasons="", contour_failure_reason="") for i in range(10)]
-    (res10,) = pool.pooled_a(ten, n_null=49).values()
-    assert not pool.a_reading_label(res10).startswith("n too small")
+    assert not pool.a_reading_label(res9).startswith("n too small")
     assert "contrast - null" in res.reading                                    # the numbers are kept
     (bare,) = pool.pooled_a(results, n_null=49, min_axons=1).values()
     assert pool.a_reading_label(bare) in ("attractor", "inhibition zone", "regular", "no structure detectable",

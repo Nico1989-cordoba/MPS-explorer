@@ -98,6 +98,9 @@ _C_NEUTRAL = neutral(dark=True)
 
 # Where the superimposed segments went (UI stage 2): a pointer, and the
 # button that raises the MPS analysis window in its Segments view.
+TWO_RINGS_POINTER = "Two rings (unrolled) is in Columns: lumen review."
+TWO_RINGS_POINTER_TIP = ("Open the H-ECL columns lumen review window: its 'Two rings (unrolled)...' button lays two "
+                         "consecutive rings flat with a tau of its own.")
 SEGMENTS_POINTER = (
     "The segments superimposed, and their z with every slab and boundary, are "
     "on the axon map and the axial view: MPS analysis window, Segments view "
@@ -470,6 +473,12 @@ class MPSRingsWindow(QtWidgets.QMainWindow):
             QtCore.Qt.TextSelectableByMouse)
         self.lbl_params.setStyleSheet(f"color: {_C_DIM};")
         lay.addWidget(self.lbl_params)
+        # UI texts: the view of two consecutive rings laid flat is not here; say where it is
+        self.lbl_two_rings_pointer = QtWidgets.QLabel(TWO_RINGS_POINTER)
+        self.lbl_two_rings_pointer.setObjectName("lbl_rings_two_rings_pointer")
+        self.lbl_two_rings_pointer.setToolTip(TWO_RINGS_POINTER_TIP)
+        self.lbl_two_rings_pointer.setStyleSheet(f"color: {_C_DIM};")
+        lay.addWidget(self.lbl_two_rings_pointer)
 
         lay.addWidget(QtWidgets.QLabel("Segments"))
         self.table_seg = QtWidgets.QTableWidget(0, 8)

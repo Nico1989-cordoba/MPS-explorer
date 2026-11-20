@@ -265,4 +265,4 @@ origin text.
 - Helmerich DA, Beliu G, Sauer M (2020). Multiple-labeled antibodies behave like single emitters in photoswitching
   buffer. *ACS Nano* 14(10):12629-12641. doi:10.1021/acsnano.0c06099 (Table 1: on-state lifetime ~10 ms).
 - Schnitzbauer J, Strauss MT, Schlichthaerle T, Schueder F, Jungmann R (2017). Super-resolution microscopy with
-  DNA-PAINT. *Nature Protocols* 12:1198-1228. doi:10.1038/nprot.2017.024 (Picasso's frame linking).
+  DNA-PAINT. *Nature Protocols* 12:1198-1228. doi:10.1038/nprot.2017.024 (the software whose code, Picasso 0.9.10, defines the frame linking; the article does not describe it).

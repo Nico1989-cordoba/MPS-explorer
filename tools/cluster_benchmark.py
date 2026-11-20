@@ -49,8 +49,9 @@ from scipy.spatial import ConvexHull, QhullError, cKDTree
 from tools.clustering_strategies import ClusteringStrategy, DBSCANStrategy
 
 # --------------------------------------------------------------------------- defaults (origin in brackets)
-SIGMA_LINK_NM = 10.0          # [literature + derivation] Fruh et al. 2021: linkage error up to ~19 nm (3D, antibody
-                              # pair); 19 / sqrt(3) ~ 11 -> ~10 nm per axis
+SIGMA_LINK_NM = 10.0          # [ad hoc, of the order of Fruh et al. 2021] they measure, for primary + secondary IgG,
+                              # a mean displacement of 10.0 nm, radial sigma ~7.5 nm and a maximum of ~19 nm; the
+                              # old "19 / sqrt(3)" divided a maximum, not an SD: 10 nm per axis is not their value
 EPITOPE_SEP_NM = (5.0, 10.0)  # [inference, no published value] the two beta C-termini of a spectrin tetramer
 MEMBRANE_ROUGH_NM = 5.0       # [ad hoc] normal offset of a molecule centre from the ideal contour
 N_FRAMES = 20000              # [ad hoc] typical dSTORM movie length

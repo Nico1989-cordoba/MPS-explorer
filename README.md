@@ -391,8 +391,17 @@ pytest test_mps_explorer.py -v
 - **Perimeter density analysis (no clusters).** Three 170 nm slices around the peak or the focus, an automatic
   contour fitted to the localizations, density profiles of a ±100 nm band in 100 nm arc bins, and three questions
   (A: the density around its maximum; B: density against curvature; C: correlation between slices), each with its
-  Monte Carlo null and the way to read it. Command line `batch_perimeter.py`; axon table v17 (`pd_*` columns) and
-  long tables with dictionaries: [docs/perimeter_density.md](docs/perimeter_density.md).
+  Monte Carlo null and the way to read it. Command line `batch_perimeter.py`; axon table v21 (`pd_*` columns, 662 columns in all) and
+  long tables with dictionaries; the "Perimeter..." window runs it from the MPS analysis window, with progress, Cancel
+  and Save...: [docs/perimeter_density.md](docs/perimeter_density.md). The axial width of the leak between slices is
+  47 nm (range 36-51 nm; 77 nm only as an upper bound), measured on pilot data of one animal, and the interior trim of
+  the contour fit applies only when the polar curve passes the strict rules of the automatic contour.
+- **Unanchored clusters (without tubulin).** The "Unanchored..." window finds clusters that lie under the membrane
+  ring by their depth below the ring the spectrin itself draws (more than 400 nm: excluded, provisional; 250-400 nm:
+  doubtful, only marked), always reports the analysis with and without the discard, keeps decisions by hand by
+  position in `<data>_unanchored.json`, and exports its origin per cluster (v18 columns). The old tubulin plus
+  widefield method stays as an option. No threshold comes from the literature: every number is labelled with its
+  origin (pilot data of one animal, own simulation, ad hoc): [docs/unanchored.md](docs/unanchored.md).
 
 ---
 

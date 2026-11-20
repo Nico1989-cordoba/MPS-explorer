@@ -87,6 +87,9 @@ class Step:
     badges: bool
     method: str
     texts: Dict[str, Dict[str, str]]
+    # False: each text carries its own heading before the first colon (the presentation tour), shown in bold in
+    # place of the card's fixed one.
+    headings: bool = True
 
     def text(self, lang: str, field: str) -> str:
         """The text of ``field`` in ``lang``, its placeholders filled (demo facts, registry values)."""
@@ -106,7 +109,7 @@ def steps_for(tour_id: str) -> List[Step]:
     for d in data.STEPS.get(tour_id, []):
         out.append(Step(key=str(d["key"]), target=str(d.get("target", "")), panel=str(d.get("panel", "")),
                         registry=tuple(d.get("registry", ())), badges=bool(d.get("badges", False)),
-                        method=str(d.get("method", "")),
+                        method=str(d.get("method", "")), headings=bool(d.get("headings", True)),
                         texts={lang: dict(d[lang]) for lang in data.LANGUAGES if lang in d}))
     return out
 
@@ -119,6 +122,22 @@ def find_target(window: QtWidgets.QWidget, name: str) -> Optional[QtWidgets.QWid
         return window
     found = window.findChild(QtWidgets.QWidget, name)
     return found if isinstance(found, QtWidgets.QWidget) else None
+
+
+def show_tab_of(target: QtWidgets.QWidget, window: QtWidgets.QWidget) -> None:
+    """Bring forward every tab page (``QTabWidget``) between ``window`` and ``target``, so a step about a widget on a
+    tab that is not showing switches to that tab instead of saying the control is not in view."""
+    child: QtWidgets.QWidget = target
+    parent = target.parentWidget()
+    while parent is not None and child is not window:
+        tabs = parent.parentWidget() if isinstance(parent, QtWidgets.QStackedWidget) else None
+        if isinstance(tabs, QtWidgets.QTabWidget):
+            index = tabs.indexOf(child)
+            if index >= 0 and tabs.currentIndex() != index:
+                tabs.setCurrentIndex(index)
+        if parent is window:
+            break
+        child, parent = parent, parent.parentWidget()
 
 
 def autostart_allowed() -> bool:
@@ -472,6 +491,8 @@ class TourOverlay(QtWidgets.QWidget):
         step = self.step()
         if step is not None and step.target:
             target = find_target(self._win, step.target)
+            if target is not None and not target.isVisible():
+                show_tab_of(target, self._win)
             if target is not None and target.isVisible():
                 self._reveal(target)
                 self._target = target
@@ -516,7 +537,12 @@ class TourOverlay(QtWidgets.QWidget):
         else:
             card.title.setText(step.text(lang, "title"))
             for name in SECTIONS:
-                card.sections[name].setText(_section(ui[name], step.text(lang, name)))
+                text = step.text(lang, name)
+                head, sep, rest = text.partition(": ")
+                if not step.headings and sep and len(head) <= 60:
+                    card.sections[name].setText(_section(head, rest.strip()))
+                else:
+                    card.sections[name].setText(_section(ui[name], text))
             more = _paragraphs(step.text(lang, "more"))
             extra = registry_html(step, lang)
             card.more.setText(more + ("<br><br>" + extra if extra else ""))
@@ -861,10 +887,12 @@ class TourController(QtCore.QObject):
         return self.start(window, tour_id, auto=True) is not None
 
     def start(self, window: QtWidgets.QWidget, tour_id: str, *, panel: Optional[str] = None,
-              auto: bool = False) -> Optional[TourOverlay]:
+              auto: bool = False, steps: Optional[List[Step]] = None) -> Optional[TourOverlay]:
         """Open ``tour_id`` on ``window`` (only the steps of ``panel`` when given). A whole tour that closes, however
-        it closes, marks the window's tour as seen."""
-        steps = steps_for(tour_id)
+        it closes, marks the window's tour as seen. ``steps``: the window's own copy of the tour's steps (the
+        perimeter window's presentation mode rewrites their examples with the open axon's answers); default
+        ``steps_for(tour_id)``."""
+        steps = list(steps) if steps is not None else steps_for(tour_id)
         if panel is not None:
             steps = [s for s in steps if s.panel == panel]
         if not steps:

@@ -94,11 +94,13 @@ TAU_SCALAR_DERIVED_NM = 31.0
 # 0.01 nm to which tools.mps_tau.normalize_tau rounds a tau]. Any other tau is EXPLORATORY (decision D4: 'Free'
 # starts at 31 nm unmarked; every value other than 31 is marked exploratory, on screen and in the exports).
 TAU0_MATCH_NM = 0.005
-# Localization precision when the file's NeNA is not given [lit: Huang et al. 2008, 8-20 nm in 3D-STORM; 10 nm
+# Localization precision when the file's NeNA is not given [lit: Huang et al. 2008, lateral SD 9-11 nm in
+# 3D-STORM; 10 nm
 # the research's default]. The integration passes the file's NeNA (tools.mps_nena) through ToleranceInputs.
 SIGMA_LOC_DEFAULT_NM = 10.0
-# Linkage error per axis of a primary + secondary IgG stack [lit: Früh et al. 2021, offsets up to ~19 nm -> l /
-# sqrt(3) per axis]; an ASSUMPTION until single-molecule clusters on glass calibrate it (Phase B).
+# Linkage error per axis of a primary + secondary IgG stack [ad hoc, of the order of Früh et al. 2021: mean
+# displacement 10.0 nm, radial sigma ~7.5 nm, maximum ~19 nm; not a per-axis value of that paper]; an ASSUMPTION
+# until single-molecule clusters on glass calibrate it (Phase B).
 SIGMA_LINK_DEFAULT_NM = 10.0
 # Residual registration / drift error per ring [lit: Wang et al. 2014, RCC ~1.6 nm; rounded up].
 SIGMA_REG_NM = 2.0

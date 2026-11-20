@@ -47,10 +47,10 @@ def analysis_stale_lines(*, analysed_words: str, current_words: str, discard_dro
         lines.append("Its comparison without the discarded clusters was dropped when the Axoplasm panel moved to "
                      "the new selection.")
     if cut_only:
-        lines.append("Export axon would write this analysis beside what the panels measure on the current cut "
+        lines.append("Save axon would write this analysis beside what the panels measure on the current cut "
                      "(the Axoplasm panel's rows included), with a warning: run the analysis first.")
     else:
-        lines.append("Export axon writes this analysis, as before; it refuses while the Axoplasm panel shows "
+        lines.append("Save axon writes this analysis, as before; it refuses while the Axoplasm panel shows "
                      "another selection.")
     return lines
 
@@ -58,7 +58,7 @@ def analysis_stale_lines(*, analysed_words: str, current_words: str, discard_dro
 def showing_current_lines(*, current_words: str) -> List[str]:
     """The banner while the window shows the current selection with no analysis."""
     return [f"Showing the current selection ({current_words}) with no MPS analysis. The analysis of the previous "
-            "selection is kept: \"Show the analysed selection\" draws it again; Export axon still writes it."]
+            "selection is kept: \"Show the analysed selection\" draws it again; Save axon still writes it."]
 
 
 def rings_stale_lines(*, selection_reason: str = "", params_reason: str = "") -> List[str]:

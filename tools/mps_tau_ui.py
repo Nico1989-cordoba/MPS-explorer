@@ -64,12 +64,10 @@ __all__ = [
 ]
 
 # ============================================================================ the control's texts
-TAU_LABEL_TEXT = "Tolerance tau:"
+TAU_LABEL_TEXT = "Tolerance tau (re-runs the analysis):"
 FREE_TEXT = "Free"
 RESET_TEXT = "Back to tau_0"
-TAU_NOTE_TEXT = ("tau is how close (in nm) two clusters of adjacent rings must sit to count as eclipsed. tau_0 = 31 nm "
-                 "is derived, not measured on any data: 2.77 times the centre error of a typical cluster (11.3 nm), "
-                 "so that 95 % of true coincidences fall within it; any other value is exploratory.")
+TAU_NOTE_TEXT = "tau: how close two clusters of adjacent rings must be to count as eclipsed. Hover for tau_0."
 UNAVAILABLE_NOTE = "The tolerance control is off here ({reason}): the column tests run at the pre-specified tau_0."
 
 
@@ -118,8 +116,7 @@ def pending_run_note(tau: float) -> str:
 # ============================================================================ the E(tau) curve and the matches
 CURVE_HEAD_TEXT = "E(tau) of the 2D test (sensitivity) - pair:"
 CURVE_TITLE = "Matched fraction against tau"
-CURVE_NOTE_TEXT = ("Descriptive: how the matched fraction grows with tau, for these rings and for rings shifted at "
-                   "random. Picking the tau with the smallest p is not a test.")
+CURVE_NOTE_TEXT = "Descriptive curve, not a test: picking the tau with the smallest p is not evidence."
 CURVE_NO_RUN_TEXT = "No curve yet: press 'Apply and re-run analyses'."
 CURVE_NO_PAIR_TEXT = "No selected pair: no curve (pairs that are NOT VIABLE are never analysed)."
 CURVE_2D_FAILED_TEXT = "The 2D test failed on this cluster set: no curve (see the warnings)."
@@ -183,6 +180,7 @@ def curve_p_text(cv: mt.CurveView, *, marginal: bool = False, selection_hash: st
 # COLUMNS_WINDOW_TOOLTIPS).
 TAU_UI_TOOLTIPS: Dict[str, str] = {
     "tau_combo":
+        "Tolerance tau of the whole review: changing it re-runs ALL the column tests (not the 'Two rings' view).\n\n"
         "The tolerance tau of the column tests of THIS window: the arc test on the centroid membrane (primary), the "
         "2D test (sensitivity) and the arc test on the localization membrane (diagnostic) all run at the value chosen "
         "here.\n\n"
@@ -203,9 +201,10 @@ TAU_UI_TOOLTIPS: Dict[str, str] = {
         "Shown while tau is not tau_0: every p on screen is EXPLORATORY, and no p is corrected for trying several "
         "tolerances.",
     "tau_note":
-        "Two clusters of adjacent rings count as matched (eclipsed) when they sit within tau of each other. A larger "
-        "tau also matches more clusters by chance, so the evidence is the excess over the null (zeta, p), never the "
-        "number of matches.",
+        "tau_0 = 31 nm is derived, not measured: 2.77 x the centre error of a typical cluster (11.3 nm), so 95 % of "
+        "true coincidences fall within it; any other value is exploratory. A larger tau also matches more clusters "
+        "by chance, so the evidence is the excess over the null (zeta, p), never the number of matches. "
+        "Changing tau re-runs the column tests of the whole axon (the 'Two rings' view has its own tau).",
     "curve_pair_combo":
         "Which pair the E(tau) curve and the matches on the map show. Only the pairs the selection selects are listed "
         "(VIABLE first, then MARGINAL ones, a sensitivity only); NOT VIABLE pairs are never analysed.",

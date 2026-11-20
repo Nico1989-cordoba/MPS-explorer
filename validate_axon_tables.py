@@ -1089,7 +1089,7 @@ def test_schema_and_excel() -> None:
                                        EMITTERS_COLUMNS, EPS_CHOICE_COLUMNS,
                                        Z_CALIBRATION_COLUMNS, integration_columns)
         from tools.perimeter_export import (PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, PERIMETER_V20_COLUMNS,
-                                            PERIMETER_V21_COLUMNS)
+                                            PERIMETER_V21_COLUMNS, PERIMETER_V22_COLUMNS)
         from tools.unanchored_export import UNANCHORED_COLUMNS
         from tools.mps_axoplasm import SUMMARY_COLUMNS
         # v4 (SCI-1): the measurement's z calibration, last, so no earlier
@@ -1108,7 +1108,8 @@ def test_schema_and_excel() -> None:
                     + list(CLUSTER_METHOD_COLUMNS) + list(EMITTERS_COLUMNS)
                     + list(integration_columns()) + list(PERIMETER_COLUMNS)
                     + list(UNANCHORED_COLUMNS) + list(PERIMETER_V19_COLUMNS)
-                    + list(PERIMETER_V20_COLUMNS) + list(PERIMETER_V21_COLUMNS))
+                    + list(PERIMETER_V20_COLUMNS) + list(PERIMETER_V21_COLUMNS)
+                    + list(PERIMETER_V22_COLUMNS))
         assert list(row) == expected, [
             (a, b) for a, b in zip(list(row) + [""] * 5, expected + [""] * 5)
             if a != b][:4]
@@ -1213,13 +1214,14 @@ def test_schema_and_excel() -> None:
         # chord below 50 nm) the P-R103 reading is exactly 50 K / P
         # [derivation], against the row's own perimeter.
         from tools.clustering_integration import REPORT_COLUMNS, v15_columns, v16_columns
-        assert row["table_version"] == "axon tables v21", row["table_version"]
+        assert row["table_version"] == "axon tables v22", row["table_version"]
         tail = list(REPORT_COLUMNS) + list(v15_columns()) + list(v16_columns())
         from tools.perimeter_export import (PERIMETER_COLUMNS, PERIMETER_V19_COLUMNS, PERIMETER_V20_COLUMNS,
-                                            PERIMETER_V21_COLUMNS)
+                                            PERIMETER_V21_COLUMNS, PERIMETER_V22_COLUMNS)
         from tools.unanchored_export import UNANCHORED_COLUMNS
         n_last = (len(PERIMETER_COLUMNS) + len(UNANCHORED_COLUMNS) + len(PERIMETER_V19_COLUMNS)
-                  + len(PERIMETER_V20_COLUMNS) + len(PERIMETER_V21_COLUMNS))
+                  + len(PERIMETER_V20_COLUMNS) + len(PERIMETER_V21_COLUMNS)
+              + len(PERIMETER_V22_COLUMNS))
         assert list(row)[:-n_last][-len(tail):] == tail   # v17 perimeter block, v18 unanchored block, v19 last
         frac = row["occupancy_arc_fraction_within_25nm"]
         expected = 50.0 * row["n_clusters_kept"] / (row["perimeter_um"] * 1000.0)

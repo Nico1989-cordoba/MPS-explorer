@@ -19,8 +19,10 @@ of docking sites, because N sites capture imagers N times as fast. So
 
 and ``influx_rate`` has to be measured on a reference of known valency in
 the same sample at the same imager concentration -- a single docking
-strand on a DNA origami is the usual one (Stein et al., PNAS 2025, do
-exactly this for tissue cryosections). Without that calibration the
+strand on a DNA origami is the usual one. (Stein et al., PNAS 2025, on
+tissue cryosections calibrate instead with the smallest clouds of the
+dataset itself, assumed to be one antibody, and validate qPAINT apart on
+single-strand origami.) Without that calibration the
 formula still produces a number, and that number is meaningless in
 absolute terms. This module therefore refuses to present an uncalibrated
 count as a count; see ``QPaintResult.is_calibrated``.
@@ -808,8 +810,9 @@ def influx_from_reference(tau_dark_reference_frames: float) -> float:
     reference's dark time is the whole calibration. Measure it on a
     structure of known valency in the same sample, at the same imager
     concentration and the same exposure -- a DNA origami with one docking
-    strand is the standard choice, and the one Stein et al. (PNAS 2025)
-    use for tissue cryosections.
+    strand is the standard choice (Stein et al., PNAS 2025, validate qPAINT
+    on it apart; on tissue cryosections they calibrate with the smallest
+    clouds of the dataset, assumed to be one antibody).
     """
     if not np.isfinite(tau_dark_reference_frames) or \
             tau_dark_reference_frames <= 0:

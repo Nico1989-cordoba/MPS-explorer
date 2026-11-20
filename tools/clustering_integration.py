@@ -859,6 +859,48 @@ def edge_note(analysis: Any) -> str:
             "draw the ROI with a margin around the axon")
 
 
+def edge_disabled_note(analysis: Any) -> str:
+    """The edge criterion did not run (more than half the clusters touch the ROI edge: the ROI hugs the whole
+    ring): the reason, so the regularity reading can warn too. Empty when the criterion ran. Display only."""
+    rep = getattr(analysis, "bad_report", None)
+    return str(getattr(rep, "edge_criterion_disabled", "") or "") if rep is not None else ""
+
+
+# The user-facing wording of the edge warning, per language (the programme's ES / EN switch); the codes stay in the
+# tables.
+EDGE_DISABLED_WARNING = {
+    "es": ("ADVERTENCIA: el criterio del borde de la ROI quedó apagado ({why}); los clusters pegados al borde no "
+           "se descartaron y la regularidad puede estar sesgada. Redibujá la ROI con margen >= 500 nm."),
+    "en": ("WARNING: the ROI-edge criterion was switched off ({why}); clusters on the edge were not removed and the "
+           "regularity may be biased. Redraw the ROI with a margin >= 500 nm."),
+}
+EDGE_DISABLED_SHORT = {
+    "es": "más de la mitad de los clusters toca el borde de la ROI",
+    "en": "more than half of the clusters touch the ROI edge",
+}
+
+# Readable labels of the regularity reading levels (tools.mps_gap_measures.READING_LEVELS); the codes stay in the
+# tables' columns.
+READING_LABELS = {
+    "random_with_contact": {"es": "compatible con el azar (con contacto)", "en": "consistent with random (with contact)"},
+    "less_regular_than_random": {"es": "menos regular que el azar", "en": "less regular than random"},
+    "more_regular_kind_not_identified": {"es": "más regular que el azar, tipo no identificado",
+                                         "en": "more regular than random, kind not identified"},
+    "periodic_component": {"es": "más regular que el azar, con componente periódica",
+                           "en": "more regular than random, with a periodic component"},
+    "lattice_rho1_only": {"es": "más regular que el azar, tipo red (solo rho1)",
+                          "en": "more regular than random, lattice-like (rho1 only)"},
+    "lattice": {"es": "más regular que el azar, tipo red", "en": "more regular than random, lattice-like"},
+    "not_testable": {"es": "no evaluable (K < 8)", "en": "not testable (K < 8)"},
+}
+
+
+def reading_label(level: Any, lang: str = "es") -> str:
+    """The readable label of a reading level; an unknown code comes back unchanged."""
+    entry = READING_LABELS.get(str(level))
+    return str(level) if entry is None else entry.get(lang, entry["en"])
+
+
 # =====================================================================================================================
 # The axon table's new block (v13)
 # =====================================================================================================================
@@ -1577,7 +1619,7 @@ __all__ = [
     "rule_method_specs", "rule_labels", "dbscan_mode", "run_of", "ComparisonResult", "run_comparison",
     "comparison_paths", "write_comparison", "NullOutcome", "null_estimate_seconds", "run_null_for", "run_nulls",
     "NULL_CLOSURE_CHOICES", "null_closures", "run_nulls_by_closure", "null_by_closure_columns", "null_closure_rows",
-    "null_long_rows", "edge_note", "event_ids_for", "SCALE_COLUMNS", "METHODS_COLUMNS", "GAP_COLUMNS", "NULL_COLUMNS",
+    "null_long_rows", "edge_note", "edge_disabled_note", "reading_label", "READING_LABELS", "event_ids_for", "SCALE_COLUMNS", "METHODS_COLUMNS", "GAP_COLUMNS", "NULL_COLUMNS",
     "REPORT_COLUMNS", "NULL_FAILED_COLUMNS", "NULL_READOUT_NAMES_V15", "ALL_NULL_READOUT_NAMES", "E5_NULL_COLUMNS",
     "V15_PLUGIN_COLUMNS", "v15_columns", "arc_fraction_of", "NENA_METHOD_MEASURED", "NENA_METHOD_NONE",
     "integration_columns", "axon_columns", "describe_column", "regularity_batch_summary", "write_regularity_summary",

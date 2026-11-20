@@ -528,10 +528,21 @@ def reference_ring(kind: str, x_nm: Any, y_nm: Any, centroids: Any, *,
     return ReferenceRing(kind=kind, status=STATUS_OK, detail="", polygon=poly, centre=centre, inner_band_arc_nm=arc)
 
 
+# Where the rule is, for a progress bar and a Cancel button (the interface, P15): ``mps_cancel.check`` before each
+# ring and each noise replicate; nothing is installed outside an interactive run, and then nothing happens.
+PROGRESS_PREFIX: str = "unanchored clusters: "
+
+
+def _progress(words: str, done: int, total: int) -> None:
+    from tools import mps_cancel
+    mps_cancel.check(PROGRESS_PREFIX + words, int(done), int(total))
+
+
 def depth_noise(kind: str, x_nm: Any, y_nm: Any, centroids: Any, *, replicates: int = NOISE_REPLICATES,
-                seed: int = NOISE_SEED) -> NDArray[np.float64]:
+                seed: int = NOISE_SEED, progress_at: Tuple[int, int] = (0, 0)) -> NDArray[np.float64]:
     """Per-cluster SD (nm) of the depth over ``replicates`` subsamples of the reference's own input (localizations
-    for the polar ring, centres for the smooth one). nan where fewer than two replicates gave a ring."""
+    for the polar ring, centres for the smooth one). nan where fewer than two replicates gave a ring.
+    ``progress_at``: (steps already done, total steps) of the caller's run, for its progress bar (0, 0: none)."""
     x, y = _as_xy(x_nm, y_nm)
     c = _as_points(centroids)
     k = c.shape[0]
@@ -540,6 +551,8 @@ def depth_noise(kind: str, x_nm: Any, y_nm: Any, centroids: Any, *, replicates: 
     rng = np.random.default_rng(int(seed))
     dep = np.full((replicates, k), np.nan)
     for i in range(replicates):
+        if progress_at[1] > 0:
+            _progress(f"noise of the {kind} ring", progress_at[0] + i, progress_at[1])
         if kind == REFERENCE_POLAR:
             m = np.asarray(rng.random(x.size) < NOISE_FRACTION_POLAR, dtype=bool)
             poly, _c, status, _d = _raw_ring(kind, x[m], y[m], c)
@@ -606,14 +619,15 @@ class RingVerdict:
 
 
 def _verdict(ring: ReferenceRing, centroids: NDArray[np.float64], x: NDArray[np.float64], y: NDArray[np.float64],
-             *, exclude_nm: float, doubt_nm: float, noise_replicates: int) -> RingVerdict:
+             *, exclude_nm: float, doubt_nm: float, noise_replicates: int,
+             progress_at: Tuple[int, int] = (0, 0)) -> RingVerdict:
     k = centroids.shape[0]
     if not ring.ok or ring.polygon is None:
         depth: NDArray[np.float64] = np.full(k, np.nan)
         sd: NDArray[np.float64] = np.full(k, np.nan)
     else:
         depth = signed_depth(centroids, ring.polygon)
-        sd = (depth_noise(ring.kind, x, y, centroids, replicates=noise_replicates)
+        sd = (depth_noise(ring.kind, x, y, centroids, replicates=noise_replicates, progress_at=progress_at)
               if noise_replicates >= 2 else np.full(k, np.nan))
     state = classify(depth, exclude_nm=exclude_nm, doubt_nm=doubt_nm)
     with np.errstate(invalid="ignore"):
@@ -696,10 +710,14 @@ def auto_unanchored(x_nm: Any, y_nm: Any, centroids: Any, labels: Optional[Any] 
     warnings: List[str] = []
     kinds = [reference] + ([k for k in REFERENCES if k != reference] if compare_references else [])
     verdicts: List[RingVerdict] = []
-    for kind in kinds:
+    per_ring = 1 + max(0, int(noise_replicates))
+    total = len(kinds) * per_ring
+    for i_kind, kind in enumerate(kinds):
+        _progress(f"the {kind} ring", i_kind * per_ring, total)
         ring = reference_ring(kind, x, y, c, exclude_nm=float(exclude_nm))
         verdicts.append(_verdict(ring, c, x, y, exclude_nm=float(exclude_nm), doubt_nm=float(doubt_nm),
-                                 noise_replicates=int(noise_replicates)))
+                                 noise_replicates=int(noise_replicates),
+                                 progress_at=(i_kind * per_ring + 1, total)))
     used = verdicts[0]
     other = verdicts[1] if len(verdicts) > 1 else None
     if not used.ring.ok:

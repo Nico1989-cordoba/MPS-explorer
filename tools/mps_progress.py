@@ -50,6 +50,16 @@ STAGES: Dict[str, Tuple[str, float, float]] = {
 }
 
 
+# The per-axon null's own point (tools.clustering_integration.NULL_PROGRESS_STAGE): the same words, kept here so the
+# bar knows it without importing the integration. Before this share existed the bar of a file stood at ~99 % for the
+# whole null (a Batch of 3 axons with the null took ~40 min with no sign of life).
+NULL_STAGE = "per-axon null (simulated axons)"
+# With the null ticked, the file's analysis takes the first share of the bar and the null the rest [ad hoc: the null
+# is B (hundreds of) analyses of simulated axons, so it dominates the file's time; inside its share the bar moves
+# replicate by replicate, which is what makes the remaining-time estimate meaningful].
+NULL_ANALYSIS_SHARE = 0.20
+
+
 @contextlib.contextmanager
 def observing(observer: Optional[Observer]) -> Iterator[None]:
     """Inside this block, every check point of the analysis calls ``observer(where, done, total)``."""
@@ -72,17 +82,48 @@ def notify(where: str, done: Optional[int] = None, total: Optional[int] = None) 
         fn(where, done, total)
 
 
-def file_fraction(where: str, done: Optional[int] = None,
-                  total: Optional[int] = None) -> Tuple[Optional[float], str]:
+def eta_words(fraction: float, elapsed_s: float, min_fraction: float = 0.02, min_elapsed_s: float = 10.0) -> str:
+    """"about 12 min left" from the share done and the time spent, '' while there is too little to say [ad hoc: 2 %
+    and 10 s]. A straight-line estimate: the stages are not equally long, so it is an estimate and the text says so."""
+    f, t = float(fraction), float(elapsed_s)
+    if not (min_fraction <= f < 1.0) or t < min_elapsed_s:
+        return ""
+    left = t * (1.0 - f) / f
+    if left < 90:
+        return "about %d s left" % (int(round(left / 5.0)) * 5 or 5)
+    if left < 5400:
+        return "about %d min left" % int(round(left / 60.0))
+    return "about %.1f h left" % (left / 3600.0)
+
+
+def elapsed_words(seconds: float) -> str:
+    """mm:ss (h:mm:ss from an hour)."""
+    s = max(0, int(seconds))
+    return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60:02d}:{s % 60:02d}"
+
+
+def file_fraction(where: str, done: Optional[int] = None, total: Optional[int] = None,
+                  with_null: bool = False) -> Tuple[Optional[float], str]:
     """(share of one file's analysis done, words) at check point ``where``; (None, where) for an unknown point.
 
     ``done`` of ``total`` moves the share inside the stage's own: start 312 of 1,104 of the perimeter is
     0.30 + 0.40 x 312 / 1,104.
     """
+    if str(where) == NULL_STAGE:
+        words, lo, hi = ("per-axon null (simulated axons)", NULL_ANALYSIS_SHARE, 1.0)
+        if not with_null:                      # a null the caller did not announce: words only, as before
+            return None, f"{words}" + (f", replicate {min(int(done) + 1, int(total)):,} of {int(total):,}"
+                                       if done is not None and total else "")
+        if done is not None and total is not None and int(total) > 0:
+            d, t = int(done), int(total)
+            return lo + (hi - lo) * min(max(d / t, 0.0), 1.0), f"{words}, replicate {min(d + 1, t):,} of {t:,}"
+        return lo, words
     stage = STAGES.get(str(where))
     if stage is None:
         return None, str(where)
     words, lo, hi = stage
+    if with_null:
+        lo, hi = lo * NULL_ANALYSIS_SHARE, hi * NULL_ANALYSIS_SHARE
     if done is not None and total is not None and int(total) > 0:
         d, t = int(done), int(total)
         share = lo + (hi - lo) * min(max(d / t, 0.0), 1.0)
