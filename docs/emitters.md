@@ -189,7 +189,7 @@ category between ξ sources) is read by the user from two runs.
 The method's parameters (including ξ source, dye, k, r_mol) are also in `cluster_params`, and `cluster_scale_nm`
 is r_mol (the separation the clusters were built with; the edge-curation margin is max(eps, r_mol)).
 
-**Files.** *Export axon* writes, beside the axon table, `<table>_emitters_<axon_id>.csv` (one row per emitter:
+**Files.** *Save axon...* writes, beside the axon table, `<table>_emitters_<axon_id>.csv` (one row per emitter:
 position, σ, n_locs, has_locs, P(occupied), pre-cluster, posterior K, ξ, method) and
 `<table>_emitter_labels_<axon_id>.csv` (`x, y, label` for every localization of the slab, in nm, with the cluster of
 each). The second file is in the format of the *External labels* method: re-analysing the same slab with it, and its

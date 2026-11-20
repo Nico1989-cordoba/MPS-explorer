@@ -10,7 +10,7 @@
 > nulo de Monte Carlo, y se explica qué se puede y qué no se puede leer. z0 es por defecto el **pico** de
 > localizaciones en z; el **foco** (nominal o empírico) es elegible y las dos distancias pico−foco se exportan siempre.
 > La unidad entre grupos es el animal; con un solo animal o sin animal todo es descriptivo. La exportación es la tabla
-> por axón v21 (columnas `pd_*`) más tablas largas, cada una con su diccionario. Los números rotulados [pilot] son del
+> por axón v22 (columnas `pd_*`) más tablas largas, cada una con su diccionario. Los números rotulados [pilot] son del
 > piloto exploratorio (18 axones de un solo experimento, un solo animal); las secciones «Validation» traen los falsos
 > positivos y la potencia medidos en simulación (sección 13).
 >
@@ -22,10 +22,12 @@
 > lateral mejor alineada a ≤ 32 nm RMS de la central (calibrado en simulación, sección 8; en el piloto pasan 3 axones).
 > La fuga axial del par −1/+1 con las fracciones reales de cada axón es mucho mayor que la de rodajas iguales. El
 > ancho axial se midió en el piloto con una «NeNA en z»: la cifra principal es **47 nm**, con **36–51 nm** como
-> incertidumbre; 77 nm queda solo como cota superior (incluye el grosor físico del anillo). En datos nuevos hay que
-> medirlo por archivo. Las lecturas de vecinas («leakage only» / «neighbours above leakage») comparan cada par con su
-> propia fuga con las fracciones reales del axón, a 47 nm. El recorte opcional de localizaciones interiores solo actúa
-> si la curva polar pasa las reglas estrictas del contorno automático.
+> incertidumbre; 77 nm queda solo como cota superior (incluye el grosor físico del anillo). Desde la tabla v22 el
+> programa mide σ_z en cada archivo (NeNA en z más la componente lenta de los re-encendidos, `tools/mps_axial_sigma.py`)
+> y usa esa medición cuando es confiable; si el archivo no se puede medir usa los 47 nm (36–51 nm) del piloto y lo
+> dice (`pd_sz_source`). Las lecturas de vecinas («leakage only» / «neighbours above leakage») comparan cada par con
+> su propia fuga con las fracciones reales del axón, al ancho usado. El recorte opcional de localizaciones interiores
+> solo actúa si la curva polar pasa las reglas estrictas del contorno automático.
 
 This page is the public methods record of the **perimeter density analysis**. It is independent of how a cluster is
 defined: nothing here uses cluster labels, DBSCAN parameters or cluster centres. Every number is labelled:
@@ -503,8 +505,8 @@ on a narrow cloud (radial SD 40 nm, 20 sets per condition): flat 0 of 20 false r
 | 11 (accepted contours of the pilot) | 0.017 | 0.42 (0.35-0.48) | 0.13 (0.09-0.18) | 1.00 |
 | **4 (reliable contours of the pilot, D12)** | 0.027 | **0.24** (0.19-0.30) | **0.045** (0.02-0.08) | 1.00 |
 
-Sizes 5 to 10 were simulated afterwards (500 sets per positive) to fix the minimum of a pooled reading: see the table
-in section 6 (minimum 10). With 4 axons A still invents nothing, but an attractor of the simulated size is seen once
+Sizes 5 to 10 were simulated afterwards (500 sets per positive) to fix the minimum of a pooled reading, and 9 to 11
+again with 2000 sets per scenario: see the two tables above (minimum 9). With 4 axons A still invents nothing, but an attractor of the simulated size is seen once
 in four sets and an inhibition zone practically never. **"No structure detectable" on 4 axons says nothing about the absence of
 structure.** The sensitivity of the readings to the zone rule (beyond the widening check built into the reading) is
 not reported by this validation.
@@ -677,7 +679,9 @@ is registry between slices.
   density controls, interval width) are [ad hoc]; the radii and lag are [real data, pilot]; `lp` and `lpz` are
   reported for comparison and never enter the estimate. Tested on simulated files of known error
   (`test_axial_sigma.py`).
-- **r(−1, +1) against its own leak** (`pd_c_m1_p1_vs_leak`, v21 vocabulary): "above the leak (sigma_z 47 nm, range
+- **r(−1, +1) against its own leak** (`pd_c_m1_p1_vs_leak`, v21 vocabulary, written here with the pilot's widths;
+  since v22 a file whose σ_z was measured carries its own main width and range in the same labels, and the upper
+  bound stays 77 nm): "above the leak (sigma_z 47 nm, range
   36-51 nm) and above its upper bound (77 nm)"; "above the leak (sigma_z 47 nm, range 36-51 nm); within the upper
   bound (77 nm)"; "above the leak at sigma_z 47 nm, within its range (not above 51 nm)"; "at the limit: above the
   leak at sigma_z 36 nm, not at 47 nm"; "not above the leak (not even at sigma_z 36 nm)". A "registry between slices"
@@ -702,10 +706,11 @@ is registry between slices.
   profile. Since 2026-11-17 (user's decision) the neighbours are compared with `pd_c_leak_r_m1_0_*` and
   `pd_c_leak_r_0_p1_*`, not with the leak of three equal slices (`pd_c_leak_expected_r`, 0.27 at 47 nm, still
   reported): with the pilot's fractions the neighbour leak is 0.29-0.76 at 47 nm (11 finished
-  axons), so the old comparison called the leak itself "neighbours above leakage" (3 axons change, section 13). The reading uses the **main width (47 nm)** and is repeated at the ends of
-  the measured range (36 and 51 nm): when an end gives another reading the label is the 47 nm reading followed by
-  " (within the measured range of sigma_z 36-51 nm: <reading> at 36 nm; <reading> at 51 nm)" (only the ends that
-  differ are listed). The 77 nm upper bound does not enter the reading. The leak is a noise-free upper bound that may
+  axons), so the old comparison called the leak itself "neighbours above leakage" (3 axons change, section 13). The reading uses the **main width** (since v22 the file's measured σ_z when
+  the measurement is reliable, otherwise the pilot's 47 nm) and is repeated at the ends of its range (the measured
+  interval, or the pilot's 36 and 51 nm): when an end gives another reading the label is the main-width reading
+  followed by, with the pilot's widths, " (within the measured range of sigma_z 36-51 nm: <reading> at 36 nm;
+  <reading> at 51 nm)" (only the ends that differ are listed; a measured file's label carries its own numbers). The 77 nm upper bound does not enter the reading. The leak is a noise-free upper bound that may
   be underestimated when a lateral is mostly leak (above).
 - **When the per-axon reading cannot be read as it stands** (`tools/mps_perimeter_pool.py`, `axon_c_reading`). The
   rule above looks only at the three correlations. The cell of `pd_c_reading` adds the reason when the axon's contour
@@ -891,7 +896,7 @@ Every failure produces a complete row with a status and a one-sentence reason (`
 | `invalid input` | an unreadable file or arrays of different lengths |
 | `internal error` | an unexpected failure, caught and reported with its text |
 
-## 11. Export (axon tables v17 to v21), the windows, and how to reproduce
+## 11. Export (axon tables v17 to v22), the windows, and how to reproduce
 
 - **Per-axon table, v17.** A block at the very end of the row, after the six columns of v16; no earlier column moves.
   The block is empty with `pd_status = "not run"` when the analysis was not run, and keeps every column (empty where a
@@ -1151,8 +1156,9 @@ may underestimate it); "regular" always brings "inhibition zone"; the
 power of B on symmetric shapes differs from the module's earlier run (0.23 vs 0.60); the 2 µm gap fails; the common
 contour error was tested only with smooth bumps (no long chord, no per-slice error); the real-width cloud needs more
 axons and a width that passes the gate (for example 75 nm) to measure B and C in the reliable stratum; the axial width
-that sets the leak was measured on the pilot (47 nm, range 36-51 nm; section 8) but must be measured per file in new
-data, and whether it is 36 or 47 nm (the slow error component) needs fixed beads or fiducials; the slice criterion of C was calibrated up to 50
+that sets the leak was measured on the pilot (47 nm, range 36-51 nm; section 8) and, since v22, is measured in each
+file when the file allows it (the pilot's width otherwise), but whether the slow error component is error or
+neighbours (36 or 47 nm on the pilot) needs fixed beads or fiducials; the slice criterion of C was calibrated up to 50
 localizations per lateral bin and must be recalibrated for denser data.
 
 | stage | what is run | criterion planned |
@@ -1193,7 +1199,7 @@ the contour orientation; a slice with almost no localizations; the peak against 
 | slice coincidence criterion for the main reading of C | min(RMS −1, RMS +1) ≤ 32 nm; not measurable = does not coincide | [own sim; Bradley 1978 robustness band 7.5 %]; calibrated up to 50 loc./bin, recalibrate for denser data |
 | axial width for the leak with real fractions | measured in the file when reliable (v22); else 47 nm main, 36-51 nm range; 77 nm upper bound only | [pilot]: NeNA in z, user's decision 2026-11-17; per-file measurement [derivation + real data, pilot]; thresholds [ad hoc] |
 | interior trim (D8) applied only when | the polar curve passes the strict rules of the automatic contour | user's decision 2026-11-17; [own sim] contour report v2: weak rule lost 5-22 % of the membrane |
-| minimum axons for a pooled reading of A | 10 | [own sim; Bradley 1978]: smallest simulated size (4-11, 18) where every recognisable effect has a lower Wilson bound above 0.075 and every null stays at most 0.075 |
+| minimum axons for a pooled reading of A | 9 | [own sim; Bradley 1978]: smallest simulated size (4-11, 18) where every recognisable effect has a lower Wilson bound above 0.075 and every null stays at most 0.075, confirmed with 2000 sets per scenario at 9, 10 and 11 axons; user decision 2026-11-19 |
 | leak tolerance in the reading | 0.10 | [ad hoc] |
 | replicates / seed | 1999 / 0 | [lit] Phipson & Smyth 2010 style / convention |
 | significance level / Holm | 0.05 / between the two pooled A statistics | [lit] conventional / Holm 1979 |
