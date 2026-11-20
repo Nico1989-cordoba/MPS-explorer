@@ -155,7 +155,7 @@ def probe_pool(rng: np.random.Generator, n_axons: int = 12) -> Dict[str, Any]:
                 for cut in (None, 1.8, 2.5):
                     ex = None if cut is None else np.where(np.isfinite(cs.elongation), cs.elongation > cut, False)
                     p = asz.pooled_footprint(cs.sd_tangential, cs.n_locs, cs.n_events, syn.SIGMA_LOC_NM + nena_err,
-                                             exclude=ex)
+                                             exclude=ex, exclude_event_fusion=False)   # the probe's recipe (pre-E2)
                     if det == "dbscan25" and cut == asz.POOL_EXCLUDE_ELONGATION:
                         verdicts.append(p.verdict)
                     if p.rho_nm is not None:

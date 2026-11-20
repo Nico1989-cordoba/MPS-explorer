@@ -328,6 +328,18 @@ def main() -> int:
             assert w.selection_widget.spec.is_default and w.tau_control.is_tau0()
             run_default(w)
             got = capture(w, name, WORK)
+            dump = os.environ.get("MPS_TAU_GOLDEN_DUMP")
+            if dump:
+                # re-capturing the golden (a deliberate change): every case as recorded, for the comparison script
+                old = json.load(open(dump, encoding="utf-8")) if os.path.exists(dump) else {}
+                old[name] = got
+                with open(dump, "w", encoding="utf-8") as fh:
+                    json.dump(old, fh, indent=1, sort_keys=True)
+                w.close()
+                launcher.close()
+                pump(0.2)
+                out.append(f"{name}: dumped")
+                continue
             want = golden["cases"][name]
             diff = [k for k in want if got.get(k) != want[k]]
             assert not diff, f"{name}: {diff}: " + "; ".join(f"{k}: {got.get(k)!r} != {want[k]!r}"[:400]

@@ -65,10 +65,12 @@ MAIN_WINDOW: Dict[str, str] = {
     "radioButton_circROI":
         "Select with a circle. Drag the middle to move it, drag the "
         "handle to resize it.\n\n"
-        "The usual choice for a cross-sectioned axon.",
+        "The usual choice for a cross-sectioned axon."
+        "\n\nFor the regularity reading draw it with a margin of at least 500 nm around the membrane: clusters cut by the ROI edge are removed and leave contour stretches empty [own sim: 0 clusters removed in 60 axons with that margin; docs/regularity.md].",
     "radioButton_squareROI":
         "Select with a rectangle. Drag the middle to move it, drag the "
-        "handle to resize it.",
+        "handle to resize it."
+        "\n\nFor the regularity reading draw it with a margin of at least 500 nm around the membrane: clusters cut by the ROI edge are removed and leave contour stretches empty [own sim: 0 clusters removed in 60 axons with that margin; docs/regularity.md].",
     "radioButton_polygonROI":
         "Select with a polygon. It starts as a four-sided shape: drag a "
         "vertex to move it, click a side to add a vertex there, "
@@ -76,7 +78,8 @@ MAIN_WINDOW: Dict[str, str] = {
         "(the shape keeps at least three), drag the inside to move the "
         "whole shape.\n\n"
         "For an axon that is not round, or when a neighbouring one has "
-        "to be left out of a circle that would otherwise contain it.",
+        "to be left out of a circle that would otherwise contain it."
+        "\n\nFor the regularity reading draw it with a margin of at least 500 nm around the membrane: clusters cut by the ROI edge are removed and leave contour stretches empty [own sim: 0 clusters removed in 60 axons with that margin; docs/regularity.md].",
     "lineEdit_zmin":
         "Lower edge of the axial cut, in nanometres (read-only here).\n\n"
         "It shows the slab chosen in the MPS analysis window: the main "

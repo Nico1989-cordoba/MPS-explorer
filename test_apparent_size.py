@@ -153,14 +153,16 @@ def test_pool_recovers_the_footprint_with_three_labels_and_the_right_nena():
     """P-R61 sec. 3.2 / SIZE_SIM sec. 3.2: 3 labels, rho 25 nm, K = 60, NeNA exact -> 25.9 +/- 3.6 nm."""
     rhos, ses = [], []
     for ring in _rings(11, 3.0):
-        p = _pool_of(ring, syn.SIGMA_LOC_NM)
+        # the estimator itself, without the event layer's fusion exclusion (E2; tested in test_core_tanda1.py)
+        p = _pool_of(ring, syn.SIGMA_LOC_NM, exclude_event_fusion=False)
         assert p.verdict == "footprint measurable" and p.labels_per_cluster >= 1.5
         rhos.append(p.rho_nm)
         ses.append(p.se_nm)
     assert 19.0 < float(np.mean(rhos)) < 31.0
     assert all(s is not None and 0 < s < 15 for s in ses)
     # a NeNA under-estimated by 2 nm inflates it (the reason the NeNA of each file is required)
-    low = float(np.mean([_pool_of(r, syn.SIGMA_LOC_NM - 2.0).rho_nm for r in _rings(11, 3.0)]))
+    low = float(np.mean([_pool_of(r, syn.SIGMA_LOC_NM - 2.0, exclude_event_fusion=False).rho_nm
+                         for r in _rings(11, 3.0)]))
     assert low > float(np.mean(rhos)) + 3.0
 
 
@@ -382,13 +384,15 @@ def test_eps_sensitivity_and_pipeline_null_hook(runs_and_mm):
     seen: Dict[str, Any] = {}
 
     def hook(run: Any, context: Any, stats: Dict[str, Any]) -> Dict[str, List[float]]:
-        seen["names"] = list(stats)
-        seen["value"] = stats["size_nloc_nn_spearman"](run.analysis)
+        seen.setdefault("names", []).extend(stats)          # question (a), then (b) (decision E5a)
+        if "size_nloc_nn_spearman" in stats:
+            seen["value"] = stats["size_nloc_nn_spearman"](run.analysis)
         return {"size_nloc_nn_spearman": list(np.linspace(-0.5, 0.5, 199) + obs + 1.0)}   # all above obs
 
     rows = MM.apply_analyses(runs[:1], names=[sp.SIZE_ANALYSIS], extras={"size_pipeline_null": hook})
     p = {r["readout"]: r["value"] for r in rows}["size_nloc_nn_null_p"]
-    assert seen["names"] == ["size_nloc_nn_spearman"] and seen["value"] == pytest.approx(obs)
+    assert seen["names"][0] == "size_nloc_nn_spearman" and seen["value"] == pytest.approx(obs)
+    assert set(seen["names"]) <= {"size_nloc_nn_spearman", "size_nloc_kappa_r_spearman"}
     assert p == pytest.approx(2.0 / 200.0)
     # precomputed results of the null branch, keyed by run
     rows = MM.apply_analyses(runs[:1], names=[sp.SIZE_ANALYSIS],
@@ -406,7 +410,8 @@ def test_register_with_pipeline_null_uses_its_readout_api(monkeypatch):
     fake = SimpleNamespace(ReadoutSpec=lambda name, fn, unit, **kw: Spec(name=name, fn=fn, unit=unit, **kw),
                            register_readout=lambda spec, replace=False: registered.append(spec))
     monkeypatch.setitem(sys.modules, "tools.mps_pipeline_null", fake)
-    assert sp.register_with_pipeline_null() == ["size_nloc_nn_spearman"]
+    assert sp.register_with_pipeline_null() == ["size_nloc_nn_spearman", "size_nloc_kappa_r_spearman"]
+    assert registered[1].name == "size_nloc_kappa_r_spearman" and registered[1].needs_ring is False   # E5a
     spec = registered[0]
     assert spec.name == "size_nloc_nn_spearman" and spec.needs_ring is False
     view = SimpleNamespace(analysis=SimpleNamespace(

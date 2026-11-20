@@ -155,3 +155,19 @@ def test_slow_methods_are_refused_in_the_tab_unless_ticked(app, observed):
         assert arr.outcomes["Emitters"].status == "refused"
     finally:
         w.close()
+
+
+def test_the_panel_starts_at_the_stored_c_label_and_stores_an_edit(app, observed):
+    """2026-10-29: the c_label typed in the Working scale panel is written to the settings (through the store) and
+    the panel of the next window starts at it; the Batch reads it from the same settings."""
+    from tools.mps_results_window import MPSResultsWindow, WindowLinks
+    stored: list = []
+    links = WindowLinks(nena=lambda: (12.0, "this file (synthetic)"), c_label=lambda: 26.0, store=stored.append)
+    w = MPSResultsWindow(observed, rerun_callback=lambda **kw: observed, links=links)
+    try:
+        assert w.working_scale.c_label() == 26.0 and not stored        # starting at it stores nothing
+        w.working_scale.spin_c_label.setValue(19.0)
+        app.processEvents()
+        assert {"c_label": 19.0} in stored
+    finally:
+        w.close()

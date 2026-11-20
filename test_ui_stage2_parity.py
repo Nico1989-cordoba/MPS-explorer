@@ -106,7 +106,8 @@ EVERY_CELL = {"B17", "B18", "B19", "B20", "B21", "B23", "B26", "B27"}
 # integration: build_tables' integration keyword; the v13 columns fall inside B30's table-level entries). B30 has
 # been in the manifest since Phase D; this check did not know it until the integration (2026-10-22).
 # B33 (2026-10-27): the second integration, analyze_axon's localization_frame for every method (map-panel wave).
-ANY_CELL = {"B30", "B31", "B32", "B33"}
+# B34 (2026-10-29): fix/core-batch-tanda1, the settings c_label and batch_null_closure.
+ANY_CELL = {"B30", "B31", "B32", "B33", "B34"}
 # The only paths B23 may name: the settings' new field, in memory and in the file.
 B23_PATHS = {"main_cut / settings_in_memory / beginner_tour", "beginner_tour"}
 
@@ -120,7 +121,7 @@ def check_manifest(manifest: List[Dict[str, Any]], cells: Set[str]) -> List[str]
         if b not in {f"B{i}" for i in range(1, 15)} | EVERY_CELL | ANY_CELL:
             problems.append(f"{e['cell']}: {b} is not one of B1-B13 (G6), B14 (manual test 2), B17 (species), "
                             f"B18 (SCI-1), B19 (SCI-3), B20 (SCI-5), B21 (SCI-6), B23 (beginner tour), B26 (P-R58), B27 (P-R59), "
-                            f"B30 (Phase D), B31 (BaGoL F5), B32 (the clustering integration) or B33 (the second integration)")
+                            f"B30 (Phase D), B31 (BaGoL F5), B32 (the clustering integration), B33 (the second integration) or B34 (core tanda 1)")
         if b == "B23" and e.get("path") not in B23_PATHS:
             problems.append(f"{e['cell']} / {e.get('path')}: B23 may only name the settings' beginner_tour field")
         if b in ("B5", "B7", "B8", "B9", "B10"):

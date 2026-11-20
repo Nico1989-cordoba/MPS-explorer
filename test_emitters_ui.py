@@ -261,7 +261,7 @@ def test_axon_row_v12_puts_the_emitters_block_last(emitters_analysis):
     from tools import axon_export
     from tools.column_dictionary import describe, known_columns, missing
     a, _ = emitters_analysis
-    assert axon_export.TABLE_VERSION == "axon tables v14"
+    assert axon_export.TABLE_VERSION == "axon tables v16"
     row = axon_export.axon_row(a, exported_at="t")
     n13 = len(axon_export.integration_columns())     # v13: the clustering integration's block after the emitters'
     names = list(row)[:-n13]
@@ -409,11 +409,11 @@ def test_batch_never_runs_the_layer_without_the_slow_box(tmp_path):
     item = mb.BatchFile(path=str(tmp_path / "missing.hdf5"), identity=AxonIdentity())
     rec = mb.analyse_file(item, settings)
     assert not rec.row
-    assert "Slow methods" in (rec.error or "")
+    assert "Allow slow methods" in (rec.error or "")               # A2 (2026-11-07): the box's new name
     assert el.EMITTERS_METHOD in mb.BATCH_SLOW_METHODS
     # with the box ticked the method is attempted (here the file is missing, so the reason is another)
     rec2 = mb.analyse_file(item, settings, allow_slow=True)
-    assert "Slow methods" not in (rec2.error or "")
+    assert "Allow slow methods" not in (rec2.error or "")
 
 
 def test_batch_comparison_skips_the_layer_without_the_slow_box(tmp_path):

@@ -61,12 +61,20 @@ class Provisional:
     applied: bool = True
 
 
+# G4 (user decision 2026-11-07): said wherever a per-axon regularity label is shown.
+LATTICE_WORDS = ("the per-axon label is descriptive only and under-reads 'lattice': a full lattice through the "
+                 "pipeline reads lattice in 4 of 12 simulated axons and periodic in 8 [own sim, docs/regularity.md]")
+# G5 (user decision 2026-11-07): the visible warning when the edge curation removed clusters.
+EDGE_WARNING = "contour stretches removed at the ROI edge: regularity may be biased"
+
 _P: Tuple[Provisional, ...] = (
     Provisional("A1", "edge-margin floor of the methods that are not DBSCAN", "the eps of the analysis shown",
                 "[ad hoc: recommendation A1, as 'Compare methods...' did]", "tools.multimethod.analyze_like"),
     Provisional("A2", "slow methods (Emitters, OPTICS, voronoi_csr) in the comparison", True,
-                "[ad hoc: recommendation A2] ticking a slow method in 'Compare methods...' is the permission; the "
-                "batch and the null refuse them unless their own box is ticked",
+                "[user decision A2 (a)+(b), 2026-10-23] ticking a slow method in 'Compare methods...' is the "
+                "permission; the Batch and the null refuse them unless 'Allow slow methods' is ticked; and every time "
+                "a slow method is about to run (Compare, or the Batch / the null with the box ticked) a confirmation "
+                "dialog shows the time estimate first (tools.slow_confirm)",
                 "tools.compare_analyses_ui; tools.mps_batch; tools.arrangement_ui"),
     Provisional("A3", "'large spread' between methods", "visual flag only",
                 "[ad hoc: recommendation A3] range over the reference > 10 % (tools.multimethod.SPREAD_FLAG_REL), "
@@ -76,8 +84,10 @@ _P: Tuple[Provisional, ...] = (
     Provisional("B1", "radius of the localizations-per-cycle measurement that feeds the DBSCAN rule",
                 3.0 * math.sqrt(2.0),
                 "[simulation: docs/dbscan_rule.md sec. 4 -- 3 NeNA under-reads it by 9-26 %, 3 sqrt(2) NeNA by "
-                "0.4-3.4 %; recommendation B1] (in NeNA); events and the fusion mark keep 3 NeNA (decision D5)",
-                "rule_for"),
+                "0.4-3.4 %; user decision B1 (a), 2026-10-23] (in NeNA); events and the fusion mark keep 3 NeNA "
+                "(decision D5). Both radii are editable in 'Working scale' to explore (EXPLORATORY when not the "
+                "default; the export says which radius each used: lpc_rule_radius_nena, link_radius_nena)",
+                "rule_for; locs_per_cycle_of(radius_in_nena=); comparison_extras(events_radius_in_nena=)"),
     Provisional("B2", "min samples formula counts the point itself", True,
                 "[lit: Ester et al. 1996; recommendation B2] (gives 6 with c_label 14 and 2 loc/cycle)",
                 "tools.dbscan_rule.derive_rule(count_self=...)"),
@@ -92,9 +102,11 @@ _P: Tuple[Provisional, ...] = (
                 "[simulation: docs/null_and_scale.md -- the contact core 2 r_eff reads ~6 nm high and made H1 / H2 "
                 "liberal at 60-80 nm; recommendation C1] the working scale's d50 (~80 nm) instead of the fusion mark",
                 "run_null_for -> tools.mps_pipeline_null.run_pipeline_null(global_test_from=)"),
-    Provisional("C2", "membrane of the null for methods that leave gaps (HDBSCAN)", "centroids (A9), localizations "
-                "offered as a later option", "[ad hoc: recommendation C2: decide with a calibration]",
-                "tools.mps_pipeline_null (not changed)", applied=False),
+    Provisional("C2", "membrane of the null for methods that leave gaps (HDBSCAN)",
+                "the centroids of DBSCAN 25/10, common to every method; the localizations as an option",
+                "[user decision C2 hybrid (a)+(b), 2026-10-23] with the deformation indicator between the two curves "
+                "(mean and largest distance, a warning per 600 nm stretch beyond 50 nm [ad hoc: the H2 band's "
+                "half-width]); the DBSCAN 25/10 run's own null is unchanged", "tools.null_membrane; run_null_for"),
     Provisional("C3", "pilots of the K closure", 4,
                 "[simulation: docs/null_and_scale.md -- 2 pilots left 9 of 20 axons > 5 % off; recommendation C3]",
                 "tools.mps_pipeline_null.PILOT_AXONS_K"),
@@ -109,32 +121,52 @@ _P: Tuple[Provisional, ...] = (
     Provisional("D2", "the merged-cluster criterion (z 3.29) as a measurement", True,
                 "[derivation + simulation: docs/eclipse_tolerance.md sec. 5; recommendation D2] the footprint pool "
                 "leaves the merged-looking clusters out", "comparison_extras -> ToleranceInputs(exclude_merged_from_pool)"),
+    Provisional("D2b", "what the eclipse arc test does with a merged-looking cluster", "split",
+                "[own sim: docs/sims/eclipse_tolerance/merged_handling_sim.py, docs/eclipse_tolerance.md sec. 10; "
+                "user decision D2a] split keeps the 5 %% level and gains power with merges (+2.8 / +4.3 points at "
+                "10 / 25 %% merged); only the arc test's centres: the footprint pool (tools.footprint_pool) still "
+                "leaves the merged-looking clusters out (D2)".replace("%%", "%"),
+                "tools.mps_eclipse_merged.MERGED_HANDLING_DEFAULT; extras['eclipse_merged_handling']"),
     Provisional("D3", "per-pair tolerance in the 2D null", "Phase B", "[ad hoc: recommendation D3]", "-",
                 applied=False),
     Provisional("D4", "'Free' tau starts at 31 nm without an exploratory mark", "accepted",
                 "[ad hoc: recommendation D4]", "tools.mps_tau_ui (unchanged)"),
     Provisional("E1", "elongation cut of the footprint pool", 2.5,
-                "[simulation: docs/apparent_size.md; recommendation E1] recalibrate with a measured c_label",
+                "[simulation: docs/apparent_size.md sec. 5 and 12; user decision E1a] within 1-2 nm of the true "
+                "footprint at c_label 20-26 (betaME), -0.7 to -2.5 nm at 14, fails at 8 (-3 to -7 nm)",
                 "tools.mps_apparent_size.POOL_EXCLUDE_ELONGATION"),
     Provisional("E2", "fusions fooling the 1.5-labels filter with one label per cluster", True,
-                "[simulation: docs/apparent_size.md, 3 of 12 axons; recommendation E2] the pool also leaves out the "
-                "clusters the event layer marks as probable fusions", "comparison_extras -> size_exclude_event_fusion"),
+                "[user decision E2, 2026-10-23; simulation: docs/apparent_size.md, 3 of 12 axons] the footprint pool "
+                "(size AND eclipse, one definition: tools.footprint_pool) leaves out the clusters the event layer "
+                "marks as probable fusions", "tools.footprint_pool; comparison_extras -> size_exclude_event_fusion, "
+                "ToleranceInputs(exclude_event_fusion_from_pool)"),
     Provisional("E4", "plug-in size_eps (eps 20 / 25 / 30)", "unticked by default, with its cost shown",
                 "[ad hoc: recommendation E4]", "ANALYSIS_CHOICES"),
-    Provisional("E5", "pipeline null for the size question (b)", "after the integration",
-                "[ad hoc: recommendation E5]", "-", applied=False),
-    Provisional("G1", "failed replicates of the pipeline-level matched null", 0.05,
-                "[simulation: docs/regularity.md, 22 of 60 axons lost 1 of 49; recommendation G1] tolerated up to this "
-                "share in stage 2 only", "tools.mps_gap_measures.MATCHED_TOLERATED_FAILED_FRACTION"),
+    Provisional("E5", "pipeline null for the size question (b)", "the axon's one null (G3), readout "
+                "size_nloc_kappa_r_spearman", "[user decision E5a; calibration: own sim, docs/sims/apparent_size/"
+                "curvature_null_calibration.py] its p counts the failed replicates as G1 says (p_mc_size_nloc_kappa_r_"
+                "spearman_ignoring_failed beside it)", "tools.size_curvature_null.register_with_pipeline_null"),
+    Provisional("G1", "failed replicates of the pipeline null (stage 1 and stage 2)", 0.05,
+                "[user decision G1 (c), 2026-10-23; simulation: docs/regularity.md, 22 of 60 axons lost 1 of 49] "
+                "up to floor(0.05 B) tolerated, each counted as at least as extreme as the observed (conservative p); "
+                "null_failed_replicates and p_mc_*_ignoring_failed exported; more -> NOT INTERPRETABLE",
+                "tools.mps_pipeline_null.TOLERATED_FAILED_FRACTION (= tools.mps_gap_measures."
+                "MATCHED_TOLERATED_FAILED_FRACTION)"),
     Provisional("G2", "pipeline-level bands of the regularity plots", True,
-                "[ad hoc: recommendation G2] the null keeps every replicate's arcs (keep_arcs)",
-                "run_null_for -> run_pipeline_null(keep_arcs=True)"),
-    Provisional("G3", "one null for every readout", True, "[decision D7; recommendation G3] the null is passed "
+                "[user decision G2 (a), 2026-11-07] the null keeps every replicate's arcs (keep_arcs) and the "
+                "regularity plots draw their band from them once the null ran (the same null as stage 2's p); before "
+                "it, the centres-level band labelled 'approx., centres'; an exported image says which null its band "
+                "comes from", "run_null_for -> run_pipeline_null(keep_arcs=True); tools.arrangement_ui"),
+    Provisional("G3", "one null for every readout", True, "[decision D7; user decision G3, 2026-11-07] the null is passed "
                 "to the gap measures (extras['pipeline_null_results'])", "run_null_for"),
     Provisional("G4", "the type of regularity of a group", "from the per-animal z (P-R83), not per axon",
-                "[user decision P-R83; recommendation G4]", "regularity_batch_summary"),
-    Provisional("G5", "contour stretches lost at the ROI edge", "a note beside the reading",
-                "[simulation: docs/regularity.md, up to 11 of 41 clusters; recommendation G5]", "edge_note"),
+                "[user decisions P-R83 and G4 (a), 2026-11-07] the window and the Batch summary say that "
+                + LATTICE_WORDS, "regularity_batch_summary; tools.arrangement_ui"),
+    Provisional("G5", "contour stretches lost at the ROI edge", "a visible warning beside the reading",
+                "[simulation: docs/regularity.md, up to 11 of 41 clusters; user decision G5 (a), 2026-11-07] the "
+                "regularity tab warns when the edge curation removed a cluster; the ROI tooltips recommend a "
+                "margin >= 500 nm around the membrane [own sim: 0 clusters removed in 60 axons]",
+                "edge_note; tools.arrangement_ui; tools.mps_tooltips"),
 )
 PROVISIONAL: Dict[str, Provisional] = {p.key: p for p in _P}
 
@@ -146,7 +178,42 @@ def provisional(key: str) -> Any:
 
 NULL_GLOBAL_TEST_FROM: str = str(provisional("C1"))
 NULL_CLOSURE = "n_locs"                                 # [user decision A9; C4]
+# C3 / C4 (2026-10-23): the closures a caller may ask for -- the null's own two and "both" (one null per closure).
+# "k" is the user's word for tools.mps_pipeline_null's "k_clusters".
+NULL_CLOSURE_CHOICES: Tuple[str, ...] = ("n_locs", "k", "both")
+
+
+def null_closures(choice: str) -> List[str]:
+    """The null's closures (``tools.mps_pipeline_null.CLOSURES`` names) for a choice of ``NULL_CLOSURE_CHOICES``
+    (the null's own names are accepted too): "n_locs" -> [n_locs], "k" -> [k_clusters], "both" -> both, n_locs first
+    (the default closure, the one the axon table's row carries)."""
+    c = str(choice)
+    if c in ("n_locs",):
+        return ["n_locs"]
+    if c in ("k", "k_clusters"):
+        return ["k_clusters"]
+    if c == "both":
+        return ["n_locs", "k_clusters"]
+    raise ValueError(f"null closure must be one of {NULL_CLOSURE_CHOICES}, got {choice!r}")
 LPC_RULE_RADIUS_IN_NENA: float = float(provisional("B1"))
+# B1 (user decision 2026-10-23): the event-linking radius of the events layer and the fusion mark (decision D5,
+# 3 NeNA [simulation: docs/dbscan_rule.md]); like the rule's radius above, editable in 'Working scale' to explore.
+EVENTS_RADIUS_IN_NENA: float = 3.0
+# C2: the membrane of every method's null (tools.null_membrane).
+NULL_MEMBRANE = "dbscan_centroids"
+
+
+def radii_exploratory(lpc_radius_in_nena: Optional[float], events_radius_in_nena: Optional[float]) -> str:
+    """B1: "no" when both radii are the defaults (3 sqrt(2) and 3 NeNA), else which one moved, the words of the
+    export's radii_exploratory column and of the panel's EXPLORATORY mark."""
+    parts = []
+    if lpc_radius_in_nena is not None and not math.isclose(float(lpc_radius_in_nena), LPC_RULE_RADIUS_IN_NENA,
+                                                           abs_tol=1e-6):
+        parts.append(f"lpc of the rule at {float(lpc_radius_in_nena):g} NeNA (default {LPC_RULE_RADIUS_IN_NENA:.3g})")
+    if events_radius_in_nena is not None and not math.isclose(float(events_radius_in_nena), EVENTS_RADIUS_IN_NENA,
+                                                              abs_tol=1e-6):
+        parts.append(f"events / fusion at {float(events_radius_in_nena):g} NeNA (default {EVENTS_RADIUS_IN_NENA:g})")
+    return "EXPLORATORY: " + " + ".join(parts) if parts else "no"
 MIN_SAMPLES_COUNT_SELF: bool = bool(provisional("B2"))
 ECLIPSE_EXCLUDE_MERGED: bool = bool(provisional("D2"))
 SIZE_EXCLUDE_EVENT_FUSION: bool = bool(provisional("E2"))
@@ -245,7 +312,8 @@ def estimate_analyses_seconds(names: Sequence[str], methods: Sequence[str], n_lo
 # What the analyses read besides the run: the file's NeNA, c_label, the provisional answers
 # =====================================================================================================================
 
-def event_ids_for(analysis: Any, nena_nm: Optional[float]) -> Optional[np.ndarray]:
+def event_ids_for(analysis: Any, nena_nm: Optional[float],
+                  radius_in_nena: Optional[float] = None) -> Optional[np.ndarray]:
     """The event id of every localization the analysis was given, for the eclipse plug-in
     (``extras["event_id"]``, sliced there with ``analysis.slab_index``): the slab's localizations linked at 3 NeNA,
     1 dark frame (decision D5; ``tools.mps_events.link_events``), -1 outside the slab. None without frames or NeNA.
@@ -260,7 +328,9 @@ def event_ids_for(analysis: Any, nena_nm: Optional[float]) -> Optional[np.ndarra
     x = np.asarray(analysis.x_slab, dtype=np.float64)
     if idx.size != x.size or idx.size == 0:
         return None
-    layer = link_events(np.asarray(frames), x, np.asarray(analysis.y_slab, dtype=np.float64), nena_nm=nena)
+    k = EVENTS_RADIUS_IN_NENA if radius_in_nena is None else float(radius_in_nena)
+    layer = link_events(np.asarray(frames), x, np.asarray(analysis.y_slab, dtype=np.float64), nena_nm=nena,
+                        radius_in_nena=k)
     out = np.full(int(idx.max()) + 1, -1, dtype=np.int64)
     out[idx] = np.asarray(layer.link_group, dtype=np.int64)
     return out
@@ -269,7 +339,8 @@ def event_ids_for(analysis: Any, nena_nm: Optional[float]) -> Optional[np.ndarra
 def comparison_extras(*, nena_nm: Optional[float], c_label: Optional[float] = None,
                       pipeline_null_results: Optional[Mapping[str, Any]] = None,
                       gap_stage2: str = GAP_STAGE2_WINDOW, gap_null: str = "none",
-                      analysis: Optional[Any] = None) -> Dict[str, Any]:
+                      analysis: Optional[Any] = None,
+                      events_radius_in_nena: Optional[float] = None) -> Dict[str, Any]:
     """``context.extras`` for :func:`tools.multimethod.apply_analyses`, with the provisional answers applied.
     ``gap_null`` "none" keeps the gap measures to their values (no null runs in a comparison: the null has its own
     button); "pipeline" lets them run (or reuse, ``pipeline_null_results``) the null."""
@@ -280,18 +351,22 @@ def comparison_extras(*, nena_nm: Optional[float], c_label: Optional[float] = No
         "nena_nm": nena_nm,
         "size_c_label": c,
         "size_exclude_event_fusion": SIZE_EXCLUDE_EVENT_FUSION,
-        "eclipse_inputs": ToleranceInputs(c_label=c, exclude_merged_from_pool=ECLIPSE_EXCLUDE_MERGED),
+        "eclipse_inputs": ToleranceInputs(c_label=c, exclude_merged_from_pool=ECLIPSE_EXCLUDE_MERGED,
+                                          exclude_event_fusion_from_pool=SIZE_EXCLUDE_EVENT_FUSION),
         "null_c_label": c,
         "null_closure": NULL_CLOSURE,
         "null_global_test_from": NULL_GLOBAL_TEST_FROM,
         "gap_stage2": gap_stage2,
         "gap_null": gap_null,
     }
+    if events_radius_in_nena is not None:
+        # B1: an edited events / fusion radius (the plug-ins read it; absent = 3 NeNA, decision D5)
+        extras["events_radius_in_nena"] = float(events_radius_in_nena)
     if pipeline_null_results:
         extras["pipeline_null_results"] = dict(pipeline_null_results)
     if analysis is not None:
         try:
-            ev = event_ids_for(analysis, nena_nm)
+            ev = event_ids_for(analysis, nena_nm, events_radius_in_nena)
         except ValueError:
             ev = None
         if ev is not None:
@@ -309,10 +384,23 @@ def rule_for(nena_nm: Optional[float], *, c_label: Optional[float] = None, locs_
                        locs_per_cycle=locs_per_cycle, count_self=MIN_SAMPLES_COUNT_SELF)
 
 
-def locs_per_cycle_of(loc: Any, nena_nm: Optional[float]) -> Any:
-    """Localizations per cycle of a loaded file, measured on the WHOLE file (B3) at 3 sqrt(2) NeNA (B1)."""
+def locs_per_cycle_of(loc: Any, nena_nm: Optional[float], radius_in_nena: Optional[float] = None) -> Any:
+    """Localizations per cycle of a loaded file, measured on the WHOLE file (B3) at 3 sqrt(2) NeNA (B1), or at the
+    radius edited in 'Working scale' (``radius_in_nena``, EXPLORATORY)."""
     from tools.mps_events import locs_per_cycle_from_localizations
-    return locs_per_cycle_from_localizations(loc, nena_nm=nena_nm, radius_in_nena=LPC_RULE_RADIUS_IN_NENA)
+    k = LPC_RULE_RADIUS_IN_NENA if radius_in_nena is None else float(radius_in_nena)
+    return locs_per_cycle_from_localizations(loc, nena_nm=nena_nm, radius_in_nena=k)
+
+
+def c_label_origin(c_label: float) -> str:
+    """Where a c_label comes from, in the words of ``tools.dbscan_rule.derive_rule``: the literature preset for 14
+    and 26 (Dempsey et al. 2011), "[user] typed" for any other value."""
+    from tools.dbscan_rule import C_LABEL_BME, C_LABEL_MEA
+    if math.isclose(float(c_label), C_LABEL_MEA):
+        return "[lit: Dempsey et al. 2011, Alexa Fluor 647 in MEA] provisional, not measured here"
+    if math.isclose(float(c_label), C_LABEL_BME):
+        return "[lit: Dempsey et al. 2011, Alexa Fluor 647 in beta-ME] sensitivity, not measured here"
+    return "[user] typed"
 
 
 RULE_LABEL = "DBSCAN rule (c_label {c:g})"
@@ -475,40 +563,59 @@ class NullOutcome:
     estimate_s: float = 0.0
     seconds: float = 0.0
     n_replicates: int = 0
+    closure: str = NULL_CLOSURE                  # C3 / C4: the null's closure name (n_locs | k_clusters)
+    membrane: str = ""                           # C2: what the null's membrane was (tools.null_membrane words)
 
     @property
     def ok(self) -> bool:
         return self.status == "ok" and self.result is not None
 
 
-def null_estimate_seconds(run: mm.MethodRun, n_replicates: int) -> float:
+def null_estimate_seconds(run: mm.MethodRun, n_replicates: int, closure: str = NULL_CLOSURE,
+                          gap_stage2: str = GAP_STAGE2_WINDOW) -> float:
     """A first estimate before the null runs (``tools.mps_pipeline_null.check_method``'s table figure, a lower bound
-    for the slow methods), plus the regularity stage 2 at the centres level (seconds)."""
+    for the slow methods), in seconds: per closure (``null_closures``) the B replicates plus, for the K closure, its
+    pilots (N_PILOTS x PILOT_AXONS_K pipeline runs; the N_loc closure's pilots only simulate); plus, when stage 2 of
+    the regularity runs at the pipeline level (the Batch), its upper bound ((PIPELINE_BISECTION_STEPS + 1) x
+    PIPELINE_BISECTION_N + B analyses: it runs only when stage 1 says "more regular")."""
+    from tools import mps_gap_measures as gm
     from tools import mps_pipeline_null as pn
     an = run.analysis
     n = int(getattr(an, "n_locs_slab", 0) or 0)
     per = pn.estimated_seconds_per_replicate(run.method, n)
-    return float(per * (int(n_replicates) + pn.N_PILOTS * pn.PILOT_AXONS_K))
+    total = 0.0
+    for c in null_closures(closure):
+        total += per * (int(n_replicates) + (pn.N_PILOTS * pn.PILOT_AXONS_K if c == "k_clusters" else 0))
+        if gap_stage2 in ("pipeline", "both"):
+            total += per * ((gm.PIPELINE_BISECTION_STEPS + 1) * gm.PIPELINE_BISECTION_N + int(n_replicates))
+    return float(total)
 
 
 def run_null_for(run: mm.MethodRun, *, n_replicates: int, nena_nm: Optional[float], seed: int = mm.DEFAULT_SEED,
                  c_label: Optional[float] = None, allow_slow: bool = False,
                  cancelled: Optional[Callable[[], bool]] = None,
                  progress: Optional[Callable[[int, int], None]] = None,
-                 gap_stage2: str = GAP_STAGE2_WINDOW, frame_slab: Optional[Any] = None) -> NullOutcome:
+                 gap_stage2: str = GAP_STAGE2_WINDOW, frame_slab: Optional[Any] = None,
+                 closure: str = NULL_CLOSURE, membrane: str = NULL_MEMBRANE,
+                 membrane_curve: Optional[Any] = None) -> NullOutcome:
     """The pipeline null of ``run`` (its own method, parameters, curation and contour: ``PipelineSpec.from_analysis``)
-    and the two-stage regularity reading on THE SAME null (D7, G3). Never raises but for a cancellation
+    and the two-stage regularity reading on THE SAME null (D7, G3). ``closure``: "n_locs" (default) or "k"
+    ("k_clusters"); for "both" call :func:`run_nulls_by_closure`. Never raises but for a cancellation
     (``tools.mps_cancel.AnalysisCancelled``): a refusal (slow method, K < 8, External labels) or an error is the
     outcome's status and message."""
     from tools import mps_cancel, mps_progress
     from tools import mps_pipeline_null as pn
     from tools.dbscan_rule import C_LABEL_DEFAULT
     register_all_plugins()
-    out = NullOutcome(key=run.key, method=run.method, params=dict(run.params), n_replicates=int(n_replicates))
+    closures = null_closures(closure)
+    if len(closures) != 1:
+        raise ValueError("run_null_for runs one closure; use run_nulls_by_closure for 'both'")
+    out = NullOutcome(key=run.key, method=run.method, params=dict(run.params), n_replicates=int(n_replicates),
+                      closure=closures[0])
     if not run.ok:
         out.status, out.message = "error", f"the method's own analysis did not run ({run.status}: {run.error})"
         return out
-    out.estimate_s = null_estimate_seconds(run, n_replicates)
+    out.estimate_s = null_estimate_seconds(run, n_replicates, closures[0], gap_stage2)
     an = run.analysis
 
     def tick(done: int, total: int) -> None:
@@ -533,16 +640,51 @@ def run_null_for(run: mm.MethodRun, *, n_replicates: int, nena_nm: Optional[floa
         k: getattr(base, k) for k in ("slab_half_width_nm", "dbcv_threshold", "roi", "mahalanobis_threshold",
                                       "ellipse_mode", "sigma_cap_fraction", "all_starts", "main_peak_mode")})
     t0 = time.perf_counter()
+    model_kw = _membrane_kw(run, membrane, membrane_curve, out)
     with mps_progress.observing(only_the_null if outer is not None else None):
         _null_and_reading(out, an, spec, tick, n_replicates=n_replicates, nena_nm=nena_nm, seed=seed,
-                          c_label=c_label, allow_slow=allow_slow, gap_stage2=gap_stage2, frame_slab=frame_slab)
+                          c_label=c_label, allow_slow=allow_slow, gap_stage2=gap_stage2, frame_slab=frame_slab,
+                          closure=closures[0], model_kw=model_kw)
     out.seconds = float(time.perf_counter() - t0)
     return out
 
 
+def _membrane_kw(run: mm.MethodRun, membrane: str, curve: Optional[Any], out: "NullOutcome") -> Optional[Dict[str, Any]]:
+    """C2: the null model's membrane for ``run``. The DBSCAN 25/10 run under the default keeps the null's own
+    reading (the P-spline through its own centroids: the same curve, its null unchanged); every other run gets the
+    common curve (``curve`` when the caller built it once for every method, else :mod:`tools.null_membrane` builds
+    it here). Falls back to the run's own centroids, said in ``out.membrane``."""
+    from tools import null_membrane as nmb
+    choice = nmb.check_choice(membrane)
+    if choice == nmb.MEMBRANE_DBSCAN and run.is_reference:
+        out.membrane = nmb.MEMBRANE_WORDS[nmb.MEMBRANE_DBSCAN]
+        return None
+    if curve is None:
+        nm = nmb.null_membrane_for(run.analysis, (), choice, with_deformation=False)
+        if nm.curve_nm is None:
+            out.membrane = f"own centroids ({nm.note})"
+            return None
+        curve, source = nm.curve_nm, nm.source
+    else:
+        source = ("read: robust P-spline fitted to the slab's localizations (C2 option)"
+                  if choice == nmb.MEMBRANE_LOCALIZATIONS else
+                  "read: 600 nm P-spline through the centroids of DBSCAN 25/10, common to every method (C2)")
+    out.membrane = nmb.MEMBRANE_WORDS[choice]
+    return {"membrane_nm": np.asarray(curve, dtype=np.float64), "membrane_origin": source}
+
+
+def run_nulls_by_closure(run: mm.MethodRun, *, closure: str = NULL_CLOSURE, **kw: Any) -> Dict[str, NullOutcome]:
+    """C3 / C4: :func:`run_null_for` once per closure of ``closure`` ("n_locs", "k" or "both"), keyed by the null's
+    closure name ("n_locs", "k_clusters"), n_locs first. "both" costs the two nulls (the K closure's pilots run the
+    whole pipeline, ``null_estimate_seconds`` says how much); the same seed for both, so the two differ only by the
+    closure."""
+    return {c: run_null_for(run, closure=c, **kw) for c in null_closures(closure)}
+
+
 def _null_and_reading(out: "NullOutcome", an: Any, spec: Any, tick: Callable[[int, int], None], *, n_replicates: int,
                       nena_nm: Optional[float], seed: int, c_label: Optional[float], allow_slow: bool,
-                      gap_stage2: str, frame_slab: Optional[Any]) -> None:
+                      gap_stage2: str, frame_slab: Optional[Any], closure: str = NULL_CLOSURE,
+                      model_kw: Optional[Dict[str, Any]] = None) -> None:
     """The null, then the regularity reading on it, into ``out`` (refusals and errors as its status; a cancellation
     propagates)."""
     from tools import mps_cancel
@@ -551,9 +693,9 @@ def _null_and_reading(out: "NullOutcome", an: Any, spec: Any, tick: Callable[[in
     try:
         res = pn.run_pipeline_null(
             an, spec=spec, nena_nm=nena_nm, frame_slab=frame_slab, n_replicates=int(n_replicates), seed=int(seed),
-            closure=NULL_CLOSURE, c_label=float(C_LABEL_DEFAULT if c_label is None else c_label),
+            closure=str(closure), c_label=float(C_LABEL_DEFAULT if c_label is None else c_label),
             allow_slow=bool(allow_slow), progress=tick, global_test_from=NULL_GLOBAL_TEST_FROM,
-            keep_arcs=NULL_KEEP_ARCS)
+            keep_arcs=NULL_KEEP_ARCS, model_kw=model_kw)
     except pn.SlowMethodRefused as exc:
         out.status, out.message, out.estimate_s = "refused", str(exc), float(exc.estimate_s)
         return
@@ -583,8 +725,12 @@ def run_nulls(runs: Sequence[mm.MethodRun], *, n_replicates: int, nena_nm: Optio
               seed: int = mm.DEFAULT_SEED, c_label: Optional[float] = None, allow_slow: bool = False,
               cancelled: Optional[Callable[[], bool]] = None,
               progress: Optional[Callable[[str, int, int], None]] = None,
-              gap_stage2: str = GAP_STAGE2_WINDOW) -> Dict[str, NullOutcome]:
-    """:func:`run_null_for` for every run, in order; after a cancellation the rest are "cancelled"."""
+              gap_stage2: str = GAP_STAGE2_WINDOW, closure: str = NULL_CLOSURE, membrane: str = NULL_MEMBRANE,
+              membrane_curve: Optional[Any] = None) -> Dict[str, NullOutcome]:
+    """:func:`run_null_for` for every run and every closure of ``closure`` (C3 / C4: "n_locs", "k" or "both"), in
+    order; keyed by the run's key, and with "both" the K closure's outcome under ``closure_key(key, "k_clusters")``.
+    ``membrane`` / ``membrane_curve``: C2 (one curve for every method). After a cancellation the rest are
+    "cancelled"."""
     from tools import mps_cancel
     out: Dict[str, NullOutcome] = {}
     stop = False
@@ -600,15 +746,77 @@ def run_nulls(runs: Sequence[mm.MethodRun], *, n_replicates: int, nena_nm: Optio
 
             def tick(d: int, t: int, k: str = r.key) -> None:
                 report(k, d, t)
-        try:
-            out[r.key] = run_null_for(
-                r, n_replicates=n_replicates, nena_nm=nena_nm, seed=seed, c_label=c_label, allow_slow=allow_slow,
-                cancelled=cancelled, gap_stage2=gap_stage2, progress=tick)
-        except mps_cancel.AnalysisCancelled:
-            stop = True
-            out[r.key] = NullOutcome(key=r.key, method=r.method, params=dict(r.params), status="cancelled",
-                                     message="cancelled while this method's null ran")
+        for c in null_closures(closure):
+            key = closure_key(r.key, c, closure)
+            if stop:
+                out[key] = NullOutcome(key=key, method=r.method, params=dict(r.params), status="cancelled",
+                                       message="cancelled before this method's null ran", closure=c)
+                continue
+            try:
+                o = run_null_for(
+                    r, n_replicates=n_replicates, nena_nm=nena_nm, seed=seed, c_label=c_label, allow_slow=allow_slow,
+                    cancelled=cancelled, gap_stage2=gap_stage2, progress=tick, closure=c, membrane=membrane,
+                    membrane_curve=membrane_curve)
+                o.key = key
+                out[key] = o
+            except mps_cancel.AnalysisCancelled:
+                stop = True
+                out[key] = NullOutcome(key=key, method=r.method, params=dict(r.params), status="cancelled",
+                                       message="cancelled while this method's null ran", closure=c)
     return out
+
+
+K_CLOSURE_SUFFIX = " [K closure]"
+
+
+def closure_key(key: str, closure: str, choice: str = NULL_CLOSURE) -> str:
+    """The key of one closure's null in :func:`run_nulls`'s result: the run's own key for its first closure (n_locs
+    under "both", the only one otherwise), the key plus ``K_CLOSURE_SUFFIX`` for the K closure under "both"."""
+    if choice == "both" and closure == "k_clusters":
+        return key + K_CLOSURE_SUFFIX
+    return key
+
+
+def closure_pairs(outcomes: Mapping[str, NullOutcome]) -> List[Tuple[str, NullOutcome, NullOutcome]]:
+    """C4: (run key, N_loc outcome, K outcome) for every run whose two closures ran (``run_nulls`` with "both")."""
+    out = []
+    for key, o in outcomes.items():
+        k = outcomes.get(key + K_CLOSURE_SUFFIX)
+        if k is not None and not key.endswith(K_CLOSURE_SUFFIX):
+            out.append((key, o, k))
+    return out
+
+
+def closure_comparison_rows(outcomes: Mapping[str, NullOutcome]) -> List[Dict[str, Any]]:
+    """C4: one row per run and test with the p of each closure side by side (H1, H2, the five readouts, the
+    regularity's stage 1), and the difference of their global envelopes' largest excursion -- what the panel's
+    'Compare closures' view shows and writes."""
+    rows: List[Dict[str, Any]] = []
+    for key, a, b in closure_pairs(outcomes):
+        def p_of(o: NullOutcome, what: str) -> Optional[float]:
+            if not o.ok:
+                return None
+            r = o.result
+            if what in ("h1", "h2"):
+                env = getattr(r, what, None)
+                return None if env is None else _num(env.p_global)
+            if what == "gap_cv":
+                return None if o.gap is None else _num(o.gap.export_columns().get("gap_cv_p_mc"))
+            return _num(r.p_values.get(what))
+
+        def hmax(o: NullOutcome, what: str) -> Optional[float]:
+            env = getattr(o.result, what, None) if o.ok else None
+            return None if env is None else _num(env.h_max)
+
+        for what, words in (("h1", "H1 global (arc)"), ("h2", "H2 global (band)"), ("k_per_um", "clusters per um"),
+                            ("nn_median", "median 1NN"), ("occupancy", "occupancy"), ("regularity", "regularity r"),
+                            ("gap_cv", "gap CV (stage 1)")):
+            pa, pb = p_of(a, what), p_of(b, what)
+            rows.append({"method": key, "test": words, "p_n_locs": pa, "p_k_clusters": pb,
+                         "same_verdict_at_0_05": None if pa is None or pb is None else (pa <= 0.05) == (pb <= 0.05),
+                         "h_max_n_locs": hmax(a, what) if what in ("h1", "h2") else None,
+                         "h_max_k_clusters": hmax(b, what) if what in ("h1", "h2") else None})
+    return rows
 
 
 def null_long_rows(runs: Sequence[mm.MethodRun], outcomes: Mapping[str, NullOutcome]) -> List[Dict[str, Any]]:
@@ -674,6 +882,10 @@ NULL_HEAD_COLUMNS: Tuple[str, ...] = (
 NULL_READOUT_NAMES: Tuple[str, ...] = ("k_per_um", "nn_median", "reff_median", "occupancy", "regularity",
                                        "size_nloc_nn_spearman", "gap_cv", "gap_rho1", "gap_excess_cv", "bragg_s",
                                        "elongation_p95")
+# v15 (decision E5a, 2026-10-29): question (b) of the apparent size on the SAME null (tools.size_curvature_null); its
+# p_mc_ / null_median_ / p_mc_*_ignoring_failed columns go to the end of the table (v15_columns) so nothing moves.
+NULL_READOUT_NAMES_V15: Tuple[str, ...] = ("size_nloc_kappa_r_spearman",)
+ALL_NULL_READOUT_NAMES: Tuple[str, ...] = NULL_READOUT_NAMES + NULL_READOUT_NAMES_V15
 NULL_COLUMNS: Tuple[str, ...] = (NULL_HEAD_COLUMNS + tuple(f"p_mc_{n}" for n in NULL_READOUT_NAMES)
                                  + tuple(f"null_median_{n}" for n in NULL_READOUT_NAMES))
 # GapRegularityResult.export_columns (regularity plan sec. 6.2, P-R86), plus the edge note (G5).
@@ -700,6 +912,85 @@ METHODS_TABLES_NOT_WRITTEN = "not written ('Export tables...' in Compare methods
 # v13 block has it only in NeNA units); and P-R103, the occupancy re-expressed as the fraction of the contour within
 # 25 nm of a kept cluster's centre (tools.mps_occupancy.arc_fraction_within; occupancy_percent is unchanged).
 REPORT_COLUMNS: Tuple[str, ...] = ("nena_method", "link_radius_nm", "occupancy_arc_fraction_within_25nm")
+# v15 (2026-10-29, the headless fixes after the design review), appended after v14's last column so nothing earlier
+# moves. G1 (c): how many replicates of the null failed and, for every p the null gives, the same p ignoring them
+# (descriptive; the p_mc_* / *_p_global columns count the failures in the worst case).
+NULL_FAILED_COLUMNS: Tuple[str, ...] = (
+    ("null_failed_replicates",) + tuple(f"p_mc_{n}_ignoring_failed" for n in NULL_READOUT_NAMES)
+    + ("ripley1d_p_global_ignoring_failed", "ripley2d_p_global_ignoring_failed",
+       "gap_cv_p_mc_ignoring_failed", "gap_excess_cv_p_mc_ignoring_failed", "gap_rho1_p_mc_matched_ignoring_failed",
+       "bragg_p_mc_matched_ignoring_failed", "matched_null_failed_replicates"))
+
+
+# v15, second part (feat/validations-d2-e1-e5, 2026-10-29), after the first part so nothing moves: E5's null columns
+# (its p counts the failed replicates as G1 says; the companion ignores them) and the plug-in readouts the branch
+# added (D2: what the eclipse arc test did with merged-looking clusters; E5: question (b)'s statistic and its p).
+E5_NULL_COLUMNS: Tuple[str, ...] = (
+    tuple(f"p_mc_{n}" for n in NULL_READOUT_NAMES_V15) + tuple(f"null_median_{n}" for n in NULL_READOUT_NAMES_V15)
+    + tuple(f"p_mc_{n}_ignoring_failed" for n in NULL_READOUT_NAMES_V15))
+V15_PLUGIN_COLUMNS: Tuple[str, ...] = ("eclipse_merged_handling", "eclipse_n_merged_split",
+                                       "size_nloc_kappa_r_spearman", "size_nloc_kappa_r_null_p")
+
+
+# Where the regularity's stage 2 was set to run (P-R87 c: "centres" in the axon window, "pipeline" in the Batch); the
+# two levels read 4 of 60 synthetic axons differently, so a row says which it is (design review 2026-10-29).
+REGULARITY_LEVEL_COLUMNS: Tuple[str, ...] = ("regularity_stage2_level",)
+
+
+# B3 (c): the localizations per cycle by depth, a diagnostic beside the rule (tools.lpc_depth; the rule keeps the
+# whole file's value).
+LPC_DEPTH_NOT_HERE = "not computed here: the Batch computes it per file (the whole file is needed)"
+
+
+# v16 (the interface batch, 2026-11-07), appended after v15's last column so nothing earlier moves. B1: the radius
+# the rule's localizations per cycle were measured at (the events / fusion radius is link_radius_nena, v13) and
+# whether either radius was edited (EXPLORATORY). C2: the membrane the null used and the deformation indicator
+# between the DBSCAN 25/10 centroid membrane and the localization membrane.
+V16_COLUMNS: Tuple[str, ...] = ("lpc_rule_radius_nena", "radii_exploratory", "null_membrane",
+                                "membrane_deformation_mean_nm", "membrane_deformation_max_nm",
+                                "membrane_deformation_n_flagged")
+
+
+def null_by_closure_columns() -> Tuple[str, ...]:
+    """The columns of ``<table>_null_by_closure.csv`` (C3 / C4: one row per axon x closure): who the axon is, then
+    the null's columns (null_closure among them), the failure columns (G1) and the regularity reading on that null."""
+    head = ("axon_id", "analysis_id", "source", "cluster_method", "null_status")
+    return head + NULL_COLUMNS + NULL_FAILED_COLUMNS + GAP_COLUMNS + REGULARITY_LEVEL_COLUMNS + E5_NULL_COLUMNS
+
+
+def null_closure_rows(head: Mapping[str, Any], outcomes: Mapping[str, NullOutcome]) -> List[Dict[str, Any]]:
+    """One row per closure of ``outcomes`` (``run_nulls_by_closure``) for the axon ``head`` (its axon_id,
+    analysis_id, source, cluster_method), in ``null_by_closure_columns()`` order; a refused or failed null is its row
+    with ``null_status`` and the reason in ``null_type``."""
+    cols = null_by_closure_columns()
+    rows: List[Dict[str, Any]] = []
+    for closure, o in outcomes.items():
+        row: Dict[str, Any] = {c: None for c in cols}
+        for k in ("axon_id", "analysis_id", "source", "cluster_method"):
+            row[k] = head.get(k)
+        row["null_closure"] = closure
+        row["null_status"] = o.status
+        if o.ok:
+            row.update({k: v for k, v in o.result.export_dict().items() if k in row})
+            if o.gap is not None:
+                row.update({k: v for k, v in o.gap.export_columns().items() if k in row})
+        else:
+            row["null_type"] = f"none ({o.status}: {o.message})"
+        rows.append({c: row.get(c) for c in cols})
+    return rows
+
+
+def v15_columns() -> Tuple[str, ...]:
+    """The v15 block, in order (appended after ``REPORT_COLUMNS``): the core fixes' part (G1 failures, the
+    regularity's stage-2 level, lpc by depth), then the validations' part (E5's null columns, D2 / E5 readouts)."""
+    from tools.lpc_depth import LPC_DEPTH_COLUMNS
+    return (NULL_FAILED_COLUMNS + REGULARITY_LEVEL_COLUMNS + LPC_DEPTH_COLUMNS + E5_NULL_COLUMNS
+            + V15_PLUGIN_COLUMNS)
+
+
+def v16_columns() -> Tuple[str, ...]:
+    """The v16 block (``V16_COLUMNS``), appended after ``v15_columns``."""
+    return V16_COLUMNS
 # The estimator every caller's NeNA comes from (tools.mps_cut_clusters.nena_from_localizations -> tools.mps_quality
 # .nena; docs/nena.md); whether the nearby term was kept (BIC) is shown in the Data quality window, not here.
 NENA_METHOD_MEASURED = ("NeNA (Endesfelder et al. 2014): maximum likelihood on the next-frame distances, Picasso's "
@@ -727,15 +1018,17 @@ def arc_fraction_of(analysis: Any, distance_nm: Optional[float] = None) -> Optio
 
 
 def plugin_columns() -> Tuple[str, ...]:
-    """The per-axon readouts of ``PLUGIN_BLOCKS`` in registration order (their names are the columns)."""
+    """The per-axon readouts of ``PLUGIN_BLOCKS`` in registration order (their names are the columns), but those
+    added in v15 (``V15_PLUGIN_COLUMNS``), which sit at the end of the table so no earlier column moves."""
     register_all_plugins()
-    return tuple(s.name for s in mm.readout_specs(list(PLUGIN_BLOCKS)))
+    return tuple(s.name for s in mm.readout_specs(list(PLUGIN_BLOCKS)) if s.name not in V15_PLUGIN_COLUMNS)
 
 
 def integration_columns() -> Tuple[str, ...]:
     """Every column of the block, in order: scale, methods (A8), events / eclipse / size, regularity, null (v13),
-    and the reporting checklist's last three (v14, ``REPORT_COLUMNS``)."""
-    return SCALE_COLUMNS + METHODS_COLUMNS + plugin_columns() + GAP_COLUMNS + NULL_COLUMNS + REPORT_COLUMNS
+    the reporting checklist's last three (v14, ``REPORT_COLUMNS``) and the v15 block (``v15_columns``)."""
+    return (SCALE_COLUMNS + METHODS_COLUMNS + plugin_columns() + GAP_COLUMNS + NULL_COLUMNS + REPORT_COLUMNS
+            + v15_columns() + v16_columns())
 
 
 def _num(v: Any) -> Optional[float]:
@@ -752,7 +1045,10 @@ def axon_columns(analysis: Any, *, nena_nm: Optional[float] = None, nena_source:
                  c_label: Optional[float] = None, locs_per_cycle: Optional[Any] = None,
                  null: Optional[NullOutcome] = None, comparison: Optional[ComparisonResult] = None,
                  comparison_files: Optional[Mapping[str, str]] = None, seed: int = mm.DEFAULT_SEED,
-                 nena_method: Optional[str] = None) -> Dict[str, Any]:
+                 nena_method: Optional[str] = None, lpc_profile: Optional[Any] = None,
+                 lpc_profile_note: str = "", lpc_radius_in_nena: Optional[float] = None,
+                 events_radius_in_nena: Optional[float] = None,
+                 membrane_deformation: Optional[Any] = None) -> Dict[str, Any]:
     """The integration block of one axon's row (``integration_columns()``: v13, plus v14's ``REPORT_COLUMNS``), for
     the analysis exported.
 
@@ -777,16 +1073,23 @@ def axon_columns(analysis: Any, *, nena_nm: Optional[float] = None, nena_source:
     rule = rule_for(nena, c_label=c_label, locs_per_cycle=locs_per_cycle)
     rule26 = rule_for(nena, c_label=C_LABEL_BME, locs_per_cycle=locs_per_cycle)
     row["dbscan_mode"] = dbscan_mode(analysis, rule)
+    # the c_label every analysis of this row used (the rule's, the plug-ins', the null's), said even without a NeNA
+    # (no rule then): the Batch used 14 whatever the Working scale panel said before 2026-10-29
+    from tools.dbscan_rule import C_LABEL_DEFAULT as _C14
+    c_used = float(_C14 if c_label is None else c_label)
+    row["c_label_used"] = c_used
+    row["c_label_source"] = c_label_origin(c_used)
     if rule is not None:
         row.update({k: v for k, v in rule.as_export().items() if k in row and k != "dbscan_mode"})
         row["min_samples_rule_c26"] = None if rule26 is None else int(rule26.min_samples)
     if locs_per_cycle is not None:
         row["loc_per_cycle_n_events"] = int(getattr(locs_per_cycle, "n_events", 0) or 0)
-    row["link_radius_nena"] = float(LINK_RADIUS_IN_NENA)
+    ev_k = float(LINK_RADIUS_IN_NENA if events_radius_in_nena is None else events_radius_in_nena)
+    row["link_radius_nena"] = ev_k
     row["link_max_dark_frames"] = int(MAX_DARK_FRAMES)
     # --- the reporting checklist's columns (v14)
     row["nena_method"] = (nena_method or NENA_METHOD_MEASURED) if nena is not None else NENA_METHOD_NONE
-    row["link_radius_nm"] = None if nena is None else round(float(LINK_RADIUS_IN_NENA) * nena, 1)
+    row["link_radius_nm"] = None if nena is None else round(ev_k * nena, 1)
     frac = arc_fraction_of(analysis)
     row["occupancy_arc_fraction_within_25nm"] = None if frac is None else round(frac, 4)
     # manual test of 2026-10-23: the three columns were empty, whether 'Compare methods...' had run or not
@@ -802,7 +1105,8 @@ def axon_columns(analysis: Any, *, nena_nm: Optional[float] = None, nena_source:
     run = run_of(analysis, axon_id="exported")
     extras = comparison_extras(nena_nm=nena, c_label=c_label, analysis=analysis,
                                pipeline_null_results=({run.key: null.result} if null is not None and null.ok
-                                                      else None))
+                                                      else None),
+                               events_radius_in_nena=events_radius_in_nena)
     long_rows = mm.apply_analyses([run], list(PLUGIN_BLOCKS), seed=int(seed), extras=extras)
     for r in long_rows:
         if r["readout"] in row:
@@ -823,12 +1127,25 @@ def axon_columns(analysis: Any, *, nena_nm: Optional[float] = None, nena_source:
         except Exception:  # noqa: BLE001 - descriptive values only; the row stands without them
             pass
     row["regularity_edge_note"] = edge_note(analysis) or None
+    # --- B3 (c): localizations per cycle by depth (a diagnostic; the rule above keeps the whole file's value)
+    from tools.lpc_depth import export_columns as _lpc_columns
+    row.update(_lpc_columns(lpc_profile, lpc_profile_note or LPC_DEPTH_NOT_HERE))
     # --- the null of this analysis, when it ran
     if null is not None and null.ok:
         d = null.result.export_dict()
         row.update({k: v for k, v in d.items() if k in row and not k.startswith("scale_")})
     else:
         row["null_type"] = "none"
+    # --- v16: B1's radii and C2's membrane
+    row["lpc_rule_radius_nena"] = round(float(LPC_RULE_RADIUS_IN_NENA if lpc_radius_in_nena is None
+                                              else lpc_radius_in_nena), 4)
+    row["radii_exploratory"] = radii_exploratory(lpc_radius_in_nena, events_radius_in_nena)
+    if null is not None and null.ok:
+        row["null_membrane"] = null.membrane or None
+    if membrane_deformation is not None:
+        row["membrane_deformation_mean_nm"] = round(float(membrane_deformation.mean_nm), 1)
+        row["membrane_deformation_max_nm"] = round(float(membrane_deformation.max_nm), 1)
+        row["membrane_deformation_n_flagged"] = int(membrane_deformation.n_flagged)
     return {c: row.get(c) for c in cols}
 
 
@@ -836,6 +1153,17 @@ def describe_column(name: str) -> Optional[str]:
     """What a column of the block (v13 / v14) means (for ``tools.column_dictionary.describe``), or None."""
     if name in COLUMN_DESCRIPTIONS:
         return COLUMN_DESCRIPTIONS[name]
+    if name in SIZE_STATS_DESCRIPTIONS:
+        return SIZE_STATS_DESCRIPTIONS[name]
+    from tools.lpc_depth import COLUMN_DESCRIPTIONS as _LPC_WORDS
+    if name in _LPC_WORDS:
+        return _LPC_WORDS[name]
+    if name.startswith("p_mc_") and name.endswith(IGNORING_FAILED):
+        what = NULL_READOUT_WORDS.get(name[len("p_mc_"):-len(IGNORING_FAILED)])
+        if what is not None:
+            return (f"Monte Carlo p of {what} against the pipeline null over the ANALYSED replicates only, the failed "
+                    "ones left out (G1 c): descriptive; the p to read is the p_mc_ column without this suffix, which "
+                    "counts every failed replicate as at least as extreme as the observed.")
     if name.startswith("p_mc_") or name.startswith("null_median_"):
         base = name[len("p_mc_"):] if name.startswith("p_mc_") else name[len("null_median_"):]
         what = NULL_READOUT_WORDS.get(base)
@@ -848,10 +1176,13 @@ def describe_column(name: str) -> Optional[str]:
     return mm.describe_column(name)
 
 
+IGNORING_FAILED = "_ignoring_failed"
 NULL_READOUT_WORDS: Dict[str, str] = {
     "k_per_um": "the clusters per um", "nn_median": "the median 1NN", "reff_median": "the median r_eff",
     "occupancy": "the occupancy", "regularity": "the regularity index r",
     "size_nloc_nn_spearman": "the size-neighbour Spearman (apparent-size question a)",
+    "size_nloc_kappa_r_spearman": "the size-curvature Spearman (apparent-size question b, localizations, convex "
+                                  "clusters)",
     "gap_cv": "the gap CV", "gap_rho1": "the lag-1 gap correlation", "gap_excess_cv": "the excess-gap CV",
     "bragg_s": "the Bragg peak S*", "elongation_p95": "the 95th percentile of the cluster elongation",
 }
@@ -961,8 +1292,8 @@ COLUMN_DESCRIPTIONS: Dict[str, str] = {
     "null_locs_per_cycle": "Localizations per cycle the null simulated.",
     "null_locs_per_cycle_source": "measured (event linking on the slab) or default.",
     "null_hard_core_nm": "Contact hard core of the null's molecules (2 x median r_eff, read).",
-    "null_interpretable": "False when the null cannot be read (fewer than 19 replicates, closure or fidelity "
-                          "failed); the numbers are kept.",
+    "null_interpretable": "False when the null cannot be read (fewer than 19 replicates, more than 5 % of the "
+                          "replicates failed, closure or fidelity failed); the numbers are kept.",
     "null_global_test_from": "The working-scale mark the global H1 / H2 test starts at (d50, provisional C1).",
     "null_global_r_min_nm": "That mark in nm.",
     "ripley_points": "What Ripley's functions are computed on (the cluster centres).",
@@ -974,6 +1305,49 @@ COLUMN_DESCRIPTIONS: Dict[str, str] = {
     "ripley2d_rstar_nm": "r of the largest studentised deviation of H2.",
     "ripley2d_hmax": "H2 observed - null median at r*.",
     "ripley2d_p_global": "Global (MAD) Monte Carlo p of H2.",
+    # v15: failed replicates of the null (G1 c; docs/null_and_scale.md sec. 6.4)
+    "null_failed_replicates": "Simulated axons of the pipeline null that failed (jammed sampler, pipeline error). Up "
+                              "to floor(0.05 B) are tolerated (2 of 49, 9 of 199) and counted in every p as at least "
+                              "as extreme as the observed (the p is conservative); more makes the null NOT "
+                              "INTERPRETABLE (user decision G1 c).",
+    "ripley1d_p_global_ignoring_failed": "Global (MAD) p of H1 over the analysed replicates only (descriptive; "
+                                         "ripley1d_p_global counts the failed ones in the worst case).",
+    "ripley2d_p_global_ignoring_failed": "Global (MAD) p of H2 over the analysed replicates only (descriptive).",
+    "gap_cv_p_mc_ignoring_failed": "gap_cv_p_mc over the analysed replicates only (descriptive; G1 c).",
+    "gap_excess_cv_p_mc_ignoring_failed": "gap_excess_cv_p_mc over the analysed replicates only (descriptive).",
+    "gap_rho1_p_mc_matched_ignoring_failed": "gap_rho1_p_mc_matched over the analysed replicates of the matched null "
+                                             "only (descriptive).",
+    "bragg_p_mc_matched_ignoring_failed": "bragg_p_mc_matched over the analysed replicates of the matched null only "
+                                          "(descriptive).",
+    "null_status": "How the null of that closure ended: ok, refused (slow method, K < 8, External labels), error or "
+                   "cancelled (the reason in null_type).",
+    "regularity_stage2_level": "Where stage 2 of the regularity reading was set to run: 'centres' (the axon "
+                               "window's preview, approximate: the matched null on the detected centres) or "
+                               "'pipeline' (the Batch, exact: the matched null through the whole pipeline); P-R87 c. "
+                               "The two can label one axon differently (4 of 60 synthetic axons); compare rows only "
+                               "at the same level. Empty without a null.",
+    "matched_null_failed_replicates": "Simulated axons of the stage-2 matched null that failed (same G1 rule as the "
+                                      "stage-1 null); empty when stage 2 did not run at the pipeline level.",
+    # v16 (2026-11-07)
+    "lpc_rule_radius_nena": "Radius, in NeNA, of the event linking that measured the localizations per cycle the "
+                            "DBSCAN rule used (loc_per_cycle_used): 3 sqrt(2) = 4.243 by default [simulation: "
+                            "docs/dbscan_rule.md sec. 4; user decision B1]; another value was typed in 'Working "
+                            "scale' (radii_exploratory says so). The events layer's radius is link_radius_nena.",
+    "radii_exploratory": "B1: 'no' when both linking radii are the defaults (rule's lpc 3 sqrt(2) NeNA, events and "
+                         "fusion mark 3 NeNA); else 'EXPLORATORY: ...' naming the radius typed in 'Working scale'. "
+                         "Rows marked EXPLORATORY are not the pre-specified analysis.",
+    "null_membrane": "C2: the membrane the per-axon null put its molecules on: the centroids of DBSCAN 25/10 "
+                     "(default, common to every method) or the localizations of the slab (option). Empty without a "
+                     "null.",
+    "membrane_deformation_mean_nm": "C2: mean distance (nm) from the DBSCAN 25/10 centroid membrane to the membrane "
+                                    "fitted to the slab's localizations, sampled every 10 nm along it. Empty when "
+                                    "the indicator was not computed (it is computed in the axon window's "
+                                    "'Perimeter arrangement' tab).",
+    "membrane_deformation_max_nm": "C2: largest distance (nm) between the two membranes.",
+    "membrane_deformation_n_flagged": "C2: stretches of 600 nm [derivation: the knot spacing] along the centroid "
+                                      "membrane where the two membranes are more than 50 nm apart [ad hoc: the H2 "
+                                      "band's half-width]: there the centroids deform the membrane the "
+                                      "localizations show.",
 }
 
 
@@ -1011,7 +1385,7 @@ def regularity_batch_summary(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any
     for r in use:
         groups.setdefault(str(r.get("group") or "(no genotype)"), []).append(r)
     lines.append(f"Regularity over {len(use)} axon(s), {len(animals)} animal(s): the type of a group's regularity "
-                 "is read from the per-animal z (P-R83), not from each axon's label.")
+                 "is read from the per-animal z (P-R83), not from each axon's label; " + LATTICE_WORDS + " (G4).")
     if not with_animal:
         lines.append(f"  {NO_ANIMAL_WORDS}.")
     elif len(with_animal) < len(use):
@@ -1059,6 +1433,139 @@ def write_regularity_summary(stem: str, summary: Mapping[str, Any]) -> Dict[str,
     return out
 
 
+# =====================================================================================================================
+# The batch: the size readouts across axons and animals (tools.mps_size_stats, decisions 5a / 6a / 7)
+# =====================================================================================================================
+
+# The per-axon size readouts a group comparison is run on, with their estimator kind (tools.mps_size_stats
+# .COVARIATES_BY_KIND, decision 6a: the apparent estimators with the file's NeNA and log N_loc, the pool and the
+# content with none).
+SIZE_GROUP_READOUTS: Tuple[Tuple[str, str], ...] = (
+    ("size_rho_pool_nm", "pool"), ("size_cloud_sd_median_nm", "apparent"), ("size_r_rare_median_nm", "apparent"),
+    ("size_radius_gyration_median_nm", "apparent"), ("size_n_events_median", "content"),
+    ("size_n_locs_median", "content"))
+# The per-axon Fisher z combined across axons (decision 5a: the axon is the unit; the animal as second level).
+SIZE_COMBINED_Z: Tuple[Tuple[str, str], ...] = (
+    ("size_nloc_nn_fisher_z", "question (a): localizations per cluster vs the nearest cluster"),
+    ("size_content_kappa_r_fisher_z", "question (b): content vs local curvature (convex clusters)"))
+SIZE_STATS_COLUMNS: Tuple[str, ...] = (
+    "size_stat", "size_readout", "estimator_kind", "group", "group_a", "group_b", "covariates", "n_axons",
+    "n_animals", "animal_diff", "animal_t", "animal_p", "mixed_diff", "mixed_p", "mixed_df", "axon_mean_z", "axon_t",
+    "axon_p", "axon_n", "animal_mean_z", "animal_t_z", "animal_p_z", "animal_n", "size_stat_warnings")
+SIZE_STATS_DESCRIPTIONS: Dict[str, str] = {
+    "size_stat": "Which combination: 'group comparison' (two genotypes, animals nested; tools.mps_size_stats"
+                 ".compare_groups) or 'combined z' (per-axon Fisher z combined over axons and over animals; "
+                 "combine_axons_fisher).",
+    "size_readout": "The per-axon column of the axon table the row combines (size_*).",
+    "estimator_kind": "content, apparent or pool: sets the covariates (decision 6a: apparent estimators with the "
+                      "file's NeNA and log N_loc; content and pool with none).",
+    "group": "For a combined z: the genotype the axons belong to ('all' = every axon of the batch).",
+    "group_a": "First genotype of the comparison (alphabetical).",
+    "group_b": "Second genotype; differences are group_b - group_a.",
+    "covariates": "Covariates in the mixed model (decision 6a).",
+    "n_animals": "Animals with a value (the unit of the group comparison; Lazic 2010 asks for at least 6).",
+    "animal_diff": "Difference of the animal means, group_b - group_a, in the readout's unit.",
+    "animal_t": "Welch t on the animal means (the animal as unit).",
+    "animal_p": "Two-sided p of animal_t (Welch df).",
+    "mixed_diff": "Group coefficient of the mixed model with a random intercept per animal and the covariates "
+                  "(REML; Aarts et al. 2014).",
+    "mixed_p": "Two-sided p of mixed_diff (t on the between-animal degrees of freedom, conservative).",
+    "mixed_df": "Degrees of freedom of mixed_p.",
+    "axon_mean_z": "Mean per-axon Fisher z (the axon as unit, decision 5a).",
+    "axon_t": "One-sample t of the per-axon z against 0. NOT against the pipeline null: for question (a) DBSCAN "
+              "alone fabricates a positive Spearman (docs/apparent_size.md sec. 7); read with size_nloc_nn_null_p.",
+    "axon_p": "Two-sided p of axon_t.",
+    "axon_n": "Axons with a finite z.",
+    "animal_mean_z": "Mean of the per-animal mean z (the animal as second level).",
+    "animal_t_z": "One-sample t over the animals' mean z.",
+    "animal_p_z": "Two-sided p of animal_t_z (with 3 animals: 2 df, about half the power; SIZE_SIM sec. 6.3).",
+    "animal_n": "Animals with a finite mean z.",
+    "size_stat_warnings": "Why a number is missing or weak (fewer than two animals in a group, fewer than 6 "
+                          "animals, mixed model not fitted, not two genotypes).",
+}
+
+
+def size_batch_summary(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """The batch's size readouts across axons and animals (tools.mps_size_stats; HALLAZGOS: it existed and nothing
+    called it): a group comparison per readout of ``SIZE_GROUP_READOUTS`` when the batch holds exactly two genotypes
+    (animal as unit, and the mixed model with the covariates of decision 6a), and the per-axon Fisher z of questions
+    (a) and (b) combined over axons and animals, for all axons and per genotype. Rows are the axon table's columns plus
+    ``animal`` / ``genotype``; a blank animal is no animal. Returns {"rows": [...SIZE_STATS_COLUMNS], "lines": [...]}."""
+    from tools import mps_size_stats as ss
+    use = [dict(r) for r in rows if str(r.get("animal") or "").strip()]
+    lines: List[str] = []
+    out_rows: List[Dict[str, Any]] = []
+    if not use:
+        lines.append(f"Size across axons: {NO_ANIMAL_WORDS}.")
+        return {"rows": out_rows, "lines": lines}
+    genotypes = sorted({str(r.get("genotype") or "").strip() for r in use} - {""})
+    animal = [str(r.get("animal")).strip() for r in use]
+    group = [str(r.get("genotype") or "").strip() for r in use]
+    lines.append(f"Size across {len(use)} axon(s), {len(set(animal))} animal(s), genotypes: "
+                 f"{', '.join(genotypes) or 'none'} (tools.mps_size_stats; the animal is the unit).")
+    for name, kind in SIZE_GROUP_READOUTS:
+        row: Dict[str, Any] = {c: None for c in SIZE_STATS_COLUMNS}
+        row.update(size_stat="group comparison", size_readout=name, estimator_kind=kind)
+        if len(genotypes) != 2:
+            row["size_stat_warnings"] = f"needs exactly two genotypes, the batch has {len(genotypes)}"
+            out_rows.append(row)
+            continue
+        keep = [i for i, g in enumerate(group) if g in genotypes]
+        vals = [_num(use[i].get(name)) for i in keep]
+        nena = [_num(use[i].get("size_nena_nm")) for i in keep]
+        nloc = [_num(use[i].get("size_n_locs_median")) for i in keep]
+        lognloc = [None if v is None or v <= 0 else math.log(v) for v in nloc]
+        row.update(group_a=genotypes[0], group_b=genotypes[1])
+        if sum(v is not None for v in vals) < 2:
+            row["size_stat_warnings"] = "fewer than two axons with a value"
+            out_rows.append(row)
+            continue
+        try:
+            gc = ss.compare_groups(vals, [group[i] for i in keep], [animal[i] for i in keep], estimator_kind=kind,
+                                   nena_nm=nena, log_n_locs=lognloc)
+        except ValueError as exc:
+            row["size_stat_warnings"] = str(exc)
+            out_rows.append(row)
+            continue
+        row.update(covariates=", ".join(gc.covariates) or "none", n_axons=gc.n_axons, n_animals=gc.n_animals,
+                   animal_diff=gc.animal_diff, animal_t=gc.animal_t, animal_p=gc.animal_p,
+                   mixed_diff=gc.mixed_diff, mixed_p=gc.mixed_p, mixed_df=gc.mixed_df,
+                   size_stat_warnings="; ".join(gc.warnings) or None)
+        out_rows.append(row)
+        if gc.animal_p is not None:
+            lines.append(f"  {name}: {genotypes[1]} - {genotypes[0]} = {gc.animal_diff:.3g} (animals, p = "
+                         f"{gc.animal_p:.3g}; {gc.n_animals} animals)")
+    for name, words in SIZE_COMBINED_Z:
+        for g in ["all"] + genotypes:
+            idx = [i for i in range(len(use)) if g == "all" or group[i] == g]
+            row = {c: None for c in SIZE_STATS_COLUMNS}
+            row.update(size_stat="combined z", size_readout=name, estimator_kind="z", group=g)
+            z = [_num(use[i].get(name)) for i in idx]
+            if not any(v is not None for v in z):
+                row["size_stat_warnings"] = f"no axon with {name} ({words})"
+                out_rows.append(row)
+                continue
+            comb = ss.combine_axons_fisher(z, [animal[i] for i in idx])
+            row.update(axon_mean_z=comb.get("axon_mean"), axon_t=comb.get("axon_t"), axon_p=comb.get("axon_p"),
+                       axon_n=comb.get("axon_n"), animal_mean_z=comb.get("animal_mean"),
+                       animal_t_z=comb.get("animal_t"), animal_p_z=comb.get("animal_p"),
+                       animal_n=comb.get("animal_n"))
+            warn = ["against 0, not against the pipeline null (read size_nloc_nn_null_p per axon)"
+                    if name == "size_nloc_nn_fisher_z" else ""]
+            row["size_stat_warnings"] = "; ".join(w for w in warn if w) or None
+            out_rows.append(row)
+    return {"rows": out_rows, "lines": lines}
+
+
+def write_size_summary(stem: str, summary: Mapping[str, Any]) -> Dict[str, str]:
+    """``<stem>_size_stats.csv`` (``SIZE_STATS_COLUMNS``) beside the axon table; never overwrites."""
+    rows = list(summary.get("rows") or [])
+    if not rows:
+        return {}
+    base = os.path.splitext(stem)[0]
+    return {"size_stats": mm.write_rows_csv(base + "_size_stats.csv", rows, SIZE_STATS_COLUMNS)}
+
+
 def words_estimate(seconds: float) -> str:
     """'about 12 min' (a first estimate, a lower bound for the slow methods)."""
     return f"about {words_seconds(seconds)}"
@@ -1069,8 +1576,11 @@ __all__ = [
     "DEFAULT_ANALYSES", "estimate_analyses_seconds", "comparison_extras", "rule_for", "locs_per_cycle_of",
     "rule_method_specs", "rule_labels", "dbscan_mode", "run_of", "ComparisonResult", "run_comparison",
     "comparison_paths", "write_comparison", "NullOutcome", "null_estimate_seconds", "run_null_for", "run_nulls",
+    "NULL_CLOSURE_CHOICES", "null_closures", "run_nulls_by_closure", "null_by_closure_columns", "null_closure_rows",
     "null_long_rows", "edge_note", "event_ids_for", "SCALE_COLUMNS", "METHODS_COLUMNS", "GAP_COLUMNS", "NULL_COLUMNS",
-    "REPORT_COLUMNS", "arc_fraction_of", "NENA_METHOD_MEASURED", "NENA_METHOD_NONE",
+    "REPORT_COLUMNS", "NULL_FAILED_COLUMNS", "NULL_READOUT_NAMES_V15", "ALL_NULL_READOUT_NAMES", "E5_NULL_COLUMNS",
+    "V15_PLUGIN_COLUMNS", "v15_columns", "arc_fraction_of", "NENA_METHOD_MEASURED", "NENA_METHOD_NONE",
     "integration_columns", "axon_columns", "describe_column", "regularity_batch_summary", "write_regularity_summary",
-    "words_estimate", "is_slow",
+    "words_estimate", "is_slow", "SIZE_GROUP_READOUTS", "SIZE_COMBINED_Z", "SIZE_STATS_COLUMNS", "size_batch_summary",
+    "write_size_summary",
 ]

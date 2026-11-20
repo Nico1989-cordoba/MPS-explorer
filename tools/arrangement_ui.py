@@ -65,6 +65,24 @@ GLOBAL_TIP = ("Decision: the global envelope (maximum studentised deviation over
               "is not a test.")
 
 
+# C3 / C4 (user decision 2026-10-23): the null's closure in the panel; N_loc stays the default.
+CLOSURE_ITEMS: Tuple[Tuple[str, str], ...] = (("N_loc (default)", "n_locs"), ("K", "k"),
+                                              ("both side by side (x2 time)", "both"))
+CLOSURE_TIP = ("What each simulated axon is matched to: N_loc = as many localizations in the slab as this axon "
+               "(default, user decision A9 / C4); K = as many clusters as this axon found (its pilots run the whole "
+               "pipeline: slower). 'both' runs the two nulls with the same seed -- about twice the time, shown in "
+               "the estimate -- and 'Compare closures...' puts their p values and envelopes side by side. Methods: "
+               "docs/null_and_scale.md.")
+# C2 (user decision 2026-10-23): the membrane of every method's null.
+MEMBRANE_ITEMS: Tuple[Tuple[str, str], ...] = (("DBSCAN 25/10 centroids (default)", "dbscan_centroids"),
+                                               ("localizations", "localizations"))
+MEMBRANE_TIP = ("Where the null puts its molecules: by default on the membrane through the centroids of DBSCAN "
+                "25/10, the SAME curve for every method (decision C2); 'localizations' fits it to the slab's "
+                "localizations instead, to compare where the centroids deform what the localizations show. The line "
+                "below says how far apart the two curves are (a warning per 600 nm stretch beyond 50 nm [ad hoc: "
+                "the H2 band's half-width]). tools/null_membrane.py")
+
+
 def _fmt(v: Any, spec: str = ".3g") -> str:
     if v is None:
         return "-"
@@ -87,6 +105,8 @@ class WorkingScalePanel(QtWidgets.QGroupBox):
     """The working scale of the analysis shown, the editable c_label and the DBSCAN rule beside 25/10."""
 
     c_label_changed = QtCore.pyqtSignal(float)
+    radii_changed = QtCore.pyqtSignal()
+    lpc_depth_requested = QtCore.pyqtSignal()
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(WORKING_SCALE_TITLE, parent)
@@ -131,6 +151,72 @@ class WorkingScalePanel(QtWidgets.QGroupBox):
         row.addWidget(self.badge_c_label)
         row.addStretch(1)
         lay.addLayout(row)
+        # B1 (user decision 2026-10-23): the two event-linking radii, editable to explore (equal or different); any
+        # value but the default is EXPLORATORY here and in the export (radii_exploratory, lpc_rule_radius_nena,
+        # link_radius_nena). Not saved: every session and the Batch start at the defaults.
+        radii = QtWidgets.QHBoxLayout()
+        radii.addWidget(QtWidgets.QLabel("Linking radius [NeNA]: rule's lpc"))
+        self.spin_lpc_radius = QtWidgets.QDoubleSpinBox()
+        self.spin_lpc_radius.setObjectName("spin_lpc_radius")
+        self.spin_lpc_radius.setRange(0.5, 10.0)
+        self.spin_lpc_radius.setDecimals(3)
+        self.spin_lpc_radius.setSingleStep(0.25)
+        self.spin_lpc_radius.setValue(float(ci.LPC_RULE_RADIUS_IN_NENA))
+        self.spin_lpc_radius.setToolTip(
+            "Radius of the event linking that measures the localizations per cycle the DBSCAN rule uses, in NeNA. "
+            "Default 3 sqrt(2) = 4.243 [own simulation, docs/dbscan_rule.md sec. 4: 3 NeNA under-reads it by "
+            "9-26 %, 3 sqrt(2) NeNA by 0.4-3.4 %]. Any other value is EXPLORATORY (decision B1).")
+        radii.addWidget(self.spin_lpc_radius)
+        radii.addWidget(QtWidgets.QLabel("events / fusion"))
+        self.spin_events_radius = QtWidgets.QDoubleSpinBox()
+        self.spin_events_radius.setObjectName("spin_events_radius")
+        self.spin_events_radius.setRange(0.5, 10.0)
+        self.spin_events_radius.setDecimals(3)
+        self.spin_events_radius.setSingleStep(0.25)
+        self.spin_events_radius.setValue(float(ci.EVENTS_RADIUS_IN_NENA))
+        self.spin_events_radius.setToolTip(
+            "Radius of the event linking of the events layer, the 'probable fusion' mark and the footprint, in NeNA. "
+            "Default 3 [decision D5; own simulation, docs/dbscan_rule.md]. Any other value is EXPLORATORY "
+            "(decision B1). It reaches 'Compare methods...' and the export of this axon; the Batch keeps 3.")
+        radii.addWidget(self.spin_events_radius)
+        self.btn_radii_default = QtWidgets.QPushButton("Defaults")
+        self.btn_radii_default.setObjectName("btn_radii_default")
+        self.btn_radii_default.setToolTip("Both radii back to 3 sqrt(2) and 3 NeNA (no EXPLORATORY mark).")
+        self.btn_radii_default.clicked.connect(self.reset_radii)
+        radii.addWidget(self.btn_radii_default)
+        self.lbl_radii = QtWidgets.QLabel("")
+        self.lbl_radii.setObjectName("lbl_radii_exploratory")
+        self.lbl_radii.setWordWrap(True)
+        radii.addWidget(self.lbl_radii, 1)
+        lay.addLayout(radii)
+        self.spin_lpc_radius.valueChanged.connect(self._on_radii)
+        self.spin_events_radius.valueChanged.connect(self._on_radii)
+        # B3 (c): the localizations per cycle by depth (tools.lpc_depth), computed when asked (it links the whole
+        # file and bootstraps 999 times: seconds on a large file)
+        depth = QtWidgets.QHBoxLayout()
+        self.btn_lpc_depth = QtWidgets.QPushButton("Localizations per cycle by depth")
+        self.btn_lpc_depth.setObjectName("btn_lpc_depth")
+        self.btn_lpc_depth.setToolTip(
+            "Do the localizations per event change with z? The whole file's events, the slab's and z bands as wide "
+            "as the slab, each with its bootstrap 95 % interval (999 draws [ad hoc]), and a warning when the slab "
+            "differs from the rest of the file beyond chance. A diagnostic: the DBSCAN rule keeps the whole file's "
+            "value (B3). The export carries the lpc_ columns once computed. Methods: tools/lpc_depth.py.")
+        self.btn_lpc_depth.clicked.connect(lambda: self.lpc_depth_requested.emit())
+        depth.addWidget(self.btn_lpc_depth)
+        self.lbl_lpc_depth = QtWidgets.QLabel("Not computed (press the button; the Batch computes it per file).")
+        self.lbl_lpc_depth.setObjectName("lbl_lpc_depth")
+        self.lbl_lpc_depth.setWordWrap(True)
+        self.lbl_lpc_depth.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        depth.addWidget(self.lbl_lpc_depth, 1)
+        lay.addLayout(depth)
+        self.plot_lpc = pg.PlotWidget()
+        self.plot_lpc.setObjectName("plot_lpc_depth")
+        style_dark(self.plot_lpc)
+        set_title(self.plot_lpc, "Localizations per event against z (slab band filled)")
+        self.plot_lpc.setLabels(bottom="z band centre [nm]", left="localizations per event")
+        self.plot_lpc.setMinimumHeight(150)
+        self.plot_lpc.setVisible(False)
+        lay.addWidget(self.plot_lpc)
         self.lbl_rule = QtWidgets.QLabel("")
         self.lbl_rule.setObjectName("lbl_dbscan_rule")
         self.lbl_rule.setWordWrap(True)
@@ -155,6 +241,78 @@ class WorkingScalePanel(QtWidgets.QGroupBox):
 
     def c_label(self) -> float:
         return float(self.spin_c_label.value())
+
+    def lpc_radius(self) -> Optional[float]:
+        """The rule's lpc radius in NeNA, None at the default (3 sqrt(2))."""
+        v = float(self.spin_lpc_radius.value())
+        return None if abs(v - ci.LPC_RULE_RADIUS_IN_NENA) < 5e-4 else v
+
+    def events_radius(self) -> Optional[float]:
+        """The events / fusion radius in NeNA, None at the default (3)."""
+        v = float(self.spin_events_radius.value())
+        return None if abs(v - ci.EVENTS_RADIUS_IN_NENA) < 5e-4 else v
+
+    def radii_words(self) -> str:
+        return ci.radii_exploratory(self.lpc_radius(), self.events_radius())
+
+    def reset_radii(self) -> None:
+        self.spin_lpc_radius.setValue(float(ci.LPC_RULE_RADIUS_IN_NENA))
+        self.spin_events_radius.setValue(float(ci.EVENTS_RADIUS_IN_NENA))
+
+    def _on_radii(self, _v: float = 0.0) -> None:
+        words = self.radii_words()
+        if words == "no":
+            self.lbl_radii.setText("defaults (pre-specified)")
+            self.lbl_radii.setStyleSheet("")
+        else:
+            self.lbl_radii.setText(words)
+            self.lbl_radii.setStyleSheet(f"color: {verdict('warn', dark=False)}; font-weight: bold;")
+        self.radii_changed.emit()
+
+    def show_lpc_depth(self, profile: Any, why: str = "") -> None:
+        """B3 (c): the file's lpc, the slab's with its interval, the difference and its warning, and the profile
+        against z (error bars = bootstrap 95 % intervals; the slab's band filled)."""
+        self.plot_lpc.clear()
+        if profile is None:
+            self.lbl_lpc_depth.setText(why or "not computed")
+            self.lbl_lpc_depth.setStyleSheet("")
+            self.plot_lpc.setVisible(False)
+            return
+
+        def f(v: Any) -> str:
+            return _fmt(v, ".3f")
+
+        text = (f"lpc of the whole file {f(profile.lpc_file)} ({profile.n_file:,} events); slab {f(profile.lpc_slab)} "
+                f"[{f(profile.slab_ci[0])}, {f(profile.slab_ci[1])}] ({profile.n_slab:,} events); slab - rest "
+                f"{_fmt(profile.diff, '+.3f')} [{_fmt(profile.diff_ci[0], '+.3f')}, {_fmt(profile.diff_ci[1], '+.3f')}]. "
+                f"Events: {profile.source}.")
+        if profile.differs:
+            text = ("WARNING: the slab's localizations per event differ from the rest of the file beyond chance "
+                    "(the rule keeps the whole file's value, B3). " + text)
+            self.lbl_lpc_depth.setStyleSheet(f"color: {verdict('warn', dark=False)};")
+        else:
+            self.lbl_lpc_depth.setStyleSheet("")
+        self.lbl_lpc_depth.setText(text)
+        xs, ys, lo, hi, slab = [], [], [], [], []
+        for b in profile.bands:
+            if b.mean is None:
+                continue
+            xs.append(0.5 * (b.z_lo_nm + b.z_hi_nm))
+            ys.append(float(b.mean))
+            lo.append(float(b.mean) - float(b.ci_low))
+            hi.append(float(b.ci_high) - float(b.mean))
+            slab.append(bool(b.is_slab))
+        if xs:
+            x, y = np.asarray(xs), np.asarray(ys)
+            self.plot_lpc.addItem(pg.ErrorBarItem(x=x, y=y, top=np.asarray(hi), bottom=np.asarray(lo), beam=5.0,
+                                                  pen=pg.mkPen(neutral(True), width=1)))
+            brushes = [pg.mkBrush(role("observed")) if s else pg.mkBrush(0, 0, 0, 0) for s in slab]
+            self.plot_lpc.plot(x, y, pen=pg.mkPen(role("observed"), width=1), symbol="o", symbolSize=8,
+                               symbolBrush=brushes, symbolPen=pg.mkPen(role("observed")))
+            if profile.lpc_file is not None:
+                self.plot_lpc.addItem(pg.InfiniteLine(pos=float(profile.lpc_file), angle=0,
+                                                      pen=pg.mkPen(neutral(True), style=QtCore.Qt.PenStyle.DashLine)))
+        self.plot_lpc.setVisible(True)
 
     def _on_c_label(self, value: float) -> None:
         self.badge_c_label.set_value(float(value))
@@ -201,6 +359,7 @@ class WorkingScalePanel(QtWidgets.QGroupBox):
                                   "NeNA (none measured): 25/10 stays the default (decision D2).")
             return
         lpc = self.rule.inputs["loc_per_cycle"]
+        self._on_radii_label()
         self.lbl_rule.setText(
             f"DBSCAN parameters: {mode}. The rule for this file (shown, never applied: decision D2): eps "
             f"{self.rule.eps_nm:.1f} nm, min samples {self.rule.min_samples} with c_label {self.c_label():g} "
@@ -208,6 +367,10 @@ class WorkingScalePanel(QtWidgets.QGroupBox):
             f"cycle "
             f"{float(lpc.value):.2f} {lpc.origin}. Tick 'DBSCAN rule' in 'Compare methods...' to see both.")
         self.lbl_rule.setToolTip(self.rule.describe())
+
+    def _on_radii_label(self) -> None:
+        words = self.radii_words()
+        self.lbl_radii.setText("defaults (pre-specified)" if words == "no" else words)
 
     def show_double_table(self, comparison: Optional[ci.ComparisonResult]) -> None:
         """D2's double table from the last comparison (hidden when it has no rule run)."""
@@ -243,8 +406,12 @@ class NullWorker(QtCore.QThread):
     failed = QtCore.pyqtSignal(str)
 
     def __init__(self, runs: Sequence[Any], n_replicates: int, nena_nm: Optional[float], c_label: float,
-                 allow_slow: bool, seed: int = 0) -> None:
+                 allow_slow: bool, seed: int = 0, closure: str = ci.NULL_CLOSURE, membrane: str = ci.NULL_MEMBRANE,
+                 membrane_curve: Optional[Any] = None) -> None:
         super().__init__()
+        self.closure = str(closure)
+        self.membrane = str(membrane)
+        self.membrane_curve = membrane_curve
         self.runs = list(runs)
         self.n_replicates = int(n_replicates)
         self.nena_nm = nena_nm
@@ -258,7 +425,8 @@ class NullWorker(QtCore.QThread):
             out = ci.run_nulls(self.runs, n_replicates=self.n_replicates, nena_nm=self.nena_nm, seed=self.seed,
                                c_label=self.c_label, allow_slow=self.allow_slow,
                                cancelled=lambda: self.cancelled,
-                               progress=lambda k, d, t: self.progress.emit(str(k), int(d), int(t)))
+                               progress=lambda k, d, t: self.progress.emit(str(k), int(d), int(t)),
+                               closure=self.closure, membrane=self.membrane, membrane_curve=self.membrane_curve)
             self.finished_outcomes.emit(out)
         except BaseException:                              # noqa: BLE001 - reported, never a crash
             self.failed.emit(traceback.format_exc())
@@ -278,7 +446,7 @@ SUMMARY_COLUMNS: Tuple[Tuple[str, str], ...] = (
     ("h1_p", "H1 global p"), ("h1_rstar", "H1 r* [nm]"), ("h1_hmax", "H1 h_max [nm]"), ("h2_p", "H2 global p"),
     ("h2_rstar", "H2 r* [nm]"), ("h2_hmax", "H2 h_max [nm]"), ("p_k", "p K/um"), ("p_nn", "p 1NN"),
     ("p_reg", "p r"), ("reading", "Regularity reading"), ("elongated", "Merged-looking (elongated)"),
-    ("seconds", "time"),
+    ("seconds", "time"), ("null_closure", "Closure"), ("null_membrane", "Membrane"),
 )
 
 
@@ -293,7 +461,8 @@ def excluded_words(run: Any) -> str:
 
 def summary_row(key: str, o: ci.NullOutcome) -> Dict[str, Any]:
     """One method's row of the summary table (plain values)."""
-    row: Dict[str, Any] = {"method": key, "status": o.status, "seconds": words_seconds(o.seconds) if o.ok else ""}
+    row: Dict[str, Any] = {"method": key, "status": o.status, "seconds": words_seconds(o.seconds) if o.ok else "",
+                           "null_closure": getattr(o, "closure", ""), "null_membrane": getattr(o, "membrane", "")}
     if not o.ok:
         row["reading"] = o.message
         return row
@@ -319,6 +488,14 @@ LEG_FUSION = "Fusion distance"
 LEG_D50 = "d50"
 LEG_RSTAR = "r* (largest departure)"
 LEG_BAND = "Null 95 % band (shade, guide only)"
+# G2 (user decision 2026-11-07): which null a regularity band comes from, said on screen and in the exported image.
+BAND_PIPELINE = "pipeline null, B = {n}"
+BAND_CENTRES = "approx., centres"
+
+
+def band_label(source: str) -> str:
+    """The legend's band entry with its source ('pipeline null, B = ...' or 'approx., centres')."""
+    return f"Null 95 % band ({source}; shade, guide only)" if source else LEG_BAND
 H_HELP = ("Above the null = more neighbours than random (clustering); below = fewer (spacing / regularity). Only "
           "the global envelope decides; its p is in the title. Left of the grey zone's edge nothing is tested.")
 REGULARITY_HELP = ("Gaps: distances between consecutive centres along the ring. g(s): neighbours at arc distance s "
@@ -355,11 +532,11 @@ def h_legend_entries(res: Any, env: Any, dark: bool = True) -> List[Tuple[str, A
     return out
 
 
-def regularity_legend_entries(dark: bool = True) -> List[Tuple[str, Any]]:
-    """(label, sample) of what a regularity plot draws."""
+def regularity_legend_entries(dark: bool = True, source: str = "") -> List[Tuple[str, Any]]:
+    """(label, sample) of what a regularity plot draws; ``source`` names the null the band comes from (G2)."""
     return [(LEG_OBSERVED, _legend_line(role("observed"), 2.0)),
             (LEG_MEDIAN, _legend_line(neutral(dark), 1.0, QtCore.Qt.PenStyle.DashLine)),
-            (LEG_BAND, _legend_bar(pg.mkBrush(rgba("randomized", 110))))]
+            (band_label(source), _legend_bar(pg.mkBrush(rgba("randomized", 110))))]
 
 
 # More rows than this and the corner legend takes two columns (half as tall over a short plot) [ad hoc].
@@ -457,6 +634,24 @@ class ArrangementPanel(QtWidgets.QWidget):
                                  "this is ticked (open question A2), with the estimate shown here first.")
         self.chk_slow.toggled.connect(lambda _on: self._update_estimate())
         top.addWidget(self.chk_slow)
+        # C3 / C4 (user decision 2026-10-23): which closure the null is matched to; both side by side doubles the time
+        top.addWidget(QtWidgets.QLabel("Closure:"))
+        self.combo_closure = QtWidgets.QComboBox()
+        self.combo_closure.setObjectName("combo_null_closure")
+        for text, value in CLOSURE_ITEMS:
+            self.combo_closure.addItem(text, value)
+        self.combo_closure.setToolTip(CLOSURE_TIP)
+        self.combo_closure.currentIndexChanged.connect(lambda _i: self._update_estimate())
+        top.addWidget(self.combo_closure)
+        # C2 (user decision 2026-10-23): the membrane of every method's null
+        top.addWidget(QtWidgets.QLabel("Membrane:"))
+        self.combo_membrane = QtWidgets.QComboBox()
+        self.combo_membrane.setObjectName("combo_null_membrane")
+        for text, value in MEMBRANE_ITEMS:
+            self.combo_membrane.addItem(text, value)
+        self.combo_membrane.setToolTip(MEMBRANE_TIP)
+        self.combo_membrane.currentIndexChanged.connect(lambda _i: self._update_membrane())
+        top.addWidget(self.combo_membrane)
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
         self.btn_cancel.setObjectName("btn_null_cancel")
         self.btn_cancel.setEnabled(False)
@@ -483,8 +678,23 @@ class ArrangementPanel(QtWidgets.QWidget):
                                    "own 'legend' box).")
         self.chk_legend.toggled.connect(self.set_legends_visible)
         top.addWidget(self.chk_legend)
+        self.btn_compare_closures = QtWidgets.QPushButton("Compare closures...")
+        self.btn_compare_closures.setObjectName("btn_compare_closures")
+        self.btn_compare_closures.setToolTip("C4: the p values and the envelopes of the N_loc and the K closure side "
+                                             "by side, per method. Run the null with 'Closure: both' first.")
+        self.btn_compare_closures.setEnabled(False)
+        self.btn_compare_closures.clicked.connect(self._on_compare_closures)
+        top.addWidget(self.btn_compare_closures)
         top.addStretch(1)
         lay.addLayout(top)
+        self.lbl_membrane = QtWidgets.QLabel("")
+        self.lbl_membrane.setObjectName("lbl_membrane_deformation")
+        self.lbl_membrane.setWordWrap(True)
+        self.lbl_membrane.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        lay.addWidget(self.lbl_membrane)
+        self._membrane: Any = None                     # tools.null_membrane.NullMembrane of the analysis shown
+        self._membrane_key: Any = None
+        self.band_source = ""
         self._legends: Dict[str, Any] = {}
         self._shown_res: Any = None
         self._drawn_key: Optional[str] = None
@@ -614,6 +824,7 @@ class ArrangementPanel(QtWidgets.QWidget):
 
     def showEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
         super().showEvent(event)
+        self._update_membrane(True)
         if not self._split_placed:
             self._split_placed = True
             QtCore.QTimer.singleShot(0, self.place_split)
@@ -683,8 +894,73 @@ class ArrangementPanel(QtWidgets.QWidget):
                 self.excluded.append((r.key, excluded_words(r)))
         self.runs = list(seen.values())
         self.btn_null.setEnabled(analysis is not None and self._worker is None)
+        self._update_membrane()
         self._update_estimate()
         self._fill_table()
+
+    # -- C2: the null's membrane and the deformation indicator ---------------------------------------------------
+    def membrane_choice(self) -> str:
+        return str(self.combo_membrane.currentData() or ci.NULL_MEMBRANE)
+
+    def closure_choice(self) -> str:
+        return str(self.combo_closure.currentData() or ci.NULL_CLOSURE)
+
+    def _update_membrane(self, compute: Optional[bool] = None) -> None:
+        """The DBSCAN 25/10 centroid membrane and the localization membrane of the analysis shown, once per
+        analysis, and the deformation between them (a warning per stretch). Computed when the tab is shown, the null
+        starts or the export asks (``compute``; default: when visible), not on every analysis."""
+        from tools import null_membrane as nmb
+        a = self.analysis
+        if a is None:
+            self._membrane = self._membrane_key = None
+            self.lbl_membrane.setText("")
+            return
+        if compute is None:
+            compute = self.isVisible()
+        if self._membrane_key is not a and not compute:
+            self.lbl_membrane.setText("Membrane of the null: " + nmb.MEMBRANE_WORDS[self.membrane_choice()] + ".")
+            self.lbl_membrane.setStyleSheet("")
+            return
+        if self._membrane_key is not a:
+            try:
+                self._membrane = nmb.null_membrane_for(a, self.runs, nmb.MEMBRANE_DBSCAN, with_deformation=True)
+            except Exception as exc:  # noqa: BLE001 - the indicator says it could not be computed
+                self._membrane = nmb.NullMembrane(nmb.MEMBRANE_DBSCAN, None, "", None, f"{type(exc).__name__}: {exc}")
+            self._membrane_key = a
+        m = self._membrane
+        d = None if m is None else m.deformation
+        if d is None:
+            self.lbl_membrane.setText("Membrane of the null: " + nmb.MEMBRANE_WORDS[self.membrane_choice()] +
+                                      ". Deformation indicator not computed" + (f" ({m.note})." if m and m.note else "."))
+            self.lbl_membrane.setStyleSheet("")
+            return
+        self.lbl_membrane.setText("Membrane of the null: " + nmb.MEMBRANE_WORDS[self.membrane_choice()] + ". "
+                                  + d.sentence())
+        level = d.level()
+        self.lbl_membrane.setStyleSheet("" if level == "ok" else f"color: {verdict('warn', dark=False)};"
+                                        + (" font-weight: bold;" if level == "warn" else ""))
+
+    def deformation(self) -> Optional[Any]:
+        """The deformation indicator of the analysis shown (for the export), or None."""
+        if self.analysis is not None and self._membrane_key is not self.analysis:
+            self._update_membrane(True)
+        m = self._membrane if self._membrane_key is self.analysis else None
+        return None if m is None else m.deformation
+
+    def _membrane_curve(self) -> Optional[Any]:
+        """The curve every method's null uses under the chosen membrane (None: each run's own reading)."""
+        from tools import null_membrane as nmb
+        if self.analysis is None:
+            return None
+        self._update_membrane(True)
+        choice = self.membrane_choice()
+        m = self._membrane
+        if choice == nmb.MEMBRANE_DBSCAN:
+            return None if m is None else m.curve_nm
+        try:
+            return nmb.null_membrane_for(self.analysis, self.runs, choice, with_deformation=False).curve_nm
+        except Exception:  # noqa: BLE001 - each null falls back to its own reading, said in its row
+            return None
 
     def _update_estimate(self) -> None:
         if not self.runs:
@@ -694,14 +970,16 @@ class ArrangementPanel(QtWidgets.QWidget):
         parts = []
         total = 0.0
         refused = []
+        closure = self.closure_choice()
         for r in self.runs:
-            s = ci.null_estimate_seconds(r, b)
+            s = ci.null_estimate_seconds(r, b, closure)
             if ci.is_slow(r.method) and not self.chk_slow.isChecked():
                 refused.append(f"{method_label(r.method)} (about {words_seconds(s)})")
                 continue
             total += s
             parts.append(r.key)
-        text = (f"{NULL_BUTTON} for {len(parts)} method(s) ({', '.join(parts)}), B = {b}: "
+        both = " (closure: both side by side, about twice the time)" if closure == "both" else f" (closure: {closure})"
+        text = (f"{NULL_BUTTON} for {len(parts)} method(s) ({', '.join(parts)}), B = {b}{both}: "
                 f"{ci.words_estimate(total)} (a first estimate from the per-method cost table; a lower bound for "
                 "the slow methods).")
         if refused:
@@ -728,7 +1006,15 @@ class ArrangementPanel(QtWidgets.QWidget):
             self._fill_table()
             return False
         b = int(self.combo_b.currentData() or B_CHOICES[0])
-        w = NullWorker(runs, b, self.nena_nm, self.c_label, allow)
+        closure = self.closure_choice()
+        # A2 (b): a slow method's null asks once more, with its estimate, before it runs
+        from tools import slow_confirm
+        slow = [(r.method, ci.null_estimate_seconds(r, b, closure)) for r in runs if ci.is_slow(r.method)]
+        if slow and not slow_confirm.confirm_slow(self, NULL_BUTTON, slow, note=f"B = {b}, closure: {closure}."):
+            self.banner.setText("Not run: the slow method(s) were not confirmed.")
+            return False
+        w = NullWorker(runs, b, self.nena_nm, self.c_label, allow, closure=closure, membrane=self.membrane_choice(),
+                       membrane_curve=self._membrane_curve())
         w.progress.connect(self._on_progress)
         w.finished_outcomes.connect(self._on_outcomes)
         w.failed.connect(self._on_failed)
@@ -737,7 +1023,7 @@ class ArrangementPanel(QtWidgets.QWidget):
         _LIVE.add(w)
         self._worker = w
         self._t0 = time.perf_counter()
-        self.progress.setRange(0, b * len(runs))
+        self.progress.setRange(0, b * len(runs) * len(ci.null_closures(closure)))
         self.progress.setValue(0)
         self.progress.setVisible(True)
         self.btn_null.setEnabled(False)
@@ -795,8 +1081,12 @@ class ArrangementPanel(QtWidgets.QWidget):
 
     def _fill_table(self) -> None:
         self.table.setRowCount(0)
-        keys = [r.key for r in self.runs if r.key in self.outcomes] + [k for k in self.outcomes
-                                                                      if k not in {r.key for r in self.runs}]
+        keys = []
+        for r in self.runs:
+            for k in (r.key, r.key + ci.K_CLOSURE_SUFFIX):
+                if k in self.outcomes:
+                    keys.append(k)
+        keys += [k for k in self.outcomes if k not in keys]
         for key in keys:
             row = summary_row(key, self.outcomes[key])
             r = self.table.rowCount()
@@ -819,6 +1109,7 @@ class ArrangementPanel(QtWidgets.QWidget):
         self.table.resizeColumnsToContents()
         ok = [k for k in keys if self.outcomes[k].ok]
         self.btn_export.setEnabled(bool(ok))
+        self.btn_compare_closures.setEnabled(bool(ci.closure_pairs(self.outcomes)))
         if ok:
             self.table.selectRow(keys.index(ok[0]))
             self._draw(ok[0])
@@ -851,10 +1142,18 @@ class ArrangementPanel(QtWidgets.QWidget):
             set_title(p, title, dark=self.dark)        # a title of the background in use, never one left over
         o = None if key is None else self.outcomes.get(key)
         self.btn_synth.setEnabled(bool(o is not None and o.ok and o.result.example is not None))
+        self.band_source = ""
         if o is None or not o.ok:
             self.banner.setText("" if o is None else f"{key}: {o.status} -- {o.message}")
             self.banner.setStyleSheet(f"color: {verdict('warn', dark=False)};" if o is not None else "")
             self.lbl_reading.setText("")
+            # G2: before the null, the regularity plots show the centres-level band, labelled so
+            self._draw_centres_preview()
+            for name, plot in self.figure_plots().items():
+                entries = self.legend_entries(name)
+                if entries:
+                    self._legends[name] = corner_legend(plot, entries, self.dark)
+            self.set_legends_visible(self.chk_legend.isChecked())
             return
         res = o.result
         self._drawn_key = key
@@ -882,13 +1181,15 @@ class ArrangementPanel(QtWidgets.QWidget):
         """F6 and the on-screen legend: (label, sample) of plot ``name`` as drawn now ([] before a drawing)."""
         res = self._shown_res
         if res is None:
+            if name in (PLOT_GAPS, PLOT_G, PLOT_S) and self.band_source and self.plot_has_curves(name):
+                return regularity_legend_entries(self.dark, self.band_source)
             return []
         if name == PLOT_H1:
             return h_legend_entries(res, res.h1, self.dark) if res.h1 is not None else []
         if name == PLOT_H2:
             return h_legend_entries(res, res.h2, self.dark) if res.h2 is not None else []
         if name in (PLOT_GAPS, PLOT_G, PLOT_S):
-            return regularity_legend_entries(self.dark) if self.plot_has_curves(name) else []
+            return regularity_legend_entries(self.dark, self.band_source) if self.plot_has_curves(name) else []
         return []
 
     def plot_has_curves(self, name: str) -> bool:
@@ -994,13 +1295,59 @@ class ArrangementPanel(QtWidgets.QWidget):
         el = gap.elongation
         mark = ("" if el is None else f" Merged-looking clusters (elongated beyond the null's 95th percentile): "
                 f"{el.n_elongated}, the null itself gives {_fmt(el.expected_under_null)} -- a mark, never split.")
-        self.lbl_reading.setText(gap.reading.sentence + mark + (f" Note: {note}." if note else ""))
+        # G4 / G5 (user decisions 2026-11-07): the per-axon label is descriptive; a visible warning when the edge
+        # curation removed clusters
+        edge = (f" WARNING: {ci.EDGE_WARNING} ({note}).") if note else ""
+        self.lbl_reading.setText(gap.reading.sentence + mark + f" Note: {ci.LATTICE_WORDS}; the type of a group's "
+                                 "regularity is read from the per-animal z in the Batch (G4)." + edge)
+        self.lbl_reading.setStyleSheet(f"color: {verdict('warn', dark=False)};" if note else "")
         if an is None or getattr(an, "perimeter", None) is None:
             return
         s, length, _m = gm.axon_arcs(an)
         if s is None:
             return
         bands = gm.pipeline_null_bands(o.result, int(s.size), float(length))
+        if int(bands["n"][0]) > 0:
+            self.band_source = BAND_PIPELINE.format(n=int(bands["n"][0]))
+        else:
+            # the null kept no arcs (an older null): the centres-level band, labelled so (G2)
+            self._draw_centres_preview(s, length)
+            return
+        self._draw_bands(s, length, bands, f"reading {gap.reading.level}")
+
+    def _draw_centres_preview(self, s: Any = None, length: Optional[float] = None) -> None:
+        """G2: the regularity plots of the analysis shown against the CENTRES-level null (sequential inhibition of
+        its K centres with the contact hard core 2 x median r_eff on its membrane; seconds), labelled 'approx.,
+        centres' -- drawn before the pipeline null ran."""
+        from tools import mps_gap_measures as gm
+        an = self.analysis
+        if s is None:
+            if an is None or getattr(an, "perimeter", None) is None:
+                return
+            try:
+                s, length, _m = gm.axon_arcs(an)
+            except Exception:  # noqa: BLE001 - nothing drawn, the reading says why
+                return
+            if s is None or np.asarray(s).size < 3:
+                return
+        r_eff = getattr(an, "median_r_eff_nm", None) if an is not None else None
+        d = 2.0 * float(r_eff) if r_eff is not None and math.isfinite(float(r_eff)) else 0.0
+        try:
+            bands = gm.centres_null_bands(int(np.asarray(s).size), float(length), d, n_replicates=199, seed=0)
+        except Exception:  # noqa: BLE001 - e.g. the hard core does not fit: nothing drawn
+            return
+        self.band_source = BAND_CENTRES
+        self._draw_bands(np.asarray(s, dtype=float), float(length), bands, "before the null")
+        if not self.lbl_reading.text():
+            note = "" if an is None else ci.edge_note(an)
+            self.lbl_reading.setText("Regularity bands: approx., centres (the K centres at random with the contact "
+                                     "hard core 2 x median r_eff) until the pipeline null runs; then they come "
+                                     "from the same null as the p of stage 2 (decision G2)."
+                                     + (f" WARNING: {ci.EDGE_WARNING} ({note})." if note else ""))
+            self.lbl_reading.setStyleSheet(f"color: {verdict('warn', dark=False)};" if note else "")
+
+    def _draw_bands(self, s: Any, length: float, bands: Dict[str, Any], what: str) -> None:
+        from tools import mps_gap_measures as gm
         obs_col = role("observed")
         shade = pg.mkBrush(rgba("randomized", 70))
         median_pen = pg.mkPen(neutral(self.dark), width=1, style=QtCore.Qt.PenStyle.DashLine)
@@ -1017,7 +1364,9 @@ class ArrangementPanel(QtWidgets.QWidget):
         modes = np.asarray(bands["modes"], dtype=float)
         self._band(self.plot_s, modes, bands["s_band"], shade, median_pen)
         self.plot_s.plot(modes, gm.structure_factor(s, length, modes), pen=pg.mkPen(obs_col, width=2))
-        set_title(self.plot_s, dark=self.dark, text=f"S(m): reading {gap.reading.level} (bands: pipeline null, B = {int(bands['n'][0])})")
+        set_title(self.plot_s, dark=self.dark, text=f"S(m): {what} (bands: {self.band_source})")
+        for p, base in ((self.plot_gaps, PLOT_GAPS), (self.plot_g, PLOT_G)):
+            set_title(p, dark=self.dark, text=f"{base} (bands: {self.band_source})")
 
     @staticmethod
     def _band(plot: Any, x: Any, band: Any, brush: Any, median_pen: Any) -> None:
@@ -1062,7 +1411,145 @@ class ArrangementPanel(QtWidgets.QWidget):
         out = {"ripley": mm.write_rows_csv(stem + "_ripley.csv", rows, cols)}
         summ = [summary_row(k, v) for k, v in self.outcomes.items()]
         out["nulls"] = mm.write_rows_csv(stem + "_nulls.csv", summ, [c[0] for c in SUMMARY_COLUMNS])
+        # C3 / C4: the axon's nulls one row per method x closure (null_closure per row), as the Batch's
+        # <table>_null_by_closure.csv
+        closure_rows: List[Dict[str, Any]] = []
+        for run in self.runs:
+            found = {c: self.outcomes[k] for c, k in (("n_locs", run.key),
+                                                      ("k_clusters", run.key + ci.K_CLOSURE_SUFFIX))
+                     if k in self.outcomes}
+            outs = {getattr(oc, "closure", c) or c: oc for c, oc in found.items()}
+            if outs:
+                head = {"axon_id": str(getattr(self.analysis, "source_name", "")), "source":
+                        str(getattr(self.analysis, "source_name", "")), "cluster_method": run.method}
+                for row in ci.null_closure_rows(head, outs):
+                    row["axon_id"] = f"{head['axon_id']} | {run.key}"
+                    closure_rows.append(row)
+        if closure_rows:
+            out["by_closure"] = mm.write_rows_csv(stem + "_null_by_closure.csv", closure_rows,
+                                                  list(ci.null_by_closure_columns()))
+        cmp_rows = ci.closure_comparison_rows(self.outcomes)
+        if cmp_rows:
+            out["closures"] = mm.write_rows_csv(stem + "_closures_compared.csv", cmp_rows, list(cmp_rows[0]))
         return out
+
+    def _on_compare_closures(self) -> None:
+        self.show_closure_comparison()
+
+    def show_closure_comparison(self) -> Optional["ClosureComparisonDialog"]:
+        """C4: the p values of the two closures side by side and their H1 / H2 envelopes on one plot."""
+        if not ci.closure_pairs(self.outcomes):
+            return None
+        dlg = ClosureComparisonDialog(self.outcomes, parent=self)
+        dlg.show()
+        self._closure_dialog = dlg
+        return dlg
+
+
+# =====================================================================================================================
+# C4: the two closures side by side
+# =====================================================================================================================
+
+CLOSURE_TABLE_COLUMNS: Tuple[Tuple[str, str], ...] = (
+    ("method", "Method"), ("test", "Test"), ("p_n_locs", "p (N_loc)"), ("p_k_clusters", "p (K)"),
+    ("same_verdict_at_0_05", "Same verdict at 0.05"), ("h_max_n_locs", "h_max N_loc [nm]"),
+    ("h_max_k_clusters", "h_max K [nm]"))
+
+
+class ClosureComparisonDialog(QtWidgets.QDialog):
+    """C4: per method and test the p of the N_loc and the K closure, and the H1 / H2 curves of both nulls (median
+    and global envelope of each, the observed once) for the method chosen."""
+
+    def __init__(self, outcomes: Dict[str, ci.NullOutcome], parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("closure_comparison_dialog")
+        self.setWindowTitle("Null per axon: the two closures side by side")
+        from tools.mps_ui_layout import open_sized
+        open_sized(self, "closure_comparison_dialog.size")
+        self.outcomes = outcomes
+        self.pairs = ci.closure_pairs(outcomes)
+        self.rows = ci.closure_comparison_rows(outcomes)
+        lay = QtWidgets.QVBoxLayout(self)
+        note = QtWidgets.QLabel("Same seed, same method, same membrane: the two nulls differ only by what each "
+                                "simulated axon is matched to (N_loc = the slab's localizations, default; K = the "
+                                "clusters found). A test whose verdict changes with the closure depends on that "
+                                "choice; read it with caution (C3: K's pilots can leave the closure off).")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        self.table = QtWidgets.QTableWidget(0, len(CLOSURE_TABLE_COLUMNS))
+        self.table.setObjectName("closure_table")
+        self.table.setHorizontalHeaderLabels([c[1] for c in CLOSURE_TABLE_COLUMNS])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        for row in self.rows:
+            r = self.table.rowCount()
+            self.table.insertRow(r)
+            for c, (name, _l) in enumerate(CLOSURE_TABLE_COLUMNS):
+                v = row.get(name)
+                item = QtWidgets.QTableWidgetItem(v if isinstance(v, str) else _fmt(v))
+                if name == "same_verdict_at_0_05" and v is False:
+                    item.setForeground(pg.mkColor(verdict("warn", dark=False)))
+                self.table.setItem(r, c, item)
+        self.table.resizeColumnsToContents()
+        lay.addWidget(self.table, 1)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Envelopes of:"))
+        self.combo = QtWidgets.QComboBox()
+        self.combo.setObjectName("combo_closure_method")
+        for key, _a, _b in self.pairs:
+            self.combo.addItem(key)
+        self.combo.currentIndexChanged.connect(lambda _i: self.draw())
+        row.addWidget(self.combo)
+        row.addStretch(1)
+        lay.addLayout(row)
+        plots = QtWidgets.QHBoxLayout()
+        self.plot_h1 = pg.PlotWidget()
+        self.plot_h2 = pg.PlotWidget()
+        for p in (self.plot_h1, self.plot_h2):
+            style_dark(p)
+            p.setLabels(bottom="r [nm]", left="H(r) [nm]")
+            p.setMinimumHeight(200)
+            plots.addWidget(p)
+        lay.addLayout(plots, 2)
+        close = QtWidgets.QPushButton("Close")
+        close.clicked.connect(self.close)
+        lay.addWidget(close)
+        self.draw()
+
+    def legend_entries(self) -> List[Tuple[str, Any]]:
+        return [(LEG_OBSERVED, _legend_line(role("observed"), 2.0)),
+                ("N_loc closure: median (dashed) and global envelope (dotted)", _legend_line(role("summary"), 1.5)),
+                ("K closure: median (dashed) and global envelope (dotted)", _legend_line(role("randomized"), 1.5))]
+
+    def draw(self) -> None:
+        i = self.combo.currentIndex()
+        if i < 0 or i >= len(self.pairs):
+            return
+        key, a, b = self.pairs[i]
+        for plot, tag in ((self.plot_h1, "h1"), (self.plot_h2, "h2")):
+            plot.clear()
+            titles = []
+            obs_done = False
+            for o, colour, word in ((a, role("summary"), "N_loc"), (b, role("randomized"), "K")):
+                env = getattr(o.result, tag, None) if o.ok else None
+                if env is None:
+                    titles.append(f"{word}: no curve")
+                    continue
+                r = np.asarray(env.r, dtype=float)
+                if not obs_done and env.observed is not None:
+                    plot.plot(r, np.asarray(env.observed, dtype=float), pen=pg.mkPen(role("observed"), width=2),
+                              connect="finite")
+                    obs_done = True
+                if env.median is not None:
+                    plot.plot(r, np.asarray(env.median, dtype=float),
+                              pen=pg.mkPen(colour, width=1, style=QtCore.Qt.PenStyle.DashLine), connect="finite")
+                for y in (env.global_lo, env.global_hi):
+                    if y is not None:
+                        plot.plot(r, np.asarray(y, dtype=float),
+                                  pen=pg.mkPen(colour, width=1.5, style=QtCore.Qt.PenStyle.DotLine), connect="finite")
+                titles.append(f"{word} p = {_fmt(env.p_global)}")
+            set_title(plot, f"{key}: {tag.upper()} -- " + "; ".join(titles))
+            plot.legend_box = corner_legend(plot, self.legend_entries(), True)
 
 
 # =====================================================================================================================
@@ -1166,5 +1653,6 @@ class SyntheticAxonDialog(QtWidgets.QDialog):
         return target
 
 
-__all__ = ["WorkingScalePanel", "ArrangementPanel", "NullWorker", "SyntheticAxonDialog", "summary_row",
+__all__ = ["WorkingScalePanel", "ArrangementPanel", "NullWorker", "SyntheticAxonDialog", "ClosureComparisonDialog",
+           "summary_row", "band_label", "BAND_PIPELINE", "BAND_CENTRES", "CLOSURE_ITEMS", "MEMBRANE_ITEMS",
            "B_CHOICES", "TAB_TITLE", "NULL_BUTTON", "SYNTH_BUTTON", "WORKING_SCALE_TITLE"]

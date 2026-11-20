@@ -82,7 +82,10 @@ def events_plugin(run: Any, context: Any) -> Dict[str, Any]:
     bad = getattr(getattr(an, "bad_report", None), "bad_labels", None) or set()
     if bad:
         labels[np.isin(labels, list(bad))] = -1
-    ce = mps_events.cluster_events(frames, an.x_slab, an.y_slab, labels, nena_nm=float(nena))
+    # B1: the events / fusion radius edited in 'Working scale' (absent: 3 NeNA, decision D5)
+    k = (getattr(context, "extras", None) or {}).get("events_radius_in_nena")
+    ce = mps_events.cluster_events(frames, an.x_slab, an.y_slab, labels, nena_nm=float(nena),
+                                   radius_in_nena=mps_events.LINK_RADIUS_IN_NENA if k is None else float(k))
     if ce.cluster_ids.size == 0:
         return out
     out["events_n_per_cluster_median"] = float(np.median(ce.n_events))

@@ -214,6 +214,12 @@ ROI** (`pipeline_confusion.json`), where the curation's edge reference is the sl
 The centre-level stage 2 ("approx., centres") gave the same label in 56 of 60 axons with the ROI; of the four
 differences, three are lattices read `lattice` by one stage 2 and `periodic_component` by the other (both ways), and
 one excluded axon is `periodic_component` at the pipeline level and `more_regular_kind_not_identified` at the centres.
+The axon window runs stage 2 at the centres level and the Batch at the pipeline level (P-R87 c; the default is not
+changed), so one axon can carry two different readings depending on where it was run. Since table v15 every row
+says which: `regularity_stage2_level` is `centres` (window) or `pipeline` (Batch), whether or not stage 1 asked for
+stage 2. Compare or pool readings only at the same level. Stage 1 (the gap CV against the pipeline null, its p and
+z) is the same at both levels for the same null (same method, B and seed): only the stage-2 columns
+(`gap_rho1_p_mc_matched`, `bragg_p_mc_matched`, `matched_null_*`) and the reading that depends on them can differ.
 
 Reading against the regularity plan's acceptance criteria (PR 2):
 
@@ -235,8 +241,15 @@ Reading against the regularity plan's acceptance criteria (PR 2):
 - M8 (iid gamma gaps, a "paracrystal") is read `more_regular_kind_not_identified` (10 / 12) and never `lattice`; 2 / 12
   `lattice_rho1_only` (5-45 %): the reason the "short-range order" label stays out (P-R92 a).
 - In 22 of the 60 ROI axons the final matched pipeline null lost one of its 49 replicates to a jammed sampler near
-  packing and is marked "NOT INTERPRETABLE" in its notes (the pipeline null's strict rule: every replicate asked for
-  must be analysed); the reading is kept and the note travels with it (open question for the integration).
+  packing. At the time the pipeline null's strict rule (every replicate asked for must be analysed) marked those
+  axons "NOT INTERPRETABLE" in their notes. The user's decision G1 (c) (2026-10-23) replaced it, for stage 1 and
+  stage 2 alike: up to 5 % of the replicates may fail (2 of 49, 9 of 199), and each failed replicate is counted as at
+  least as extreme as the observed value in the tail(s) of each test, so the p stays conservative instead of being
+  computed over the replicates that happened not to jam ([null_and_scale.md](null_and_scale.md), section 6.4).
+  `matched_null_failed_replicates` and `null_failed_replicates` say how many failed, and every p has a companion
+  `..._ignoring_failed` column (descriptive only). More than 5 % failed is still NOT INTERPRETABLE. The 60-axon
+  figures of this section were computed before the change (failures dropped); with one failure in 49 a stage-2 p
+  rises by at most 1/50 = 0.02 [derivation].
 - The merged-cluster flag under the true null: 25 clusters flagged in 12 axons against 21.8 expected (5 % of the
   measured clusters): calibrated.
 
@@ -340,6 +353,21 @@ labelling (DNA-PAINT, an endogenous tag), as the eLife reviewers asked.
   stage 2 at the pipeline level for the batch and at the centres level for the GUI, both available; the random-intercept
   calibre model refused below 3 animals; no global g(s) envelope; M8 in the generator only). Implemented in branch
   `feat/gap-measures`.
+
+## The interface batch (2026-11-07): bands, labels, the ROI edge
+
+* **Bands (G2, user decision 2026-11-07).** The regularity plots of the "Perimeter arrangement" tab draw their 95 %
+  band from the pipeline null's replicates once the null ran (`keep_arcs`: each replicate's centre arcs on its own
+  membrane) -- the same null as stage 2's p. Before it, the band is the centres-level one (the K centres at random
+  with the contact hard core 2 × median r_eff), labelled "approx., centres". The legend, the plots' titles and an
+  exported image say which null the band comes from.
+* **The per-axon label is descriptive (G4).** The type of a group's regularity is read from the per-animal z (P-R83).
+  The label of one axon under-reads "lattice": a full lattice (jitter 30 nm) through the pipeline reads lattice in 4
+  of 12 simulated axons and periodic in 8 [own sim, the table above]. The window and the Batch summary say so.
+* **The ROI edge (G5).** When the edge curation removed clusters, the regularity tab shows "contour stretches removed
+  at the ROI edge: regularity may be biased" (from `edge_note`; the column `regularity_edge_note`). The ROI tooltips
+  recommend drawing the ROI with a margin of at least 500 nm around the membrane [own sim: 0 clusters removed in 60
+  axons with that margin].
 
 ## References
 

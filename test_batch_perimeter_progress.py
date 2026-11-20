@@ -217,6 +217,11 @@ def test_slow_method_is_asked_without_a_scan(folder, monkeypatch):
     """A method too slow to cluster every file twice: one question, with no count, and no scan."""
     w = _window(folder)
     w.settings.cluster_method = "voronoi_csr"
+    # A2 (user decision 2026-10-23): a slow saved method runs only with 'Allow slow methods' ticked, after the
+    # confirmation with the estimate (answered here)
+    from tools import slow_confirm
+    w.check_slow_methods.setChecked(True)
+    monkeypatch.setattr(slow_confirm, "ANSWER", lambda _t: True)
     monkeypatch.setattr(mb, "scan_perimeter_costs", lambda *a, **k: pytest.fail("scanned a slow method"))
     seen = {}
     monkeypatch.setattr(mb, "run_batch", lambda items, st, **kw: seen.setdefault("ran", st.cluster_method))
@@ -235,3 +240,33 @@ def test_batch_message_texts():
     many = ui.batch_message([(f"f{i}.csv", 700) for i in range(12)], 12)
     assert "and 4 more" in many
     assert "not counted" in ui.batch_message([], 3, scanned=False)
+
+
+def test_export_writes_size_stats_and_never_overwrites_the_log(folder, tmp_path, monkeypatch):
+    """Design review 2026-10-29: a second export to the same table keeps the first log (stem_batch_log_2.csv); the
+    size readouts across animals are written beside the table (<table>_size_stats.csv) and described in the
+    dictionary; the rows' methods block says why it is empty."""
+    from PyQt5 import QtWidgets
+    from tools import export_ui
+    from tools.mps_identity import AxonIdentity
+    for name in ("information", "warning", "critical"):
+        monkeypatch.setattr(QtWidgets.QMessageBox, name, staticmethod(lambda *a, **k: None))
+    w = _window(folder)
+    for i, f in enumerate(w.plan.files):
+        f.identity = AxonIdentity(animal=f"m{i}", genotype=("KO", "WT")[i % 2])
+    w.run(ask=lambda *a, **k: None)
+    w.wait(120)
+    table = str(tmp_path / "axons.csv")
+    note = w.export(table, decide=lambda *a, **k: export_ui.WRITE)
+    assert note is not None and os.path.exists(str(tmp_path / "axons_batch_log.csv"))
+    assert os.path.exists(str(tmp_path / "axons_size_stats.csv"))
+    import csv as _csv
+    with open(str(tmp_path / "axons_columns.csv"), encoding="utf-8") as fh:
+        tables = {r["table"] for r in _csv.DictReader(fh)}
+    assert "size_stats" in tables
+    with open(table, encoding="utf-8") as fh:
+        rows = list(_csv.DictReader(fh))
+    assert rows and all(r["methods_compared"] == mb.BATCH_METHODS_NOT_RUN for r in rows)
+    w.export(table, decide=lambda *a, **k: export_ui.WRITE)
+    assert os.path.exists(str(tmp_path / "axons_batch_log_2.csv"))
+    w.close()

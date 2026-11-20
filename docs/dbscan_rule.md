@@ -143,6 +143,27 @@ The default stays the approved D5 (3 × NeNA, the measured value used as is); `d
 use_split_corrected=True)` and `locs_per_cycle(..., radius_in_nena=3 * sqrt(2))` are one argument away, and the choice
 is an open question for the user (the report of this branch).
 
+**Localizations per cycle by depth (user decision B3 c, 2026-10-23; since table v15).** The rule keeps the value
+measured on the whole loaded file (B3: the photophysics is the movie's, not the axon's). Beside it, the Batch now
+reports a diagnostic (`tools/lpc_depth.py`, columns `lpc_*`): the file is linked once as the rule's measurement does
+(3√2 × NeNA, one dark frame, censored events out), each event is put in the z band of its centre (the mean z of its
+localizations), and the table gets `lpc_file`, `lpc_slab` with its bootstrap 95 % interval (999 draws over events
+[ad hoc]), the difference slab − rest of the file with its interval, the flag `lpc_slab_differs` when that interval
+excludes 0, and `lpc_z_profile`: one band per slab width above and below the slab (the slab is one band), each with
+its events, mean and interval (from 30 events [ad hoc]). Nothing is corrected. With tens of thousands of events a
+difference of a few per cent is already beyond chance, so the flag is read with the difference itself. The axon
+window does not compute it (the window's slab is in hand, the whole file's linking is not); its columns say so.
+
+### 4.1 Both radii editable to explore (user decision B1, 2026-10-23)
+
+The rule's localizations per cycle are measured at 3√2 NeNA and the events layer / the "probable fusion" mark link at
+3 NeNA (decision D5). Both radii can be typed in the analysis window's "Working scale" (equal or different) to see how
+much the rule, the events and the fusion mark depend on them. Any value but the defaults shows EXPLORATORY there and
+in the export: `lpc_rule_radius_nena`, `link_radius_nena` / `link_radius_nm` say which radius was used and
+`radii_exploratory` names the one typed (axon table v16). The values are not saved, and the Batch always uses the
+defaults (the confirmatory runs are made with fixed parameters). "Localizations per cycle by depth" in the same panel
+shows the B3 (c) diagnostic of `tools/lpc_depth.py` for the analysis shown.
+
 ## 5. The rule against the compatibility mode (own simulation)
 
 `docs/sims/events/events_rule_sim.py`, part 3: the clustering benchmark's generator (σ 12 nm, c_label 14, background

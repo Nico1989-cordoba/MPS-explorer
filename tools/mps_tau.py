@@ -441,7 +441,10 @@ def match_segments(analyses: Any, pair: Sequence[int], test: str) -> NDArray[np.
                          f"ring {key[1]}")
     if i_a.size == 0:
         return empty
-    rings = {int(r.index): r for r in analyses.rings.rings}
+    # the arc tests may have run on the rings with merged-looking clusters split (decision D2b): their indices
+    # point into those rings
+    src = analyses.rings_of(test) if hasattr(analyses, "rings_of") else analyses.rings
+    rings = {int(r.index): r for r in src.rings}
     missing = [k for k in key if k not in rings]
     if missing:
         raise ValueError(f"match_segments: ring(s) {missing} of pair {key} are not in the analysed rings")

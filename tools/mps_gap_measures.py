@@ -124,10 +124,11 @@ CENTRES_BISECTION_N = 40              # [regularity plan sec. 5] of 40 simulatio
 PIPELINE_BISECTION_STEPS = 6          # [ad hoc: cost] pipeline-level bisection
 PIPELINE_BISECTION_N = 16             # [ad hoc: cost] replicates per step (common random numbers across steps)
 MATCHED_CAP_FRACTION = 0.65           # [regularity plan sec. 5] d_m <= 0.65 x P / n (the null jams near packing)
-# Failed replicates the PIPELINE-level matched null may lose and still be read [provisional: open question G1 of
-# the clustering integration, 2026-10-22 -- 22 of 60 synthetic axons lost 1 of 49 replicates to a sampler jammed
-# near packing; stage 2 only, stage 1 keeps the strict A9 rule].
-MATCHED_TOLERATED_FAILED_FRACTION = 0.05
+# Failed replicates a pipeline null may lose and still be read [user decision G1 (c), 2026-10-23; the rule lives in
+# tools.mps_pipeline_null (TOLERATED_FAILED_FRACTION, floor(0.05 B)) and applies to stage 1 AND stage 2 alike: the
+# failures are counted as at least as extreme as the observed in every p (conservative), never dropped. Evidence:
+# [simulation: 22 of 60 synthetic axons lost 1 of 49 replicates to a sampler jammed near packing]].
+MATCHED_TOLERATED_FAILED_FRACTION = pn.TOLERATED_FAILED_FRACTION
 FINAL_BACKOFF_FACTOR = 0.95           # [ad hoc] the final pipeline run lowers d_m by 5 % when it cannot be packed
 FINAL_BACKOFF_TRIES = 5               # [ad hoc] ... at most this many times (then stage 2 is reported as not run)
 G_BIN_NM = 25.0                       # [regularity plan sec. 6.3]
@@ -439,6 +440,10 @@ class NullSummary:
     p: Optional[float]
     n: int
     tail: str                       # "two-sided" | "lower" | "upper"
+    # G1 (c): failed replicates of the null counted in ``p`` in the worst case; ``p_ignoring_failed`` the p over the
+    # analysed replicates only (descriptive, exported beside it)
+    n_failed: int = 0
+    p_ignoring_failed: Optional[float] = None
 
     @property
     def z(self) -> Optional[float]:
@@ -447,25 +452,28 @@ class NullSummary:
         return (self.observed - self.mean) / self.sd
 
 
-def summarise(name: str, observed: Optional[float], null_values: Sequence[Optional[float]], tail: str
-              ) -> NullSummary:
-    """A ``NullSummary`` from the null's values (None / NaN dropped). ``tail``: "two-sided", "lower", "upper"."""
+def summarise(name: str, observed: Optional[float], null_values: Sequence[Optional[float]], tail: str,
+              n_failed: int = 0) -> NullSummary:
+    """A ``NullSummary`` from the null's values (None / NaN dropped). ``tail``: "two-sided", "lower", "upper".
+    ``n_failed``: replicates of the null that failed (G1 c) -- counted in ``p`` as at least as extreme as the observed
+    in the tail(s) tested (``tools.mps_pipeline_null.monte_carlo_p_worst_case``); ``p_ignoring_failed`` leaves them
+    out (descriptive). The mean, sd and interval are over the analysed replicates."""
+    if tail not in ("two-sided", "upper", "lower"):
+        raise ValueError(f"tail must be two-sided, lower or upper, got {tail!r}")
     v = np.array([float(x) for x in null_values if x is not None and math.isfinite(float(x))], dtype=np.float64)
+    f = max(0, int(n_failed))
     if v.size == 0:
-        return NullSummary(name, observed, None, None, None, None, None, 0, tail)
+        return NullSummary(name, observed, None, None, None, None, None, 0, tail, f, None)
     p: Optional[float] = None
+    p0: Optional[float] = None
     if observed is not None and math.isfinite(float(observed)):
-        if tail == "two-sided":
-            p = monte_carlo_p(float(observed), v, two_sided=True)
-        elif tail == "upper":
-            p = monte_carlo_p(float(observed), v, two_sided=False)
-        elif tail == "lower":
-            p = monte_carlo_p(-float(observed), -v, two_sided=False)
-        else:
-            raise ValueError(f"tail must be two-sided, lower or upper, got {tail!r}")
+        o, vv = (-float(observed), -v) if tail == "lower" else (float(observed), v)
+        two = tail == "two-sided"
+        p = pn.monte_carlo_p_worst_case(o, vv, two_sided=two, n_failed=f)
+        p0 = monte_carlo_p(o, vv, two_sided=two)
     lo, hi = np.percentile(v, [2.5, 97.5])
     return NullSummary(name, observed, float(np.mean(v)), float(np.std(v, ddof=1)) if v.size > 1 else None,
-                       float(lo), float(hi), p, int(v.size), tail)
+                       float(lo), float(hi), p, int(v.size), tail, f, p0)
 
 
 # ============================================================================
@@ -807,25 +815,26 @@ def matched_null_pipeline(analysis: Any, stage1: Any, *, spec: Optional[pn.Pipel
         return [r.get(name) for r in rows]
 
     interpretable, why = True, ""
+    failed = 0 if final is None else int(final.n_failed)
+    if final is not None and failed:
+        # G1 (c): the null's own rule (floor(0.05 B) tolerated, each failure counted in the worst case); the
+        # failures are no longer dropped from the p
+        notes.append(f"{failed} of {final.n_requested} simulated axons of the matched null failed: "
+                     + (f"tolerated (at most {final.max_failed}, 5 %), each counted as at least as extreme as the "
+                        "observed in the stage-2 p values (conservative)." if failed <= final.max_failed else
+                        f"more than the {final.max_failed} (5 %) tolerated."))
     if final is not None and not final.interpretable:
-        reasons = final.not_interpretable_reasons()
-        failed = int(final.n_requested) - int(final.n_accepted)
-        tolerated = 0 < failed <= MATCHED_TOLERATED_FAILED_FRACTION * int(final.n_requested)
-        if tolerated:
-            reasons = [r for r in reasons if not r.startswith("Only ")]
-            notes.append(f"{failed} of {final.n_requested} simulated axons of the matched null failed: tolerated "
-                         f"(<= {MATCHED_TOLERATED_FAILED_FRACTION:.0%} in stage 2, provisional G1).")
-        if reasons:
-            interpretable, why = False, " ".join(reasons)
-            notes.append("matched pipeline null NOT INTERPRETABLE: " + why)
+        why = " ".join(final.not_interpretable_reasons())
+        interpretable = False
+        notes.append("matched pipeline null NOT INTERPRETABLE: " + why)
     cvs = [float(x) for x in col("gap_cv") if x is not None]
     return MatchedNullResult(
         kind="pipeline", d_m_nm=float(d_m), capped=capped, cap_nm=cap, cv_target=float(obs.cv),
         cv_null_at_d_m=float(np.mean(cvs)) if cvs else None,
-        rho1=summarise("gap_rho1", obs.rho1, col("gap_rho1"), "lower"),
-        bragg_s=summarise("bragg_s", obs.bragg_s, col("bragg_s"), "upper"),
-        cv=summarise("gap_cv", obs.cv, col("gap_cv"), "two-sided"),
-        excess_cv=summarise("gap_excess_cv", obs.excess_cv, col("gap_excess_cv"), "two-sided"),
+        rho1=summarise("gap_rho1", obs.rho1, col("gap_rho1"), "lower", failed),
+        bragg_s=summarise("bragg_s", obs.bragg_s, col("bragg_s"), "upper", failed),
+        cv=summarise("gap_cv", obs.cv, col("gap_cv"), "two-sided", failed),
+        excess_cv=summarise("gap_excess_cv", obs.excess_cv, col("gap_excess_cv"), "two-sided", failed),
         n_replicates=len(rows), seed=int(seed), bisection=traj, notes=notes, null_result=final,
         interpretable=interpretable, not_interpretable=why)
 
@@ -937,6 +946,10 @@ class GapRegularityResult:
     elongation: Optional[ElongationFlag]
     null_result: Optional[Any] = None              # the stage-1 PipelineNullResult
     warnings: List[str] = field(default_factory=list)
+    # The level stage 2 was SET to run at ("centres" in the window, "pipeline" in the Batch: P-R87 c), whether or not
+    # stage 1 asked for it; exported as regularity_stage2_level so a window row and a Batch row of one axon are never
+    # compared blindly (design review 2026-10-29: 4 of 60 synthetic axons read differently at the two levels).
+    stage2_level: str = ""
 
     @property
     def matched(self) -> Optional[MatchedNullResult]:
@@ -966,6 +979,14 @@ class GapRegularityResult:
         d["gap_rho1_p_mc_matched"] = None if mt is None else mt.rho1.p
         d["gap_rho1_z_matched"] = None if mt is None else mt.rho1.z
         d["bragg_p_mc_matched"] = None if mt is None else mt.bragg_s.p
+        # G1 (c): the same p without the failed replicates (descriptive), and how many failed
+        for col_name, summ in (("gap_cv_p_mc_ignoring_failed", self.stage1.get("gap_cv")),
+                               ("gap_excess_cv_p_mc_ignoring_failed", self.stage1.get("gap_excess_cv")),
+                               ("gap_rho1_p_mc_matched_ignoring_failed", None if mt is None else mt.rho1),
+                               ("bragg_p_mc_matched_ignoring_failed", None if mt is None else mt.bragg_s)):
+            d[col_name] = None if summ is None else summ.p_ignoring_failed
+        d["matched_null_failed_replicates"] = (None if mt is None or mt.null_result is None
+                                               else int(getattr(mt.null_result, "n_failed", 0) or 0))
         d["bragg_s_z_matched"] = None if mt is None else mt.bragg_s.z
         d["bragg_m"] = m.bragg_m
         d["bragg_spacing_nm"] = m.bragg_spacing_nm
@@ -998,6 +1019,7 @@ class GapRegularityResult:
         d["n_clusters_elongated_null_expected"] = (None if el is None or el.expected_under_null is None
                                                    else round(el.expected_under_null, 2))
         d["nn_regularity_null_kind"] = "pipeline" if nr is not None else None
+        d["regularity_stage2_level"] = self.stage2_level or None
         return d
 
 
@@ -1037,7 +1059,8 @@ def analyze_gap_regularity(analysis: Any, *, null_result: Optional[Any] = None, 
     if k < MIN_CLUSTERS or s_obs is None:
         why = f"K = {k} < {MIN_CLUSTERS} clusters" if k < MIN_CLUSTERS else "no contour (ring) for this axon"
         rd = regularity_reading(k=k, cv=empty, not_testable_reason=why)
-        return GapRegularityResult(k, measures, poly, {}, None, None, rd, mn, None, None, None, warnings)
+        return GapRegularityResult(k, measures, poly, {}, None, None, rd, mn, None, None, None, warnings,
+                                   stage2_level=str(stage2))
     if null_result is None:
         null_result = pn.run_pipeline_null(analysis, spec=spec, nena_nm=nena_nm, n_replicates=int(n_replicates),
                                            seed=int(seed), allow_slow=allow_slow, n_jobs=n_jobs,
@@ -1052,7 +1075,8 @@ def analyze_gap_regularity(analysis: Any, *, null_result: Optional[Any] = None, 
     for name, tail in TAILS_NULL1.items():
         stage1[name] = summarise(name, getattr(measures, {"gap_cv": "cv", "gap_rho1": "rho1",
                                                           "gap_excess_cv": "excess_cv", "bragg_s": "bragg_s"}[name]),
-                                 [r.get(name) for r in null_result.replicate_readouts], tail)
+                                 [r.get(name) for r in null_result.replicate_readouts], tail,
+                                 int(getattr(null_result, "n_failed", 0) or 0))
     d_c = float(null_result.model.hard_core_nm)
     el = elongation_flag(analysis, membrane, [r.get("elongation_p95") for r in null_result.replicate_readouts])
     reason = "" if null_result.interpretable else ("pipeline null NOT INTERPRETABLE: "
@@ -1075,7 +1099,7 @@ def analyze_gap_regularity(analysis: Any, *, null_result: Optional[Any] = None, 
                             bragg_spacing_nm=measures.bragg_spacing_nm, min_nn_nm=mn, d_contact_nm=d_c, alpha=alpha,
                             not_testable_reason=reason)
     return GapRegularityResult(k, measures, poly, stage1, mc, mp, rd, mn, d_c, el, null_result,
-                               warnings + list(null_result.warnings))
+                               warnings + list(null_result.warnings), stage2_level=str(stage2))
 
 
 # ============================================================================

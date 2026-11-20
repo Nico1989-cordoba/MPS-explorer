@@ -372,13 +372,16 @@ class BatchWindow(QtWidgets.QMainWindow):
         # never runs it unless this box is ticked (off by default and not
         # remembered); without it a file saved with that method is reported
         # as not analysed, and Compare methods skips it.
-        self.check_slow_methods = QtWidgets.QCheckBox("Slow methods (Emitters)")
+        # A2 (user decision 2026-10-23): one box for every slow method (Emitters, OPTICS, voronoi_csr), and a
+        # confirmation with the time estimate each time one is about to run (tools.slow_confirm)
+        self.check_slow_methods = QtWidgets.QCheckBox("Allow slow methods")
         self.check_slow_methods.setObjectName("check_slow_methods")
         self.check_slow_methods.setChecked(False)
         self.check_slow_methods.setToolTip(
-            "Let the batch run Emitters (BaGoL-like reimplementation): minutes per axon.\n"
-            "Off: a file saved with that method is reported as not analysed, with the reason,\n"
-            "and 'Compare methods (slow)' leaves it out. docs/emitters.md")
+            "Let the batch run the slow methods -- Emitters (BaGoL-like reimplementation), OPTICS, voronoi_csr:\n"
+            "minutes per axon, hours with the null. Off: a file saved with one of them is reported as not\n"
+            "analysed, with the reason; 'Compare methods (slow)' and the null leave them out. On: Run asks\n"
+            "once more, with the time estimate, before anything starts (decision A2). docs/emitters.md")
         row.addWidget(self.check_slow_methods)
         # The clustering integration (A9 sec. 5, regularity PR 4): the per-axon pipeline null of every file's own
         # method, with B replicates [user decision 2026-10-22: 199], and the regularity reading on it (stage 2 at
@@ -391,11 +394,26 @@ class BatchWindow(QtWidgets.QMainWindow):
             "Also run the per-axon pipeline null of every file: molecules at random on its membrane, with this\n"
             "file's blinking and precision, analysed by the SAME method, curation and contour (B simulated\n"
             "axons), and the two-stage regularity reading on that null. About B times the time of the batch\n"
-            "(the estimate is shown when ticked). A slow method's null is refused unless 'Slow methods' is\n"
-            "ticked. Conclusions on the arrangement are read per animal (z), not per axon.\n"
+            "(the estimate is shown when ticked). A slow method's null is refused unless 'Allow slow methods'\n"
+            "is ticked. Conclusions on the arrangement are read per animal (z), not per axon.\n"
             "Methods: docs/null_and_scale.md, docs/regularity.md")
         self.check_null.toggled.connect(self._show_null_estimate)
         row.addWidget(self.check_null)
+        # C3 / C4 (user decision 2026-10-23): the closure of the Batch's null, kept in the settings
+        # (batch_null_closure; N_loc by default). 'both' writes <table>_null_by_closure.csv beside the table.
+        self.combo_null_closure = QtWidgets.QComboBox()
+        self.combo_null_closure.setObjectName("combo_batch_null_closure")
+        for text, value in (("closure N_loc", "n_locs"), ("closure K", "k"), ("both closures (x2)", "both")):
+            self.combo_null_closure.addItem(text, value)
+        current = str(getattr(self.settings, "batch_null_closure", "n_locs") or "n_locs")
+        idx = self.combo_null_closure.findData(current)
+        self.combo_null_closure.setCurrentIndex(idx if idx >= 0 else 0)
+        self.combo_null_closure.setToolTip(
+            "What each simulated axon of the null is matched to: N_loc (the slab's localizations, default) or K (the\n"
+            "clusters found); 'both' runs the two nulls (about twice the time) and writes one row per axon and\n"
+            "closure in <table>_null_by_closure.csv. Kept in the settings. docs/null_and_scale.md")
+        self.combo_null_closure.currentIndexChanged.connect(self._on_null_closure)
+        row.addWidget(self.combo_null_closure)
         self.comparison_rows: List[Dict[str, Any]] = []
         self.comparison_results: List[Any] = []
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
@@ -429,6 +447,17 @@ class BatchWindow(QtWidgets.QMainWindow):
         self._show_settings()
         return page
 
+    def _on_null_closure(self, _i: int = 0) -> None:
+        value = str(self.combo_null_closure.currentData() or "n_locs")
+        if hasattr(self.settings, "batch_null_closure"):
+            self.settings.batch_null_closure = value
+            if self._save is not None:
+                try:
+                    self._save(self.settings)
+                except Exception:  # noqa: BLE001 - kept in memory; saved with the next settings save
+                    pass
+        self._show_null_estimate(self.check_null.isChecked())
+
     def _show_null_estimate(self, on: bool = False) -> None:
         """The null's cost, said before Run: B simulated axons per file, at the table's per-method estimate for a
         typical slab (a lower bound: an axon with many more localizations costs more)."""
@@ -443,11 +472,19 @@ class BatchWindow(QtWidgets.QMainWindow):
         # manual test of 2026-10-23: it said "for 1 file(s)" with two files in the table (computed before the
         # table was filled, and floored at 1); the ticked files of the table, updated as the table changes
         n_files = len(self.ticked_rows()) if self.plan is not None else 0
-        per_axon = estimate_seconds([method], NULL_TYPICAL_SLAB_LOCS) * (NULL_REPLICATES + 8)
+        try:
+            closure = mb.BatchSettings.from_settings(self.settings).null_closure
+        except (AttributeError, TypeError, ValueError):
+            closure = "n_locs"
+        # C3 / C4 and the design review (2026-10-29): the closure(s) and the regularity's stage 2 at the pipeline
+        # level are counted; before, B + 8 replicates at the table's figure
+        per_axon = mb.null_cost_per_file(method, NULL_TYPICAL_SLAB_LOCS, NULL_REPLICATES, closure)
+        if per_axon <= 0:
+            per_axon = estimate_seconds([method], NULL_TYPICAL_SLAB_LOCS) * (NULL_REPLICATES + 8)
         total = (f"{words_seconds(per_axon * n_files)} for the {n_files} ticked file(s)" if n_files
                  else "no file ticked in the table yet")
         text = (f"Estimate: about {words_seconds(per_axon)} per file for {method} on a slab of "
-                f"{NULL_TYPICAL_SLAB_LOCS:,} localizations, {total} -- a lower bound.")
+                f"{NULL_TYPICAL_SLAB_LOCS:,} localizations (closure: {closure}), {total} -- a lower bound.")
         self.check_null.setToolTip(self.check_null.toolTip().split("\n\nEstimate:")[0] + "\n\n" + text)
         self.label_status.setText(text)
 
@@ -798,6 +835,9 @@ class BatchWindow(QtWidgets.QMainWindow):
         allow_slow = bool(self.check_slow_methods.isChecked())
         compare_list = mb.methods_to_compare(settings) if self.check_compare_methods.isChecked() else []
         null_b = NULL_REPLICATES if self.check_null.isChecked() else 0
+        if allow_slow and not self._confirm_slow(settings, compare_list, null_b, len(rows)):
+            self.label_status.setText("Not started: the slow method(s) were not confirmed.")
+            return
         emitters_buffer: Optional[str] = None
         if mb.needs_emitters_buffer(settings, allow_slow, compare_list):
             emitters_buffer = (ask_buffer or ask_emitters_buffer)(self)
@@ -829,10 +869,32 @@ class BatchWindow(QtWidgets.QMainWindow):
         else:
             self._start_scan()
 
+    def _confirm_slow(self, settings: mb.BatchSettings, compare_list: List[str], null_b: int, n_files: int) -> bool:
+        """A2 (b): with 'Allow slow methods' ticked, the slow methods this run would start -- the saved method, the
+        compared ones, the saved method's null -- with the estimate for the ticked files, asked before Run."""
+        from tools import slow_confirm
+        from tools.method_costs import estimate_seconds, is_slow
+        n = max(int(n_files), 1)
+        items: List[Tuple[str, float]] = []
+        if is_slow(settings.cluster_method):
+            items.append((settings.cluster_method,
+                          estimate_seconds([settings.cluster_method], NULL_TYPICAL_SLAB_LOCS) * n))
+            if null_b:
+                items.append((f"{settings.cluster_method} (its null, B = {null_b})",
+                              mb.null_cost_per_file(settings.cluster_method, NULL_TYPICAL_SLAB_LOCS, null_b,
+                                                    settings.null_closure) * n))
+        for m in compare_list:
+            if is_slow(m) and m != settings.cluster_method:
+                items.append((f"{m} (Compare methods)", estimate_seconds([m], NULL_TYPICAL_SLAB_LOCS) * n))
+        return slow_confirm.confirm_slow(self, "The Batch", items, note=(
+            f"For the {n} ticked file(s), on a slab of {NULL_TYPICAL_SLAB_LOCS:,} localizations each."))
+
     @staticmethod
     def _method_runs(settings: mb.BatchSettings, allow_slow: bool) -> bool:
         """The saved method will cluster the files (Emitters without 'Slow methods' is refused file by file)."""
-        return allow_slow or settings.cluster_method not in mb.BATCH_SLOW_METHODS
+        from tools.method_costs import is_slow
+        return allow_slow or (settings.cluster_method not in mb.BATCH_SLOW_METHODS
+                              and not is_slow(settings.cluster_method))
 
     @staticmethod
     def _too_slow_to_scan(settings: mb.BatchSettings) -> bool:
@@ -1095,12 +1157,15 @@ class BatchWindow(QtWidgets.QMainWindow):
             return None
         rows = check.rows_to_write()
         if self.comparison_rows:
+            long_file = ""
             try:
                 mb.write_methods_comparison(self.comparison_rows, mb.comparison_path(path))
                 # the clustering integration (A4): the long table, the agreement and the summary beside it
-                mb.write_methods_comparison_long(self.comparison_results, path)
+                long_file = mb.write_methods_comparison_long(self.comparison_results, path).get("long", "")
             except OSError as error:
                 QtWidgets.QMessageBox.warning(self, "Comparison not written", str(error))
+            # finding (n): the rows' methods block from this comparison, as the axon window fills it
+            mb.fill_methods_columns(rows, self.comparison_results, long_file)
         left_out = {r.source: "the table already holds this file, exported "
                               "from the axon window with its ROI"
                     for r in records if r.ok and os.path.basename(
@@ -1138,6 +1203,27 @@ class BatchWindow(QtWidgets.QMainWindow):
                 done += "\n\nRegularity: " + written.get("lines", "") + "\n" + "\n".join(summary["lines"][:6])
             except (OSError, ValueError) as error:
                 done += f"\n\nRegularity summary not written: {error}"
+        # the size readouts across axons and animals (tools.mps_size_stats; it existed and nothing called it)
+        size_written: Dict[str, str] = {}
+        size_rows = [dict(r.row, animal=r.identity.animal, genotype=r.identity.genotype) for r in records if r.ok]
+        if size_rows:
+            from tools import clustering_integration as ci_size
+            try:
+                size_summary = ci_size.size_batch_summary(size_rows)
+                size_written = ci_size.write_size_summary(path, size_summary)
+                if size_written:
+                    done += ("\n\nSize across axons: " + size_written.get("size_stats", "") + "\n"
+                             + "\n".join(size_summary["lines"][:6]))
+            except (OSError, ValueError) as error:
+                done += f"\n\nSize summary not written: {error}"
+        # C3 / C4: the per-axon null, one row per axon x closure (written before the dictionary, which lists it)
+        by_closure = ""
+        try:
+            by_closure = mb.write_null_by_closure(records, path)
+            if by_closure:
+                done += "\n\nThe per-axon null, one row per closure: " + by_closure
+        except OSError as error:
+            done += f"\n\nThe per-closure null table was not written: {error}"
         note = done
         if left_out:
             note += (f"\n\n{len(left_out)} file(s) left out: the table "
@@ -1152,6 +1238,12 @@ class BatchWindow(QtWidgets.QMainWindow):
             # localizations tables beside this one -- written from the axon
             # window -- keep their entries.
             listing = {"axon": list(rows[0])}
+            if size_written:
+                from tools.clustering_integration import SIZE_STATS_COLUMNS
+                listing["size_stats"] = list(SIZE_STATS_COLUMNS)
+            if by_closure:
+                from tools.clustering_integration import null_by_closure_columns
+                listing["null_by_closure"] = list(null_by_closure_columns())
             for key in ("clusters", "localizations"):
                 header = read_header(table_paths(path)[key])
                 if header:

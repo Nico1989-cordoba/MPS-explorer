@@ -68,7 +68,12 @@ Origins of every default (labels: [lit], [derivation], [simulation], [ad hoc], [
   r grid 20-400 nm step 10, upper limit editable [ad hoc; A9 sec. 2.5, decided]; alpha 0.05 [ad hoc].
   4 closure pilots [regularity plan PR 1]; closure tolerance 5 %, fidelity tolerance 15 % [A9 sec. 3.4].
   NOT INTERPRETABLE below 19 accepted replicates [derivation: 1/(19 + 1) = 0.05], with failed fidelity, with a
-  closure not reached; K < 8 is refused [regularity plan sec. 5 rule 1].
+  closure not reached, or with more than 5 % of the requested replicates failed; K < 8 is refused [regularity plan
+  sec. 5 rule 1].
+  Failed replicates (user decision G1 (c), 2026-10-23): up to floor(0.05 B) of them (2 of 49, 9 of 199) are
+  tolerated and COUNTED IN THE WORST CASE -- each as at least as extreme as the observed value, in the tail(s) of
+  each test -- so every p reported is conservative; the p that ignores them is exported beside it
+  (``p_mc_<name>_ignoring_failed``, descriptive only) with ``null_failed_replicates``.
 
 No Qt. Deterministic: replicate b draws from SeedSequence(seed, spawn_key=(0, b)), closure pilots from (1, i, j),
 so a run is bit-identical with the same seed and n_jobs does not change any number.
@@ -136,6 +141,11 @@ FloatArray = NDArray[np.float64]
 DEFAULT_N_REPLICATES = 199            # [user decision 2026-10-22] p_min = 1 / 200 = 0.005
 ON_DEMAND_N_REPLICATES = 999          # [user decision 2026-10-22] on request
 MIN_ACCEPTED = 19                     # [derivation] below it the p can never reach 0.05 (as simnull)
+# Failed replicates the null tolerates before it is NOT INTERPRETABLE [user decision G1 (c), 2026-10-23: up to 5 % of
+# the B requested, floor(0.05 B): 2 of 49, 9 of 199], each counted as at least as extreme as the observed value in
+# every tail its test looks at (``monte_carlo_p_worst_case``), so the p stays conservative. Evidence that motivated
+# it: [simulation: docs/regularity.md -- 22 of 60 axons lost one of 49 replicates to a jammed sampler].
+TOLERATED_FAILED_FRACTION = 0.05
 MIN_CLUSTERS = 8                      # [regularity plan sec. 5, rule 1] K < 8: not testable
 DEFAULT_C_LABEL = 14.0                # [lit: Dempsey et al. 2011, Table 1, AF647 MEA] provisional
 SENSITIVITY_C_LABEL = 26.0            # [lit: same table, betaME] the sensitivity column (D1)
@@ -180,6 +190,49 @@ GEOMETRIES = ("ring", "roi2d")
 CYCLE_DISTS = ("geometric", "poisson")
 # A method whose clusters come from a file cannot be recomputed on a simulated axon.
 NEVER_IN_NULL = ("External labels",)
+
+
+def max_tolerated_failed(n_requested: int) -> int:
+    """The failed replicates a null of ``n_requested`` tolerates (G1 c): floor(0.05 B) -- 2 of 49, 9 of 199, 0 of
+    19 [derivation]."""
+    return int(math.floor(TOLERATED_FAILED_FRACTION * int(n_requested) + 1e-9))
+
+
+def monte_carlo_p_worst_case(observed: Optional[float], null: Any, *, two_sided: bool, n_failed: int = 0
+                             ) -> Optional[float]:
+    """The rank p of ``tools.mps_randomization.monte_carlo_p`` (Phipson & Smyth 2010) with ``n_failed`` failed
+    replicates counted in the worst case (G1 c): each is as extreme as the observed in the upper tail AND, for a
+    two-sided test, in the lower tail too, so
+
+        one-sided: p = (1 + b + f) / (B_ok + f + 1);   two-sided: 2 min(lo, hi), each tail with + f.
+
+    With ``n_failed`` = 0 it is ``monte_carlo_p`` exactly. None when no replicate has a finite value or the
+    observed is not finite."""
+    v = np.asarray(null, dtype=float).reshape(-1)
+    v = v[np.isfinite(v)]
+    if v.size == 0 or observed is None or not math.isfinite(float(observed)):
+        return None
+    obs = float(observed)
+    f = max(0, int(n_failed))
+    tol = 1e-12 * max(1.0, abs(obs))
+    n = float(v.size + f)
+    hi = (1.0 + float(np.count_nonzero(v >= obs - tol)) + f) / (n + 1.0)
+    if not two_sided:
+        return float(hi)
+    lo = (1.0 + float(np.count_nonzero(v <= obs + tol)) + f) / (n + 1.0)
+    return float(min(1.0, 2.0 * min(lo, hi)))
+
+
+def p_global_worst_case(p_global: Optional[float], n_curves: int, n_failed: int) -> Optional[float]:
+    """A global (MAD) envelope p of ``n_curves`` replicate curves, (1 + b) / (n + 1), with ``n_failed`` failed
+    replicates added as at least as extreme (G1 c): (1 + b + f) / (n + f + 1) [derivation]."""
+    if p_global is None or not math.isfinite(float(p_global)):
+        return None
+    f = max(0, int(n_failed))
+    if f == 0:
+        return float(p_global)
+    b_plus_1 = float(p_global) * (int(n_curves) + 1.0)
+    return float(min(1.0, (b_plus_1 + f) / (int(n_curves) + f + 1.0)))
 
 
 def default_r_grid(r_max_nm: float = R_MAX_NM) -> FloatArray:
@@ -751,6 +804,8 @@ def null_model_from_analysis(
     p_label: float = DEFAULT_P_LABEL,
     cycles_dist: str = "geometric",
     no_ring: bool = False,
+    membrane_nm: Optional[FloatArray] = None,
+    membrane_origin: str = "",
 ) -> NullModel:
     """The null model of one observed ``AxonAnalysis`` (A9 sec. 3.1; regularity plan sec. 4.4). Every argument
     left None is READ from the axon (and labelled "read" in ``origins``) or falls back to its documented default.
@@ -784,6 +839,11 @@ def null_model_from_analysis(
         membrane = np.asarray(fit.curve_nm, dtype=np.float64)
         origins["membrane_nm"] = ("read: 600 nm P-spline through the observed centroids (P-R80 a)" if math.isfinite(scatter)
                                   else "read: the centroid tour itself (P-spline not identifiable)")
+        if membrane_nm is not None:
+            # user decision C2 (2026-10-23): the caller's membrane (tools.null_membrane: DBSCAN 25/10's centroid curve,
+            # common to every method, or the localization curve); the radial scatter stays this run's own
+            membrane = np.asarray(membrane_nm, dtype=np.float64).reshape(-1, 2)
+            origins["membrane_nm"] = membrane_origin or "caller's membrane (C2)"
         if no_ring is False and region_source != "roi":
             # without an ROI the background region is the membrane's box with the simulator's margin
             lo = membrane.min(axis=0) - BACKGROUND_MARGIN_NM
@@ -1227,10 +1287,24 @@ class PipelineNullResult:
     replicate_arcs: List[Tuple[FloatArray, float]] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     readout_specs: Dict[str, ReadoutSpec] = field(default_factory=dict)
+    # G1 (c): the p of every readout and of H1 / H2 that IGNORES the failed replicates (descriptive only; the
+    # p_values / envelopes' p_global above count them in the worst case)
+    p_values_ignoring_failed: Dict[str, Optional[float]] = field(default_factory=dict)
+    p_global_ignoring_failed: Dict[str, Optional[float]] = field(default_factory=dict)
 
     @property
     def n_accepted(self) -> int:
         return len(self.replicate_index)
+
+    @property
+    def n_failed(self) -> int:
+        """Requested replicates that did not give an analysed axon (G1 c)."""
+        return max(0, int(self.n_requested) - self.n_accepted)
+
+    @property
+    def max_failed(self) -> int:
+        """The failed replicates this run tolerates (``max_tolerated_failed``)."""
+        return max_tolerated_failed(int(self.n_requested))
 
     @property
     def closure_ratio(self) -> Optional[float]:
@@ -1247,9 +1321,9 @@ class PipelineNullResult:
     def not_interpretable_reasons(self) -> List[str]:
         """Why the p cannot be read (A9 sec. 4.4; same criteria and wording style as simnull). Empty = none."""
         out: List[str] = []
-        if self.n_accepted < self.n_requested:
+        if self.n_failed > self.max_failed:
             out.append(f"Only {self.n_accepted} of the {self.n_requested} simulated axons asked for were analysed "
-                       f"({len(self.rejected)} failed).")
+                       f"({self.n_failed} failed; at most {self.max_failed}, 5 %, may fail).")
         if self.n_accepted < MIN_ACCEPTED:
             out.append(f"With {self.n_accepted} simulated axons the p cannot go below 1/({self.n_accepted}+1) = "
                        f"{1.0 / (self.n_accepted + 1):.3f}: it can never reach 0.05.")
@@ -1274,9 +1348,12 @@ class PipelineNullResult:
         reasons = self.not_interpretable_reasons()
         if reasons:
             return "NOT INTERPRETABLE: " + " ".join(reasons)
+        failed = ("" if self.n_failed == 0 else
+                  f" {self.n_failed} failed simulated axon(s) counted as at least as extreme as the observed: the p "
+                  "values are conservative.")
         return (f"Null per axon ({self.null_type}; {self.method}; closure on {self.closure}; B = {self.n_accepted}, "
                 f"seed {self.seed}). p values are approximate (the null reads contour, density and precision off "
-                "this axon).")
+                "this axon)." + failed)
 
     def export_dict(self) -> Dict[str, Any]:
         """The A9 sec. 5 columns (``null_*``, ``ripley*``, ``p_mc_*``, ``null_median_*``) plus ``scale_*``."""
@@ -1290,6 +1367,7 @@ class PipelineNullResult:
             "null_hard_core_nm": round(self.model.hard_core_nm, 1),
             "null_method": self.method,
             "null_interpretable": self.interpretable,
+            "null_failed_replicates": self.n_failed,
             "ripley_points": "centres",
             "ripley1d_window": "closed" if self.h1 is not None else "none",
             "ripley2d_window": "band" if self.geometry == "ring" else "roi",
@@ -1300,8 +1378,12 @@ class PipelineNullResult:
             d[f"{tag}_rstar_nm"] = None if env is None or env.r_star is None else round(env.r_star, 1)
             d[f"{tag}_hmax"] = None if env is None or env.h_max is None else round(env.h_max, 3)
             d[f"{tag}_p_global"] = None if env is None or env.p_global is None else round(env.p_global, 4)
+            pi = self.p_global_ignoring_failed.get(tag)
+            d[f"{tag}_p_global_ignoring_failed"] = (None if env is None or pi is None else round(pi, 4))
         for name, p in self.p_values.items():
             d[f"p_mc_{name}"] = None if p is None else round(p, 4)
+            pi = self.p_values_ignoring_failed.get(name)
+            d[f"p_mc_{name}_ignoring_failed"] = None if pi is None else round(pi, 4)
         for name, m in self.null_medians.items():
             d[f"null_median_{name}"] = None if m is None else round(m, 4)
         return d
@@ -1457,7 +1539,12 @@ def run_pipeline_null(
     ok = [o for o in outcomes if o.ok]
     rejected = [(o.index, o.reason) for o in outcomes if not o.ok]
     if rejected:
-        warnings.append(f"{len(rejected)} simulated axons failed (first: {rejected[0][1]}).")
+        tolerated = max_tolerated_failed(int(n_replicates))
+        warnings.append(f"{len(rejected)} simulated axons failed (first: {rejected[0][1]}); "
+                        + (f"tolerated (at most {tolerated}, 5 %): each counted as at least as extreme as the "
+                           "observed, so the p values are conservative." if len(rejected) <= tolerated else
+                           f"more than the {tolerated} (5 %) tolerated: NOT INTERPRETABLE."))
+    n_failed = len(rejected)
     # observed
     obs_view = _view(analysis, ring, observed=True)
     observed: Dict[str, Optional[float]] = {}
@@ -1468,6 +1555,7 @@ def run_pipeline_null(
         observed[ro.name] = None if v is None or not math.isfinite(float(v)) else float(v)
     h1_obs, h2_obs = ripley_curves(obs_view, r_grid, window_2d)
     p_values: Dict[str, Optional[float]] = {}
+    p_ignoring: Dict[str, Optional[float]] = {}
     medians: Dict[str, Optional[float]] = {}
     for ro in specs:
         if ro.name not in observed:
@@ -1477,8 +1565,12 @@ def run_pipeline_null(
         obs = observed[ro.name]
         if ro.depends_on_closure and closure == "k_clusters":
             p_values[ro.name] = None              # conditioned on K: its p means nothing (A9 sec. 2.7)
+            p_ignoring[ro.name] = None
             continue
-        p_values[ro.name] = None if obs is None else monte_carlo_p(obs, vals, two_sided=ro.two_sided)
+        # G1 (c): the failed replicates in the worst case (the p read); the p without them beside it (descriptive)
+        p_values[ro.name] = (None if obs is None else
+                             monte_carlo_p_worst_case(obs, vals, two_sided=ro.two_sided, n_failed=n_failed))
+        p_ignoring[ro.name] = None if obs is None else monte_carlo_p(obs, vals, two_sided=ro.two_sided)
     r_min = float(scale.fusion_nm) if global_test_from == "fusion" else float(scale.d50_nm)
     if r_min >= float(r_grid[-1]):
         warnings.append(f"The {global_test_from} mark ({r_min:.0f} nm) is beyond the largest radius ({r_grid[-1]:.0f} nm): the "
@@ -1497,6 +1589,12 @@ def run_pipeline_null(
     if ring:
         h1_env = envelope_from_curves(_curves([o.h1 for o in ok]), r_grid, observed=h1_obs, alpha=alpha,
                                       r_min=r_min, seed=seed)
+    p_global_ignoring: Dict[str, Optional[float]] = {}
+    for tag, env in (("ripley1d", h1_env), ("ripley2d", h2_env)):
+        if env is None:
+            continue
+        p_global_ignoring[tag] = env.p_global
+        env.p_global = p_global_worst_case(env.p_global, int(env.n_sim), n_failed)
     fid = _fidelity(model, closure, int(analysis.n_locs_slab), k_obs, obs_view.radial_scatter_nm,
                     [o.n_locs_slab for o in ok], [o.k_clusters for o in ok], [o.radial_scatter_nm for o in ok])
     example = next((o.example for o in ok if o.example is not None), None)
@@ -1512,7 +1610,8 @@ def run_pipeline_null(
         n_locs_slab_null=[o.n_locs_slab for o in ok], k_null=[o.k_clusters for o in ok], example=example,
         global_test_from=str(global_test_from), global_r_min_nm=float(r_min),
         replicate_arcs=[(o.arcs, float(o.arc_length_nm)) for o in ok if o.arcs is not None],
-        warnings=warnings + list(rec.notes), readout_specs={s.name: s for s in specs})
+        warnings=warnings + list(rec.notes), readout_specs={s.name: s for s in specs},
+        p_values_ignoring_failed=p_ignoring, p_global_ignoring_failed=p_global_ignoring)
 
 
 def measure_cost(analysis: AxonAnalysis, *, spec: Optional[PipelineSpec] = None, n_probe: int = 1, seed: int = 0,

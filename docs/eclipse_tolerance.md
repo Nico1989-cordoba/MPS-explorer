@@ -44,6 +44,11 @@ table, always. The per-pair rule becomes the primary one only when the events pe
 calibrated on the user's own antibodies (P-R75), with the date of that calibration recorded
 (`ToleranceInputs.primary_rule()`); nothing is replaced silently.
 
+The scalar rule is PRIMARY only **at the pre-specified τ = 31 nm**. At any other τ -- a sensitivity preset, a value
+typed in the H-ECL review's τ control, 62 nm -- the same test is **EXPLORATORY**, on screen and in every export
+(user decision D4; `scalar_tau_role`, column `tau_scalar_role`, the pair rows' `role`). Before 2026-10-29 the
+review's summary printed "PRIMARY tau = 62 nm" for an exploratory run.
+
 The arc (1D, along the membrane) is the primary test and the plane (2D) a sensitivity [user's decision 7; own
 simulation P-R61: power 0.56 on the arc against 0.48 in the plane, 30 % of columns].
 
@@ -110,19 +115,25 @@ as the size of a cluster, and "Cluster area" keeps its name and meaning.
 
 with s_i the standard deviation of cluster i's localizations along the membrane (the tangent at the cluster,
 perpendicular to the line from the axon's centre [ad hoc approximation, exact on a circle]). In a population of mixed
-footprints it returns the root-mean-square footprint, which is what σ_c needs. Its standard error is a bootstrap over
-clusters (200 draws [ad hoc]).
+footprints it returns the root-mean-square footprint, which is what σ_c needs. Since 2026-10-29 the pool is the
+apparent size's too: one function, `tools/footprint_pool.py` ([apparent_size.md](apparent_size.md), "One footprint
+pool for the size and the eclipse tolerance"). Its standard error is the delete-one jackknife over the pooled clusters
+(literature: Efron & Tibshirani 1993; the 200-draw bootstrap is retired). The clusters the event layer marks as
+probable fusions (events / c_label > 2) are left out of the pool and of its labels-per-cluster average (user decision
+E2).
 
 | Situation | ρ used (primary) | Sensitivity | What the table says |
 |---|---|---|---|
-| ≥ 2 labels per cluster on average and ≥ 10 clusters | the pool of every cluster | 25 nm | "pool of every cluster (upper bound: merged clusters not excluded...)" |
-| < 2 labels per cluster on average | **25 nm** | **0 nm** | "default 25 nm upper bound (not identifiable...)" |
+| ≥ 1.5 labels per pooled cluster on average and ≥ 10 clusters | the pool of every cluster but the event layer's fusions | 25 nm | "pool of every cluster but the event layer's probable fusions (upper bound: merged clusters not excluded...)" |
+| < 1.5 labels per pooled cluster on average | **25 nm** | **0 nm** | "default 25 nm upper bound (not identifiable...)" |
 | no frames, so no events | 25 nm (Σw² = 1, one label) | 0 nm | "default 25 nm upper bound (no events...)" |
 | fewer than 10 usable clusters | 25 nm | 0 nm | "... (too few clusters to pool)" |
 
-- **2 labels per cluster** [user's decision 1a; own simulation: with one label the pool gives 29 ± 27 nm on a truth of
-  0]. The labels per cluster are the mean events per cluster / c_label, so this guard uses the preset c_label until it
-  is calibrated.
+- **1.5 labels per pooled cluster** [user decision E2, 2026-10-23, "the 1.5-labels filter"; before 2026-10-29: 2
+  labels over every cluster, user's decision 1a of P-R61, whose report says 2 in §7.3 and 1.5 in §8.2; own simulation:
+  with one label the pool gives 29 ± 27 nm on a truth of 0]. The labels per cluster are the mean events per pooled
+  cluster / c_label, so this guard uses the preset c_label until it is calibrated. With E2 on and 2+ labels per
+  cluster the pool is rarely measurable: see the open question in apparent_size.md.
 - **25 nm as primary, 0 nm as sensitivity** when the footprint cannot be measured [user's decision 3a]. This is a
   **decision, not a measurement**: 25 nm is an upper bound (the reference paper's median r_eff, which is inflated by
   the precision), the only choice that cannot call a pair "not eclipsed" by underestimating its error; in the
@@ -212,7 +223,7 @@ built with that method (slow methods refused unless allowed).
   rho_source, rho_used_nm, rho_sensitivity_nm, the clusters pooled and flagged; n_label_mean_hat, λ; c_label and its
   source and date; σ_loc and its source; σ_link and its source; σ_reg; tau_scalar_nm and tau_derived_axon_nm; the
   median σ_c; and for each rule the joint test: pairs, T, E, the chance rate E*, the excess, z_A and the Monte Carlo
-  p (not calibrated), plus the mean t_ij of the per-pair rule.
+  p (not calibrated), plus the mean t_ij of the per-pair rule, and `tau_scalar_role` (primary only at 31 nm).
 
 Every column has a one-line description (`describe()`).
 
@@ -226,8 +237,94 @@ Every column has a one-line description (`describe()`).
 - Everything above is synthetic. The first real number worth looking at is the distribution of events per cluster:
   it says which label regime a sample is in.
 
+## 10. Merged clusters in the test itself (decision D2)
+
+Section 5 decides which clusters enter the FOOTPRINT pool. This section decides what the ECLIPSE TEST does with a
+cluster the criterion flags as merged; the two choices are independent (the pool keeps its own rule).
+
+**The question.** The test asks "are the clusters of consecutive rings in the same column?". A merged cluster is
+two real clusters; its single centre (the mean of all its localizations) sits between them, so it can miss both of
+their columns. Three handlings, `merged_handling` in `tools/mps_eclipse_merged.py`:
+
+| handling | what enters the matching for a flagged cluster |
+|---|---|
+| `middle` | its one centre (what the program did before D2) |
+| `split` (**default**) | two centres: the two halves of the same two-means split that flagged it (section 5), each with its own σ_c from its own localizations and events |
+| `exclude` | nothing (it stays in the ring's polygon: the membrane is geometry) |
+
+Unflagged clusters are never touched. A flagged cluster with too few events to split (fewer than 2 per side) keeps
+its middle centre and is counted (`n_split_failed`).
+
+**The simulation** [own simulation, `docs/sims/eclipse_tolerance/merged_handling_sim.py`, seed 20261029]: the
+generator of section 6 (two rings of radius 1000 nm, K ≈ 31, 80 nm hard core, mixed footprints 0/25/40 nm, ~3
+labels, c_label 14, 5 % background) with **planted fusions**: in each ring a share of the reported clusters are a
+true cluster linked to an extra partner 50-100 nm away along the ring [ad hoc: the centre separations at which
+DBSCAN 25/10 links two clusters of this generator]. The partner is never a column: a fusion hides a column, it does
+not create one. Fusion rate = merged clusters / reported clusters (0, 10, 25 %). The criterion flagged 49-50 % of the
+planted fusions and 0.15-0.19 % of the single clusters (section 5 found 56-62 % of DBSCAN's merges). "truth" is
+every true cluster with its own centre: the ceiling no handling can pass. Share of 1000 axons per cell with
+p ≤ 0.05 under the scalar τ = 31 nm (PRIMARY), Wilson 95 % interval:
+
+| columns | fusions | truth | middle | **split** | exclude |
+|---|---|---|---|---|---|
+| none (H0) | 0 % | 0.044 [0.033, 0.059] | 0.044 [0.033, 0.059] | 0.044 [0.033, 0.059] | 0.044 [0.033, 0.059] |
+| none (H0) | 10 % | 0.029 [0.020, 0.041] | 0.024 [0.016, 0.036] | 0.024 [0.016, 0.036] | 0.027 [0.019, 0.039] |
+| none (H0) | 25 % | 0.043 [0.032, 0.057] | 0.031 [0.022, 0.044] | 0.029 [0.020, 0.041] | 0.035 [0.025, 0.048] |
+| 30 % | 0 % | 0.603 [0.572, 0.633] | 0.603 [0.572, 0.633] | 0.598 [0.567, 0.628] | 0.600 [0.569, 0.630] |
+| 30 % | 10 % | 0.528 [0.497, 0.559] | 0.489 [0.458, 0.520] | **0.517** [0.486, 0.548] | 0.496 [0.465, 0.527] |
+| 30 % | 25 % | 0.471 [0.440, 0.502] | 0.347 [0.318, 0.377] | **0.390** [0.360, 0.421] | 0.353 [0.324, 0.383] |
+
+The three handlings run on the SAME axons with the same rotation draws, so they are compared pairwise (difference of
+rejection rates, 95 % interval for paired proportions [lit: Agresti 2013, sec. 11.1], exact McNemar p): split −
+middle = +0.028 [+0.001, +0.055] (p = 0.047) with 10 % fusions and **+0.043 [+0.014, +0.072]** (p = 0.004) with 25 %;
+split − exclude = +0.037 [+0.010, +0.064] (p = 0.008) with 25 %; with no fusion −0.005 [−0.013, +0.003] (the rare
+false flag). Under independent rings every handling stays at or below 5 % (2.4-4.4 %; the rotation null is exact
+for any set of centres, section 9).
+
+**Why split became the default.** Decision D2 set the rule: "split becomes the default only if the simulation shows
+it keeps the 5 % level and gains power". It does both under the primary rule. It recovers about a third of the
+power the fusions cost (0.347 → 0.390 of the 0.471 ceiling at 25 %); the rest is the half of the fusions the
+criterion does not see, which no handling of flagged clusters can recover. Excluding is no better than the middle
+centre: it removes the false centre but also the real column it hid.
+
+**The per-pair rule (exploratory) does not gain**: 0.247 split vs 0.249 middle at 25 % (−0.002 [−0.026, +0.022]).
+A half has fewer localizations and events than the whole, so its own σ_c, and with it t_ij, is larger; and with
+fusions even the "truth" centres reach only 0.245 under that rule (the label prior is read from the merged
+clusters). Nothing here changes the per-pair rule's role (section 3).
+
+**What is reported.** `eclipse_merged_handling` (the handling used) and `eclipse_n_merged_split` (flagged clusters
+that entered as two halves) beside the other `eclipse_*` readouts; the caller picks another handling with
+`context.extras["eclipse_merged_handling"]`, the H-ECL review with `apply_merged_handling(res, tol, handling)` on its
+rings (it returns the rings with the halves in tour order, the exclusions for `analyze_arc_columns` and the per-pair
+σ_c in the new order).
+
+**Limits.** The planted partner is an extra cluster at 50-100 nm; a fusion of two clusters that are BOTH columns
+would make the split worth more and the middle worth less than shown. The halves come from the events along the
+membrane: without frames each localization is a unit and the split needs 4 per side.
+
+### 10.1 The H-ECL window's arc tests follow (2026-11-07)
+
+Until 2026-11-07 the H-ECL review window (`tools/mps_lumen.run_cleaned_analyses`) built its arc tests with the centre
+of the middle and c_label 14 fixed. Since the interface batch both arc tests (centroid membrane, primary; localization
+membrane, diagnostic) enter the merged-looking clusters as the two halves of their split, as the plug-in above
+(decision D2b), with the c_label of the settings (`MPSSettings.c_label`; 14 [lit: Dempsey et al. 2011, MEA] without
+one); the 2D test keeps the cleaned rings. The run's warnings say how many clusters were split. This changed the
+review's tau_0 golden (`testdata/tau_control/review_tau0_golden.json`, note of 2026-11-07): of the three simulated
+demos only "marginal" has merged-looking clusters (4), and only its arc-test lines changed. It is a recorded change of
+the analysis, not of `config/columns_params.yaml` (tau_0 stays 31 nm).
+
+### 10.2 Two rings, unrolled (user request D1)
+
+"Two rings (unrolled)..." in the H-ECL window lays two consecutive rings of the run flat along the centroid membrane
+(the coordinate of the primary arc test), with a tolerance ± τ set by hand and a window of 2 τ that can be dragged:
+the clusters that coincide within τ (one-to-one, as the test matches) are painted, the count is compared with chance
+(the mean over 199 rotations of the second ring [ad hoc], and the Poisson approximation 1 − exp(−λ 2τ) [derivation])
+and the same pair is shown in the plane. τ = 31 nm carries no mark; any other value is EXPLORATORY on screen and in
+its CSV (`tau_role`, rule D4). It is a view, not a test (`tools/two_rings_view.py`).
+
 ## References
 
+- Agresti A (2013). *Categorical Data Analysis*, 3rd ed. Wiley (sec. 11.1, comparing dependent proportions).
 - Dempsey GT, Vaughan JC, Chen KH, Bates M, Zhuang X (2011). Evaluation of fluorophores for optimal performance in
   localization-based super-resolution imaging. *Nat Methods* 8:1027-1036.
 - Früh SM, Matti U, Spycher PR, Rubini M, Lickert S, Schlichthaerle T, Jungmann R, Vogel V, Ries J, Schoen I (2021).

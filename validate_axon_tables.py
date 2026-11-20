@@ -1207,9 +1207,10 @@ def test_schema_and_excel() -> None:
         # the integration block. On this ring (20 centres ~469 nm apart, no
         # chord below 50 nm) the P-R103 reading is exactly 50 K / P
         # [derivation], against the row's own perimeter.
-        from tools.clustering_integration import REPORT_COLUMNS
-        assert row["table_version"] == "axon tables v14", row["table_version"]
-        assert list(row)[-len(REPORT_COLUMNS):] == list(REPORT_COLUMNS)
+        from tools.clustering_integration import REPORT_COLUMNS, v15_columns, v16_columns
+        assert row["table_version"] == "axon tables v16", row["table_version"]
+        tail = list(REPORT_COLUMNS) + list(v15_columns()) + list(v16_columns())
+        assert list(row)[-len(tail):] == tail
         frac = row["occupancy_arc_fraction_within_25nm"]
         expected = 50.0 * row["n_clusters_kept"] / (row["perimeter_um"] * 1000.0)
         assert abs(frac - expected) < 1e-4, (frac, expected)

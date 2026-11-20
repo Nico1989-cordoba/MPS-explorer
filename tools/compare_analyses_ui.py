@@ -286,6 +286,15 @@ class CompareAnalysesDialog(CompareMethodsDialog):
             return
         specs = self.specs()
         plan = mm.plan_runs(specs, self.n_locs, params_for=self.params_for, allow_slow=True)
+        # A2 (b), 2026-10-23: every slow method ticked asks once more, with its estimate, before anything runs
+        from tools import slow_confirm
+        from tools.method_costs import estimate_seconds
+        slow = [(str(j[1]), estimate_seconds([str(j[1])], self.n_locs)) for j in plan.jobs if ci.is_slow(str(j[1]))]
+        if slow and not slow_confirm.confirm_slow(self, "Compare methods", slow, note=(
+                f"On {self.n_locs:,} slab localizations; the whole comparison: about "
+                f"{words_seconds(plan.seconds)} before the analyses.")):
+            self.lbl_status.setText("Not run: the slow method(s) were not confirmed.")
+            return
         self.labels = ci.rule_labels(plan, self.rule if self.chk_rule.isChecked() else None,
                                      self.rule26 if self.chk_rule26.isChecked() else None)
         self.ran = [self.labels.get(j[0], j[0]) for j in plan.jobs]
@@ -299,7 +308,8 @@ class CompareAnalysesDialog(CompareMethodsDialog):
         self.progress.setRange(0, len(plan.jobs))
         self.progress.setValue(0)
         self.lbl_status.setText(f"Running {len(plan.jobs)} method(s), then the analyses... {CANCEL_NOTE}")
-        extras = ci.comparison_extras(nena_nm=self.nena_nm, c_label=self.c_label, analysis=self.base_analysis)
+        extras = ci.comparison_extras(nena_nm=self.nena_nm, c_label=self.c_label, analysis=self.base_analysis,
+                                      events_radius_in_nena=getattr(self, "events_radius_in_nena", None))
         w = ComparisonWorker(self.run_fn, specs, plan, self.n_locs, self.analyses_ticked(), extras, self.labels)
         w.one_done.connect(self._on_one)
         w.comparison.connect(self._on_comparison)

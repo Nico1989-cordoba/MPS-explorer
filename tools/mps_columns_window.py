@@ -767,6 +767,9 @@ class ColumnsReviewInputs:
     widefield: Optional[ReviewWidefield] = None
     widefield_note: str = ""
     identity: Any = None
+    # The c_label of the settings (MPSSettings.c_label, 2026-11-07): what the merged-cluster mark and the footprint
+    # of the arc tests read; None = 14 [lit: Dempsey et al. 2011, MEA].
+    c_label: Optional[float] = None
 
 
 @dataclass
@@ -942,7 +945,8 @@ def eclipse_lines(r: Any) -> List[str]:
     EXPLORATORY). Never raises: a failure is one line."""
     try:
         from tools import mps_eclipse_tolerance as et
-        tol = et.tolerances_from_rings(r.rings, et.ToleranceInputs())
+        # the c_label of the run (MPSSettings.c_label through the review's inputs; 14 without one)
+        tol = et.tolerances_from_rings(r.rings, et.ToleranceInputs(c_label=float(getattr(r, "c_label", 14.0))))
         return ["   Eclipse tolerance (P-R61; docs/eclipse_tolerance.md):"] + et.summary_lines(tol, r.arc_centroid, None)
     except Exception as exc:  # noqa: BLE001 - a display line, never a failed review
         return [f"   eclipse tolerance not computed: {type(exc).__name__}: {exc}"]
@@ -1813,6 +1817,13 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         self.export_button.setObjectName("export_button")
         self.export_button.clicked.connect(self._on_export)
         run_row.addWidget(self.export_button)
+        # D1 (user request 2026-10-23): two rings of the run laid flat, with a tolerance +/- tau set by hand
+        from tools import two_rings_ui
+        self.two_rings_button = QtWidgets.QPushButton(two_rings_ui.BUTTON_TEXT)
+        self.two_rings_button.setObjectName("two_rings_button")
+        self.two_rings_button.setToolTip(two_rings_ui.BUTTON_TIP)
+        self.two_rings_button.clicked.connect(self._on_two_rings)
+        run_row.addWidget(self.two_rings_button)
         lay.addLayout(run_row)
 
         self.leak_banner = QtWidgets.QLabel(LEAK_BANNER_TEXT)
@@ -2360,6 +2371,7 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         snapshot = self.decisions.snapshot()
         fp = msel.lumen_fp(snapshot)
         res, lpz, cp, n_null = self.res, self.lpz_nm, self.columns_params, self.n_null
+        c_label = self.c_label()
         # UI stage 1 (D-44): the tau of the control. At tau_0 the window's own parameters go to the analyses exactly as
         # before (None: the pre-specified file); at another tau a copy of them with that tau, in memory only
         run_tau = self._tau_key(self.tau_nm)
@@ -2389,7 +2401,8 @@ class ColumnsWindow(QtWidgets.QMainWindow):
                     relay.finished.emit(gen, ReviewRun(viab, None, seconds=time.perf_counter() - t0, fp=fp, live=live,
                                                        tau_nm=run_tau), None)
                     return
-                result = run_cleaned_analyses(res, snapshot, columns_params=cp, n_null=n_null, lpz_nm=lpz, progress=report)
+                result = run_cleaned_analyses(res, snapshot, columns_params=cp, n_null=n_null, lpz_nm=lpz, progress=report,
+                                              c_label=c_label)
                 primary = sensitivity = None
                 if result.arc_centroid is not None:
                     from batch_columns import restricted_joint
@@ -2661,8 +2674,13 @@ class ColumnsWindow(QtWidgets.QMainWindow):
                                                   primary + marginal))
             else:
                 lines.append(f"   z_A = {_fmt(ac.z_A)}   p_A = {_fmt(ac.p_A, '.4f')} ({NOT_CALIBRATED})")
+            tau_words = f" tau {_fmt(ac.tau_nm, '.1f')} nm"
+            if (self.tau0_nm is not None and ac.tau_nm is not None
+                    and abs(float(ac.tau_nm) - float(self.tau0_nm)) > 0.005):
+                # decision D4: every tau other than the pre-specified tau_0 is exploratory, on screen too
+                tau_words += f" (exploratory; the pre-specified tau_0 is {float(self.tau0_nm):.1f} nm)"
             lines.append(f"   membrane length {_fmt(ac.length_nm, ',.0f')} nm, knots {_fmt(ac.membrane_knot_spacing_nm, '.0f')} nm,"
-                         f" tau {_fmt(ac.tau_nm, '.1f')} nm, rings {ac.rings}")
+                         f"{tau_words}, rings {ac.rings}")
             lines.extend(pair_lines(ac.adjacent))
             lines.extend(eclipse_lines(r))
         lines.append("")
@@ -3413,6 +3431,33 @@ class ColumnsWindow(QtWidgets.QMainWindow):
         head.update(self._identity().columns())
         head.update({"source": self.source_name, "roi": self.roi_text, "exported_at": exported_at, "program": _PROGRAM})
         return head
+
+    def _on_two_rings(self) -> None:
+        self.open_two_rings()
+
+    def open_two_rings(self) -> Optional[Any]:
+        """D1: the two-rings view of the run shown (None, with a message, before a run with an arc test)."""
+        from tools import two_rings_ui
+        from tools.two_rings_view import pairs_of
+        r = self.last_result
+        if r is None or not pairs_of(r):
+            QtWidgets.QMessageBox.information(self, two_rings_ui.TITLE, "Run the analyses first: the view shows two "
+                                              "rings of a finished run's arc test.")
+            return None
+        dlg = two_rings_ui.TwoRingsDialog(r, parent=self, source=str(self.source_name))
+        dlg.show()
+        self._two_rings = dlg
+        return dlg
+
+    def c_label(self) -> float:
+        """The c_label of the arc tests' merged-cluster mark and footprint: the settings' (MPSSettings.c_label, carried
+        by the review's inputs), 14 [lit: Dempsey et al. 2011, MEA] without one (2026-11-07; was 14 always)."""
+        v = getattr(self.review_inputs, "c_label", None) if self.review_inputs is not None else None
+        try:
+            f = float(v) if v is not None else 14.0
+        except (TypeError, ValueError):
+            f = 14.0
+        return f if math.isfinite(f) and f > 0 else 14.0
 
     def _tau0(self) -> Optional[float]:
         r = self.last_result

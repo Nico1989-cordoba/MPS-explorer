@@ -43,6 +43,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "docs", "sims", "eclipse_tolerance"))
 import eclipse_sim as es  # noqa: E402
 
+# The pool's estimator as the research validated it: without the event layer's fusion exclusion (user decision E2,
+# which tools.footprint_pool applies by default; its own tests are in test_core_tanda1.py)
+NO_E2 = et.ToleranceInputs(exclude_event_fusion_from_pool=False)
+
 
 # ============================================================================== matching with a tolerance matrix
 def test_scalar_rule_is_the_matrix_of_constant_tau() -> None:
@@ -154,8 +158,9 @@ def test_pool_measures_the_rms_footprint_with_labels() -> None:
         got = []
         for _ in range(6):
             g = _ring_groups(rng, scen)
+            # the estimator itself, without the event layer's fusion exclusion (E2 is tested in test_core_tanda1.py)
             tol = et.axon_tolerances(g["x"], g["y"], {0: g["members"]}, event_id=g["ev"],
-                                     centres_nm={0: [0.0, 0.0]})
+                                     centres_nm={0: [0.0, 0.0]}, inputs=NO_E2)
             assert tol.pool.identifiable and tol.pool.rho_source == et.RHO_POOL
             assert tol.pool.rho_used_nm == tol.pool.rho_pooled_nm
             got.append(tol.pool.rho_pooled_nm)
@@ -212,8 +217,8 @@ def test_switch_to_the_excluded_pool_is_recorded() -> None:
     members = list(g["members"])
     members[0] = np.concatenate([members[0], members[1]])
     del members[1]
-    a = et.axon_tolerances(g["x"], g["y"], {0: members}, event_id=g["ev"], centres_nm={0: [0.0, 0.0]})
-    inp = dataclasses.replace(et.ToleranceInputs(), exclude_merged_from_pool=True)
+    a = et.axon_tolerances(g["x"], g["y"], {0: members}, event_id=g["ev"], centres_nm={0: [0.0, 0.0]}, inputs=NO_E2)
+    inp = dataclasses.replace(NO_E2, exclude_merged_from_pool=True)
     b = et.axon_tolerances(g["x"], g["y"], {0: members}, event_id=g["ev"], centres_nm={0: [0.0, 0.0]}, inputs=inp)
     assert a.groups[0].merged_suspect[0] and a.pool.n_excluded_merged >= 1
     assert a.pool.rho_source == et.RHO_POOL and b.pool.rho_source == et.RHO_POOL_EXCLUDED

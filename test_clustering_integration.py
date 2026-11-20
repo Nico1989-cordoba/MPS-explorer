@@ -256,15 +256,17 @@ def test_arc_fraction_does_not_change_the_occupancy_and_is_in_the_row(observed):
     assert row["link_radius_nm"] == pytest.approx(36.0) and row["nena_method"] == ci.NENA_METHOD_MEASURED
     bare = ci.axon_columns(observed)
     assert bare["nena_method"] == ci.NENA_METHOD_NONE and bare["link_radius_nm"] is None
-    assert list(ci.integration_columns())[-len(ci.REPORT_COLUMNS):] == list(ci.REPORT_COLUMNS)
+    tail = list(ci.REPORT_COLUMNS) + list(ci.v15_columns()) + list(ci.v16_columns())
+    assert list(ci.integration_columns())[-len(tail):] == tail
 
 
-def test_the_table_is_v14_and_the_report_columns_are_last_and_described():
+def test_the_table_is_v16_and_the_report_v15_v16_columns_are_last_and_described():
     from tools import axon_export, column_dictionary
-    assert axon_export.TABLE_VERSION == "axon tables v14"
+    assert axon_export.TABLE_VERSION == "axon tables v16"
     known = column_dictionary.known_columns()
-    assert known[-len(ci.REPORT_COLUMNS):] == list(ci.REPORT_COLUMNS)
-    for c in ci.REPORT_COLUMNS:
+    tail = list(ci.REPORT_COLUMNS) + list(ci.v15_columns()) + list(ci.v16_columns())
+    assert known[-len(tail):] == tail
+    for c in tail:
         assert column_dictionary.describe(c), c
     assert column_dictionary.unit_of("link_radius_nm") == "nm"
     assert column_dictionary.unit_of("occupancy_arc_fraction_within_25nm") == ""
